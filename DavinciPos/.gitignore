@@ -1,0 +1,6 @@
+DavinciPos.sqlite
+DavinciPos.sqlite-shm
+DavinciPos.sqlite-wal
+node_modules/
+.env
+*.log
