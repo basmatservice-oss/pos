@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db, inTransaction } from './database.js';
+import { postJournalEntry } from './accounting.js';
+import { setting } from './settings.js';
 
 function assertQuantity(value, label='quantity') {
   const n=Number(value);
@@ -96,4 +98,33 @@ export function configureInventoryCostMethod(method) {
   db.prepare(`INSERT INTO app_settings(key,value,updated_at) VALUES('inventory.cost_method',?,?)
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).run(method,new Date().toISOString());
   return {method,changed:true};
+}
+
+export function adjustInventory({id=randomUUID(),productId,branchId=null,quantityDelta,unitCostMinor=0,reason='Inventory adjustment',occurredAt=new Date().toISOString()}) {
+  const delta=Number(quantityDelta);
+  if(!productId||!Number.isFinite(delta)||delta===0)throw new Error('A product and non-zero quantity adjustment are required.');
+  if(typeof reason!=='string'||!reason.trim())throw new Error('Adjustment reason is required.');
+  return inTransaction(()=>{
+    const existing=db.prepare("SELECT id FROM stock_movements WHERE source_type='adjustment' AND source_id=?").get(id);
+    if(existing)return {id,duplicate:true};
+    let result;
+    if(delta>0) {
+      const cost=assertCost(unitCostMinor);
+      result=receiveStock({productId,branchId,sourceType:'adjustment',sourceId:id,quantity:delta,unitCostMinor:cost,occurredAt});
+      if(result.costTotalMinor>0)postJournalEntry({sourceType:'inventory_adjustment',sourceId:id,description:reason,occurredAt,lines:[
+        {accountId:'acc-inventory',debitMinor:result.costTotalMinor},
+        {accountId:'acc-stock-adjustment-gain',creditMinor:result.costTotalMinor}
+      ]});
+    } else {
+      const method=setting('inventory.cost_method','weighted');
+      result=issueStock({productId,branchId,sourceType:'adjustment',sourceId:id,quantity:Math.abs(delta),costMethod:method,occurredAt});
+      if(result.costTotalMinor>0)postJournalEntry({sourceType:'inventory_adjustment',sourceId:id,description:reason,occurredAt,lines:[
+        {accountId:'acc-stock-adjustment-loss',debitMinor:result.costTotalMinor},
+        {accountId:'acc-inventory',creditMinor:result.costTotalMinor}
+      ]});
+    }
+    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(lower(hex(randomblob(16))),NULL,?,?,?,?,?)')
+      .run('inventory.adjustment','product',productId,JSON.stringify({quantityDelta:delta,reason,costTotalMinor:result.costTotalMinor}),new Date().toISOString());
+    return {id,duplicate:false,quantityDelta:delta,...result};
+  });
 }
