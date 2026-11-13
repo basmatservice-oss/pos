@@ -58,8 +58,8 @@ export function reverseJournalEntry(entryId,reason='Correction') {
   return inTransaction(()=>{
     const original=db.prepare('SELECT * FROM journal_entries WHERE id=?').get(entryId);
     if(!original) throw new Error('Journal entry not found.');
-    if(original.status!=='posted') throw new Error('Only posted journal entries can be reversed.');
     if(original.reversed_entry_id) return original.reversed_entry_id;
+    if(original.status!=='posted') throw new Error('Only posted journal entries can be reversed.');
     const lines=db.prepare('SELECT account_id,debit_minor,credit_minor,memo FROM journal_lines WHERE journal_entry_id=?').all(entryId)
       .map(line=>({accountId:line.account_id,debitMinor:line.credit_minor,creditMinor:line.debit_minor,memo:line.memo}));
     const reversalId=postJournalEntry({sourceType:'reversal',sourceId:entryId,description:`Reversal of ${original.entry_number}: ${reason}`,lines});
