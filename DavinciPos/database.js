@@ -17,7 +17,7 @@ export function initializeDatabase() {
   const insertAccount = db.prepare('INSERT OR IGNORE INTO accounts (id,code,name,account_type,normal_side) VALUES (?,?,?,?,?)');
   const accounts = [
     ['acc-cash','1000','Cash','asset','debit'],['acc-card','1020','Card Clearing','asset','debit'],
-    ['acc-bank','1010','Bank','asset','debit'],['acc-wallet','1030','Wallet Clearing','asset','debit'],
+    ['acc-bank','1010','Bank','asset','debit'],['acc-wallet','1030','Wallet Clearing','asset','debit'],['acc-other-clearing','1040','Other Payment Clearing','asset','debit'],
     ['acc-ar','1100','Accounts Receivable','asset','debit'],['acc-inventory','1200','Inventory','asset','debit'],
     ['acc-ap','2000','Accounts Payable','liability','credit'],['acc-tax','2100','Tax Payable','liability','credit'],
     ['acc-capital','3000','Owner Equity','equity','credit'],['acc-sales','4000','Sales Revenue','revenue','credit'],
