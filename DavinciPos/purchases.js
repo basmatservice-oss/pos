@@ -44,6 +44,9 @@ export function receivePurchase(input) {
     for(const p of payments) db.prepare('INSERT INTO purchase_payments(id,purchase_id,method,amount_minor,reference,occurred_at) VALUES(?,?,?,?,?,?)').run(randomUUID(),id,p.method,Number(p.amountMinor),p.reference||null,now);
     const journal=[];
     if(inventoryValueMinor>0) journal.push({accountId:'acc-inventory',debitMinor:inventoryValueMinor});
+    const bookedValue=taxTreatment==='recoverable'?subtotal:total;
+    if(inventoryValueMinor>bookedValue)journal.push({accountId:'acc-purchase-variance',creditMinor:inventoryValueMinor-bookedValue});
+    if(inventoryValueMinor<bookedValue)journal.push({accountId:'acc-purchase-variance',debitMinor:bookedValue-inventoryValueMinor});
     const payable=total-paid;
     if(payable>0) journal.push({accountId:'acc-ap',creditMinor:payable});
     const paidByMethod=new Map();
