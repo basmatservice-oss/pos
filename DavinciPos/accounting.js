@@ -32,3 +32,24 @@ export function postJournalEntry({ sourceType, sourceId, description, occurredAt
     return id;
   });
 }
+
+export function getTrialBalance({from=null,to=null}={}) {
+  const filters=["je.status='posted'"],params=[];
+  if(from){filters.push('je.occurred_at>=?');params.push(from);}
+  if(to){filters.push('je.occurred_at<=?');params.push(to);}
+  return db.prepare(`SELECT a.id AS accountId,a.code,a.name,a.account_type AS accountType,
+    COALESCE(SUM(jl.debit_minor),0) AS debitMinor,COALESCE(SUM(jl.credit_minor),0) AS creditMinor,
+    COALESCE(SUM(jl.debit_minor-jl.credit_minor),0) AS netDebitMinor
+    FROM accounts a LEFT JOIN journal_lines jl ON jl.account_id=a.id
+    LEFT JOIN journal_entries je ON je.id=jl.journal_entry_id AND ${filters.join(' AND ')}
+    WHERE a.is_active=1 GROUP BY a.id ORDER BY a.code`).all(...params);
+}
+export function getAccountLedger(accountId,{from=null,to=null}={}) {
+  const filters=["je.status IN ('posted','reversed')","jl.account_id=?"],params=[accountId];
+  if(from){filters.push('je.occurred_at>=?');params.push(from);}
+  if(to){filters.push('je.occurred_at<=?');params.push(to);}
+  return db.prepare(`SELECT je.id AS journalEntryId,je.entry_number AS entryNumber,je.occurred_at AS occurredAt,
+    je.description,jl.debit_minor AS debitMinor,jl.credit_minor AS creditMinor,jl.memo
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+    WHERE ${filters.join(' AND ')} ORDER BY je.occurred_at,je.entry_number`).all(...params);
+}
