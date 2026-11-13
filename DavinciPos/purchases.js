@@ -16,10 +16,10 @@ function preparePurchase(input) {
   const lines=input.lines.map(line=>{
     const quantity=Number(line.quantity),unitCostMinor=Number(line.unitCostMinor),discountMinor=Number(line.discountMinor||0);
     if(!Number.isFinite(quantity)||quantity<=0||!Number.isSafeInteger(unitCostMinor)||unitCostMinor<0||!Number.isSafeInteger(discountMinor)||discountMinor<0)throw new Error('Invalid purchase line.');
-    const product=db.prepare('SELECT p.name,p.tax_rate_bps,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.productId);
+    const product=db.prepare('SELECT p.name,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.productId);
     if(!product||!product.track_stock)throw new Error('Purchase line must reference an existing active stock-tracked product.');
     const baseQuantity=quantity;
-    const profile=product.tax_rate_bps>0?{rateBps:product.tax_rate_bps,priceMode:defaultMode}:getTaxProfile();
+    const profile=product.tax_exempt?{rateBps:0,priceMode:defaultMode}:product.tax_rate_bps>0?{rateBps:product.tax_rate_bps,priceMode:defaultMode}:getTaxProfile();
     const tax=calculateLineTax({unitPriceMinor:unitCostMinor,quantity:baseQuantity,discountMinor,rateBps:taxTreatment==='disabled'?0:profile.rateBps,priceMode:profile.priceMode,enabled:taxEnabled&&taxTreatment!=='disabled'});
     const inventoryCost=taxTreatment==='non_recoverable'?tax.totalMinor:tax.netMinor;
     return {...line,productName:product.name,quantity,baseQuantity,unitName:product.unit_symbol||'pc',unitCostMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||null,
