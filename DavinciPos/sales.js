@@ -6,10 +6,6 @@ import { calculateLineTax, getTaxProfile } from './tax.js';
 import { setting } from './settings.js';
 
 const paymentAccount = { cash:'acc-cash', card:'acc-card', bank:'acc-bank', wallet:'acc-wallet', other:'acc-other-clearing' };
-function setting(key,fallback) {
-  const row=db.prepare('SELECT value FROM app_settings WHERE key=?').get(key);
-  return row?.value ?? fallback;
-}
 function validateMoney(value,label) {
   const n=Number(value);
   if(!Number.isSafeInteger(n)||n<0) throw new Error(`Invalid ${label}.`);
