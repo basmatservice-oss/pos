@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db, inTransaction } from './database.js';
+import { db } from './database.js';
 
 function requiredText(value,label,max=160){if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw new Error(`Invalid ${label}.`);return value.trim();}
 function money(value,label){const n=Number(value);if(!Number.isSafeInteger(n)||n<0)throw new Error(`Invalid ${label}.`);return n;}
@@ -24,6 +24,9 @@ export function updateProduct(id,input) {
   const current=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!current)throw new Error('Product not found.');
   const baseUnitId=input.baseUnitId??current.base_unit_id;
   if(baseUnitId!==current.base_unit_id&&db.prepare('SELECT 1 FROM stock_movements WHERE product_id=? LIMIT 1').get(id))throw new Error('Base unit cannot be changed after stock movements exist.');
+  const taxRateBps=input.taxRateBps===undefined?current.tax_rate_bps:Number(input.taxRateBps);
+  const minStock=input.minStock===undefined?current.min_stock:Number(input.minStock);
+  if(!Number.isSafeInteger(taxRateBps)||taxRateBps<0||taxRateBps>10000||!Number.isFinite(minStock)||minStock<0)throw new Error('Invalid product tax rate or minimum stock.');
   const trackStock=input.trackStock===undefined?current.track_stock:input.trackStock===false?0:1;
   if(!trackStock&&db.prepare('SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM stock_movements WHERE product_id=?').get(id).quantity>0)throw new Error('A product with stock on hand cannot stop tracking stock.');
   db.prepare(`UPDATE products SET sku=?,barcode=?,name=?,category_id=?,base_unit_id=?,cost_minor=?,sale_price_minor=?,tax_rate_bps=?,track_stock=?,min_stock=?,is_active=?,updated_at=? WHERE id=?`)
@@ -33,8 +36,8 @@ export function updateProduct(id,input) {
       input.categoryId===undefined?current.category_id:input.categoryId,baseUnitId,
       input.costMinor===undefined?current.cost_minor:money(input.costMinor,'cost'),
       input.salePriceMinor===undefined?current.sale_price_minor:money(input.salePriceMinor,'sale price'),
-      input.taxRateBps===undefined?current.tax_rate_bps:Number(input.taxRateBps),
-      trackStock,input.minStock===undefined?current.min_stock:Number(input.minStock),
+      taxRateBps,
+      trackStock,minStock,
       input.isActive===false?0:1,new Date().toISOString(),id);
   return true;
 }
