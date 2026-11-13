@@ -1,4 +1,4 @@
-import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,renderPurchaseEntry,logout} from './client.js';
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,logout} from './client.js';
 const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
