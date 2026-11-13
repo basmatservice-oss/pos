@@ -13,9 +13,12 @@ const ROLE_PERMISSIONS={
 };
 export function initializeSecurity() {
   const insert=db.prepare('INSERT OR IGNORE INTO roles(name,description,is_system) VALUES(?,?,1)');
-  for(const role of Object.keys(ROLE_PERMISSIONS)) insert.run(role,role+' role');
   const grant=db.prepare('INSERT OR IGNORE INTO role_permissions(role_name,permission) VALUES(?,?)');
-  for(const [role,permissions] of Object.entries(ROLE_PERMISSIONS)) for(const permission of permissions) grant.run(role,permission);
+  for(const [role,permissions] of Object.entries(ROLE_PERMISSIONS)) {
+    const existed=db.prepare('SELECT name FROM roles WHERE name=?').get(role);
+    insert.run(role,role+' role');
+    if(!existed) for(const permission of permissions) grant.run(role,permission);
+  }
 }
 function passwordHash(password,salt) {
   return scrypt(password,salt,64).then(key=>key.toString('hex'));
