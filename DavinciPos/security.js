@@ -6,7 +6,7 @@ const SESSION_HOURS=12;
 const ROLE_PERMISSIONS={
   owner:['*'],
   admin:['*'],
-  manager:['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','settings.read','users.read'],
+  manager:['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','settings.read','users.read','sync.conflicts.read','sync.conflicts.resolve'],
   cashier:['dashboard.read','products.read','inventory.read','sales.create','customers.read'],
   accountant:['dashboard.read','sales.read','purchases.read','reports.read','accounting.read','accounting.reverse','settings.read'],
   sales:['dashboard.read','products.read','inventory.read','sales.read','sales.create','customers.read','customers.write']
