@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase, db } from './database.js';
-import { checkoutSale } from './sales.js';
+import { checkoutSale } from './sales.js';\nimport { receivePurchase } from './purchases.js';\nimport { getTrialBalance } from './accounting.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -27,7 +27,7 @@ app.post('/api/sales/checkout', (req,res) => {
     res.status(400).json({ error: error.message || 'Unable to complete sale.' });
   }
 });
-app.get('/api/summary', (_req,res) => {
+app.post('/api/purchases/receive', (req,res) => {\n  try { const result=receivePurchase(req.body); res.status(201).json({data:result}); }\n  catch(error) { res.status(400).json({error:error.message||'Unable to receive purchase.'}); }\n});\napp.get('/api/accounting/trial-balance', (req,res) => {\n  try { res.json({data:getTrialBalance({from:req.query.from||null,to:req.query.to||null})}); }\n  catch(error) { res.status(400).json({error:error.message||'Unable to build trial balance.'}); }\n});\napp.get('/api/summary', (_req,res) => {
   const products = db.prepare('SELECT COUNT(*) AS count FROM products WHERE is_active=1').get().count;
   const sales = db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(total_minor),0) AS total FROM sales WHERE status='posted'").get();
   res.json({ data: { products, salesCount: sales.count, salesTotalMinor: sales.total } });
@@ -35,7 +35,7 @@ app.get('/api/summary', (_req,res) => {
 
 app.get('/desktop', (_req,res) => res.sendFile(path.join(ROOT,'desktop.html')));
 app.get('/mobile', (_req,res) => res.sendFile(path.join(ROOT,'mobile.html')));
-app.use('/assets', express.static(ROOT, { index: false, dotfiles: 'deny' }));
+const publicAssets = new Set(['desktop.css','desktop.js','mobile.css','mobile.js']);\napp.get('/assets/:asset', (req,res) => {\n  if(!publicAssets.has(req.params.asset)) return res.sendStatus(404);\n  res.sendFile(path.join(ROOT,req.params.asset));\n});
 
 const port = Number(process.env.PORT || 3000);
 app.listen(port, '0.0.0.0', () => {
