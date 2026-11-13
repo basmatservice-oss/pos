@@ -3,6 +3,7 @@ import { db, inTransaction, getDefaultBranchId } from './database.js';
 import { postJournalEntry } from './accounting.js';
 import { issueStock } from './inventory.js';
 import { calculateLineTax, getTaxProfile } from './tax.js';
+import { setting } from './settings.js';
 
 const paymentAccount = { cash:'acc-cash', card:'acc-card', bank:'acc-bank', wallet:'acc-wallet', other:'acc-other-clearing' };
 function setting(key,fallback) {
@@ -20,6 +21,7 @@ export function checkoutSale(input) {
   const branchId=input.branchId||getDefaultBranchId();
   const currencyCode=setting('currency.code','SDG');
   const priceMode=setting('tax.price_mode','exclusive');
+  const taxEnabled=setting('tax.enabled',true);
   const costMethod=setting('inventory.cost_method','weighted');
   if(input.currencyCode&&input.currencyCode!==currencyCode) throw new Error('Sale currency does not match the configured base currency.');
   const profileCache=new Map();
@@ -32,7 +34,7 @@ export function checkoutSale(input) {
       if(!profileCache.has(line.taxProfileId)) profileCache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));
       profile=profileCache.get(line.taxProfileId);
     } else profile={rateBps:Number(line.taxRateBps||0),priceMode};
-    const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode});
+    const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=Number(line.baseQuantity??quantity);
     if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0)) throw new Error('Invalid base unit quantity.');
     return {...line,quantity,baseQuantity,unitPriceMinor,discountMinor,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
