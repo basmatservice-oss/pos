@@ -17,6 +17,7 @@ test('users authenticate with hashed passwords and role permissions',async()=>{
  assert.equal(current.id,user.id);
  assert.equal(hasPermission(current,'sales.create'),true);
  assert.equal(hasPermission(current,'settings.update'),false);
+ assert.equal(hasPermission(current,'sales.credit'),false);
  assert.equal(await verifyLogin('cashier1','wrong-password'),null);
 });
 test('role permission changes survive security initialization and last owner cannot be demoted',async()=>{
