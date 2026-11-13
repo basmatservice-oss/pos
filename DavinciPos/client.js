@@ -185,3 +185,34 @@ export async function renderSaleCheckout(root) {
     await quote();
   }catch(error){root.querySelector('#pos-area').textContent=error.message;}
 }
+
+export async function renderPurchaseEntry(root) {
+  root.innerHTML='<section class="panel"><h2>استلام مشتريات</h2><div id="purchase-area">جارٍ التحميل...</div></section>';
+  try{
+    const [products,suppliers]=await Promise.all([api('/api/products'),api('/api/suppliers')]);
+    let cart=[];
+    root.querySelector('#purchase-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px"><label>المنتج<select id="purchase-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label>الكمية<input id="purchase-quantity" type="number" min="0.001" step="0.001" value="1"></label><label>تكلفة الوحدة<input id="purchase-cost" type="number" min="0" value="0"></label><label>المورد<select id="purchase-supplier"><option value="">بدون مورد</option>${suppliers.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></label></div><button id="purchase-add" class="primary-button" style="margin-top:12px">إضافة الصنف</button><div id="purchase-cart" style="margin-top:16px"></div><div style="max-width:520px;display:grid;gap:8px;margin-top:16px"><label>طريقة الدفع<select id="purchase-method"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة</option><option value="other">أخرى</option></select></label><button id="purchase-submit" class="primary-button">اعتماد استلام المشتريات</button><p id="purchase-message"></p></div>`;
+    const quote=async()=>{
+      if(!cart.length){root.querySelector('#purchase-cart').textContent='أضف صنفاً للبدء.';return null;}
+      const result=await api('/api/purchases/quote',{method:'POST',body:{lines:cart}});
+      root.querySelector('#purchase-cart').innerHTML=`<div style="overflow:auto"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th></th></tr></thead><tbody>${cart.map((line,i)=>`<tr><td>${escapeHtml(line.productName)}</td><td>${line.quantity}</td><td>${(result.lines[i].totalMinor/100).toLocaleString('ar')}</td><td><button data-purchase-remove="${i}">حذف</button></td></tr>`).join('')}</tbody></table></div><p>قبل الضريبة: ${(result.subtotalMinor/100).toLocaleString('ar')} · الضريبة: ${(result.taxMinor/100).toLocaleString('ar')}</p><h3>الإجمالي: ${(result.totalMinor/100).toLocaleString('ar')} ${escapeHtml(result.currencyCode)}</h3><small>معالجة ضريبة المشتريات: ${escapeHtml(result.taxTreatment)}</small>`;
+      root.querySelectorAll('[data-purchase-remove]').forEach(button=>button.addEventListener('click',async()=>{cart.splice(Number(button.dataset.purchaseRemove),1);await quote();}));
+      return result;
+    };
+    root.querySelector('#purchase-add').addEventListener('click',async()=>{
+      const product=products.find(p=>p.id===root.querySelector('#purchase-product').value),quantity=Number(root.querySelector('#purchase-quantity').value),unitCostMinor=Number(root.querySelector('#purchase-cost').value);
+      if(!product||!Number.isFinite(quantity)||quantity<=0||!Number.isSafeInteger(unitCostMinor)||unitCostMinor<0){root.querySelector('#purchase-message').textContent='أدخل بيانات صنف صحيحة.';return;}
+      cart.push({productId:product.id,productName:product.name,quantity,baseQuantity:quantity,unitName:product.baseUnitSymbol||'pc',unitCostMinor});
+      root.querySelector('#purchase-message').textContent='';await quote();
+    });
+    root.querySelector('#purchase-submit').addEventListener('click',async()=>{
+      try{
+        const totals=await quote();if(!totals)return;
+        const purchase=await api('/api/purchases/receive',{method:'POST',body:{supplierId:root.querySelector('#purchase-supplier').value||null,lines:cart,payments:[{method:root.querySelector('#purchase-method').value,amountMinor:totals.totalMinor}]}});
+        root.querySelector('#purchase-message').textContent=`تم استلام الفاتورة ${purchase.invoiceNumber} · الإجمالي ${(purchase.totalMinor/100).toLocaleString('ar')}`;
+        cart=[];await quote();
+      }catch(error){root.querySelector('#purchase-message').textContent=error.message;}
+    });
+    await quote();
+  }catch(error){root.querySelector('#purchase-area').textContent=error.message;}
+}
