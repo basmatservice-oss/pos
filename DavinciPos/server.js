@@ -10,6 +10,7 @@ import { getTrialBalance, reverseJournalEntry } from './accounting.js';
 import { getSettings, updateSettings } from './settings.js';
 import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole } from './security.js';
 import { listTaxProfiles, saveTaxProfile } from './tax.js';
+import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -70,6 +71,16 @@ app.put('/api/roles/:role/permissions',...api('roles.manage',(req,res)=>{
   try{save();res.json({data:{role:req.params.role,permissions}});}catch(error){res.status(400).json({error:error.message});}
 }));
 app.get('/api/roles',...api('users.read',(_req,res)=>res.json({data:db.prepare('SELECT r.name,r.description,group_concat(rp.permission) AS permissions FROM roles r LEFT JOIN role_permissions rp ON rp.role_name=r.name GROUP BY r.name ORDER BY r.name').all()})));
+
+app.post('/api/sync/offline-sales',...api('sales.create',(req,res)=>{
+  try{res.status(202).json({data:acceptOfflineSale({operationId:req.body?.operationId,deviceId:req.body?.deviceId,payload:req.body?.sale,userId:req.user.id})});}
+  catch(error){res.status(400).json({error:error.message});}
+}));
+app.get('/api/sync/conflicts',...api('sync.conflicts.read',(_req,res)=>res.json({data:listSyncConflicts()})));
+app.post('/api/sync/conflicts/:id/resolve',...api('sync.conflicts.resolve',(req,res)=>{
+  try{res.json({data:resolveSyncConflict(req.params.id,{decision:req.body?.decision,userId:req.user.id})});}
+  catch(error){res.status(400).json({error:error.message});}
+}));
 
 app.get('/api/tax-profiles',...api('settings.read',(_req,res)=>res.json({data:listTaxProfiles()})));
 app.post('/api/tax-profiles',...api('settings.update',(req,res)=>{
