@@ -10,11 +10,12 @@ Every authored project file is placed directly in this directory. There are no n
 - `mobile.html` / `mobile.css` / `mobile.js`: independent mobile interface.
 - `server.js`: HTTP API and application bootstrap.
 - `database.js` / `schema.sql`: SQLite persistence and schema.
-- `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules.
+- `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules; accounting remains internal and is not exposed as an everyday workflow.
+- `reports.js`: simple date-filtered sales, purchases, gross-profit estimate, best-selling products and low-stock summary.
 - `sync.js` / `offline.js`: outbox primitives, idempotent server reconciliation, and stock-conflict review. The client-side durable SQLite outbox adapters are still pending.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, categories, customers, suppliers, and invoice lists.
-- The desktop and mobile interfaces now include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, trial balance, central settings, user roles and sync conflict review.
+- The desktop and mobile interfaces now include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, simple store reports, central settings, user roles and sync conflict review.
 - `settings.js`: server-owned settings with validation and audit history.
 - `client.js`: shared authenticated API and settings/user administration UI.
 
@@ -36,7 +37,7 @@ The server-side SQLite database is the authoritative store. Business rules are s
 
 The current milestone provides server-side offline-sale reconciliation and conflict handling, but does not yet include the finished local SQLite adapters or a complete offline-capable client UI. Electron will use a native SQLite adapter, and Android Capacitor will use a Capacitor SQLite adapter. Both adapters must implement the same repository contract and durable outbox before true device-side offline operation is enabled.
 
-Amounts are stored as integer minor units (for example, cents/piasters) to avoid floating-point accounting errors. Every posted journal entry must balance. Posted financial records are corrected by reversal, not destructive deletion.
+The app is designed for shop owners and everyday staff, not accountants. Users work with familiar screens for sales, purchases, stock, expenses and simple reports; journal entries and double-entry checks remain internal implementation details only. Users are not expected to understand ledgers, debit/credit columns or journal numbers. Amounts are stored as integer minor units to keep totals accurate.
 
 ## Accounting and stock foundation
 
