@@ -32,6 +32,10 @@ export function initializeDatabase() {
     const setting=db.prepare('INSERT OR IGNORE INTO app_settings(key,value,updated_at) VALUES(?,?,?)');
     const now=new Date().toISOString();
     setting.run('inventory.cost_method','weighted',now);
+    setting.run('tax.enabled','true',now);
+    setting.run('tax.purchase_mode','recoverable',now);
+    setting.run('sync.offline_sales','true',now);
+    setting.run('sync.stock_conflict_policy','hold_for_review',now);
     setting.run('tax.price_mode','exclusive',now);
     setting.run('currency.code','SDG',now);
   });
