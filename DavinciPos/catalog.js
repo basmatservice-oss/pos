@@ -5,7 +5,7 @@ function requiredText(value,label,max=160){if(typeof value!=='string'||!value.tr
 function money(value,label){const n=Number(value);if(!Number.isSafeInteger(n)||n<0)throw new Error(`Invalid ${label}.`);return n;}
 export function listProducts(branchId) {
   return db.prepare(`SELECT p.id,p.sku,p.barcode,p.name,p.category_id AS categoryId,p.base_unit_id AS baseUnitId,
-    p.cost_minor AS costMinor,p.sale_price_minor AS salePriceMinor,p.tax_rate_bps AS taxRateBps,p.track_stock AS trackStock,
+    p.cost_minor AS costMinor,p.sale_price_minor AS salePriceMinor,p.tax_rate_bps AS taxRateBps,p.tax_exempt AS taxExempt,p.track_stock AS trackStock,
     p.min_stock AS minStock,p.is_active AS isActive,c.name AS categoryName,u.symbol AS baseUnitSymbol,
     COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS stockOnHand,
     COALESCE((SELECT SUM(CASE WHEN sm.quantity_delta>0 THEN sm.cost_total_minor ELSE -sm.cost_total_minor END) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS inventoryValueMinor
@@ -17,8 +17,8 @@ export function createProduct(input) {
   const taxRateBps=Number(input.taxRateBps||0),minStock=Number(input.minStock||0);
   if(!Number.isSafeInteger(taxRateBps)||taxRateBps<0||taxRateBps>10000||!Number.isFinite(minStock)||minStock<0)throw new Error('Invalid product tax rate or minimum stock.');
   const id=input.id||randomUUID(),now=new Date().toISOString();
-  db.prepare(`INSERT INTO products(id,sku,barcode,name,category_id,base_unit_id,cost_minor,sale_price_minor,tax_rate_bps,track_stock,min_stock,is_active,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).run(id,input.sku?requiredText(input.sku,'SKU',80):null,input.barcode?requiredText(input.barcode,'barcode',100):null,name,input.categoryId||null,baseUnitId,money(input.costMinor||0,'cost'),money(input.salePriceMinor||0,'sale price'),taxRateBps,input.trackStock===false?0:1,minStock,now,now);
+  db.prepare(`INSERT INTO products(id,sku,barcode,name,category_id,base_unit_id,cost_minor,sale_price_minor,tax_rate_bps,tax_exempt,track_stock,min_stock,is_active,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).run(id,input.sku?requiredText(input.sku,'SKU',80):null,input.barcode?requiredText(input.barcode,'barcode',100):null,name,input.categoryId||null,baseUnitId,money(input.costMinor||0,'cost'),money(input.salePriceMinor||0,'sale price'),taxRateBps,input.taxExempt?1:0,input.trackStock===false?0:1,minStock,now,now);
   return id;
 }
 export function updateProduct(id,input) {
@@ -30,14 +30,14 @@ export function updateProduct(id,input) {
   if(!Number.isSafeInteger(taxRateBps)||taxRateBps<0||taxRateBps>10000||!Number.isFinite(minStock)||minStock<0)throw new Error('Invalid product tax rate or minimum stock.');
   const trackStock=input.trackStock===undefined?current.track_stock:input.trackStock===false?0:1;
   if(!trackStock&&db.prepare('SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM stock_movements WHERE product_id=?').get(id).quantity>0)throw new Error('A product with stock on hand cannot stop tracking stock.');
-  db.prepare(`UPDATE products SET sku=?,barcode=?,name=?,category_id=?,base_unit_id=?,cost_minor=?,sale_price_minor=?,tax_rate_bps=?,track_stock=?,min_stock=?,is_active=?,updated_at=? WHERE id=?`)
+  db.prepare(`UPDATE products SET sku=?,barcode=?,name=?,category_id=?,base_unit_id=?,cost_minor=?,sale_price_minor=?,tax_rate_bps=?,tax_exempt=?,track_stock=?,min_stock=?,is_active=?,updated_at=? WHERE id=?`)
     .run(input.sku===undefined?current.sku:(input.sku?requiredText(input.sku,'SKU',80):null),
       input.barcode===undefined?current.barcode:(input.barcode?requiredText(input.barcode,'barcode',100):null),
       input.name===undefined?current.name:requiredText(input.name,'product name'),
       input.categoryId===undefined?current.category_id:input.categoryId,baseUnitId,
       input.costMinor===undefined?current.cost_minor:money(input.costMinor,'cost'),
       input.salePriceMinor===undefined?current.sale_price_minor:money(input.salePriceMinor,'sale price'),
-      taxRateBps,
+      taxRateBps,input.taxExempt===undefined?current.tax_exempt:input.taxExempt?1:0,
       trackStock,minStock,
       input.isActive===undefined?current.is_active:input.isActive===false?0:1,new Date().toISOString(),id);
   return true;
