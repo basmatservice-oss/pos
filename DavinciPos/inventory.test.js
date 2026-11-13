@@ -75,6 +75,10 @@ test('recoverable purchase tax is posted to input tax and excluded from stock co
   assert.equal(purchase.taxMinor,100);
   assert.equal(purchase.totalMinor,1100);
   assert.equal(getInventoryValue('recoverable-tax-product','branch-main'),1000);
+  const taxSnapshot=db.prepare("SELECT tax_rate_bps,tax_profile_id,tax_price_mode FROM purchase_lines WHERE purchase_id='recoverable-tax-purchase'").get();
+  assert.equal(taxSnapshot.tax_rate_bps,1000);
+  assert.equal(taxSnapshot.tax_profile_id,db.prepare('SELECT id FROM tax_profiles WHERE name=?').get('VAT 10').id);
+  assert.equal(taxSnapshot.tax_price_mode,'exclusive');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.source_id='recoverable-tax-purchase' AND jl.account_id='acc-tax-input' AND jl.debit_minor=100").get().count,1);
 });
 test('non-recoverable purchase tax is capitalized into inventory cost',()=>{
@@ -85,6 +89,17 @@ test('non-recoverable purchase tax is capitalized into inventory cost',()=>{
   assert.equal(purchase.totalMinor,1100);
   assert.equal(getInventoryValue('nonrecoverable-tax-product','branch-main'),1100);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.source_id='nonrecoverable-tax-purchase' AND jl.account_id='acc-tax-input'").get().count,0);
+});
+test('sales use the central default tax profile and persist the applied tax snapshot',()=>{
+  product('taxed-sale-product');
+  receiveStock({productId:'taxed-sale-product',branchId:'branch-main',sourceType:'test-receipt',sourceId:'taxed-sale-stock',quantity:2,unitCostMinor:100});
+  updateSettings({'tax.enabled':true});
+  const sale=checkoutSale({id:'taxed-sale-profile',lines:[{lineType:'product',itemId:'taxed-sale-product',description:'Taxed item',quantity:1,baseQuantity:1,unitPriceMinor:1000,trackStock:true}],payments:[{method:'cash',amountMinor:1100}]});
+  assert.equal(sale.taxMinor,100);
+  const snapshot=db.prepare("SELECT tax_rate_bps,tax_profile_id,tax_price_mode FROM sale_lines WHERE sale_id='taxed-sale-profile'").get();
+  assert.equal(snapshot.tax_rate_bps,1000);
+  assert.equal(snapshot.tax_price_mode,'exclusive');
+  assert.ok(snapshot.tax_profile_id);
 });
 test('disabling tax removes purchase tax without changing server accounting balance',()=>{
   product('disabled-tax-product');
