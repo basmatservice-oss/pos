@@ -38,8 +38,8 @@ export function getTrialBalance({from=null,to=null}={}) {
   if(from){filters.push('je.occurred_at>=?');params.push(from);}
   if(to){filters.push('je.occurred_at<=?');params.push(to);}
   return db.prepare(`SELECT a.id AS accountId,a.code,a.name,a.account_type AS accountType,
-    COALESCE(SUM(jl.debit_minor),0) AS debitMinor,COALESCE(SUM(jl.credit_minor),0) AS creditMinor,
-    COALESCE(SUM(jl.debit_minor-jl.credit_minor),0) AS netDebitMinor
+    COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit_minor ELSE 0 END),0) AS debitMinor,COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.credit_minor ELSE 0 END),0) AS creditMinor,
+    COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit_minor-jl.credit_minor ELSE 0 END),0) AS netDebitMinor
     FROM accounts a LEFT JOIN journal_lines jl ON jl.account_id=a.id
     LEFT JOIN journal_entries je ON je.id=jl.journal_entry_id AND ${filters.join(' AND ')}
     WHERE a.is_active=1 GROUP BY a.id ORDER BY a.code`).all(...params);
