@@ -18,7 +18,7 @@ const {createUser}=await import('./security.js');
 initializeDatabase();
 
 function product(id){
-  db.prepare("INSERT INTO products(id,name,base_unit_id,cost_minor,sale_price_minor,created_at,updated_at) VALUES(?,?,?,0,0,?,?)")
+  db.prepare("INSERT INTO products(id,name,base_unit_id,cost_minor,sale_price_minor,created_at,updated_at) VALUES(?,?,?,0,300,?,?)")
     .run(id,id,'unit-piece',new Date().toISOString(),new Date().toISOString());
 }
 function stock(id){
@@ -94,6 +94,7 @@ test('non-recoverable purchase tax is capitalized into inventory cost',()=>{
 });
 test('sales use the central default tax profile and persist the applied tax snapshot',()=>{
   product('taxed-sale-product');
+  db.prepare('UPDATE products SET sale_price_minor=1000 WHERE id=?').run('taxed-sale-product');
   receiveStock({productId:'taxed-sale-product',branchId:'branch-main',sourceType:'test-receipt',sourceId:'taxed-sale-stock',quantity:2,unitCostMinor:100});
   updateSettings({'tax.enabled':true});
   const saleInput={id:'taxed-sale-profile',lines:[{lineType:'product',itemId:'taxed-sale-product',description:'Taxed item',quantity:1,baseQuantity:1,unitPriceMinor:1000,trackStock:true}],payments:[{method:'cash',amountMinor:1100}]};
@@ -128,7 +129,7 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   product('offline-conflict-product');
   const owner=await createUser({username:'offline-owner',password:'offline-owner-password-123',displayName:'Owner',role:'owner'});
   db.prepare('INSERT INTO devices(id,name,platform,branch_id,owner_user_id,is_active,created_at) VALUES(?,?,?,?,?,1,?)').run('test-device-001','Test device','desktop','branch-main',owner.id,new Date().toISOString());
-  const payload={id:'offline-sale-conflict',lines:[{lineType:'product',itemId:'offline-conflict-product',description:'Offline item',quantity:1,baseQuantity:1,unitPriceMinor:500,trackStock:true,taxRateBps:0}],payments:[{method:'cash',amountMinor:500}]};
+  const payload={id:'offline-sale-conflict',lines:[{lineType:'product',itemId:'offline-conflict-product',description:'Offline item',quantity:1,baseQuantity:1,unitPriceMinor:500,trackStock:true,taxRateBps:0}],payments:[{method:'cash',amountMinor:300}]};
   const first=acceptOfflineSale({operationId:'offline-operation-001',deviceId:'test-device-001',payload,userId:owner.id});
   assert.equal(first.status,'conflict');
   const second=acceptOfflineSale({operationId:'offline-operation-001',deviceId:'test-device-001',payload,userId:owner.id});
