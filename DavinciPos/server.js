@@ -121,7 +121,7 @@ app.post('/api/sync/conflicts/:id/resolve',...api('sync.conflicts.resolve',(req,
 
 app.get('/api/tax-profiles',...api('settings.read',(_req,res)=>res.json({data:listTaxProfiles()})));
 app.post('/api/tax-profiles',...api('settings.update',(req,res)=>{
-  try{res.status(201).json({data:{id:saveTaxProfile(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}
+  try{res.status(201).json({data:{id:saveTaxProfile(req.body||{},req.user.id)}});}catch(error){res.status(400).json({error:error.message});}
 }));
 app.get('/api/products',...api('products.read',(_req,res)=>res.json({data:listProducts(getDefaultBranchId())})));
 app.post('/api/products',...api('products.write',(req,res)=>{try{res.status(201).json({data:{id:createProduct(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
