@@ -24,12 +24,13 @@ export function getTaxProfile(profileId=null) {
 export function listTaxProfiles() {
   return db.prepare('SELECT id,name,rate_bps AS rateBps,price_mode AS priceMode,is_default AS isDefault,is_active AS isActive FROM tax_profiles ORDER BY name').all();
 }
-export function saveTaxProfile({id=null,name,rateBps,priceMode,isDefault=false}) {
+export function saveTaxProfile({id=null,name,rateBps,priceMode,isDefault=false},actorUserId=null) {
   if(typeof name!=='string'||!name.trim()) throw new Error('Tax profile name is required.');
   if(!Number.isSafeInteger(Number(rateBps))||Number(rateBps)<0||Number(rateBps)>10000) throw new Error('Tax rate must be between 0 and 100 percent.');
   if(!['inclusive','exclusive'].includes(priceMode)) throw new Error('Tax price mode must be inclusive or exclusive.');
   const profileId=id||randomUUID();
   const save=db.transaction(()=>{
+    const previous=db.prepare('SELECT name,rate_bps,price_mode,is_default,is_active FROM tax_profiles WHERE id=?').get(profileId)||null;
     if(isDefault) {
       db.prepare('UPDATE tax_profiles SET is_default=0').run();
       db.prepare(`INSERT INTO app_settings(key,value,updated_at) VALUES('tax.default_profile_id',?,?)
@@ -38,6 +39,8 @@ export function saveTaxProfile({id=null,name,rateBps,priceMode,isDefault=false})
     db.prepare(`INSERT INTO tax_profiles(id,name,rate_bps,price_mode,is_default,is_active) VALUES(?,?,?,?,?,1)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name,rate_bps=excluded.rate_bps,price_mode=excluded.price_mode,is_default=excluded.is_default,is_active=1`)
       .run(profileId,name.trim(),Number(rateBps),priceMode,isDefault?1:0);
+    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,?)')
+      .run(actorUserId,'tax_profile.save','tax_profile',profileId,JSON.stringify({previous,next:{name:name.trim(),rateBps:Number(rateBps),priceMode,isDefault}}),new Date().toISOString());
     return profileId;
   });
   return save();
