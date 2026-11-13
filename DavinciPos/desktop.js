@@ -18,7 +18,7 @@ async function navigate(key){
  if(key==='purchases'){await renderPurchaseEntry(view);return;}
  if(key==='products'){await renderProducts(view);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(view,key);return;}
- if(key==='accounting'){await renderAccounting(view);return;}
+ if(key==='reports'){await renderReports(view);return;}
  view.innerHTML=`<div class="panel"><span class="eyebrow">DavinciPos / ${labels[key]}</span><h2>${labels[key]}</h2><p style="color:#7d899b">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></div>`;
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-logout]'))logout();});
