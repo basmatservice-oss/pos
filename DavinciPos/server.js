@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import https from 'node:https';
+import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase, db } from './database.js';
 import { checkoutSale } from './sales.js';
@@ -20,6 +21,7 @@ initializeDatabase();
 initializeSecurity();
 
 const loginAttempts=new Map();
+let bootstrapInProgress=false;
 function loginRateLimit(req,res,next){
   const key=req.ip||req.socket.remoteAddress||'unknown',now=Date.now(),state=loginAttempts.get(key)||{count:0,resetAt:now+60000};
   if(now>state.resetAt){state.count=0;state.resetAt=now+60000;}
@@ -31,12 +33,17 @@ const api=(permission,handler)=>[requireAuth,requirePermission(permission),handl
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
-  if(db.prepare('SELECT COUNT(*) AS count FROM users').get().count!==0)return res.status(409).json({error:'Initial administrator already exists.'});
-  const expected=process.env.DAVINCIPOS_BOOTSTRAP_TOKEN;
-  if(!expected||typeof req.body?.bootstrapToken!=='string'||req.body.bootstrapToken!==expected)return res.status(403).json({error:'A valid server bootstrap token is required.'});
-  const user=await createUser({username:req.body.username,password:req.body.password,displayName:req.body.displayName||'System Owner',role:'owner'});
-  const login=await verifyLogin(req.body.username,req.body.password);
-  res.status(201).json({data:{...login,user}});
+  if(bootstrapInProgress||db.prepare('SELECT COUNT(*) AS count FROM users').get().count!==0)return res.status(409).json({error:'Initial administrator already exists or setup is in progress.'});
+  const expected=process.env.DAVINCIPOS_BOOTSTRAP_TOKEN,provided=req.body?.bootstrapToken;
+  const expectedBuffer=Buffer.from(expected||''),providedBuffer=Buffer.from(typeof provided==='string'?provided:'');
+  if(!expected||expectedBuffer.length!==providedBuffer.length||!timingSafeEqual(expectedBuffer,providedBuffer))return res.status(403).json({error:'A valid server bootstrap token is required.'});
+  bootstrapInProgress=true;
+  try{
+    if(db.prepare('SELECT COUNT(*) AS count FROM users').get().count!==0)return res.status(409).json({error:'Initial administrator already exists.'});
+    const user=await createUser({username:req.body.username,password:req.body.password,displayName:req.body.displayName||'System Owner',role:'owner'});
+    const login=await verifyLogin(req.body.username,req.body.password);
+    res.status(201).json({data:{...login,user}});
+  }finally{bootstrapInProgress=false;}
 }));
 app.post('/api/auth/login',loginRateLimit,asyncRoute(async(req,res)=>{
   const login=await verifyLogin(req.body?.username,req.body?.password);
