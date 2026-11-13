@@ -8,7 +8,8 @@ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-test-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {db,initializeDatabase}=await import('./database.js');
 const {receiveStock,issueStock,getStockOnHand,getInventoryValue}=await import('./inventory.js');
-const {calculateLineTax}=await import('./tax.js');
+const {calculateLineTax,saveTaxProfile}=await import('./tax.js');
+const {updateSettings}=await import('./settings.js');
 const {receivePurchase}=await import('./purchases.js');
 const {checkoutSale}=await import('./sales.js');
 const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
@@ -63,5 +64,31 @@ test('purchase receipt and sale post stock and balanced accounting atomically',(
   const reversal=reverseJournalEntry(entry.id,'Test reversal');
   assert.ok(reversal);
   assert.equal(reverseJournalEntry(entry.id,'Repeat reversal'),reversal);
+});
+test('recoverable purchase tax is posted to input tax and excluded from stock cost',()=>{
+  product('recoverable-tax-product');
+  saveTaxProfile({name:'VAT 10',rateBps:1000,priceMode:'exclusive',isDefault:true});
+  updateSettings({'tax.enabled':true,'tax.purchase_mode':'recoverable'});
+  const purchase=receivePurchase({id:'recoverable-tax-purchase',lines:[{productId:'recoverable-tax-product',quantity:1,baseQuantity:1,unitCostMinor:1000}]});
+  assert.equal(purchase.taxMinor,100);
+  assert.equal(purchase.totalMinor,1100);
+  assert.equal(getInventoryValue('recoverable-tax-product','branch-main'),1000);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.source_id='recoverable-tax-purchase' AND jl.account_id='acc-tax-input' AND jl.debit_minor=100").get().count,1);
+});
+test('non-recoverable purchase tax is capitalized into inventory cost',()=>{
+  product('nonrecoverable-tax-product');
+  updateSettings({'tax.purchase_mode':'non_recoverable'});
+  const purchase=receivePurchase({id:'nonrecoverable-tax-purchase',lines:[{productId:'nonrecoverable-tax-product',quantity:1,baseQuantity:1,unitCostMinor:1000}]});
+  assert.equal(purchase.taxMinor,100);
+  assert.equal(purchase.totalMinor,1100);
+  assert.equal(getInventoryValue('nonrecoverable-tax-product','branch-main'),1100);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.source_id='nonrecoverable-tax-purchase' AND jl.account_id='acc-tax-input'").get().count,0);
+});
+test('disabling tax removes purchase tax without changing server accounting balance',()=>{
+  product('disabled-tax-product');
+  updateSettings({'tax.enabled':false});
+  const purchase=receivePurchase({id:'disabled-tax-purchase',lines:[{productId:'disabled-tax-product',quantity:1,baseQuantity:1,unitCostMinor:1000}]});
+  assert.equal(purchase.taxMinor,0);
+  assert.equal(purchase.totalMinor,1000);
 });
 test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
