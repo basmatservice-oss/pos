@@ -112,3 +112,42 @@ export async function logout() {
   sessionStorage.removeItem(TOKEN_KEY);
   location.reload();
 }
+
+export async function renderProducts(root) {
+  root.innerHTML='<section class="panel"><h2>المنتجات</h2><div id="product-area">جارٍ التحميل...</div></section>';
+  try{
+    const [products,categories,units]=await Promise.all([api('/api/products'),api('/api/categories'),api('/api/units')]);
+    root.querySelector('#product-area').innerHTML=`<form id="product-form" style="display:grid;gap:8px;max-width:600px;margin-bottom:22px"><h3>إضافة منتج</h3><input name="name" required placeholder="اسم المنتج"><input name="sku" placeholder="SKU"><input name="barcode" placeholder="الباركود"><select name="baseUnitId">${units.map(u=>`<option value="${u.id}">${escapeHtml(u.name)} (${escapeHtml(u.symbol)})</option>`).join('')}</select><select name="categoryId"><option value="">بدون تصنيف</option>${categories.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select><input name="costMinor" type="number" min="0" value="0" placeholder="التكلفة بوحدة العملة الصغرى"><input name="salePriceMinor" type="number" min="0" value="0" placeholder="سعر البيع بوحدة العملة الصغرى"><input name="taxRateBps" type="number" min="0" max="10000" value="0" placeholder="الضريبة بالنقاط الأساسية"><label><input name="trackStock" type="checkbox" checked> تتبع المخزون</label><button class="primary-button">حفظ المنتج</button><p id="product-message"></p></form><h3>قائمة المنتجات</h3><div style="overflow:auto"><table><thead><tr><th>المنتج</th><th>SKU</th><th>المخزون</th><th>سعر البيع</th><th>الضريبة</th></tr></thead><tbody>${products.map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.sku||'—')}</td><td>${Number(p.stockOnHand).toLocaleString('ar')}</td><td>${(p.salePriceMinor/100).toLocaleString('ar')}</td><td>${(p.taxRateBps/100).toFixed(2)}%</td></tr>`).join('')}</tbody></table></div>`;
+    root.querySelector('#product-form').addEventListener('submit',async event=>{event.preventDefault();const f=new FormData(event.currentTarget);const body=Object.fromEntries(f.entries());body.costMinor=Number(body.costMinor);body.salePriceMinor=Number(body.salePriceMinor);body.taxRateBps=Number(body.taxRateBps);body.trackStock=f.get('trackStock')==='on';try{await api('/api/products',{method:'POST',body});await renderProducts(root);}catch(error){root.querySelector('#product-message').textContent=error.message;}});
+  }catch(error){root.querySelector('#product-area').textContent=error.message;}
+}
+export async function renderInventory(root) {
+  root.innerHTML='<section class="panel"><h2>المخزون والتسويات</h2><div id="inventory-area">جارٍ التحميل...</div></section>';
+  try{
+    const products=await api('/api/products');
+    root.querySelector('#inventory-area').innerHTML=`<form id="adjustment-form" style="display:grid;gap:8px;max-width:520px;margin-bottom:20px"><h3>تسوية المخزون</h3><select name="productId">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · الرصيد ${Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select><input name="quantityDelta" type="number" step="0.001" required placeholder="الكمية (+ إضافة / - صرف)"><input name="unitCostMinor" type="number" min="0" value="0" placeholder="تكلفة الوحدة عند الإضافة"><input name="reason" required placeholder="سبب التسوية"><button class="primary-button">اعتماد التسوية</button><p id="adjustment-message"></p></form><h3>أرصدة المخزون</h3><div style="overflow:auto"><table><thead><tr><th>المنتج</th><th>الرصيد</th><th>حد التنبيه</th><th>التكلفة</th></tr></thead><tbody>${products.map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${Number(p.stockOnHand).toLocaleString('ar')}</td><td>${Number(p.minStock).toLocaleString('ar')}</td><td>${(p.costMinor/100).toLocaleString('ar')}</td></tr>`).join('')}</tbody></table></div>`;
+    root.querySelector('#adjustment-form').addEventListener('submit',async event=>{event.preventDefault();const f=new FormData(event.currentTarget);const body=Object.fromEntries(f.entries());body.quantityDelta=Number(body.quantityDelta);body.unitCostMinor=Number(body.unitCostMinor);try{await api('/api/inventory/adjustments',{method:'POST',body});await renderInventory(root);}catch(error){root.querySelector('#adjustment-message').textContent=error.message;}});
+  }catch(error){root.querySelector('#inventory-area').textContent=error.message;}
+}
+export async function renderPeople(root,kind) {
+  const customers=kind==='customers',title=customers?'العملاء':'الموردون',endpoint=customers?'/api/customers':'/api/suppliers';
+  root.innerHTML=`<section class="panel"><h2>${title}</h2><div id="people-area">جارٍ التحميل...</div></section>`;
+  try{
+    const records=await api(endpoint);
+    root.querySelector('#people-area').innerHTML=`<form id="person-form" style="display:grid;gap:8px;max-width:520px;margin-bottom:20px"><h3>إضافة ${customers?'عميل':'مورد'}</h3><input name="name" required placeholder="الاسم"><input name="phone" placeholder="الهاتف"><input name="email" type="email" placeholder="البريد الإلكتروني">${customers?'':'<input name="address" placeholder="العنوان">'}<button class="primary-button">حفظ</button><p id="person-message"></p></form><div>${records.map(p=>`<div style="padding:10px;border-bottom:1px solid #e7eaf0"><b>${escapeHtml(p.name)}</b><small style="display:block;color:#8792a5">${escapeHtml(p.phone||p.email||'')}</small></div>`).join('')}</div>`;
+    root.querySelector('#person-form').addEventListener('submit',async event=>{event.preventDefault();const body=Object.fromEntries(new FormData(event.currentTarget).entries());try{await api(endpoint,{method:'POST',body});await renderPeople(root,kind);}catch(error){root.querySelector('#person-message').textContent=error.message;}});
+  }catch(error){root.querySelector('#people-area').textContent=error.message;}
+}
+export async function renderInvoices(root,kind) {
+  const sales=kind==='sales',title=sales?'فواتير المبيعات':'فواتير المشتريات';
+  root.innerHTML=`<section class="panel"><h2>${title}</h2><div id="invoice-area">جارٍ التحميل...</div></section>`;
+  try{
+    const rows=await api(sales?'/api/sales':'/api/purchases');
+    root.querySelector('#invoice-area').innerHTML=rows.length?`<div style="overflow:auto"><table><thead><tr><th>الرقم</th><th>التاريخ</th><th>قبل الضريبة</th><th>الضريبة</th><th>الإجمالي</th><th>الحالة</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(sales?row.receiptNumber:row.invoiceNumber)}</td><td>${escapeHtml(row.occurredAt)}</td><td>${(row.subtotalMinor/100).toLocaleString('ar')}</td><td>${(row.taxMinor/100).toLocaleString('ar')}</td><td>${(row.totalMinor/100).toLocaleString('ar')}</td><td>${escapeHtml(row.status)}</td></tr>`).join('')}</tbody></table></div>`:'لا توجد فواتير حتى الآن.';
+  }catch(error){root.querySelector('#invoice-area').textContent=error.message;}
+}
+export async function renderAccounting(root) {
+  root.innerHTML='<section class="panel"><h2>ميزان المراجعة</h2><div id="accounting-area">جارٍ التحميل...</div></section>';
+  try{const rows=await api('/api/accounting/trial-balance');root.querySelector('#accounting-area').innerHTML=`<div style="overflow:auto"><table><thead><tr><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.code)} · ${escapeHtml(r.name)}</td><td>${(r.debitMinor/100).toLocaleString('ar')}</td><td>${(r.creditMinor/100).toLocaleString('ar')}</td></tr>`).join('')}</tbody></table></div>`;}
+  catch(error){root.querySelector('#accounting-area').textContent=error.message;}
+}
