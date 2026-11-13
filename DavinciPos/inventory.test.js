@@ -106,6 +106,17 @@ test('sales use the central default tax profile and persist the applied tax snap
   assert.equal(snapshot.tax_price_mode,'exclusive');
   assert.ok(snapshot.tax_profile_id);
 });
+test('tax-exempt products remain exempt while global tax stays enabled',()=>{
+  product('tax-exempt-product');
+  db.prepare('UPDATE products SET sale_price_minor=1000,tax_exempt=1 WHERE id=?').run('tax-exempt-product');
+  receiveStock({productId:'tax-exempt-product',branchId:'branch-main',sourceType:'test-receipt',sourceId:'tax-exempt-stock',quantity:2,unitCostMinor:100});
+  const sale=quoteSale({lines:[{itemId:'tax-exempt-product',quantity:1}]});
+  assert.equal(sale.taxMinor,0);
+  assert.equal(sale.totalMinor,1000);
+  const purchase=quotePurchase({lines:[{productId:'tax-exempt-product',quantity:1,unitCostMinor:1000}]});
+  assert.equal(purchase.taxMinor,0);
+  assert.equal(purchase.totalMinor,1000);
+});
 test('disabling tax removes purchase tax without changing server accounting balance',()=>{
   product('disabled-tax-product');
   updateSettings({'tax.enabled':false});
