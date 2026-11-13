@@ -123,12 +123,18 @@ app.get('/api/tax-profiles',...api('settings.read',(_req,res)=>res.json({data:li
 app.post('/api/tax-profiles',...api('settings.update',(req,res)=>{
   try{res.status(201).json({data:{id:saveTaxProfile(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}
 }));
-app.get('/api/products',...api('products.read',(_req,res)=>{
-  const rows=db.prepare(`SELECT p.*,c.name AS category_name,
-    COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id IS ?),0) AS stock_on_hand
-    FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.is_active=1 ORDER BY p.name`).all(req.user.branchId||null);
-  res.json({data:rows});
-}));
+app.get('/api/products',...api('products.read',(_req,res)=>res.json({data:listProducts(getDefaultBranchId())})));
+app.post('/api/products',...api('products.write',(req,res)=>{try{res.status(201).json({data:{id:createProduct(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
+app.patch('/api/products/:id',...api('products.write',(req,res)=>{try{updateProduct(req.params.id,req.body||{});res.json({data:{updated:true}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/categories',...api('products.read',(_req,res)=>res.json({data:listCategories()})));
+app.post('/api/categories',...api('products.write',(req,res)=>{try{res.status(201).json({data:{id:createCategory(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/customers',...api('customers.read',(_req,res)=>res.json({data:listCustomers()})));
+app.post('/api/customers',...api('customers.write',(req,res)=>{try{res.status(201).json({data:{id:createCustomer(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/suppliers',...api('suppliers.read',(_req,res)=>res.json({data:listSuppliers()})));
+app.post('/api/suppliers',...api('suppliers.write',(req,res)=>{try{res.status(201).json({data:{id:createSupplier(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/sales',...api('sales.read',(req,res)=>res.json({data:listSales({limit:req.query.limit})})));
+app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listPurchases({limit:req.query.limit})})));
+app.post('/api/inventory/adjustments',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:adjustInventory({...req.body,branchId:getDefaultBranchId(),userId:req.user.id})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
   try{const result=checkoutSale({...req.body,cashierId:req.user.id,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
