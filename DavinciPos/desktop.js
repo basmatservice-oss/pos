@@ -1,4 +1,4 @@
-import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,logout } from './client.js';
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,renderPurchaseEntry,logout } from './client.js';
 const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',accounting:'المحاسبة',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
@@ -15,7 +15,7 @@ async function navigate(key){
  if(key==='conflicts'){await renderConflicts(view);return;}
  if(key==='inventory'){await renderInventory(view);return;}
  if(key==='sales'){await renderSaleCheckout(view);return;}
- if(key==='purchases'){await renderInvoices(view,key);return;}
+ if(key==='purchases'){await renderPurchaseEntry(view);return;}
  if(key==='products'){await renderProducts(view);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(view,key);return;}
  if(key==='accounting'){await renderAccounting(view);return;}
