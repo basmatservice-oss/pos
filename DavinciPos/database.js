@@ -22,7 +22,7 @@ export function initializeDatabase() {
     ['acc-ap','2000','Accounts Payable','liability','credit'],['acc-tax','2100','Tax Payable','liability','credit'],
     ['acc-capital','3000','Owner Equity','equity','credit'],['acc-sales','4000','Sales Revenue','revenue','credit'],
     ['acc-sales-returns','4010','Sales Returns','revenue','debit'],['acc-cogs','5000','Cost of Goods Sold','expense','debit'],
-    ['acc-expenses','6000','Operating Expenses','expense','debit']
+    ['acc-expenses','6000','Operating Expenses','expense','debit'],['acc-purchase-variance','5010','Purchase Cost Rounding Variance','expense','debit']
   ];
   const seed = db.transaction(() => accounts.forEach(row => insertAccount.run(...row)));
   seed();
