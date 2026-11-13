@@ -1,4 +1,4 @@
-import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,logout} from './client.js';
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,renderPurchaseEntry,logout} from './client.js';
 const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
@@ -13,7 +13,7 @@ async function show(key){
  if(key==='conflicts'){await renderConflicts(root);return;}
  if(key==='inventory'){await renderInventory(root);return;}
  if(key==='sales'){await renderSaleCheckout(root);return;}
- if(key==='purchases'){await renderInvoices(root,key);return;}
+ if(key==='purchases'){await renderPurchaseEntry(root);return;}
  if(key==='products'){await renderProducts(root);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(root,key);return;}
  if(key==='accounting'){await renderAccounting(root);return;}
