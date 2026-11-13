@@ -12,7 +12,7 @@ db.pragma('busy_timeout = 5000');
 
 export function initializeDatabase() {
   db.exec(fs.readFileSync(path.join(ROOT, 'schema.sql'), 'utf8'));
-  const insertUnit = db.prepare('INSERT OR IGNORE INTO units (id,name,symbol,precision) VALUES (?,?,?,?)');
+  const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');\n  const nowBranch=new Date().toISOString();\n  insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);\n  const insertUnit = db.prepare('INSERT OR IGNORE INTO units (id,name,symbol,precision) VALUES (?,?,?,?)');
   for (const unit of [['unit-piece','Piece','pc',0],['unit-box','Box','box',0],['unit-kg','Kilogram','kg',3],['unit-liter','Liter','L',3]]) insertUnit.run(...unit);
   const insertAccount = db.prepare('INSERT OR IGNORE INTO accounts (id,code,name,account_type,normal_side) VALUES (?,?,?,?,?)');
   const accounts = [
@@ -29,3 +29,9 @@ export function initializeDatabase() {
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
 export function inTransaction(work) { return db.transaction(work).immediate(); }
+
+export function getDefaultBranchId() {
+  const row=db.prepare('SELECT id FROM branches WHERE is_active=1 ORDER BY code LIMIT 1').get();
+  if(!row) throw new Error('No active branch is configured.');
+  return row.id;
+}
