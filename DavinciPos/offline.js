@@ -6,6 +6,8 @@ import { setting } from './settings.js';
 export function acceptOfflineSale({operationId,deviceId,payload,userId}) {
   if(!operationId||typeof operationId!=='string'||operationId.length>128||!deviceId||!payload||typeof payload!=='object') throw new Error('Offline sale envelope is invalid.');
   if(!setting('sync.offline_sales',true)) throw new Error('Offline sales synchronization is disabled by the server.');
+  const device=db.prepare('SELECT id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
+  if(!device) throw new Error('Device is not registered to this user. Register this device before syncing.');
   const prior=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=?').get(operationId);
   if(prior)return JSON.parse(prior.response);
   try {
