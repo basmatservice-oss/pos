@@ -1,4 +1,4 @@
-import {api,ensureSession,renderSettings,renderUsers,renderConflicts} from './client.js';
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts,logout} from './client.js';
 const views={dashboard:'الرئيسية',sales:'المبيعات',inventory:'المخزون',customers:'العملاء',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
@@ -13,5 +13,5 @@ async function show(key){
  if(key==='conflicts'){await renderConflicts(root);return;}
  root.innerHTML=`<section class="panel"><small style="color:#7770dc">DAVINCIPOS / ${views[key]||'الوحدة'}</small><h2>${views[key]||'الوحدة'}</h2><p style="color:#8792a4;font-size:12px">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></section>`;
 }
-document.addEventListener('click',event=>{const button=event.target.closest('[data-view]');if(button)show(button.dataset.view);});
+document.addEventListener('click',event=>{if(event.target.closest('[data-logout]')){logout();return;}const button=event.target.closest('[data-view]');if(button)show(button.dataset.view);});
 if(await ensureSession())await refresh();
