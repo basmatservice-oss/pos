@@ -13,6 +13,8 @@ const {updateSettings}=await import('./settings.js');
 const {receivePurchase}=await import('./purchases.js');
 const {checkoutSale}=await import('./sales.js');
 const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
+const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
+const {createUser}=await import('./security.js');
 initializeDatabase();
 
 function product(id){
@@ -90,5 +92,17 @@ test('disabling tax removes purchase tax without changing server accounting bala
   const purchase=receivePurchase({id:'disabled-tax-purchase',lines:[{productId:'disabled-tax-product',quantity:1,baseQuantity:1,unitCostMinor:1000}]});
   assert.equal(purchase.taxMinor,0);
   assert.equal(purchase.totalMinor,1000);
+});
+test('offline sale with insufficient authoritative stock is held as a conflict',async()=>{
+  product('offline-conflict-product');
+  const owner=await createUser({username:'offline-owner',password:'offline-owner-password-123',displayName:'Owner',role:'owner'});
+  db.prepare('INSERT INTO devices(id,name,platform,branch_id,owner_user_id,is_active,created_at) VALUES(?,?,?,?,?,1,?)').run('test-device-001','Test device','desktop','branch-main',owner.id,new Date().toISOString());
+  const payload={id:'offline-sale-conflict',lines:[{lineType:'product',itemId:'offline-conflict-product',description:'Offline item',quantity:1,baseQuantity:1,unitPriceMinor:500,trackStock:true,taxRateBps:0}],payments:[{method:'cash',amountMinor:500}]};
+  const first=acceptOfflineSale({operationId:'offline-operation-001',deviceId:'test-device-001',payload,userId:owner.id});
+  assert.equal(first.status,'conflict');
+  const second=acceptOfflineSale({operationId:'offline-operation-001',deviceId:'test-device-001',payload,userId:owner.id});
+  assert.equal(second.conflictId,first.conflictId);
+  const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
+  assert.equal(resolved.status,'rejected');
 });
 test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
