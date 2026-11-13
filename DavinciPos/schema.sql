@@ -230,3 +230,7 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','rejected')),
   created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS sync_receipts (
+  operation_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL
+);
