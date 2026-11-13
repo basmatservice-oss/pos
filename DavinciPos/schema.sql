@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS sales (
   discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   total_minor INTEGER NOT NULL CHECK (total_minor >= 0), currency_code TEXT NOT NULL DEFAULT 'SDG',
-  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL,
+  tax_enabled INTEGER NOT NULL DEFAULT 1 CHECK(tax_enabled IN (0,1)), tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))
 );
 CREATE TABLE IF NOT EXISTS sale_lines (
   id TEXT PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id),
@@ -87,20 +88,26 @@ CREATE TABLE IF NOT EXISTS sale_lines (
   cost_total_minor INTEGER NOT NULL DEFAULT 0 CHECK (cost_total_minor >= 0),
   discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
-  line_total_minor INTEGER NOT NULL CHECK (line_total_minor >= 0)
+  line_total_minor INTEGER NOT NULL CHECK (line_total_minor >= 0),
+  tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000), tax_profile_id TEXT,
+  tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))
 );
 CREATE TABLE IF NOT EXISTS purchases (
   id TEXT PRIMARY KEY, invoice_number TEXT NOT NULL UNIQUE, supplier_id TEXT REFERENCES suppliers(id),
   branch_id TEXT REFERENCES branches(id), status TEXT NOT NULL CHECK(status IN ('posted','void')),
   subtotal_minor INTEGER NOT NULL CHECK(subtotal_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),
   total_minor INTEGER NOT NULL CHECK(total_minor>=0), currency_code TEXT NOT NULL DEFAULT 'SDG',
-  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0),
+  tax_treatment TEXT NOT NULL DEFAULT 'disabled' CHECK(tax_treatment IN ('recoverable','non_recoverable','disabled')),
+  tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))
 );
 CREATE TABLE IF NOT EXISTS purchase_lines (
   id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), product_id TEXT NOT NULL REFERENCES products(id),
   quantity REAL NOT NULL CHECK(quantity>0), unit_name TEXT NOT NULL, base_quantity REAL NOT NULL CHECK(base_quantity>0),
   unit_cost_minor INTEGER NOT NULL CHECK(unit_cost_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),
-  line_total_minor INTEGER NOT NULL CHECK(line_total_minor>=0)
+  line_total_minor INTEGER NOT NULL CHECK(line_total_minor>=0), tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0),
+  tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000), tax_profile_id TEXT,
+  tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))
 );
 CREATE TABLE IF NOT EXISTS purchase_payments (
   id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),
