@@ -53,3 +53,17 @@ export function getAccountLedger(accountId,{from=null,to=null}={}) {
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
     WHERE ${filters.join(' AND ')} ORDER BY je.occurred_at,je.entry_number`).all(...params);
 }
+
+export function reverseJournalEntry(entryId,reason='Correction') {
+  return inTransaction(()=>{
+    const original=db.prepare('SELECT * FROM journal_entries WHERE id=?').get(entryId);
+    if(!original) throw new Error('Journal entry not found.');
+    if(original.status!=='posted') throw new Error('Only posted journal entries can be reversed.');
+    if(original.reversed_entry_id) return original.reversed_entry_id;
+    const lines=db.prepare('SELECT account_id,debit_minor,credit_minor,memo FROM journal_lines WHERE journal_entry_id=?').all(entryId)
+      .map(line=>({accountId:line.account_id,debitMinor:line.credit_minor,creditMinor:line.debit_minor,memo:line.memo}));
+    const reversalId=postJournalEntry({sourceType:'reversal',sourceId:entryId,description:`Reversal of ${original.entry_number}: ${reason}`,lines});
+    db.prepare("UPDATE journal_entries SET status='reversed',reversed_entry_id=? WHERE id=?").run(reversalId,entryId);
+    return reversalId;
+  });
+}
