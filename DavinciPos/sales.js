@@ -15,19 +15,22 @@ function prepareSale(input) {
   if(input.currencyCode&&input.currencyCode!==currencyCode)throw new Error('Sale currency does not match the configured base currency.');
   const profileCache=new Map();
   const lines=input.lines.map(line=>{
+    const lineType=line.lineType||'product';
+    if(!['product','service'].includes(lineType))throw new Error('Invalid sale line type.');
     const quantity=Number(line.quantity),unitPriceMinor=validateMoney(line.unitPriceMinor,'unit price'),discountMinor=validateMoney(line.discountMinor||0,'line discount');
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Line quantity must be greater than zero.');
     let profile;
     if(line.taxProfileId){if(!profileCache.has(line.taxProfileId))profileCache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));profile=profileCache.get(line.taxProfileId);}
     else if(line.taxRateBps!==undefined)profile={rateBps:Number(line.taxRateBps||0),priceMode};
     else {
-      const item=line.lineType==='service'?db.prepare('SELECT tax_rate_bps FROM services WHERE id=?').get(line.itemId):db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.itemId);
-      profile=item?.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
+      const item=lineType==='service'?db.prepare('SELECT tax_rate_bps FROM services WHERE id=?').get(line.itemId):db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.itemId);
+      if(!item)throw new Error(lineType==='service'?'Service not found.':'Product not found.');
+      profile=item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
     }
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=Number(line.baseQuantity??quantity);
     if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0))throw new Error('Invalid base unit quantity.');
-    return {...line,quantity,baseQuantity,unitPriceMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,
+    return {...line,lineType,quantity,baseQuantity,unitPriceMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,
       taxPriceMode:profile.priceMode||priceMode,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
   });
   const subtotal=lines.reduce((sum,line)=>sum+line.netMinor,0),taxTotal=lines.reduce((sum,line)=>sum+line.taxMinor,0),total=lines.reduce((sum,line)=>sum+line.totalMinor,0);
