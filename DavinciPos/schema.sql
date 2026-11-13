@@ -145,3 +145,20 @@ CREATE INDEX IF NOT EXISTS idx_sale_lines_sale ON sale_lines(sale_id);
 CREATE INDEX IF NOT EXISTS idx_stock_product_time ON stock_movements(product_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(journal_entry_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_status_created ON sync_outbox(status, created_at);
+
+CREATE TRIGGER IF NOT EXISTS posted_journal_lines_no_insert
+BEFORE INSERT ON journal_lines
+WHEN (SELECT status FROM journal_entries WHERE id=NEW.journal_entry_id) IN ('posted','reversed')
+BEGIN SELECT RAISE(ABORT,'Posted journal entries are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS posted_journal_lines_no_update
+BEFORE UPDATE ON journal_lines
+WHEN (SELECT status FROM journal_entries WHERE id=OLD.journal_entry_id) IN ('posted','reversed')
+BEGIN SELECT RAISE(ABORT,'Posted journal entries are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS posted_journal_lines_no_delete
+BEFORE DELETE ON journal_lines
+WHEN (SELECT status FROM journal_entries WHERE id=OLD.journal_entry_id) IN ('posted','reversed')
+BEGIN SELECT RAISE(ABORT,'Posted journal entries are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS posted_journal_entry_no_edit
+BEFORE UPDATE OF entry_number,source_type,source_id,description,occurred_at ON journal_entries
+WHEN OLD.status IN ('posted','reversed')
+BEGIN SELECT RAISE(ABORT,'Posted journal entries are immutable'); END;
