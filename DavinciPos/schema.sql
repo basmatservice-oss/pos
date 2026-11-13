@@ -194,3 +194,14 @@ CREATE TRIGGER IF NOT EXISTS posted_journal_entry_no_edit
 BEFORE UPDATE OF entry_number,source_type,source_id,description,occurred_at ON journal_entries
 WHEN OLD.status IN ('posted','reversed')
 BEGIN SELECT RAISE(ABORT,'Posted journal entries are immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS journal_entry_status_transition_guard
+BEFORE UPDATE OF status ON journal_entries
+WHEN (OLD.status='posted' AND NEW.status NOT IN ('posted','reversed'))
+  OR (OLD.status='reversed' AND NEW.status!='reversed')
+  OR (OLD.status='draft' AND NEW.status NOT IN ('draft','posted'))
+BEGIN SELECT RAISE(ABORT,'Invalid journal entry status transition'); END;
+CREATE TRIGGER IF NOT EXISTS posted_journal_entry_no_delete
+BEFORE DELETE ON journal_entries
+WHEN OLD.status IN ('posted','reversed')
+BEGIN SELECT RAISE(ABORT,'Posted journal entries cannot be deleted'); END;
