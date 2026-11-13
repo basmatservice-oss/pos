@@ -10,6 +10,7 @@ export function acceptOfflineSale(args) {
   if(!setting('sync.offline_sales',true)) throw new Error('Offline sales synchronization is disabled by the server.');
   const device=db.prepare('SELECT id,branch_id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
   if(!device) throw new Error('Device is not registered to this user. Register this device before syncing.');
+  db.prepare('UPDATE devices SET last_seen_at=? WHERE id=?').run(new Date().toISOString(),deviceId);
   const prior=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=?').get(operationId);
   if(prior)return JSON.parse(prior.response);
   try {
@@ -30,7 +31,7 @@ export function acceptOfflineSale(args) {
     const existing=db.prepare('SELECT id FROM sync_conflicts WHERE operation_id=?').get(operationId);
     const conflictId=existing?.id||randomUUID();
     if(!existing)db.prepare(`INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,reason,status,created_at)
-      VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,cashierId:userId,allowCredit:Boolean(allowCredit)}),error.message,new Date().toISOString());
+      VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)}),error.message,new Date().toISOString());
     return {status:'conflict',conflictId,reason:'Insufficient stock on the authoritative server. Sale is held for review.'};
   }
   });
