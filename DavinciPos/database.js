@@ -40,6 +40,10 @@ export function initializeDatabase() {
     setting.run('currency.code','SDG',now);
   });
   seed();
+  const productColumns = db.prepare('PRAGMA table_info(products)').all().map(column => column.name);
+  if (!productColumns.includes('tax_exempt')) db.exec('ALTER TABLE products ADD COLUMN tax_exempt INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1))');
+  const serviceColumns = db.prepare('PRAGMA table_info(services)').all().map(column => column.name);
+  if (!serviceColumns.includes('tax_exempt')) db.exec('ALTER TABLE services ADD COLUMN tax_exempt INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1))');
   const salesColumns = db.prepare("PRAGMA table_info(sales)").all().map(column => column.name);
   if (!salesColumns.includes('tax_enabled')) db.exec('ALTER TABLE sales ADD COLUMN tax_enabled INTEGER NOT NULL DEFAULT 1 CHECK(tax_enabled IN (0,1))');
   if (!salesColumns.includes('tax_price_mode')) db.exec("ALTER TABLE sales ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
