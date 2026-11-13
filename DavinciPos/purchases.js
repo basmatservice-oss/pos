@@ -32,7 +32,7 @@ export function receivePurchase(input) {
   return inTransaction(()=>{
     if(db.prepare('SELECT id FROM purchases WHERE id=?').get(id)) return {id,duplicate:true};
     const invoice=input.invoiceNumber||`P-${Date.now()}-${id.slice(0,6).toUpperCase()}`;
-    db.prepare(`INSERT INTO purchases(id,invoice_number,supplier_id,branch_id,status,subtotal_minor,discount_minor,total_minor,currency_code,occurred_at,created_at,tax_minor,tax_treatment)
+    db.prepare(`INSERT INTO purchases(id,invoice_number,supplier_id,branch_id,status,subtotal_minor,discount_minor,total_minor,currency_code,occurred_at,created_at,tax_minor,tax_treatment,tax_price_mode)
       VALUES(?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)`).run(id,invoice,input.supplierId||null,branchId,subtotal,0,total,currency,now,new Date().toISOString(),taxTotal,taxTreatment,defaultMode);
     let inventoryValueMinor=0;
     const insert=db.prepare('INSERT INTO purchase_lines(id,purchase_id,product_id,quantity,unit_name,base_quantity,unit_cost_minor,discount_minor,line_total_minor,tax_minor,tax_rate_bps,tax_profile_id,tax_price_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
