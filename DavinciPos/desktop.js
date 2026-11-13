@@ -1,5 +1,5 @@
-import { api,ensureSession,renderSettings,renderUsers } from './client.js';
-const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',inventory:'المخزون والمنتجات',purchases:'المشتريات',customers:'العملاء',accounting:'المحاسبة',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات'};
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts } from './client.js';
+const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',inventory:'المخزون والمنتجات',purchases:'المشتريات',customers:'العملاء',accounting:'المحاسبة',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
 async function loadSummary(){
@@ -12,6 +12,7 @@ async function navigate(key){
  if(key==='dashboard'){location.reload();return;}
  if(key==='settings'){await renderSettings(view);return;}
  if(key==='users'){await renderUsers(view);return;}
+ if(key==='conflicts'){await renderConflicts(view);return;}
  view.innerHTML=`<div class="panel"><span class="eyebrow">DavinciPos / ${labels[key]}</span><h2>${labels[key]}</h2><p style="color:#7d899b">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></div>`;
 }
 document.querySelector('#desktop-nav').addEventListener('click',event=>{const button=event.target.closest('[data-view]');if(button)navigate(button.dataset.view);});
