@@ -11,7 +11,7 @@ Every authored project file is placed directly in this directory. There are no n
 - `server.js`: HTTP API and application bootstrap.
 - `database.js` / `schema.sql`: SQLite persistence and schema.
 - `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules.
-- `sync.js` / `offline.js`: local outbox primitives, idempotent server reconciliation, and stock-conflict review.
+- `sync.js` / `offline.js`: outbox primitives, idempotent server reconciliation, and stock-conflict review. The client-side durable SQLite outbox adapters are still pending.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, categories, customers, suppliers, and invoice lists.
 - The desktop and mobile interfaces now include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, trial balance, central settings, user roles and sync conflict review.
