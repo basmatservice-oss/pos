@@ -13,6 +13,6 @@ export function getTaxProfile(profileId=null) {
   const row=profileId
     ? db.prepare('SELECT * FROM tax_profiles WHERE id=? AND is_active=1').get(profileId)
     : db.prepare('SELECT * FROM tax_profiles WHERE is_default=1 AND is_active=1 ORDER BY name LIMIT 1').get();
-  if(!row) return {rateBps:0,priceMode:'exclusive'};
+  if(!row&&profileId) throw new Error('Tax profile not found or inactive.');\n  if(!row) return {rateBps:0,priceMode:'exclusive'};
   return {id:row.id,name:row.name,rateBps:row.rate_bps,priceMode:row.price_mode};
 }
