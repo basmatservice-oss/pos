@@ -19,6 +19,11 @@ export function initializeSecurity() {
     insert.run(role,role+' role');
     if(!existed) for(const permission of permissions) grant.run(role,permission);
   }
+  const permissionVersion=db.prepare("SELECT value FROM app_settings WHERE key='security.permissions.version'").get()?.value;
+  if(permissionVersion!=='2') {
+    grant.run('manager','sales.credit');
+    db.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES('security.permissions.version','2',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(new Date().toISOString());
+  }
 }
 function passwordHash(password,salt) {
   return scrypt(password,salt,64).then(key=>key.toString('hex'));
