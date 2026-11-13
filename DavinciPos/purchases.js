@@ -19,7 +19,7 @@ function preparePurchase(input) {
     const product=db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.productId);
     let profile=line.taxRateBps===undefined?(product?.tax_rate_bps>0?{rateBps:product.tax_rate_bps,priceMode:defaultMode}:getTaxProfile()):{rateBps:Number(line.taxRateBps||0),priceMode:defaultMode};
     if(line.taxProfileId){if(!cache.has(line.taxProfileId))cache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));profile=cache.get(line.taxProfileId);}
-    const tax=calculateLineTax({unitPriceMinor,quantity:baseQuantity,discountMinor,rateBps:taxTreatment==='disabled'?0:profile.rateBps,priceMode:profile.priceMode,enabled:taxEnabled&&taxTreatment!=='disabled'});
+    const tax=calculateLineTax({unitPriceMinor:unitCostMinor,quantity:baseQuantity,discountMinor,rateBps:taxTreatment==='disabled'?0:profile.rateBps,priceMode:profile.priceMode,enabled:taxEnabled&&taxTreatment!=='disabled'});
     const inventoryCost=taxTreatment==='non_recoverable'?tax.totalMinor:tax.netMinor;
     return {...line,quantity,baseQuantity,unitCostMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,
       taxPriceMode:profile.priceMode||defaultMode,netMinor:tax.netMinor,taxMinor:tax.taxMinor,totalMinor:tax.totalMinor,inventoryUnitCostMinor:Math.round(inventoryCost/baseQuantity)};
