@@ -1,4 +1,4 @@
-import { api,ensureSession,renderSettings,renderUsers,renderConflicts,logout } from './client.js';
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,logout } from './client.js';
 const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',inventory:'المخزون والمنتجات',purchases:'المشتريات',customers:'العملاء',accounting:'المحاسبة',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
@@ -13,6 +13,11 @@ async function navigate(key){
  if(key==='settings'){await renderSettings(view);return;}
  if(key==='users'){await renderUsers(view);return;}
  if(key==='conflicts'){await renderConflicts(view);return;}
+ if(key==='inventory'){await renderInventory(view);return;}
+ if(key==='sales'||key==='purchases'){await renderInvoices(view,key);return;}
+ if(key==='products'){await renderProducts(view);return;}
+ if(key==='customers'||key==='suppliers'){await renderPeople(view,key);return;}
+ if(key==='accounting'){await renderAccounting(view);return;}
  view.innerHTML=`<div class="panel"><span class="eyebrow">DavinciPos / ${labels[key]}</span><h2>${labels[key]}</h2><p style="color:#7d899b">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></div>`;
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-logout]'))logout();});
