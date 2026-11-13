@@ -13,6 +13,7 @@ const {updateSettings}=await import('./settings.js');
 const {receivePurchase,quotePurchase}=await import('./purchases.js');
 const {checkoutSale,quoteSale}=await import('./sales.js');
 const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
+const {getSimpleReport}=await import('./reports.js');
 const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
 const {createUser}=await import('./security.js');
 initializeDatabase();
@@ -158,3 +159,14 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   assert.equal(resolved.status,'rejected');
 });
 test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
+
+
+test('simple store report validates date ranges and returns summary fields only',()=>{
+  const report=getSimpleReport({from:'2099-01-01',to:'2099-01-31'});
+  assert.equal(report.salesCount,0);
+  assert.equal(report.purchasesCount,0);
+  assert.equal(report.grossProfitMinor,0);
+  assert.deepEqual(report.topProducts,[]);
+  assert.throws(()=>getSimpleReport({from:'not-a-date'}),/Invalid report date/);
+  assert.throws(()=>getSimpleReport({from:'2026-12-02',to:'2026-12-01'}),/Start date must be before end date/);
+});
