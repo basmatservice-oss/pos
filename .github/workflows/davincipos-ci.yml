@@ -9,6 +9,9 @@ on:
     paths:
       - 'DavinciPos/**'
       - '.github/workflows/davincipos-ci.yml'
+concurrency:
+  group: davincipos-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
