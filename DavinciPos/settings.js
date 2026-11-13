@@ -27,7 +27,9 @@ function normalize(def,value,key) {
     return value;
   }
   if(typeof value!=='string'||!value.trim()||value.length>120) throw new Error(`Invalid value for setting ${key}.`);
-  return value.trim();
+  const normalized=value.trim();
+  if(key==='currency.code'&&!/^[A-Z]{3}$/.test(normalized)) throw new Error('Currency code must be a three-letter uppercase ISO code.');
+  return normalized;
 }
 export function getSettings({includeDisabled=true}={}) {
   const rows=db.prepare('SELECT key,value,updated_at FROM app_settings').all();
