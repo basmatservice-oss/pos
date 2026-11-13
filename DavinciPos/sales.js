@@ -34,7 +34,7 @@ export function checkoutSale(input) {
     } else profile={rateBps:Number(line.taxRateBps||0),priceMode};
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode});
     const baseQuantity=Number(line.baseQuantity??quantity);
-    if(!Number.isFinite(baseQuantity)||baseQuantity<0) throw new Error('Invalid base unit quantity.');
+    if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0)) throw new Error('Invalid base unit quantity.');
     return {...line,quantity,baseQuantity,unitPriceMinor,discountMinor,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
   });
   const subtotal=lines.reduce((sum,line)=>sum+line.netMinor,0);
