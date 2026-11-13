@@ -86,3 +86,14 @@ export function getProductCostPreview(productId,branchId=null) {
   return {quantity:getStockOnHand(productId,branchId),inventoryValueMinor:getInventoryValue(productId,branchId),
     weightedAverageUnitCostMinor:getWeightedAverageCost(productId,branchId)};
 }
+
+export function configureInventoryCostMethod(method) {
+  if(!['weighted','fifo'].includes(method)) throw new Error('Cost method must be weighted or fifo.');
+  const current=db.prepare("SELECT value FROM app_settings WHERE key='inventory.cost_method'").get()?.value||'weighted';
+  if(current===method) return {method,changed:false};
+  const history=db.prepare('SELECT COUNT(*) AS count FROM stock_movements').get().count;
+  if(history>0) throw new Error('Cost method is locked after inventory movements exist. Use a controlled inventory revaluation/migration to change it safely.');
+  db.prepare(`INSERT INTO app_settings(key,value,updated_at) VALUES('inventory.cost_method',?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).run(method,new Date().toISOString());
+  return {method,changed:true};
+}
