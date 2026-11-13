@@ -17,7 +17,8 @@ function validateMoney(value,label) {
 export function checkoutSale(input) {
   if(!input||!Array.isArray(input.lines)||input.lines.length===0) throw new Error('Sale must contain at least one line.');
   const saleId=input.id||randomUUID(), now=input.occurredAt||new Date().toISOString();
-  const branchId=input.branchId||getDefaultBranchId();\n  const currencyCode=setting('currency.code','SDG');
+  const branchId=input.branchId||getDefaultBranchId();
+  const currencyCode=setting('currency.code','SDG');
   const priceMode=setting('tax.price_mode','exclusive');
   const costMethod=setting('inventory.cost_method','weighted');
   if(input.currencyCode&&input.currencyCode!==currencyCode) throw new Error('Sale currency does not match the configured base currency.');
@@ -58,7 +59,7 @@ export function checkoutSale(input) {
     for(const line of lines) {
       let lineCost=0;
       if(line.lineType!=='service'&&line.trackStock!==false) {
-        const issue=issueStock({productId:line.itemId,branchId:input.branchId||null,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});
+        const issue=issueStock({productId:line.itemId,branchId:branchId,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});
         lineCost=issue.costTotalMinor;
       }
       costTotal+=lineCost;
