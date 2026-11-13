@@ -230,5 +230,3 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','rejected')),
   created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT REFERENCES users(id)
 );
-
-ALTER TABLE purchase_lines ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0);
