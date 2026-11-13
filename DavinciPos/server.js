@@ -6,7 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase, db, getDefaultBranchId } from './database.js';
 import { checkoutSale, quoteSale } from './sales.js';
-import { receivePurchase } from './purchases.js';
+import { receivePurchase, quotePurchase } from './purchases.js';
 import { getTrialBalance, reverseJournalEntry } from './accounting.js';
 import { getSettings, updateSettings } from './settings.js';
 import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole } from './security.js';
@@ -141,6 +141,7 @@ app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
   try{const result=checkoutSale({...req.body,cashierId:req.user.id,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
 }));
+app.post('/api/purchases/quote',...api('purchases.create',(req,res)=>{try{res.json({data:quotePurchase({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/purchases/receive',...api('purchases.create',(req,res)=>{
   try{const result=receivePurchase({...req.body,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to receive purchase.'});}
