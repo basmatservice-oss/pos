@@ -23,7 +23,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:3000/desktop` for local development. The server binds to `127.0.0.1` by default. LAN access is intentionally not enabled until authentication, authorization and encrypted transport are implemented.
+Open `http://localhost:3000/desktop` for local development. The server binds to `127.0.0.1` by default. LAN access requires TLS certificate/key configuration plus authenticated sessions and role permissions. Never expose the server over plain HTTP on a network.
 
 ## Architecture decisions
 
@@ -39,6 +39,6 @@ Amounts are stored as integer minor units (for example, cents/piasters) to avoid
 - The active costing method is selected before stock activity; changing it after movements exist is blocked until a controlled revaluation workflow is implemented.
 - Sales and purchase receipts are executed in SQLite transactions and generate journal entries.
 - Sales tax can be calculated inclusive or exclusive, with reusable tax profiles.
-- Purchase invoice tax treatment is intentionally not assumed until the business policy is confirmed.
+- Purchase tax is configurable centrally: disabled, recoverable input tax, or non-recoverable tax capitalized into inventory cost.
 - Posted journal entries are balanced, protected against line edits/deletion, and corrected through reversing entries.
 - `npm test` runs focused accounting, inventory, tax and purchase-to-sale integration tests. `npm run check` runs JavaScript syntax checks.
