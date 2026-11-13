@@ -67,7 +67,7 @@ app.put('/api/settings',...api('settings.update',(req,res)=>{
 app.get('/api/users',...api('users.read',(_req,res)=>res.json({data:listUsers()})));
 app.post('/api/users',...api('users.manage',asyncRoute(async(req,res)=>{
   const user=await createUser(req.body||{},req.user.id);res.status(201).json({data:user});
-}));
+})));
 app.patch('/api/users/:id',...api('users.manage',(req,res)=>{
   try{setUserRole(req.params.id,req.body?.role,req.body?.active!==false,req.user.id);res.json({data:{updated:true}});}
   catch(error){res.status(400).json({error:error.message});}
@@ -127,7 +127,7 @@ app.get('/api/summary',...api('dashboard.read',(_req,res)=>{
 
 app.get('/desktop',(_req,res)=>res.sendFile(path.join(ROOT,'desktop.html')));
 app.get('/mobile',(_req,res)=>res.sendFile(path.join(ROOT,'mobile.html')));
-const publicAssets=new Set(['desktop.css','desktop.js','mobile.css','mobile.js']);
+const publicAssets=new Set(['desktop.css','desktop.js','mobile.css','mobile.js','client.js']);
 app.get('/assets/:asset',(req,res)=>{if(!publicAssets.has(req.params.asset))return res.sendStatus(404);res.sendFile(path.join(ROOT,req.params.asset));});
 app.use((error,_req,res,_next)=>{res.status(500).json({error:'Internal server error.'});});
 
