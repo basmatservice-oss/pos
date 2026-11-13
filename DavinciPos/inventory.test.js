@@ -7,7 +7,7 @@ import path from 'node:path';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-test-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {db,initializeDatabase}=await import('./database.js');
-const {receiveStock,issueStock,getStockOnHand,getInventoryValue}=await import('./inventory.js');
+const {receiveStock,issueStock,getStockOnHand,getInventoryValue,adjustInventory}=await import('./inventory.js');
 const {calculateLineTax,saveTaxProfile}=await import('./tax.js');
 const {updateSettings}=await import('./settings.js');
 const {receivePurchase}=await import('./purchases.js');
@@ -107,6 +107,18 @@ test('disabling tax removes purchase tax without changing server accounting bala
   const purchase=receivePurchase({id:'disabled-tax-purchase',lines:[{productId:'disabled-tax-product',quantity:1,baseQuantity:1,unitCostMinor:1000}]});
   assert.equal(purchase.taxMinor,0);
   assert.equal(purchase.totalMinor,1000);
+});
+test('inventory adjustments update stock and generate balanced journal entries',()=>{
+  product('adjustment-product');
+  const added=adjustInventory({id:'adjustment-add',productId:'adjustment-product',branchId:'branch-main',quantityDelta:5,unitCostMinor:100,reason:'Opening count'});
+  assert.equal(added.duplicate,false);
+  assert.equal(getStockOnHand('adjustment-product','branch-main'),5);
+  const removed=adjustInventory({id:'adjustment-remove',productId:'adjustment-product',branchId:'branch-main',quantityDelta:-2,reason:'Damaged goods'});
+  assert.equal(removed.costTotalMinor,200);
+  assert.equal(getStockOnHand('adjustment-product','branch-main'),3);
+  assert.equal(adjustInventory({id:'adjustment-remove',productId:'adjustment-product',branchId:'branch-main',quantityDelta:-2}).duplicate,true);
+  const rows=getTrialBalance();
+  assert.equal(rows.reduce((sum,row)=>sum+row.debitMinor,0),rows.reduce((sum,row)=>sum+row.creditMinor,0));
 });
 test('offline sale with insufficient authoritative stock is held as a conflict',async()=>{
   product('offline-conflict-product');
