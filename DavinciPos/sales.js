@@ -3,7 +3,7 @@ import { db, inTransaction } from './database.js';
 import { postJournalEntry } from './accounting.js';
 import { recordStockMovement, getStockOnHand } from './inventory.js';
 
-const paymentAccount = { cash:'acc-cash', card:'acc-card', bank:'acc-bank', wallet:'acc-wallet', other:'acc-cash' };
+const paymentAccount = { cash:'acc-cash', card:'acc-card', bank:'acc-bank', wallet:'acc-wallet', other:'acc-other-clearing' };
 
 export function checkoutSale(input) {
   if (!input || !Array.isArray(input.lines) || input.lines.length === 0) throw new Error('Sale must contain at least one line.');
@@ -48,7 +48,7 @@ export function checkoutSale(input) {
     for(const p of payments) paidByMethod.set(p.method,(paidByMethod.get(p.method)||0)+Number(p.amountMinor));
     for(const [method,amount] of paidByMethod) journalLines.push({accountId:paymentAccount[method],debitMinor:amount});
     if(credit>0) journalLines.push({accountId:'acc-ar',debitMinor:credit});
-    if(total>0) journalLines.push({accountId:'acc-sales',creditMinor:total});
+    const revenue = subtotal - discount;\n    if(revenue>0) journalLines.push({accountId:'acc-sales',creditMinor:revenue});\n    if(tax>0) journalLines.push({accountId:'acc-tax',creditMinor:tax});
     if(costTotal>0){journalLines.push({accountId:'acc-cogs',debitMinor:costTotal});journalLines.push({accountId:'acc-inventory',creditMinor:costTotal});}
     if(journalLines.length) postJournalEntry({sourceType:'sale',sourceId:saleId,description:`Sale ${receipt}`,occurredAt:now,lines:journalLines});
     return {id:saleId,receiptNumber:receipt,totalMinor:total,duplicate:false};
