@@ -8,9 +8,11 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check database.js && node --check accounting.js && node --check inventory.js && node --check sales.js && node --check sync.js && node --check desktop.js && node --check mobile.js"
+    "check": "node --check server.js && node --check database.js && node --check accounting.js && node --check inventory.js && node --check sales.js && node --check sync.js && node --check tax.js && node --check purchases.js && node --check desktop.js && node --check mobile.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "express": "^5.1.0"
