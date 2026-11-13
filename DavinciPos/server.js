@@ -5,7 +5,7 @@ import https from 'node:https';
 import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase, db, getDefaultBranchId } from './database.js';
-import { checkoutSale } from './sales.js';
+import { checkoutSale, quoteSale } from './sales.js';
 import { receivePurchase } from './purchases.js';
 import { getTrialBalance, reverseJournalEntry } from './accounting.js';
 import { getSettings, updateSettings } from './settings.js';
@@ -136,6 +136,7 @@ app.post('/api/suppliers',...api('suppliers.write',(req,res)=>{try{res.status(20
 app.get('/api/sales',...api('sales.read',(req,res)=>res.json({data:listSales({limit:req.query.limit})})));
 app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listPurchases({limit:req.query.limit})})));
 app.post('/api/inventory/adjustments',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:adjustInventory({...req.body,branchId:getDefaultBranchId(),userId:req.user.id})});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/sales/quote',...api('sales.create',(req,res)=>{try{res.json({data:quoteSale({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
   try{const result=checkoutSale({...req.body,cashierId:req.user.id,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
