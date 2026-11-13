@@ -20,7 +20,7 @@ export function receivePurchase(input) {
     if(line.taxProfileId){if(!cache.has(line.taxProfileId))cache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));profile=cache.get(line.taxProfileId);}
     const tax=calculateLineTax({unitPriceMinor:unitCostMinor,quantity:baseQuantity,discountMinor,rateBps:taxTreatment==='disabled'?0:profile.rateBps,priceMode:profile.priceMode,enabled:taxEnabled&&taxTreatment!=='disabled'});
     const inventoryCost=taxTreatment==='non_recoverable'?tax.totalMinor:tax.netMinor;
-    return {...line,quantity,baseQuantity,unitCostMinor,discountMinor,netMinor:tax.netMinor,taxMinor:tax.taxMinor,totalMinor:tax.totalMinor,
+    return {...line,quantity,baseQuantity,unitCostMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,taxPriceMode:profile.priceMode||defaultMode,netMinor:tax.netMinor,taxMinor:tax.taxMinor,totalMinor:tax.totalMinor,
       inventoryUnitCostMinor:Math.round(inventoryCost/baseQuantity)};
   });
   const subtotal=lines.reduce((sum,line)=>sum+line.netMinor,0),taxTotal=lines.reduce((sum,line)=>sum+line.taxMinor,0);
@@ -33,11 +33,11 @@ export function receivePurchase(input) {
     if(db.prepare('SELECT id FROM purchases WHERE id=?').get(id)) return {id,duplicate:true};
     const invoice=input.invoiceNumber||`P-${Date.now()}-${id.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO purchases(id,invoice_number,supplier_id,branch_id,status,subtotal_minor,discount_minor,total_minor,currency_code,occurred_at,created_at,tax_minor,tax_treatment)
-      VALUES(?,?,?,?,'posted',?,?,?,?,?,?,?,?)`).run(id,invoice,input.supplierId||null,branchId,subtotal,0,total,currency,now,new Date().toISOString(),taxTotal,taxTreatment);
+      VALUES(?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)`).run(id,invoice,input.supplierId||null,branchId,subtotal,0,total,currency,now,new Date().toISOString(),taxTotal,taxTreatment,defaultMode);
     let inventoryValueMinor=0;
-    const insert=db.prepare('INSERT INTO purchase_lines(id,purchase_id,product_id,quantity,unit_name,base_quantity,unit_cost_minor,discount_minor,line_total_minor,tax_minor) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    const insert=db.prepare('INSERT INTO purchase_lines(id,purchase_id,product_id,quantity,unit_name,base_quantity,unit_cost_minor,discount_minor,line_total_minor,tax_minor,tax_rate_bps,tax_profile_id,tax_price_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
     for(const line of lines){
-      insert.run(randomUUID(),id,line.productId,line.quantity,line.unitName||'pc',line.baseQuantity,line.inventoryUnitCostMinor,line.discountMinor,line.netMinor,line.taxMinor);
+      insert.run(randomUUID(),id,line.productId,line.quantity,line.unitName||'pc',line.baseQuantity,line.inventoryUnitCostMinor,line.discountMinor,line.netMinor,line.taxMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
       const received=receiveStock({productId:line.productId,branchId,sourceType:'purchase',sourceId:id,quantity:line.baseQuantity,unitCostMinor:line.inventoryUnitCostMinor,occurredAt:now});
       inventoryValueMinor+=received.costTotalMinor;
     }
