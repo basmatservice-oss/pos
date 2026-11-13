@@ -29,7 +29,11 @@ export function checkoutSale(input) {
     if(line.taxProfileId) {
       if(!profileCache.has(line.taxProfileId)) profileCache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));
       profile=profileCache.get(line.taxProfileId);
-    } else profile=line.taxRateBps===undefined?getTaxProfile():{rateBps:Number(line.taxRateBps||0),priceMode};
+    } else if(line.taxRateBps!==undefined) profile={rateBps:Number(line.taxRateBps||0),priceMode};
+    else {
+      const item=line.lineType==='service'?db.prepare('SELECT tax_rate_bps FROM services WHERE id=?').get(line.itemId):db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.itemId);
+      profile=item?.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
+    }
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=Number(line.baseQuantity??quantity);
     if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0)) throw new Error('Invalid base unit quantity.');
