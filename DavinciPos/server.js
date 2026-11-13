@@ -56,6 +56,7 @@ app.get('/assets/:asset', (req,res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-app.listen(port, '0.0.0.0', () => {
-  console.log(`DavinciPos listening on http://localhost:${port}`);
+const host = process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => {
+  console.log(`DavinciPos listening on http://${host}:${port}`);
 });
