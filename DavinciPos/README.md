@@ -32,7 +32,7 @@ Before first startup, set a one-time `DAVINCIPOS_BOOTSTRAP_TOKEN` environment va
 
 The server-side SQLite database is the authoritative store. Business rules are shared by both interfaces. The desktop and mobile interfaces are intentionally separate presentations.
 
-The first milestone establishes the schema, API boundary, and domain modules. It is not yet a production-ready offline client: Electron will use the native SQLite adapter, and the Android Capacitor build will use a Capacitor SQLite adapter. Both adapters must implement the same repository contract before offline operation is enabled on those platforms.
+The current milestone provides server-side offline-sale reconciliation and conflict handling, but does not yet include the finished local SQLite adapters or a complete offline-capable client UI. Electron will use a native SQLite adapter, and Android Capacitor will use a Capacitor SQLite adapter. Both adapters must implement the same repository contract and durable outbox before true device-side offline operation is enabled.
 
 Amounts are stored as integer minor units (for example, cents/piasters) to avoid floating-point accounting errors. Every posted journal entry must balance. Posted financial records are corrected by reversal, not destructive deletion.
 
