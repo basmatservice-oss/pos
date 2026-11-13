@@ -85,11 +85,16 @@ export function listUsers() {
 export function setUserRole(userId,role,active=true,actorUserId=null) {
   if(!ROLE_PERMISSIONS[role]) throw new Error('Invalid role.');
   if(role==='owner'&&actorUserId&&db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId)?.role!=='owner') throw new Error('Only an owner can assign the owner role.');
-  const target=db.prepare('SELECT role,is_active FROM users WHERE id=?').get(userId);
-  if(!target) throw new Error('User not found.');
-  if(target.role==='owner'&&(!active||role!=='owner')) { const owners=db.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner' AND is_active=1").get().count; if(owners<=1) throw new Error('The last active owner cannot be disabled or demoted.'); }
-  if(target.role==='owner'&&actorUserId&&db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId)?.role!=='owner') throw new Error('Only an owner can modify an owner account.');
   inTransaction(()=>{
+    const target=db.prepare('SELECT role,is_active FROM users WHERE id=?').get(userId);
+    if(!target) throw new Error('User not found.');
+    const actorRole=actorUserId?db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId)?.role:null;
+    if(role==='owner'&&actorUserId&&actorRole!=='owner') throw new Error('Only an owner can assign the owner role.');
+    if(target.role==='owner'&&actorUserId&&actorRole!=='owner') throw new Error('Only an owner can modify an owner account.');
+    if(target.role==='owner'&&(!active||role!=='owner')) {
+      const owners=db.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner' AND is_active=1").get().count;
+      if(owners<=1) throw new Error('The last active owner cannot be disabled or demoted.');
+    }
     db.prepare('UPDATE users SET role=?,is_active=?,updated_at=? WHERE id=?').run(role,active?1:0,new Date().toISOString(),userId);
     db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)')
       .run(randomUUID(),actorUserId,'user.update','user',userId,JSON.stringify({role,active}),new Date().toISOString());
