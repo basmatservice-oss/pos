@@ -16,7 +16,8 @@ function preparePurchase(input) {
   const lines=input.lines.map(line=>{
     const quantity=Number(line.quantity),baseQuantity=Number(line.baseQuantity??quantity),unitCostMinor=Number(line.unitCostMinor),discountMinor=Number(line.discountMinor||0);
     if(!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(baseQuantity)||baseQuantity<=0||!Number.isSafeInteger(unitCostMinor)||unitCostMinor<0||!Number.isSafeInteger(discountMinor)||discountMinor<0)throw new Error('Invalid purchase line.');
-    const product=db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.productId);
+    const product=db.prepare('SELECT tax_rate_bps,track_stock FROM products WHERE id=?').get(line.productId);
+    if(!product||!product.track_stock)throw new Error('Purchase line must reference an existing stock-tracked product.');
     let profile=line.taxRateBps===undefined?(product?.tax_rate_bps>0?{rateBps:product.tax_rate_bps,priceMode:defaultMode}:getTaxProfile()):{rateBps:Number(line.taxRateBps||0),priceMode:defaultMode};
     if(line.taxProfileId){if(!cache.has(line.taxProfileId))cache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));profile=cache.get(line.taxProfileId);}
     const tax=calculateLineTax({unitPriceMinor:unitCostMinor,quantity:baseQuantity,discountMinor,rateBps:taxTreatment==='disabled'?0:profile.rateBps,priceMode:profile.priceMode,enabled:taxEnabled&&taxTreatment!=='disabled'});
