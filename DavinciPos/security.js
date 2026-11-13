@@ -30,10 +30,12 @@ export async function createUser({username,password,displayName,role='cashier'},
   if(!ROLE_PERMISSIONS[role]) throw new Error('Invalid role.');
   if(role==='owner'&&actorUserId) { const actor=db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId); if(actor?.role!=='owner') throw new Error('Only an owner can create another owner.'); }
   const salt=randomBytes(16).toString('hex'),hash=await passwordHash(password,salt),id=randomUUID(),now=new Date().toISOString();
-  db.prepare('INSERT INTO users(id,username,password_hash,display_name,role,is_active,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)')
-    .run(id,username.toLowerCase(),salt+':'+hash,displayName.trim(),role,now,now);
-  db.prepare("INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,'user.create','user',?,?,?)")
-    .run(randomUUID(),actorUserId,id,JSON.stringify({username,role}),now);
+  inTransaction(()=>{
+    db.prepare('INSERT INTO users(id,username,password_hash,display_name,role,is_active,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)')
+      .run(id,username.toLowerCase(),salt+':'+hash,displayName.trim(),role,now,now);
+    db.prepare("INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,'user.create','user',?,?,?)")
+      .run(randomUUID(),actorUserId,id,JSON.stringify({username,role}),now);
+  });
   return {id,username:username.toLowerCase(),displayName:displayName.trim(),role};
 }
 export async function verifyLogin(username,password) {
@@ -46,6 +48,7 @@ export async function verifyLogin(username,password) {
   if(a.length!==b.length||!timingSafeEqual(a,b)) return null;
   const token=randomBytes(32).toString('base64url'),tokenHash=createHash('sha256').update(token).digest('hex');
   const now=new Date(),expires=new Date(now.getTime()+SESSION_HOURS*3600000);
+  db.prepare('DELETE FROM user_sessions WHERE expires_at<=?').run(now.toISOString());
   db.prepare('INSERT INTO user_sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)')
     .run(randomUUID(),user.id,tokenHash,expires.toISOString(),now.toISOString());
   return {token,expiresAt:expires.toISOString(),user:{id:user.id,username:user.username,displayName:user.display_name,role:user.role}};
@@ -85,10 +88,11 @@ export function setUserRole(userId,role,active=true,actorUserId=null) {
   const target=db.prepare('SELECT role,is_active FROM users WHERE id=?').get(userId);
   if(!target) throw new Error('User not found.');
   if(target.role==='owner'&&(!active||role!=='owner')) { const owners=db.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner' AND is_active=1").get().count; if(owners<=1) throw new Error('The last active owner cannot be disabled or demoted.'); }
-  const result=db.prepare('UPDATE users SET role=?,is_active=?,updated_at=? WHERE id=?')
-    .run(role,active?1:0,new Date().toISOString(),userId);
-  if(!result.changes) throw new Error('User not found.');
-  db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)')
-    .run(randomUUID(),actorUserId,'user.update','user',userId,JSON.stringify({role,active}),new Date().toISOString());
+  if(target.role==='owner'&&actorUserId&&db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId)?.role!=='owner') throw new Error('Only an owner can modify an owner account.');
+  inTransaction(()=>{
+    db.prepare('UPDATE users SET role=?,is_active=?,updated_at=? WHERE id=?').run(role,active?1:0,new Date().toISOString(),userId);
+    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)')
+      .run(randomUUID(),actorUserId,'user.update','user',userId,JSON.stringify({role,active}),new Date().toISOString());
+  });
   return true;
 }
