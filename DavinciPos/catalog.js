@@ -7,8 +7,9 @@ export function listProducts(branchId) {
   return db.prepare(`SELECT p.id,p.sku,p.barcode,p.name,p.category_id AS categoryId,p.base_unit_id AS baseUnitId,
     p.cost_minor AS costMinor,p.sale_price_minor AS salePriceMinor,p.tax_rate_bps AS taxRateBps,p.track_stock AS trackStock,
     p.min_stock AS minStock,p.is_active AS isActive,c.name AS categoryName,u.symbol AS baseUnitSymbol,
-    COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS stockOnHand
-    FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.is_active=1 ORDER BY p.name`).all(branchId);
+    COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS stockOnHand,
+    COALESCE((SELECT SUM(CASE WHEN sm.quantity_delta>0 THEN sm.cost_total_minor ELSE -sm.cost_total_minor END) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS inventoryValueMinor
+    FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.is_active=1 ORDER BY p.name`).all(branchId,branchId);
 }
 export function createProduct(input) {
   const name=requiredText(input?.name,'product name'),baseUnitId=requiredText(input?.baseUnitId,'base unit');
