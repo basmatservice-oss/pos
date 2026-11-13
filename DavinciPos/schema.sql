@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY, name TEXT NOT NULL,
   platform TEXT NOT NULL CHECK (platform IN ('desktop','android','web')),
-  branch_id TEXT REFERENCES branches(id), last_seen_at TEXT, created_at TEXT NOT NULL
+  branch_id TEXT REFERENCES branches(id), owner_user_id TEXT REFERENCES users(id), is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)), last_seen_at TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS categories (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#64748b',
