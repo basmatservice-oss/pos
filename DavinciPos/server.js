@@ -138,7 +138,7 @@ app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listP
 app.post('/api/inventory/adjustments',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:adjustInventory({...req.body,branchId:getDefaultBranchId(),userId:req.user.id})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/quote',...api('sales.create',(req,res)=>{try{res.json({data:quoteSale({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
-  try{const result=checkoutSale({...req.body,cashierId:req.user.id,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
+  try{const result=checkoutSale({...req.body,receiptNumber:undefined,deviceId:null,cashierId:req.user.id,branchId:getDefaultBranchId(),occurredAt:new Date().toISOString()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
 }));
 app.post('/api/purchases/quote',...api('purchases.create',(req,res)=>{try{res.json({data:quotePurchase({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
