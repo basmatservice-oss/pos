@@ -23,7 +23,7 @@ export function initializeDatabase() {
     ['acc-bank','1010','Bank','asset','debit'],['acc-wallet','1030','Wallet Clearing','asset','debit'],['acc-other-clearing','1040','Other Payment Clearing','asset','debit'],
     ['acc-ar','1100','Accounts Receivable','asset','debit'],['acc-inventory','1200','Inventory','asset','debit'],
     ['acc-ap','2000','Accounts Payable','liability','credit'],['acc-tax','2100','Tax Payable','liability','credit'],
-    ['acc-capital','3000','Owner Equity','equity','credit'],['acc-sales','4000','Sales Revenue','revenue','credit'],
+    ['acc-capital','3000','Owner Equity','equity','credit'],['acc-tax-input','2110','Recoverable Input Tax','asset','debit'],['acc-sales','4000','Sales Revenue','revenue','credit'],
     ['acc-sales-returns','4010','Sales Returns','revenue','debit'],['acc-cogs','5000','Cost of Goods Sold','expense','debit'],
     ['acc-expenses','6000','Operating Expenses','expense','debit'],['acc-purchase-variance','5010','Purchase Cost Rounding Variance','expense','debit']
   ];
@@ -36,6 +36,9 @@ export function initializeDatabase() {
     setting.run('currency.code','SDG',now);
   });
   seed();
+  const columns = db.prepare("PRAGMA table_info(purchases)").all().map(column => column.name);
+  if (!columns.includes('tax_minor')) db.exec("ALTER TABLE purchases ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)");
+  if (!columns.includes('tax_treatment')) db.exec("ALTER TABLE purchases ADD COLUMN tax_treatment TEXT NOT NULL DEFAULT 'disabled' CHECK(tax_treatment IN ('recoverable','non_recoverable','disabled'))");
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
 export function inTransaction(work) { return db.transaction(work).immediate(); }
