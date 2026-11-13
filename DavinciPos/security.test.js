@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-security-'));
+process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
+const {initializeDatabase,db}=await import('./database.js');
+const {initializeSecurity,createUser,verifyLogin,authenticateToken,hasPermission}=await import('./security.js');
+initializeDatabase();
+initializeSecurity();
+test('users authenticate with hashed passwords and role permissions',async()=>{
+ const user=await createUser({username:'cashier1',password:'a-very-long-secure-password',displayName:'Cashier',role:'cashier'});
+ const login=await verifyLogin('cashier1','a-very-long-secure-password');
+ assert.ok(login?.token);
+ const current=authenticateToken(login.token);
+ assert.equal(current.id,user.id);
+ assert.equal(hasPermission(current,'sales.create'),true);
+ assert.equal(hasPermission(current,'settings.update'),false);
+ assert.equal(await verifyLogin('cashier1','wrong-password'),null);
+});
+test('closes security test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
