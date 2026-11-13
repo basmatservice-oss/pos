@@ -16,9 +16,9 @@ export function getSimpleReport({from=null,to=null}={}) {
   const filter=where.join(' AND ');
   const sales=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales WHERE ${filter}`).get(...params);
   const purchases=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor FROM purchases WHERE ${filter}`).get(...params);
-  const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.cost_total_minor),0) AS grossProfitMinor
+  const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0) AS grossProfitMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
-  const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity) AS quantity,SUM(sl.line_total_minor) AS totalMinor
+  const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity) AS quantity,SUM(sl.line_total_minor-sl.tax_minor) AS totalMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}
     GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params);
   const lowStock=db.prepare(`SELECT p.id,p.name,COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock
