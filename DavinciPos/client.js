@@ -36,7 +36,6 @@ const settingFields=[
  ['tax.purchase_mode','معالجة ضريبة المشتريات','select',['recoverable','non_recoverable','disabled'],['قابلة للاسترداد','غير قابلة للاسترداد','تعطيل الضريبة على المشتريات']],
  ['tax.price_mode','طريقة عرض السعر','select',['exclusive','inclusive'],['السعر قبل الضريبة','السعر شامل الضريبة']],
  ['inventory.cost_method','طريقة تقييم المخزون','select',['weighted','fifo'],['متوسط التكلفة المرجح','الوارد أولاً يصرف أولاً']],
- ['inventory.allow_negative_stock','السماح بالمخزون السالب','checkbox'],
  ['sync.offline_sales','تفعيل مزامنة المبيعات غير المتصلة','checkbox'],
  ['sync.stock_conflict_policy','سياسة تعارض المخزون','select',['hold_for_review','reject_sale'],['تعليق العملية للمراجعة','رفض العملية']],
  ['currency.code','العملة الأساسية','text'],
