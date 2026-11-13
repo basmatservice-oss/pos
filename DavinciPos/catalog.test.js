@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-catalog-'));
+process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
+const {db,initializeDatabase}=await import('./database.js');
+const {createProduct,updateProduct,listProducts,createCategory,createCustomer,listCustomers,createSupplier,listSuppliers}=await import('./catalog.js');
+const {receiveStock}=await import('./inventory.js');
+initializeDatabase();
+test('catalog entities are validated and persisted',()=>{
+  const categoryId=createCategory({name:'Electronics'});
+  const productId=createProduct({name:'Router',sku:'RT-1',barcode:'10001',categoryId,baseUnitId:'unit-piece',salePriceMinor:2500,taxRateBps:1500});
+  assert.equal(listProducts('branch-main')[0].id,productId);
+  assert.equal(listProducts('branch-main')[0].taxRateBps,1500);
+  updateProduct(productId,{salePriceMinor:3000});
+  assert.equal(db.prepare('SELECT sale_price_minor FROM products WHERE id=?').get(productId).sale_price_minor,3000);
+  const customerId=createCustomer({name:'Customer A',phone:'123'});
+  const supplierId=createSupplier({name:'Supplier A',email:'supplier@example.test'});
+  assert.equal(listCustomers()[0].id,customerId);
+  assert.equal(listSuppliers()[0].id,supplierId);
+  receiveStock({productId,branchId:'branch-main',sourceType:'test',sourceId:'unit-lock',quantity:1,unitCostMinor:100});
+  assert.throws(()=>updateProduct(productId,{baseUnitId:'unit-kg'}),/cannot be changed after stock movements/);
+});
+test('closes isolated catalog database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
