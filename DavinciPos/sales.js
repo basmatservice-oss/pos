@@ -33,7 +33,7 @@ export function checkoutSale(input) {
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=Number(line.baseQuantity??quantity);
     if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0)) throw new Error('Invalid base unit quantity.');
-    return {...line,quantity,baseQuantity,unitPriceMinor,discountMinor,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
+    return {...line,quantity,baseQuantity,unitPriceMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,taxPriceMode:profile.priceMode||priceMode,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
   });
   const subtotal=lines.reduce((sum,line)=>sum+line.netMinor,0);
   const taxTotal=lines.reduce((sum,line)=>sum+line.taxMinor,0);
@@ -49,9 +49,9 @@ export function checkoutSale(input) {
     if(existing) return {id:saleId,duplicate:true};
     const receipt=input.receiptNumber||`S-${Date.now()}-${saleId.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO sales(id,receipt_number,branch_id,device_id,customer_id,cashier_id,status,subtotal_minor,discount_minor,tax_minor,total_minor,currency_code,occurred_at,created_at)
-      VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?)`).run(saleId,receipt,branchId,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,l)=>sum+l.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString());
-    const insertLine=db.prepare(`INSERT INTO sale_lines(id,sale_id,line_type,item_id,description,quantity,unit_name,base_quantity,unit_price_minor,unit_cost_minor,cost_total_minor,discount_minor,tax_minor,line_total_minor)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)`).run(saleId,receipt,branchId,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,l)=>sum+l.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString(),taxEnabled?1:0,priceMode);
+    const insertLine=db.prepare(`INSERT INTO sale_lines(id,sale_id,line_type,item_id,description,quantity,unit_name,base_quantity,unit_price_minor,unit_cost_minor,cost_total_minor,discount_minor,tax_minor,line_total_minor,tax_rate_bps,tax_profile_id,tax_price_mode)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const journalLines=[], paidByMethod=new Map();
     let costTotal=0;
     for(const line of lines) {
@@ -62,7 +62,7 @@ export function checkoutSale(input) {
       }
       costTotal+=lineCost;
       const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):0;
-      insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor);
+      insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
     }
     for(const p of payments) {
       db.prepare("INSERT INTO payments(id,sale_id,direction,method,amount_minor,reference,occurred_at) VALUES(?,?,'in',?,?,?,?)")
