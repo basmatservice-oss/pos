@@ -89,3 +89,20 @@ export async function renderUsers(root) {
     });
   }catch(error){root.querySelector('#users-content').textContent=error.message;}
 }
+
+export async function renderConflicts(root) {
+  root.innerHTML='<section class="panel"><h2>تعارضات مزامنة المخزون</h2><p>المبيعات التي وصلت من أجهزة غير متصلة ولم تعد كمياتها متاحة تُعلّق هنا. لا يتم اعتمادها تلقائياً على حساب رصيد مخزون سالب.</p><div id="conflict-list">جارٍ التحميل...</div></section>';
+  const load=async()=>{
+    try{
+      const conflicts=await api('/api/sync/conflicts'),list=root.querySelector('#conflict-list');
+      if(!conflicts.length){list.textContent='لا توجد تعارضات معلّقة.';return;}
+      list.innerHTML=conflicts.map(item=>`<article style="padding:14px;border-bottom:1px solid #e7eaf0"><b>عملية ${escapeHtml(item.entityId)}</b><p>${escapeHtml(item.reason)}</p><small>الجهاز: ${escapeHtml(item.deviceId)} · ${escapeHtml(item.createdAt)}</small><div style="display:flex;gap:8px;margin-top:10px"><button data-conflict="${escapeHtml(item.id)}" data-decision="retry">إعادة المحاولة</button><button data-conflict="${escapeHtml(item.id)}" data-decision="reject">رفض العملية</button></div></article>`).join('');
+      list.querySelectorAll('[data-conflict]').forEach(button=>button.addEventListener('click',async()=>{
+        button.disabled=true;
+        try{await api('/api/sync/conflicts/'+encodeURIComponent(button.dataset.conflict)+'/resolve',{method:'POST',body:{decision:button.dataset.decision}});await load();}
+        catch(error){button.disabled=false;list.insertAdjacentHTML('afterbegin',`<p role="alert">${escapeHtml(error.message)}</p>`);}
+      }));
+    }catch(error){root.querySelector('#conflict-list').textContent=error.message;}
+  };
+  await load();
+}
