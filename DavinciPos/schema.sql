@@ -205,3 +205,28 @@ CREATE TRIGGER IF NOT EXISTS posted_journal_entry_no_delete
 BEFORE DELETE ON journal_entries
 WHEN OLD.status IN ('posted','reversed')
 BEGIN SELECT RAISE(ABORT,'Posted journal entries cannot be deleted'); END;
+
+
+CREATE TABLE IF NOT EXISTS roles (
+  name TEXT PRIMARY KEY, description TEXT NOT NULL, is_system INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role_name TEXT NOT NULL REFERENCES roles(name) ON DELETE CASCADE,
+  permission TEXT NOT NULL, PRIMARY KEY(role_name,permission)
+);
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id), action TEXT NOT NULL,
+  entity_type TEXT NOT NULL, entity_id TEXT, details TEXT, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+  id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, device_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, payload TEXT NOT NULL,
+  reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','rejected')),
+  created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT REFERENCES users(id)
+);
