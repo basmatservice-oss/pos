@@ -18,7 +18,7 @@ export function receivePurchase(input){
     if(discountMinor>gross) throw new Error('Purchase line discount exceeds line value.');
     return {...line,quantity,baseQuantity,unitCostMinor,discountMinor,lineTotalMinor:gross-discountMinor,landedUnitCostMinor:Math.round((gross-discountMinor)/baseQuantity)};
   });
-  const subtotal=lines.reduce((sum,line)=>sum+line.lineTotalMinor,0);
+  const subtotal=lines.reduce((sum,line)=>sum+line.lineTotalMinor,0);\n  if(!Number.isSafeInteger(subtotal)||subtotal<=0) throw new Error('Purchase total must be greater than zero.');
   const payments=input.payments||[];
   const paid=payments.reduce((sum,p)=>sum+Number(p.amountMinor),0);
   if(!Number.isSafeInteger(paid)||paid<0||paid>subtotal) throw new Error('Invalid purchase payment total.');
