@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import https from 'node:https';
 import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { initializeDatabase, db } from './database.js';
+import { initializeDatabase, db, getDefaultBranchId } from './database.js';
 import { checkoutSale } from './sales.js';
 import { receivePurchase } from './purchases.js';
 import { getTrialBalance, reverseJournalEntry } from './accounting.js';
@@ -56,10 +56,11 @@ app.post('/api/auth/logout',requireAuth,(req,res)=>{
 app.get('/api/auth/me',requireAuth,(req,res)=>res.json({data:req.user}));
 
 app.post('/api/devices/register',requireAuth,(req,res)=>{
-  const {id,name,platform,branchId}=req.body||{};
+  const {id,name,platform}=req.body||{};
   if(typeof id!=='string'||id.length<8||id.length>100||typeof name!=='string'||!name.trim()||!['desktop','android','web'].includes(platform))return res.status(400).json({error:'Invalid device registration.'});
   const existing=db.prepare('SELECT owner_user_id FROM devices WHERE id=?').get(id);
   if(existing&&existing.owner_user_id!==req.user.id)return res.status(409).json({error:'Device is already registered to another user.'});
+  const branchId=getDefaultBranchId();
   const now=new Date().toISOString();
   db.prepare(`INSERT INTO devices(id,name,platform,branch_id,owner_user_id,is_active,last_seen_at,created_at)
     VALUES(?,?,?,?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,branch_id=excluded.branch_id,last_seen_at=excluded.last_seen_at,is_active=1`)
@@ -111,11 +112,11 @@ app.get('/api/products',...api('products.read',(_req,res)=>{
   res.json({data:rows});
 }));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
-  try{const result=checkoutSale({...req.body,cashierId:req.user.id});res.status(201).json({data:result});}
+  try{const result=checkoutSale({...req.body,cashierId:req.user.id,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
 }));
 app.post('/api/purchases/receive',...api('purchases.create',(req,res)=>{
-  try{const result=receivePurchase(req.body);res.status(201).json({data:result});}
+  try{const result=receivePurchase({...req.body,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to receive purchase.'});}
 }));
 app.post('/api/accounting/journal-entries/:id/reverse',...api('accounting.reverse',(req,res)=>{
