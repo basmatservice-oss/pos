@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db, inTransaction } from './database.js';
+import { db, inTransaction, getDefaultBranchId } from './database.js';
 import { receiveStock } from './inventory.js';
 import { postJournalEntry } from './accounting.js';
 
@@ -8,7 +8,7 @@ function setting(key,fallback){return db.prepare('SELECT value FROM app_settings
 export function receivePurchase(input){
   if(!input||!Array.isArray(input.lines)||input.lines.length===0) throw new Error('Purchase must contain at least one line.');
   const id=input.id||randomUUID(), now=input.occurredAt||new Date().toISOString();
-  const currency=setting('currency.code','SDG');
+  const branchId=input.branchId||getDefaultBranchId();\n  const currency=setting('currency.code','SDG');
   if(input.currencyCode&&input.currencyCode!==currency) throw new Error('Purchase currency does not match configured base currency.');
   const lines=input.lines.map(line=>{
     const quantity=Number(line.quantity),baseQuantity=Number(line.baseQuantity??quantity),unitCostMinor=Number(line.unitCostMinor),discountMinor=Number(line.discountMinor||0);
@@ -26,7 +26,7 @@ export function receivePurchase(input){
     if(db.prepare('SELECT id FROM purchases WHERE id=?').get(id)) return {id,duplicate:true};
     const invoice=input.invoiceNumber||`P-${Date.now()}-${id.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO purchases(id,invoice_number,supplier_id,branch_id,status,subtotal_minor,discount_minor,total_minor,currency_code,occurred_at,created_at)
-      VALUES(?,?,?,?,'posted',?,?,?,?,?,?)`).run(id,invoice,input.supplierId||null,input.branchId||null,subtotal,0,subtotal,currency,now,new Date().toISOString());
+      VALUES(?,?,?,?,'posted',?,?,?,?,?,?)`).run(id,invoice,input.supplierId||null,branchId,subtotal,0,subtotal,currency,now,new Date().toISOString());
     let inventoryValueMinor=0;\n    const insert=db.prepare('INSERT INTO purchase_lines(id,purchase_id,product_id,quantity,unit_name,base_quantity,unit_cost_minor,discount_minor,line_total_minor) VALUES(?,?,?,?,?,?,?,?,?)');
     for(const line of lines){
       insert.run(randomUUID(),id,line.productId,line.quantity,line.unitName||'pc',line.baseQuantity,line.landedUnitCostMinor,line.discountMinor,line.lineTotalMinor);
