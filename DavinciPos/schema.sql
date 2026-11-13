@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS products (
   cost_minor INTEGER NOT NULL DEFAULT 0 CHECK (cost_minor >= 0),
   sale_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (sale_price_minor >= 0),
   tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps BETWEEN 0 AND 10000),
-  track_stock INTEGER NOT NULL DEFAULT 1 CHECK (track_stock IN (0,1)),
+  tax_exempt INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1)), track_stock INTEGER NOT NULL DEFAULT 1 CHECK (track_stock IN (0,1)),
   min_stock REAL NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS product_units (
 );
 CREATE TABLE IF NOT EXISTS services (
   id TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT NOT NULL,
-  price_minor INTEGER NOT NULL CHECK (price_minor >= 0), tax_rate_bps INTEGER NOT NULL DEFAULT 0,
+  price_minor INTEGER NOT NULL CHECK (price_minor >= 0), tax_rate_bps INTEGER NOT NULL DEFAULT 0, tax_exempt INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1)),
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
