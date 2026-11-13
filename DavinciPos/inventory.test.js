@@ -9,6 +9,9 @@ process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {db,initializeDatabase}=await import('./database.js');
 const {receiveStock,issueStock,getStockOnHand,getInventoryValue}=await import('./inventory.js');
 const {calculateLineTax}=await import('./tax.js');
+const {receivePurchase}=await import('./purchases.js');
+const {checkoutSale}=await import('./sales.js');
+const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
 initializeDatabase();
 
 function product(id){
@@ -44,5 +47,21 @@ test('exclusive tax is added to the net line amount',()=>{
 });
 test('inclusive tax is extracted from the displayed gross amount',()=>{
   assert.deepEqual(calculateLineTax({unitPriceMinor:11500,quantity:1,rateBps:1500,priceMode:'inclusive'}),{netMinor:10000,taxMinor:1500,totalMinor:11500});
+});
+test('purchase receipt and sale post stock and balanced accounting atomically',()=>{
+  product('checkout-product');
+  const purchase=receivePurchase({id:'purchase-test',lines:[{productId:'checkout-product',quantity:10,baseQuantity:10,unitCostMinor:100}]});
+  assert.equal(purchase.totalMinor,1000);
+  const sale=checkoutSale({id:'sale-test',lines:[{lineType:'product',itemId:'checkout-product',description:'Test item',quantity:2,baseQuantity:2,unitPriceMinor:300,trackStock:true,taxRateBps:0}],payments:[{method:'cash',amountMinor:600}]});
+  assert.equal(sale.costMinor,200);
+  assert.equal(getStockOnHand('checkout-product','branch-main'),8);
+  const balance=getTrialBalance();
+  const debit=balance.reduce((sum,row)=>sum+row.debitMinor,0);
+  const credit=balance.reduce((sum,row)=>sum+row.creditMinor,0);
+  assert.equal(debit,credit);
+  const entry=db.prepare("SELECT id FROM journal_entries WHERE source_type='sale' AND source_id='sale-test'").get();
+  const reversal=reverseJournalEntry(entry.id,'Test reversal');
+  assert.ok(reversal);
+  assert.equal(reverseJournalEntry(entry.id,'Repeat reversal'),reversal);
 });
 test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
