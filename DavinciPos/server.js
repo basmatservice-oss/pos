@@ -30,6 +30,7 @@ function loginRateLimit(req,res,next){
 }
 function asyncRoute(handler){return (req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);}
 const api=(permission,handler)=>[requireAuth,requirePermission(permission),handler];
+const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
@@ -82,11 +83,17 @@ app.patch('/api/users/:id',...api('users.manage',(req,res)=>{
 }));
 app.put('/api/roles/:role/permissions',...api('roles.manage',(req,res)=>{
   const permissions=req.body?.permissions;
-  if(!Array.isArray(permissions)||permissions.some(p=>typeof p!=='string'||p.length>100))return res.status(400).json({error:'permissions must be an array of permission names.'});
+  if(!Array.isArray(permissions)||permissions.some(p=>typeof p!=='string'||!VALID_PERMISSIONS.has(p)))return res.status(400).json({error:'permissions contains an unsupported permission.'});
   if(['owner','admin'].includes(req.params.role))return res.status(400).json({error:'Built-in superuser roles cannot be restricted here.'});
   const exists=db.prepare('SELECT name FROM roles WHERE name=?').get(req.params.role);
   if(!exists)return res.status(404).json({error:'Role not found.'});
-  const save=db.transaction(()=>{db.prepare('DELETE FROM role_permissions WHERE role_name=?').run(req.params.role);const insert=db.prepare('INSERT INTO role_permissions(role_name,permission) VALUES(?,?)');for(const p of permissions)insert.run(req.params.role,p);});
+  const save=db.transaction(()=>{
+    const previous=db.prepare('SELECT permission FROM role_permissions WHERE role_name=? ORDER BY permission').all(req.params.role).map(row=>row.permission);
+    db.prepare('DELETE FROM role_permissions WHERE role_name=?').run(req.params.role);
+    const insert=db.prepare('INSERT INTO role_permissions(role_name,permission) VALUES(?,?)');for(const p of permissions)insert.run(req.params.role,p);
+    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,?)')
+      .run(req.user.id,'role.permissions.update','role',req.params.role,JSON.stringify({previous,permissions}),new Date().toISOString());
+  });
   try{save();res.json({data:{role:req.params.role,permissions}});}catch(error){res.status(400).json({error:error.message});}
 }));
 app.get('/api/roles',...api('users.read',(_req,res)=>res.json({data:db.prepare('SELECT r.name,r.description,group_concat(rp.permission) AS permissions FROM roles r LEFT JOIN role_permissions rp ON rp.role_name=r.name GROUP BY r.name ORDER BY r.name').all()})));
