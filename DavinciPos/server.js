@@ -12,6 +12,8 @@ import { getSettings, updateSettings } from './settings.js';
 import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole } from './security.js';
 import { listTaxProfiles, saveTaxProfile } from './tax.js';
 import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
+import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases } from './catalog.js';
+import { adjustInventory } from './inventory.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const app=express();
