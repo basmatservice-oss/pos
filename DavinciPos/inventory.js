@@ -65,6 +65,7 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
         db.prepare('UPDATE inventory_layers SET remaining_quantity=remaining_quantity-? WHERE id=?').run(take,layers[i].id);
         left-=take;
       }
+      if(left>1e-7)throw new Error('Inventory cost layers do not reconcile with on-hand quantity.');
     } else {
       const b=sameBranchClause(branchId);
       const layers=db.prepare(`SELECT id,remaining_quantity,unit_cost_minor FROM inventory_layers WHERE product_id=? AND ${b.sql} AND remaining_quantity>0 ORDER BY received_at,id`).all(productId,...b.params);
