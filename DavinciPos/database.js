@@ -39,6 +39,8 @@ export function initializeDatabase() {
   const columns = db.prepare("PRAGMA table_info(purchases)").all().map(column => column.name);
   if (!columns.includes('tax_minor')) db.exec("ALTER TABLE purchases ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)");
   if (!columns.includes('tax_treatment')) db.exec("ALTER TABLE purchases ADD COLUMN tax_treatment TEXT NOT NULL DEFAULT 'disabled' CHECK(tax_treatment IN ('recoverable','non_recoverable','disabled'))");
+  const purchaseLineColumns = db.prepare("PRAGMA table_info(purchase_lines)").all().map(column => column.name);
+  if (!purchaseLineColumns.includes('tax_minor')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)');
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
 export function inTransaction(work) { return db.transaction(work).immediate(); }
