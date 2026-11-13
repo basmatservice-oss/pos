@@ -117,6 +117,15 @@ test('tax-exempt products remain exempt while global tax stays enabled',()=>{
   assert.equal(purchase.taxMinor,0);
   assert.equal(purchase.totalMinor,1000);
 });
+test('server ignores client price, discount and stock-tracking overrides',()=>{
+  product('authoritative-sale-product');
+  db.prepare('UPDATE products SET sale_price_minor=500,tax_exempt=1 WHERE id=?').run('authoritative-sale-product');
+  receiveStock({productId:'authoritative-sale-product',branchId:'branch-main',sourceType:'test-receipt',sourceId:'authoritative-sale-stock',quantity:1,unitCostMinor:100});
+  const malicious={id:'authoritative-sale',lines:[{itemId:'authoritative-sale-product',quantity:1,unitPriceMinor:1,discountMinor:500,baseQuantity:0,trackStock:false,taxRateBps:0}],payments:[{method:'cash',amountMinor:500}]};
+  assert.equal(quoteSale(malicious).totalMinor,500);
+  checkoutSale(malicious);
+  assert.equal(getStockOnHand('authoritative-sale-product','branch-main'),0);
+});
 test('disabling tax removes purchase tax without changing server accounting balance',()=>{
   product('disabled-tax-product');
   updateSettings({'tax.enabled':false});
