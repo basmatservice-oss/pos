@@ -6,7 +6,6 @@ const DEFINITIONS = {
   'tax.price_mode': { type:'enum', values:['inclusive','exclusive'], fallback:'exclusive' },
   'tax.default_profile_id': { type:'nullableString', fallback:null },
   'inventory.cost_method': { type:'enum', values:['weighted','fifo'], fallback:'weighted', lockedAfterStock:true },
-  'inventory.allow_negative_stock': { type:'boolean', fallback:false },
   'sync.offline_sales': { type:'boolean', fallback:true },
   'sync.stock_conflict_policy': { type:'enum', values:['hold_for_review','reject_sale'], fallback:'hold_for_review' },
   'currency.code': { type:'string', fallback:'SDG' },
