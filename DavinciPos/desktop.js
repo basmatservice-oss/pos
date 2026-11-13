@@ -1,4 +1,4 @@
-import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderAccounting,renderSaleCheckout,renderPurchaseEntry,logout } from './client.js';
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,logout } from './client.js';
 const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',accounting:'المحاسبة',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
