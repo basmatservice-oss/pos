@@ -6,7 +6,7 @@ import path from 'node:path';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-security-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {initializeDatabase,db}=await import('./database.js');
-const {initializeSecurity,createUser,verifyLogin,authenticateToken,hasPermission}=await import('./security.js');
+const {initializeSecurity,createUser,verifyLogin,authenticateToken,hasPermission,setUserRole}=await import('./security.js');
 initializeDatabase();
 initializeSecurity();
 test('users authenticate with hashed passwords and role permissions',async()=>{
@@ -18,5 +18,12 @@ test('users authenticate with hashed passwords and role permissions',async()=>{
  assert.equal(hasPermission(current,'sales.create'),true);
  assert.equal(hasPermission(current,'settings.update'),false);
  assert.equal(await verifyLogin('cashier1','wrong-password'),null);
+});
+test('role permission changes survive security initialization and last owner cannot be demoted',async()=>{
+ const owner=await createUser({username:'owner1',password:'another-long-secure-password',displayName:'Owner',role:'owner'});
+ assert.throws(()=>setUserRole(owner.id,'admin',true,owner.id),/last active owner/);
+ db.prepare("DELETE FROM role_permissions WHERE role_name='manager' AND permission='products.read'").run();
+ initializeSecurity();
+ assert.equal(db.prepare("SELECT COUNT(*) AS count FROM role_permissions WHERE role_name='manager' AND permission='products.read'").get().count,0);
 });
 test('closes security test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
