@@ -126,6 +126,7 @@ app.post('/api/tax-profiles',...api('settings.update',(req,res)=>{
 app.get('/api/products',...api('products.read',(_req,res)=>res.json({data:listProducts(getDefaultBranchId())})));
 app.post('/api/products',...api('products.write',(req,res)=>{try{res.status(201).json({data:{id:createProduct(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
 app.patch('/api/products/:id',...api('products.write',(req,res)=>{try{updateProduct(req.params.id,req.body||{});res.json({data:{updated:true}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/units',...api('products.read',(_req,res)=>res.json({data:db.prepare('SELECT id,name,symbol,precision FROM units ORDER BY name').all()})));
 app.get('/api/categories',...api('products.read',(_req,res)=>res.json({data:listCategories()})));
 app.post('/api/categories',...api('products.write',(req,res)=>{try{res.status(201).json({data:{id:createCategory(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/customers',...api('customers.read',(_req,res)=>res.json({data:listCustomers()})));
