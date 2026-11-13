@@ -100,7 +100,7 @@ export function configureInventoryCostMethod(method) {
   return {method,changed:true};
 }
 
-export function adjustInventory({id=randomUUID(),productId,branchId=null,quantityDelta,unitCostMinor=0,reason='Inventory adjustment',occurredAt=new Date().toISOString()}) {
+export function adjustInventory({id=randomUUID(),productId,branchId=null,quantityDelta,unitCostMinor=0,reason='Inventory adjustment',occurredAt=new Date().toISOString(),userId=null}) {
   const delta=Number(quantityDelta);
   if(!productId||!Number.isFinite(delta)||delta===0)throw new Error('A product and non-zero quantity adjustment are required.');
   if(typeof reason!=='string'||!reason.trim())throw new Error('Adjustment reason is required.');
@@ -123,8 +123,8 @@ export function adjustInventory({id=randomUUID(),productId,branchId=null,quantit
         {accountId:'acc-inventory',creditMinor:result.costTotalMinor}
       ]});
     }
-    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(lower(hex(randomblob(16))),NULL,?,?,?,?,?)')
-      .run('inventory.adjustment','product',productId,JSON.stringify({quantityDelta:delta,reason,costTotalMinor:result.costTotalMinor}),new Date().toISOString());
+    db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,?)')
+      .run(userId,'inventory.adjustment','product',productId,JSON.stringify({quantityDelta:delta,reason,costTotalMinor:result.costTotalMinor}),new Date().toISOString());
     return {id,duplicate:false,quantityDelta:delta,...result};
   });
 }
