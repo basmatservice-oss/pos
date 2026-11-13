@@ -13,7 +13,9 @@ export function acceptOfflineSale(args) {
   const prior=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=?').get(operationId);
   if(prior)return JSON.parse(prior.response);
   try {
-    const result=checkoutSale({...payload,deviceId,cashierId:userId,branchId:device.branch_id});
+    const role=db.prepare('SELECT role FROM users WHERE id=?').get(userId)?.role;
+    const allowCredit=role==='owner'||role==='admin'||db.prepare("SELECT 1 FROM role_permissions WHERE role_name=? AND permission='sales.credit'").get(role);
+    const result=checkoutSale({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)});
     const response={status:'accepted',sale:result};
     db.prepare('INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)').run(operationId,deviceId,JSON.stringify(response),new Date().toISOString());
     return response;
@@ -28,7 +30,7 @@ export function acceptOfflineSale(args) {
     const existing=db.prepare('SELECT id FROM sync_conflicts WHERE operation_id=?').get(operationId);
     const conflictId=existing?.id||randomUUID();
     if(!existing)db.prepare(`INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,reason,status,created_at)
-      VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,cashierId:userId}),error.message,new Date().toISOString());
+      VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,cashierId:userId,allowCredit:Boolean(allowCredit)}),error.message,new Date().toISOString());
     return {status:'conflict',conflictId,reason:'Insufficient stock on the authoritative server. Sale is held for review.'};
   }
   });
