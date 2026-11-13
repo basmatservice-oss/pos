@@ -12,7 +12,10 @@ db.pragma('busy_timeout = 5000');
 
 export function initializeDatabase() {
   db.exec(fs.readFileSync(path.join(ROOT, 'schema.sql'), 'utf8'));
-  const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');\n  const nowBranch=new Date().toISOString();\n  insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);\n  const insertUnit = db.prepare('INSERT OR IGNORE INTO units (id,name,symbol,precision) VALUES (?,?,?,?)');
+  const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');
+  const nowBranch=new Date().toISOString();
+  insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);
+  const insertUnit = db.prepare('INSERT OR IGNORE INTO units (id,name,symbol,precision) VALUES (?,?,?,?)');
   for (const unit of [['unit-piece','Piece','pc',0],['unit-box','Box','box',0],['unit-kg','Kilogram','kg',3],['unit-liter','Liter','L',3]]) insertUnit.run(...unit);
   const insertAccount = db.prepare('INSERT OR IGNORE INTO accounts (id,code,name,account_type,normal_side) VALUES (?,?,?,?,?)');
   const accounts = [
