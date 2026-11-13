@@ -74,7 +74,7 @@ export function checkoutSale(input) {
     }
     for(const [method,amount] of paidByMethod)journalLines.push({accountId:paymentAccount[method],debitMinor:amount});
     const credit=total-paid;
-    if(credit>0){if(!input.customerId)throw new Error('A customer is required for an unpaid or credit sale.');journalLines.push({accountId:'acc-ar',debitMinor:credit});}
+    if(credit>0){if(!input.allowCredit)throw new Error('Your role does not permit credit sales.');if(!input.customerId)throw new Error('A customer is required for an unpaid or credit sale.');journalLines.push({accountId:'acc-ar',debitMinor:credit});}
     if(subtotal>0)journalLines.push({accountId:'acc-sales',creditMinor:subtotal});
     if(taxTotal>0)journalLines.push({accountId:'acc-tax',creditMinor:taxTotal});
     if(costTotal>0){journalLines.push({accountId:'acc-cogs',debitMinor:costTotal});journalLines.push({accountId:'acc-inventory',creditMinor:costTotal});}
