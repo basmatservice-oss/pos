@@ -13,6 +13,8 @@ Every authored project file is placed directly in this directory. There are no n
 - `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules.
 - `sync.js` / `offline.js`: local outbox primitives, idempotent server reconciliation, and stock-conflict review.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
+- `catalog.js`: products, categories, customers, suppliers, and invoice lists.
+- The desktop and mobile interfaces now include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, trial balance, central settings, user roles and sync conflict review.
 - `settings.js`: server-owned settings with validation and audit history.
 - `client.js`: shared authenticated API and settings/user administration UI.
 
