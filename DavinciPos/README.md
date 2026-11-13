@@ -45,7 +45,8 @@ Amounts are stored as integer minor units (for example, cents/piasters) to avoid
 - Sales and purchase receipts are executed in SQLite transactions and generate journal entries.
 - Sales tax can be enabled/disabled centrally, calculated inclusive or exclusive, and assigned reusable default tax profiles.
 - Purchase tax can be disabled, treated as recoverable input tax, or capitalized into inventory cost. Each invoice and line stores the applied tax mode, profile ID and rate snapshot for historical accuracy.
+- Roles include owner, admin, manager, cashier, sales and accountant. Permissions are checked on the server and can be edited per role by an authorized administrator.
+- Central settings are stored on the server and are read by all connected clients. Settings changes are audited.
 - All APIs require authenticated sessions and server-enforced permissions; network binding requires HTTPS/TLS.
-- Purchase tax is configurable centrally: disabled, recoverable input tax, or non-recoverable tax capitalized into inventory cost.
 - Posted journal entries are balanced, protected against line edits/deletion, and corrected through reversing entries.
-- `npm test` runs focused accounting, inventory, tax and purchase-to-sale integration tests. `npm run check` runs JavaScript syntax checks.
+- `npm test` runs accounting, inventory, tax, offline conflict, catalog and purchase-to-sale tests. `npm run check` runs JavaScript syntax checks.
