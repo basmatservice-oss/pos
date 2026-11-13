@@ -40,14 +40,25 @@ export function initializeDatabase() {
     setting.run('currency.code','SDG',now);
   });
   seed();
+  const salesColumns = db.prepare("PRAGMA table_info(sales)").all().map(column => column.name);
+  if (!salesColumns.includes('tax_enabled')) db.exec('ALTER TABLE sales ADD COLUMN tax_enabled INTEGER NOT NULL DEFAULT 1 CHECK(tax_enabled IN (0,1))');
+  if (!salesColumns.includes('tax_price_mode')) db.exec("ALTER TABLE sales ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
+  const saleLineColumns = db.prepare("PRAGMA table_info(sale_lines)").all().map(column => column.name);
+  if (!saleLineColumns.includes('tax_rate_bps')) db.exec('ALTER TABLE sale_lines ADD COLUMN tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)');
+  if (!saleLineColumns.includes('tax_profile_id')) db.exec('ALTER TABLE sale_lines ADD COLUMN tax_profile_id TEXT');
+  if (!saleLineColumns.includes('tax_price_mode')) db.exec("ALTER TABLE sale_lines ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
   const columns = db.prepare("PRAGMA table_info(purchases)").all().map(column => column.name);
   if (!columns.includes('tax_minor')) db.exec("ALTER TABLE purchases ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)");
   if (!columns.includes('tax_treatment')) db.exec("ALTER TABLE purchases ADD COLUMN tax_treatment TEXT NOT NULL DEFAULT 'disabled' CHECK(tax_treatment IN ('recoverable','non_recoverable','disabled'))");
+  if (!columns.includes('tax_price_mode')) db.exec("ALTER TABLE purchases ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
   const deviceColumns = db.prepare("PRAGMA table_info(devices)").all().map(column => column.name);
   if (!deviceColumns.includes('owner_user_id')) db.exec('ALTER TABLE devices ADD COLUMN owner_user_id TEXT');
   if (!deviceColumns.includes('is_active')) db.exec('ALTER TABLE devices ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
   const purchaseLineColumns = db.prepare("PRAGMA table_info(purchase_lines)").all().map(column => column.name);
   if (!purchaseLineColumns.includes('tax_minor')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)');
+  if (!purchaseLineColumns.includes('tax_rate_bps')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)');
+  if (!purchaseLineColumns.includes('tax_profile_id')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_profile_id TEXT');
+  if (!purchaseLineColumns.includes('tax_price_mode')) db.exec("ALTER TABLE purchase_lines ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
 export function inTransaction(work) { return db.transaction(work).immediate(); }
