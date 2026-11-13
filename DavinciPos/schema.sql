@@ -84,11 +84,29 @@ CREATE TABLE IF NOT EXISTS sale_lines (
   base_quantity REAL NOT NULL DEFAULT 0 CHECK (base_quantity >= 0),
   unit_price_minor INTEGER NOT NULL CHECK (unit_price_minor >= 0),
   unit_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK (unit_cost_minor >= 0),
+  cost_total_minor INTEGER NOT NULL DEFAULT 0 CHECK (cost_total_minor >= 0),
   discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   line_total_minor INTEGER NOT NULL CHECK (line_total_minor >= 0)
 );
-CREATE TABLE IF NOT EXISTS purchases (\n  id TEXT PRIMARY KEY, invoice_number TEXT NOT NULL UNIQUE, supplier_id TEXT REFERENCES suppliers(id),\n  branch_id TEXT REFERENCES branches(id), status TEXT NOT NULL CHECK(status IN ('posted','void')),\n  subtotal_minor INTEGER NOT NULL CHECK(subtotal_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),\n  total_minor INTEGER NOT NULL CHECK(total_minor>=0), currency_code TEXT NOT NULL DEFAULT 'SDG',\n  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL\n);\nCREATE TABLE IF NOT EXISTS purchase_lines (\n  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), product_id TEXT NOT NULL REFERENCES products(id),\n  quantity REAL NOT NULL CHECK(quantity>0), unit_name TEXT NOT NULL, base_quantity REAL NOT NULL CHECK(base_quantity>0),\n  unit_cost_minor INTEGER NOT NULL CHECK(unit_cost_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),\n  line_total_minor INTEGER NOT NULL CHECK(line_total_minor>=0)\n);\nCREATE TABLE IF NOT EXISTS purchase_payments (\n  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),\n  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, occurred_at TEXT NOT NULL\n);\nCREATE TABLE IF NOT EXISTS payments (
+CREATE TABLE IF NOT EXISTS purchases (
+  id TEXT PRIMARY KEY, invoice_number TEXT NOT NULL UNIQUE, supplier_id TEXT REFERENCES suppliers(id),
+  branch_id TEXT REFERENCES branches(id), status TEXT NOT NULL CHECK(status IN ('posted','void')),
+  subtotal_minor INTEGER NOT NULL CHECK(subtotal_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),
+  total_minor INTEGER NOT NULL CHECK(total_minor>=0), currency_code TEXT NOT NULL DEFAULT 'SDG',
+  occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS purchase_lines (
+  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), product_id TEXT NOT NULL REFERENCES products(id),
+  quantity REAL NOT NULL CHECK(quantity>0), unit_name TEXT NOT NULL, base_quantity REAL NOT NULL CHECK(base_quantity>0),
+  unit_cost_minor INTEGER NOT NULL CHECK(unit_cost_minor>=0), discount_minor INTEGER NOT NULL DEFAULT 0 CHECK(discount_minor>=0),
+  line_total_minor INTEGER NOT NULL CHECK(line_total_minor>=0)
+);
+CREATE TABLE IF NOT EXISTS purchase_payments (
+  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),
+  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, occurred_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY, sale_id TEXT REFERENCES sales(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')),
   method TEXT NOT NULL CHECK (method IN ('cash','card','bank','wallet','credit','other')),
@@ -98,9 +116,23 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id),
   branch_id TEXT REFERENCES branches(id), source_type TEXT NOT NULL, source_id TEXT NOT NULL,
   quantity_delta REAL NOT NULL CHECK (quantity_delta <> 0), unit_cost_minor INTEGER NOT NULL DEFAULT 0,
+  cost_total_minor INTEGER NOT NULL DEFAULT 0 CHECK (cost_total_minor >= 0),
+  cost_method TEXT CHECK (cost_method IN ('weighted','fifo','opening','adjustment')),
   occurred_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS inventory_layers (\n  id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id), branch_id TEXT REFERENCES branches(id),\n  source_type TEXT NOT NULL, source_id TEXT NOT NULL, received_quantity REAL NOT NULL CHECK (received_quantity > 0),\n  remaining_quantity REAL NOT NULL CHECK (remaining_quantity >= 0 AND remaining_quantity <= received_quantity),\n  unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0), received_at TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_inventory_layers_fifo ON inventory_layers(product_id, branch_id, received_at, id);\nCREATE TABLE IF NOT EXISTS tax_profiles (\n  id TEXT PRIMARY KEY, name TEXT NOT NULL, rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),\n  price_mode TEXT NOT NULL CHECK (price_mode IN ('inclusive','exclusive')), is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),\n  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1))\n);\nCREATE TABLE IF NOT EXISTS accounts (
+CREATE TABLE IF NOT EXISTS inventory_layers (
+  id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id), branch_id TEXT REFERENCES branches(id),
+  source_type TEXT NOT NULL, source_id TEXT NOT NULL, received_quantity REAL NOT NULL CHECK (received_quantity > 0),
+  remaining_quantity REAL NOT NULL CHECK (remaining_quantity >= 0 AND remaining_quantity <= received_quantity),
+  unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0), received_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_layers_fifo ON inventory_layers(product_id, branch_id, received_at, id);
+CREATE TABLE IF NOT EXISTS tax_profiles (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),
+  price_mode TEXT NOT NULL CHECK (price_mode IN ('inclusive','exclusive')), is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
   account_type TEXT NOT NULL CHECK (account_type IN ('asset','liability','equity','revenue','expense')),
   normal_side TEXT NOT NULL CHECK (normal_side IN ('debit','credit')),
