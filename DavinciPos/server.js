@@ -9,7 +9,7 @@ import { checkoutSale, quoteSale } from './sales.js';
 import { receivePurchase, quotePurchase } from './purchases.js';
 import { getTrialBalance, reverseJournalEntry } from './accounting.js';
 import { getSettings, updateSettings } from './settings.js';
-import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole } from './security.js';
+import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole, hasPermission } from './security.js';
 import { listTaxProfiles, saveTaxProfile } from './tax.js';
 import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases } from './catalog.js';
@@ -41,7 +41,7 @@ function loginRateLimit(req,res,next){
 }
 function asyncRoute(handler){return (req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);}
 const api=(permission,handler)=>[requireAuth,requirePermission(permission),handler];
-const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
+const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
@@ -138,7 +138,7 @@ app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listP
 app.post('/api/inventory/adjustments',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:adjustInventory({...req.body,branchId:getDefaultBranchId(),userId:req.user.id})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/quote',...api('sales.create',(req,res)=>{try{res.json({data:quoteSale({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
-  try{const result=checkoutSale({...req.body,receiptNumber:undefined,deviceId:null,cashierId:req.user.id,branchId:getDefaultBranchId(),occurredAt:new Date().toISOString()});res.status(201).json({data:result});}
+  try{const result=checkoutSale({...req.body,receiptNumber:undefined,deviceId:null,cashierId:req.user.id,branchId:getDefaultBranchId(),occurredAt:new Date().toISOString(),allowCredit:hasPermission(req.user,'sales.credit')});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
 }));
 app.post('/api/purchases/quote',...api('purchases.create',(req,res)=>{try{res.json({data:quotePurchase({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
