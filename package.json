@@ -1,0 +1,100 @@
+{
+  "name": "react-example",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "start": "tsx server.ts",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/server.js --external:@prisma/client --external:better-sqlite3 --external:sqlite3 --external:vite",
+    "package": "npm run build && npm run build:server && electron-builder",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.99.1",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "axios": "^1.13.6",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.8.0",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.6",
+    "date-fns": "^4.1.0",
+    "dexie": "^4.3.0",
+    "dexie-react-hooks": "^4.2.0",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.2",
+    "express": "^4.22.1",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "multer": "^2.1.1",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-barcode": "^1.6.1",
+    "react-dom": "^19.0.0",
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.13.1",
+    "react-to-print": "^3.3.0",
+    "recharts": "^3.8.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "tailwind-merge": "^3.5.0",
+    "tsx": "^4.21.0",
+    "uuid": "^13.0.0",
+    "vite": "^6.2.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
+    "electron-serve": "^3.0.1",
+    "esbuild": "^0.27.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.smartpos.studio",
+    "productName": "Smart POS Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "drizzle/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
