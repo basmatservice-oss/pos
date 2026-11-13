@@ -38,7 +38,7 @@ export function updateProduct(id,input) {
       input.salePriceMinor===undefined?current.sale_price_minor:money(input.salePriceMinor,'sale price'),
       taxRateBps,
       trackStock,minStock,
-      input.isActive===false?0:1,new Date().toISOString(),id);
+      input.isActive===undefined?current.is_active:input.isActive===false?0:1,new Date().toISOString(),id);
   return true;
 }
 export function createCategory(input) {
