@@ -25,6 +25,7 @@ export async function createUser({username,password,displayName,role='cashier'},
   if(typeof password!=='string'||password.length<12||password.length>256) throw new Error('Password must contain at least 12 characters.');
   if(typeof displayName!=='string'||!displayName.trim()) throw new Error('Display name is required.');
   if(!ROLE_PERMISSIONS[role]) throw new Error('Invalid role.');
+  if(role==='owner'&&actorUserId) { const actor=db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId); if(actor?.role!=='owner') throw new Error('Only an owner can create another owner.'); }
   const salt=randomBytes(16).toString('hex'),hash=await passwordHash(password,salt),id=randomUUID(),now=new Date().toISOString();
   db.prepare('INSERT INTO users(id,username,password_hash,display_name,role,is_active,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)')
     .run(id,username.toLowerCase(),salt+':'+hash,displayName.trim(),role,now,now);
@@ -77,6 +78,10 @@ export function listUsers() {
 }
 export function setUserRole(userId,role,active=true,actorUserId=null) {
   if(!ROLE_PERMISSIONS[role]) throw new Error('Invalid role.');
+  if(role==='owner'&&actorUserId&&db.prepare('SELECT role FROM users WHERE id=?').get(actorUserId)?.role!=='owner') throw new Error('Only an owner can assign the owner role.');
+  const target=db.prepare('SELECT role,is_active FROM users WHERE id=?').get(userId);
+  if(!target) throw new Error('User not found.');
+  if(target.role==='owner'&&(!active||role!=='owner')) { const owners=db.prepare("SELECT COUNT(*) AS count FROM users WHERE role='owner' AND is_active=1").get().count; if(owners<=1) throw new Error('The last active owner cannot be disabled or demoted.'); }
   const result=db.prepare('UPDATE users SET role=?,is_active=?,updated_at=? WHERE id=?')
     .run(role,active?1:0,new Date().toISOString(),userId);
   if(!result.changes) throw new Error('User not found.');
