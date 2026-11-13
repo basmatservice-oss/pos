@@ -3,7 +3,9 @@ import { db, inTransaction } from './database.js';
 import { checkoutSale } from './sales.js';
 import { setting } from './settings.js';
 
-export function acceptOfflineSale({operationId,deviceId,payload,userId}) {
+export function acceptOfflineSale(args) {
+  return inTransaction(()=>{
+  const {operationId,deviceId,payload,userId}=args;
   if(!operationId||typeof operationId!=='string'||operationId.length>128||!deviceId||!payload||typeof payload!=='object') throw new Error('Offline sale envelope is invalid.');
   if(!setting('sync.offline_sales',true)) throw new Error('Offline sales synchronization is disabled by the server.');
   const device=db.prepare('SELECT id,branch_id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
@@ -29,6 +31,7 @@ export function acceptOfflineSale({operationId,deviceId,payload,userId}) {
       VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,cashierId:userId}),error.message,new Date().toISOString());
     return {status:'conflict',conflictId,reason:'Insufficient stock on the authoritative server. Sale is held for review.'};
   }
+  });
 }
 export function listSyncConflicts() {
   return db.prepare("SELECT id,operation_id AS operationId,device_id AS deviceId,entity_id AS entityId,reason,status,created_at AS createdAt FROM sync_conflicts WHERE status='pending' ORDER BY created_at").all();
