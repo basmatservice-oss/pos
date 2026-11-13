@@ -19,12 +19,12 @@ function prepareSale(input) {
     const quantity=Number(line.quantity);
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Line quantity must be greater than zero.');
     const item=lineType==='service'
-      ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,0 AS track_stock,'service' AS unit_symbol FROM services WHERE id=? AND is_active=1").get(line.itemId)
-      :db.prepare('SELECT p.name,p.sale_price_minor,p.tax_rate_bps,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.itemId);
+      ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,tax_exempt,0 AS track_stock,'service' AS unit_symbol FROM services WHERE id=? AND is_active=1").get(line.itemId)
+      :db.prepare('SELECT p.name,p.sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.itemId);
     if(!item)throw new Error(lineType==='service'?'Service not found or inactive.':'Product not found or inactive.');
     const unitPriceMinor=validateMoney(item.sale_price_minor,'product sale price');
     const discountMinor=0;
-    const profile=item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
+    const profile=item.tax_exempt?{rateBps:0,priceMode}:item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=lineType==='service'?0:quantity;
     if(lineType==='product'&&item.track_stock&&baseQuantity<=0)throw new Error('Invalid base unit quantity.');
