@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   quantity_delta REAL NOT NULL CHECK (quantity_delta <> 0), unit_cost_minor INTEGER NOT NULL DEFAULT 0,
   occurred_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS accounts (
+CREATE TABLE IF NOT EXISTS inventory_layers (\n  id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id), branch_id TEXT REFERENCES branches(id),\n  source_type TEXT NOT NULL, source_id TEXT NOT NULL, received_quantity REAL NOT NULL CHECK (received_quantity > 0),\n  remaining_quantity REAL NOT NULL CHECK (remaining_quantity >= 0 AND remaining_quantity <= received_quantity),\n  unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0), received_at TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_inventory_layers_fifo ON inventory_layers(product_id, branch_id, received_at, id);\nCREATE TABLE IF NOT EXISTS tax_profiles (\n  id TEXT PRIMARY KEY, name TEXT NOT NULL, rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),\n  price_mode TEXT NOT NULL CHECK (price_mode IN ('inclusive','exclusive')), is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),\n  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1))\n);\nCREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
   account_type TEXT NOT NULL CHECK (account_type IN ('asset','liability','equity','revenue','expense')),
   normal_side TEXT NOT NULL CHECK (normal_side IN ('debit','credit')),
