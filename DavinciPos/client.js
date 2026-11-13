@@ -35,6 +35,7 @@ const settingFields=[
  ['tax.enabled','تفعيل الضريبة','checkbox'],
  ['tax.purchase_mode','معالجة ضريبة المشتريات','select',['recoverable','non_recoverable','disabled'],['قابلة للاسترداد','غير قابلة للاسترداد','تعطيل الضريبة على المشتريات']],
  ['tax.price_mode','طريقة عرض السعر','select',['exclusive','inclusive'],['السعر قبل الضريبة','السعر شامل الضريبة']],
+ ['tax.default_profile_id','ملف الضريبة الافتراضي','taxProfile'],
  ['inventory.cost_method','طريقة تقييم المخزون','select',['weighted','fifo'],['متوسط التكلفة المرجح','الوارد أولاً يصرف أولاً']],
  ['sync.offline_sales','تفعيل مزامنة المبيعات غير المتصلة','checkbox'],
  ['sync.stock_conflict_policy','سياسة تعارض المخزون','select',['hold_for_review','reject_sale'],['تعليق العملية للمراجعة','رفض العملية']],
@@ -44,14 +45,16 @@ const settingFields=[
 export async function renderSettings(root) {
   root.innerHTML='<section class="panel"><h2>الإعدادات المركزية</h2><p>تُحفظ هذه القيم في قاعدة بيانات السيرفر وتُطبق على جميع الأجهزة.</p><div id="settings-fields">جارٍ التحميل...</div><p id="settings-message" role="status"></p></section>';
   try{
-    const values=await api('/api/settings');
+    const [values,profiles]=await Promise.all([api('/api/settings'),api('/api/tax-profiles')]);
     const fields=root.querySelector('#settings-fields');
     fields.innerHTML=settingFields.map(([key,label,type,options,labels])=>{
       const value=values[key];
+      if(type==='taxProfile')return `<label style="display:grid;gap:7px;padding:12px;border-bottom:1px solid #e7eaf0">ملف الضريبة الافتراضي<select data-setting="tax.default_profile_id"><option value="">استخدام الملف المعرّف كافتراضي</option>${profiles.map(profile=>`<option value="${escapeHtml(profile.id)}" ${value===profile.id?'selected':''}>${escapeHtml(profile.name)} · ${(profile.rateBps/100).toFixed(2)}%</option>`).join('')}</select></label>`;
       if(type==='checkbox')return `<label style="display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid #e7eaf0"><input type="checkbox" data-setting="${key}" ${value?'checked':''}> ${label}</label>`;
       if(type==='select')return `<label style="display:grid;gap:7px;padding:12px;border-bottom:1px solid #e7eaf0">${label}<select data-setting="${key}">${options.map((option,i)=>`<option value="${option}" ${value===option?'selected':''}>${labels[i]}</option>`).join('')}</select></label>`;
       return `<label style="display:grid;gap:7px;padding:12px;border-bottom:1px solid #e7eaf0">${label}<input data-setting="${key}" value="${escapeHtml(value)}" maxlength="120"></label>`;
-    }).join('')+'<button id="save-settings" class="primary-button" style="margin-top:16px">حفظ الإعدادات على السيرفر</button>';
+    }).join('')+'<button id="save-settings" class="primary-button" style="margin-top:16px">حفظ الإعدادات على السيرفر</button><hr><h3>إدارة ملفات الضريبة</h3><form id="new-tax-profile" style="display:grid;gap:8px;max-width:520px"><input name="name" required placeholder="اسم الملف الضريبي"><input name="rateBps" required type="number" min="0" max="10000" placeholder="النسبة بالنقاط الأساسية (مثال 1500 = 15%)"><select name="priceMode"><option value="exclusive">غير شامل</option><option value="inclusive">شامل</option></select><label><input type="checkbox" name="isDefault"> تعيين كملف افتراضي</label><button class="primary-button">حفظ ملف الضريبة</button></form><div id="tax-profile-message"></div>'
+    root.querySelector('#new-tax-profile').addEventListener('submit',async event=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={name:form.get('name'),rateBps:Number(form.get('rateBps')),priceMode:form.get('priceMode'),isDefault:form.get('isDefault')==='on'};try{await api('/api/tax-profiles',{method:'POST',body});await renderSettings(root);}catch(error){root.querySelector('#tax-profile-message').textContent=error.message;}});
     root.querySelector('#save-settings').addEventListener('click',async()=>{
       const changes={};root.querySelectorAll('[data-setting]').forEach(input=>changes[input.dataset.setting]=input.type==='checkbox'?input.checked:input.value);
       try{await api('/api/settings',{method:'PUT',body:{settings:changes}});root.querySelector('#settings-message').textContent='تم حفظ الإعدادات المركزية.';}
