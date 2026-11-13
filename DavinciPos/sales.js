@@ -52,8 +52,8 @@ export function checkoutSale(input) {
     const receipt=input.receiptNumber||`S-${Date.now()}-${saleId.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO sales(id,receipt_number,branch_id,device_id,customer_id,cashier_id,status,subtotal_minor,discount_minor,tax_minor,total_minor,currency_code,occurred_at,created_at)
       VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?)`).run(saleId,receipt,branchId,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,l)=>sum+l.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString());
-    const insertLine=db.prepare(`INSERT INTO sale_lines(id,sale_id,line_type,item_id,description,quantity,unit_name,base_quantity,unit_price_minor,unit_cost_minor,discount_minor,tax_minor,line_total_minor)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const insertLine=db.prepare(`INSERT INTO sale_lines(id,sale_id,line_type,item_id,description,quantity,unit_name,base_quantity,unit_price_minor,unit_cost_minor,cost_total_minor,discount_minor,tax_minor,line_total_minor)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const journalLines=[], paidByMethod=new Map();
     let costTotal=0;
     for(const line of lines) {
