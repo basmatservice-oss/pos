@@ -1,5 +1,5 @@
-import {api,ensureSession,renderSettings,renderUsers} from './client.js';
-const views={dashboard:'الرئيسية',sales:'المبيعات',inventory:'المخزون',customers:'العملاء',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون'};
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts} from './client.js';
+const views={dashboard:'الرئيسية',sales:'المبيعات',inventory:'المخزون',customers:'العملاء',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
  try{const {data}=await api('/api/summary');document.querySelector('#mobile-products').textContent=data.products.toLocaleString('ar');document.querySelector('#mobile-sales').textContent=data.salesCount.toLocaleString('ar');}
@@ -10,6 +10,7 @@ async function show(key){
  if(key==='dashboard'){location.reload();return;}
  if(key==='settings'){await renderSettings(root);return;}
  if(key==='users'){await renderUsers(root);return;}
+ if(key==='conflicts'){await renderConflicts(root);return;}
  root.innerHTML=`<section class="panel"><small style="color:#7770dc">DAVINCIPOS / ${views[key]||'الوحدة'}</small><h2>${views[key]||'الوحدة'}</h2><p style="color:#8792a4;font-size:12px">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></section>`;
 }
 document.addEventListener('click',event=>{const button=event.target.closest('[data-view]');if(button)show(button.dataset.view);});
