@@ -16,7 +16,7 @@ async function show(key){
  if(key==='purchases'){await renderPurchaseEntry(root);return;}
  if(key==='products'){await renderProducts(root);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(root,key);return;}
- if(key==='accounting'){await renderAccounting(root);return;}
+ if(key==='reports'){await renderReports(root);return;}
  root.innerHTML=`<section class="panel"><small style="color:#7770dc">DAVINCIPOS / ${views[key]||'الوحدة'}</small><h2>${views[key]||'الوحدة'}</h2><p style="color:#8792a4;font-size:12px">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></section>`;
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-logout]')){logout();return;}const button=event.target.closest('[data-view]');if(button)show(button.dataset.view);});
