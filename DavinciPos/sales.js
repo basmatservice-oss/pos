@@ -13,29 +13,29 @@ function prepareSale(input) {
   const currencyCode=setting('currency.code','SDG'),priceMode=setting('tax.price_mode','exclusive');
   const taxEnabled=setting('tax.enabled',true),costMethod=setting('inventory.cost_method','weighted');
   if(input.currencyCode&&input.currencyCode!==currencyCode)throw new Error('Sale currency does not match the configured base currency.');
-  const profileCache=new Map();
   const lines=input.lines.map(line=>{
     const lineType=line.lineType||'product';
     if(!['product','service'].includes(lineType))throw new Error('Invalid sale line type.');
-    const quantity=Number(line.quantity),unitPriceMinor=validateMoney(line.unitPriceMinor,'unit price'),discountMinor=validateMoney(line.discountMinor||0,'line discount');
+    const quantity=Number(line.quantity);
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Line quantity must be greater than zero.');
-    let profile;
-    if(line.taxProfileId){if(!profileCache.has(line.taxProfileId))profileCache.set(line.taxProfileId,getTaxProfile(line.taxProfileId));profile=profileCache.get(line.taxProfileId);}
-    else if(line.taxRateBps!==undefined)profile={rateBps:Number(line.taxRateBps||0),priceMode};
-    else {
-      const item=lineType==='service'?db.prepare('SELECT tax_rate_bps FROM services WHERE id=?').get(line.itemId):db.prepare('SELECT tax_rate_bps FROM products WHERE id=?').get(line.itemId);
-      if(!item)throw new Error(lineType==='service'?'Service not found.':'Product not found.');
-      profile=item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
-    }
+    const item=lineType==='service'
+      ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,0 AS track_stock,'service' AS unit_symbol FROM services WHERE id=? AND is_active=1").get(line.itemId)
+      :db.prepare('SELECT p.name,p.sale_price_minor,p.tax_rate_bps,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.itemId);
+    if(!item)throw new Error(lineType==='service'?'Service not found or inactive.':'Product not found or inactive.');
+    const unitPriceMinor=validateMoney(item.sale_price_minor,'product sale price');
+    const discountMinor=0;
+    const profile=item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
-    const baseQuantity=Number(line.baseQuantity??quantity);
-    if(!Number.isFinite(baseQuantity)||baseQuantity<0||(line.lineType!=='service'&&line.trackStock!==false&&baseQuantity===0))throw new Error('Invalid base unit quantity.');
-    return {...line,lineType,quantity,baseQuantity,unitPriceMinor,discountMinor,taxRateBps:profile.rateBps,taxProfileId:profile.id||line.taxProfileId||null,
-      taxPriceMode:profile.priceMode||priceMode,taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
+    const baseQuantity=lineType==='service'?0:quantity;
+    if(lineType==='product'&&item.track_stock&&baseQuantity<=0)throw new Error('Invalid base unit quantity.');
+    return {...line,lineType,itemId:line.itemId,description:item.name,quantity,baseQuantity,unitName:item.unit_symbol||'pc',
+      unitPriceMinor,unitCostMinor:0,discountMinor,trackStock:lineType==='product'&&Boolean(item.track_stock),
+      taxRateBps:profile.rateBps,taxProfileId:profile.id||null,taxPriceMode:profile.priceMode||priceMode,
+      taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
   });
   const subtotal=lines.reduce((sum,line)=>sum+line.netMinor,0),taxTotal=lines.reduce((sum,line)=>sum+line.taxMinor,0),total=lines.reduce((sum,line)=>sum+line.totalMinor,0);
   if(![subtotal,taxTotal,total].every(Number.isSafeInteger))throw new Error('Sale total exceeds safe monetary limits.');
-  const payments=input.payments||[],paid=payments.reduce((sum,p)=>sum+Number(p.amountMinor),0);
+  const payments=input.payments||[],paid=payments.reduce((sum,payment)=>sum+Number(payment.amountMinor),0);
   if(!Number.isSafeInteger(paid)||paid<0||paid>total)throw new Error('Payment amount exceeds sale total or is invalid.');
   for(const payment of payments)if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid payment method or amount.');
   return {saleId,now,branchId,currencyCode,priceMode,taxEnabled,costMethod,lines,subtotal,taxTotal,total,payments,paid,input};
