@@ -106,3 +106,9 @@ export async function renderConflicts(root) {
   };
   await load();
 }
+
+export async function logout() {
+  try { await api('/api/auth/logout',{method:'POST'}); } catch {}
+  sessionStorage.removeItem(TOKEN_KEY);
+  location.reload();
+}
