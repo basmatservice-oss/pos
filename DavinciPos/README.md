@@ -42,7 +42,7 @@ Amounts are stored as integer minor units (for example, cents/piasters) to avoid
 - The active costing method is selected before stock activity; changing it after movements exist is blocked until a controlled revaluation workflow is implemented.
 - Sales and purchase receipts are executed in SQLite transactions and generate journal entries.
 - Sales tax can be enabled/disabled centrally, calculated inclusive or exclusive, and assigned reusable default tax profiles.
-- Purchase tax can be disabled, treated as recoverable input tax, or capitalized into inventory cost.
+- Purchase tax can be disabled, treated as recoverable input tax, or capitalized into inventory cost. Each invoice and line stores the applied tax mode, profile ID and rate snapshot for historical accuracy.
 - All APIs require authenticated sessions and server-enforced permissions; network binding requires HTTPS/TLS.
 - Purchase tax is configurable centrally: disabled, recoverable input tax, or non-recoverable tax capitalized into inventory cost.
 - Posted journal entries are balanced, protected against line edits/deletion, and corrected through reversing entries.
