@@ -27,7 +27,14 @@ export function initializeDatabase() {
     ['acc-sales-returns','4010','Sales Returns','revenue','debit'],['acc-cogs','5000','Cost of Goods Sold','expense','debit'],
     ['acc-expenses','6000','Operating Expenses','expense','debit'],['acc-purchase-variance','5010','Purchase Cost Rounding Variance','expense','debit']
   ];
-  const seed = db.transaction(() => accounts.forEach(row => insertAccount.run(...row)));
+  const seed = db.transaction(() => {
+    accounts.forEach(row => insertAccount.run(...row));
+    const setting=db.prepare('INSERT OR IGNORE INTO app_settings(key,value,updated_at) VALUES(?,?,?)');
+    const now=new Date().toISOString();
+    setting.run('inventory.cost_method','weighted',now);
+    setting.run('tax.price_mode','exclusive',now);
+    setting.run('currency.code','SDG',now);
+  });
   seed();
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
