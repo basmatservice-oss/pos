@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db, inTransaction } from './database.js';
+import { db, inTransaction, getDefaultBranchId } from './database.js';
 import { postJournalEntry } from './accounting.js';
 import { issueStock } from './inventory.js';
 import { calculateLineTax, getTaxProfile } from './tax.js';
@@ -17,7 +17,7 @@ function validateMoney(value,label) {
 export function checkoutSale(input) {
   if(!input||!Array.isArray(input.lines)||input.lines.length===0) throw new Error('Sale must contain at least one line.');
   const saleId=input.id||randomUUID(), now=input.occurredAt||new Date().toISOString();
-  const currencyCode=setting('currency.code','SDG');
+  const branchId=input.branchId||getDefaultBranchId();\n  const currencyCode=setting('currency.code','SDG');
   const priceMode=setting('tax.price_mode','exclusive');
   const costMethod=setting('inventory.cost_method','weighted');
   if(input.currencyCode&&input.currencyCode!==currencyCode) throw new Error('Sale currency does not match the configured base currency.');
@@ -50,7 +50,7 @@ export function checkoutSale(input) {
     if(existing) return {id:saleId,duplicate:true};
     const receipt=input.receiptNumber||`S-${Date.now()}-${saleId.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO sales(id,receipt_number,branch_id,device_id,customer_id,cashier_id,status,subtotal_minor,discount_minor,tax_minor,total_minor,currency_code,occurred_at,created_at)
-      VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?)`).run(saleId,receipt,input.branchId||null,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,l)=>sum+l.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString());
+      VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?)`).run(saleId,receipt,branchId,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,l)=>sum+l.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString());
     const insertLine=db.prepare(`INSERT INTO sale_lines(id,sale_id,line_type,item_id,description,quantity,unit_name,base_quantity,unit_price_minor,unit_cost_minor,discount_minor,tax_minor,line_total_minor)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const journalLines=[], paidByMethod=new Map();
@@ -63,7 +63,7 @@ export function checkoutSale(input) {
       }
       costTotal+=lineCost;
       const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):0;
-      insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,line.discountMinor,line.taxMinor,line.totalMinor);
+      insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor);
     }
     for(const p of payments) {
       db.prepare("INSERT INTO payments(id,sale_id,direction,method,amount_minor,reference,occurred_at) VALUES(?,?,'in',?,?,?,?)")
