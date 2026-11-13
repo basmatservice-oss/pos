@@ -23,7 +23,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:3000/desktop` on a computer or `http://localhost:3000/mobile` on a phone connected to the same LAN.
+Open `http://localhost:3000/desktop` for local development. The server binds to `127.0.0.1` by default. LAN access is intentionally not enabled until authentication, authorization and encrypted transport are implemented.
 
 ## Architecture decisions
 
