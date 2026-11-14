@@ -1,5 +1,5 @@
-import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,logout } from './client.js';
-const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,renderReturns,logout } from './client.js';
+const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',returns:'المرتجعات',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
 async function loadSummary(){
@@ -16,6 +16,7 @@ async function navigate(key){
  if(key==='inventory'){await renderInventory(view);return;}
  if(key==='sales'){await renderSaleCheckout(view);return;}
  if(key==='purchases'){await renderPurchaseEntry(view);return;}
+ if(key==='returns'){await renderReturns(view);return;}
  if(key==='products'){await renderProducts(view);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(view,key);return;}
  if(key==='reports'){await renderReports(view);return;}
