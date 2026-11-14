@@ -5,7 +5,7 @@ function requiredText(value,label,max=160){if(typeof value!=='string'||!value.tr
 function money(value,label){const n=Number(value);if(!Number.isSafeInteger(n)||n<0)throw new Error(`Invalid ${label}.`);return n;}
 export function listProducts(branchId) {
   return db.prepare(`SELECT p.id,p.sku,p.barcode,p.name,p.category_id AS categoryId,p.base_unit_id AS baseUnitId,
-    p.cost_minor AS costMinor,p.sale_price_minor AS salePriceMinor,p.tax_rate_bps AS taxRateBps,p.tax_exempt AS taxExempt,p.track_stock AS trackStock,
+    p.cost_minor AS costMinor,p.sale_price_minor AS salePriceMinor,p.price_currency AS priceCurrency,p.foreign_cost_minor AS foreignCostMinor,p.foreign_sale_price_minor AS foreignSalePriceMinor,p.auto_rate_update AS autoRateUpdate,p.tax_rate_bps AS taxRateBps,p.tax_exempt AS taxExempt,p.track_stock AS trackStock,
     p.min_stock AS minStock,p.is_active AS isActive,c.name AS categoryName,u.symbol AS baseUnitSymbol,
     COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS stockOnHand,
     COALESCE((SELECT SUM(CASE WHEN sm.quantity_delta>0 THEN sm.cost_total_minor ELSE -sm.cost_total_minor END) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.branch_id=?),0) AS inventoryValueMinor
