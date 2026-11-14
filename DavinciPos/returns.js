@@ -81,9 +81,12 @@ export function createSalesReturn(saleId,input={},userId=null){
       const quantity=Number(entry.quantity);
       if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Return quantity must be greater than zero.');
       const already=returnedQuantity('sales_return_lines','sale_line_id',line.id);
-      if(quantity>line.quantity-already+1e-9)throw new Error('Return quantity exceeds the unreturned quantity for '+line.description+'.');
-      const ratio=quantity/line.quantity;
-      const amountMinor=Math.round(line.line_total_minor*ratio),taxMinor=Math.min(amountMinor,Math.round(line.tax_minor*ratio));
+      const remainingQuantity=line.quantity-already;
+      if(quantity>remainingQuantity+1e-9)throw new Error('Return quantity exceeds the unreturned quantity for '+line.description+'.');
+      const prior=db.prepare('SELECT COALESCE(SUM(amount_minor),0) AS amountMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales_return_lines WHERE sale_line_id=?').get(line.id);
+      const ratio=quantity/line.quantity,finalReturn=quantity>=remainingQuantity-1e-9;
+      const amountMinor=finalReturn?line.line_total_minor-prior.amountMinor:Math.round(line.line_total_minor*ratio);
+      const taxMinor=finalReturn?line.tax_minor-prior.taxMinor:Math.min(amountMinor,Math.round(line.tax_minor*ratio));
       const baseQuantity=Number(line.base_quantity||0)*ratio;
       details.push({line,quantity,baseQuantity,amountMinor,taxMinor});
     }
@@ -144,9 +147,12 @@ export function createPurchaseReturn(purchaseId,input={},userId=null){
       const quantity=Number(entry.quantity);
       if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Return quantity must be greater than zero.');
       const already=returnedQuantity('purchase_return_lines','purchase_line_id',line.id);
-      if(quantity>line.quantity-already+1e-9)throw new Error('Return quantity exceeds the unreturned quantity.');
-      const ratio=quantity/line.quantity;
-      const netMinor=Math.round(line.line_total_minor*ratio),taxMinor=Math.round(line.tax_minor*ratio);
+      const remainingQuantity=line.quantity-already;
+      if(quantity>remainingQuantity+1e-9)throw new Error('Return quantity exceeds the unreturned quantity.');
+      const prior=db.prepare('SELECT COALESCE(SUM(amount_minor-tax_minor),0) AS netMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM purchase_return_lines WHERE purchase_line_id=?').get(line.id);
+      const ratio=quantity/line.quantity,finalReturn=quantity>=remainingQuantity-1e-9;
+      const netMinor=finalReturn?line.line_total_minor-prior.netMinor:Math.round(line.line_total_minor*ratio);
+      const taxMinor=finalReturn?line.tax_minor-prior.taxMinor:Math.round(line.tax_minor*ratio);
       details.push({line,quantity,baseQuantity:line.base_quantity*ratio,netMinor,taxMinor,amountMinor:netMinor+taxMinor});
     }
     const totalMinor=details.reduce((sum,line)=>sum+line.amountMinor,0),taxMinor=details.reduce((sum,line)=>sum+line.taxMinor,0);
