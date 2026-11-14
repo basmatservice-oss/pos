@@ -112,7 +112,7 @@ const REPORTS = {
   'stock-movements': `SELECT sm.occurred_at AS occurredAt,p.name AS product,sm.source_type AS source,
     sm.source_id AS reference,sm.quantity_delta AS quantityDelta,sm.unit_cost_minor AS unitCostMinor,sm.cost_total_minor AS costTotalMinor
     FROM stock_movements sm JOIN products p ON p.id=sm.product_id WHERE {{where}} ORDER BY sm.occurred_at DESC`,
-  'tax-summary': `SELECT s.currency_code AS currency, SUM(s.tax_minor) AS collectedTaxMinor,COUNT(*) AS invoices
+  'tax-summary': `SELECT s.currency_code AS currency,SUM(s.tax_minor-COALESCE((SELECT SUM(sr.tax_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS collectedTaxMinor,COUNT(*) AS invoices
     FROM sales s WHERE s.status!='void' AND {{where}} GROUP BY s.currency_code`,
   'cash-movements': `SELECT occurredAt,source,reference,method,provider,direction,amountMinor FROM (
     SELECT p.occurred_at AS occurredAt,CASE WHEN p.direction='out' THEN 'مرتجع بيع' ELSE 'بيع' END AS source,s.receipt_number AS reference,p.method,p.provider,p.direction,p.amount_minor AS amountMinor
