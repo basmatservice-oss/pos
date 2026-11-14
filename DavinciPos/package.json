@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DavinciPos - modular offline-capable point of sale and accounting system",
+  "description": "DavinciPos - offline-capable retail point of sale and store management",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
