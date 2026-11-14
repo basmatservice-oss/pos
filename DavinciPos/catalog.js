@@ -90,7 +90,7 @@ export function saveProductUnit(productId,input){
 export function lookupBarcode(code){
   const value=requiredText(String(code||''),'barcode',100);
   const product=db.prepare(`SELECT p.id AS productId,p.name,p.barcode,p.sale_price_minor AS salePriceMinor,p.base_unit_id AS unitId,
-    u.name AS unitName,u.symbol AS unitSymbol,1 AS baseQuantity,'product' AS lineType
+    u.name AS unitName,u.symbol AS unitSymbol,1 AS baseQuantity,NULL AS productUnitId,'product' AS lineType
     FROM products p JOIN units u ON u.id=p.base_unit_id WHERE p.barcode=? AND p.is_active=1
     UNION ALL
     SELECT p.id,p.name,pu.barcode,COALESCE(pu.sale_price_minor,p.sale_price_minor),pu.unit_id,u.name,u.symbol,pu.base_quantity,'product'
