@@ -148,9 +148,35 @@ export async function renderInvoices(root,kind) {
 }
 export async function renderReports(root) {
   const today=new Date().toISOString().slice(0,10),monthStart=today.slice(0,8)+'01';
-  root.innerHTML='<section class="panel"><h2>تقارير المتجر</h2><p>ملخص مبسط للمبيعات والمشتريات والربح التقريبي وتنبيهات المخزون.</p><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:14px 0"><label>من تاريخ<input id="report-from" type="date" value="'+monthStart+'"></label><label>إلى تاريخ<input id="report-to" type="date" value="'+today+'"></label><button id="report-load" class="primary-button">عرض التقرير</button></div><div id="report-area">جارٍ تحميل التقرير...</div></section>';
-  const load=async()=>{const area=root.querySelector('#report-area');area.textContent='جارٍ تحميل التقرير...';try{const q=new URLSearchParams({from:root.querySelector('#report-from').value,to:root.querySelector('#report-to').value});const r=await api('/api/reports/simple?'+q);const money=n=>(Number(n||0)/100).toLocaleString('ar',{maximumFractionDigits:2});area.innerHTML='<div class="metric-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px"><article class="metric-card"><span>إجمالي المبيعات</span><strong>'+money(r.salesTotalMinor)+'</strong><small>'+r.salesCount.toLocaleString('ar')+' فاتورة</small></article><article class="metric-card"><span>إجمالي المشتريات</span><strong>'+money(r.purchasesTotalMinor)+'</strong><small>'+r.purchasesCount.toLocaleString('ar')+' فاتورة</small></article><article class="metric-card"><span>الربح التقريبي</span><strong>'+money(r.grossProfitMinor)+'</strong><small>المبيعات ناقص تكلفة البضاعة</small></article><article class="metric-card"><span>الضريبة المحصلة</span><strong>'+money(r.salesTaxMinor)+'</strong><small>ضمن فواتير المبيعات</small></article></div><h3 style="margin-top:22px">أكثر المنتجات مبيعاً</h3>'+(r.topProducts.length?'<div style="overflow:auto"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>قيمة المبيعات</th></tr></thead><tbody>'+r.topProducts.map(p=>'<tr><td>'+escapeHtml(p.name)+'</td><td>'+Number(p.quantity).toLocaleString('ar')+'</td><td>'+money(p.totalMinor)+'</td></tr>').join('')+'</tbody></table></div>':'<p>لا توجد مبيعات في الفترة المحددة.</p>')+'<h3 style="margin-top:22px">منتجات قاربت على النفاد</h3>'+(r.lowStock.length?'<div style="overflow:auto"><table><thead><tr><th>المنتج</th><th>الرصيد</th><th>حد التنبيه</th></tr></thead><tbody>'+r.lowStock.map(p=>'<tr><td>'+escapeHtml(p.name)+'</td><td>'+Number(p.quantity).toLocaleString('ar')+'</td><td>'+Number(p.minStock).toLocaleString('ar')+'</td></tr>').join('')+'</tbody></table></div>':'<p>لا توجد منتجات تحت حد التنبيه.</p>');}catch(e){area.textContent=e.message;}};
-  root.querySelector('#report-load').addEventListener('click',load);await load();
+  const reportOptions=[
+    ['sales-daily','ملخص المبيعات اليومي'],['sales-invoices','فواتير المبيعات'],['sales-products','المبيعات حسب المنتج'],
+    ['sales-categories','المبيعات حسب التصنيف'],['sales-customers','المبيعات حسب العميل'],['sales-payments','المبيعات حسب طريقة الدفع'],
+    ['purchase-invoices','فواتير المشتريات'],['purchase-products','المشتريات حسب المنتج'],['purchase-categories','المشتريات حسب التصنيف'],
+    ['purchase-payments','مدفوعات المشتريات'],['stock-on-hand','الأرصدة وقيمة المخزون'],['stock-movements','حركة المخزون'],
+    ['tax-summary','ملخص الضرائب'],['cash-movements','حركة المقبوضات والمدفوعات']
+  ];
+  root.innerHTML='<section class="panel"><h2>تقارير المتجر</h2><p>تقارير تفصيلية للمبيعات والمشتريات والمخزون والضرائب وحركة الأموال.</p><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:14px 0"><label>من تاريخ<input id="report-from" type="date" value="'+monthStart+'"></label><label>إلى تاريخ<input id="report-to" type="date" value="'+today+'"></label><button id="report-load" class="primary-button">تحديث التقرير</button></div><div id="report-summary"></div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:20px 0"><label>نوع التقرير<select id="report-type">'+reportOptions.map(([v,n])=>'<option value="'+v+'">'+n+'</option>').join('')+'</select></label><button id="report-detail-load">عرض التفاصيل</button></div><div id="report-area">جارٍ تحميل التقرير...</div></section>';
+  const money=n=>(Number(n||0)/100).toLocaleString('ar',{maximumFractionDigits:2});
+  const loadSummary=async()=>{
+    const q=new URLSearchParams({from:root.querySelector('#report-from').value,to:root.querySelector('#report-to').value});
+    const s=await api('/api/reports/simple?'+q);
+    root.querySelector('#report-summary').innerHTML='<div class="metric-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px"><article class="metric-card"><span>إجمالي المبيعات</span><strong>'+money(s.salesTotalMinor)+'</strong><small>'+s.salesCount.toLocaleString('ar')+' فاتورة</small></article><article class="metric-card"><span>إجمالي المشتريات</span><strong>'+money(s.purchasesTotalMinor)+'</strong><small>'+s.purchasesCount.toLocaleString('ar')+' فاتورة</small></article><article class="metric-card"><span>مجمل الربح</span><strong>'+money(s.grossProfitMinor)+'</strong><small>قبل المصروفات</small></article><article class="metric-card"><span>الضريبة المحصلة</span><strong>'+money(s.salesTaxMinor)+'</strong><small>ضمن فواتير المبيعات</small></article></div>';
+  };
+  const loadDetail=async()=>{
+    const area=root.querySelector('#report-area');area.textContent='جارٍ تحميل التقرير...';
+    try{
+      const q=new URLSearchParams({type:root.querySelector('#report-type').value,from:root.querySelector('#report-from').value,to:root.querySelector('#report-to').value});
+      const result=await api('/api/reports/detail?'+q),rows=result.rows||[];
+      if(!rows.length){area.innerHTML='<p>لا توجد بيانات في الفترة المحددة.</p>';return;}
+      const keys=Object.keys(rows[0]);
+      const labels={day:'اليوم',invoices:'عدد الفواتير',totalMinor:'الإجمالي',taxMinor:'الضريبة',reference:'رقم المستند',occurredAt:'التاريخ',party:'الطرف',status:'الحالة',subtotalMinor:'قبل الضريبة',paidMinor:'المدفوع',dueMinor:'المتبقي',itemId:'معرّف الصنف',name:'الصنف',quantity:'الكمية',netSalesMinor:'صافي المبيعات',costMinor:'التكلفة',profitMinor:'الربح',category:'التصنيف',customer:'العميل',method:'طريقة الدفع',provider:'المحفظة',operations:'عدد العمليات',productId:'الصنف',netCostMinor:'قيمة المشتريات',unit:'الوحدة',sku:'رمز الصنف',barcode:'الباركود',minStock:'حد التنبيه',stockValueMinor:'قيمة المخزون',source:'نوع الحركة',source_type:'نوع الحركة',source_id:'رقم المرجع',reference:'المرجع',quantityDelta:'تغير الكمية',unitCostMinor:'تكلفة الوحدة',costTotalMinor:'إجمالي التكلفة',currency:'العملة',collectedTaxMinor:'الضريبة المحصلة',direction:'الحركة',amountMinor:'المبلغ'};
+      const isMoney=k=>/Minor$/.test(k);
+      area.innerHTML='<div style="overflow:auto"><table><thead><tr>'+keys.map(k=>'<th>'+escapeHtml(labels[k]||k)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+keys.map(k=>'<td>'+escapeHtml(isMoney(k)?money(row[k]):row[k]??'—')+'</td>').join('')+'</tr>').join('')+'</tbody></table></div><p>عدد النتائج: '+rows.length.toLocaleString('ar')+'</p>';
+    }catch(error){area.textContent=error.message;}
+  };
+  root.querySelector('#report-load').addEventListener('click',async()=>{try{await loadSummary();await loadDetail();}catch(e){root.querySelector('#report-area').textContent=e.message;}});
+  root.querySelector('#report-detail-load').addEventListener('click',loadDetail);
+  await loadSummary();await loadDetail();
 }
 
 export async function renderSaleCheckout(root) {
