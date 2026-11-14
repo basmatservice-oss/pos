@@ -6,6 +6,7 @@ import { calculateLineTax, getTaxProfile } from './tax.js';
 import { setting } from './settings.js';
 
 const paymentAccount={cash:'acc-cash',card:'acc-card',bank:'acc-bank',wallet:'acc-wallet',other:'acc-other-clearing'};
+const walletProviders=new Set(['bankak','ocash','fawry','mycashy']);
 function validateMoney(value,label){const n=Number(value);if(!Number.isSafeInteger(n)||n<0)throw new Error(`Invalid ${label}.`);return n;}
 function prepareSale(input) {
   if(!input||!Array.isArray(input.lines)||input.lines.length===0)throw new Error('Sale must contain at least one line.');
@@ -37,7 +38,7 @@ function prepareSale(input) {
   if(![subtotal,taxTotal,total].every(Number.isSafeInteger))throw new Error('Sale total exceeds safe monetary limits.');
   const payments=input.payments||[],paid=payments.reduce((sum,payment)=>sum+Number(payment.amountMinor),0);
   if(!Number.isSafeInteger(paid)||paid<0||paid>total)throw new Error('Payment amount exceeds sale total or is invalid.');
-  for(const payment of payments)if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid payment method or amount.');
+  for(const payment of payments){if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid payment method or amount.');if(payment.provider&&!walletProviders.has(payment.provider))throw new Error('Unsupported payment provider.');if(payment.method==='wallet'&&!walletProviders.has(payment.provider))throw new Error('Select a supported wallet provider.');}
   return {saleId,now,branchId,currencyCode,priceMode,taxEnabled,costMethod,lines,subtotal,taxTotal,total,payments,paid,input};
 }
 export function quoteSale(input) {
@@ -68,8 +69,8 @@ export function checkoutSale(input) {
       insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
     }
     for(const payment of payments){
-      db.prepare("INSERT INTO payments(id,sale_id,direction,method,amount_minor,reference,occurred_at) VALUES(?,?,'in',?,?,?,?)")
-        .run(randomUUID(),saleId,payment.method,Number(payment.amountMinor),payment.reference||null,now);
+      db.prepare("INSERT INTO payments(id,sale_id,direction,method,amount_minor,reference,provider,occurred_at) VALUES(?,?,'in',?,?,?,?,?)")
+        .run(randomUUID(),saleId,payment.method,Number(payment.amountMinor),payment.reference||null,payment.provider||null,now);
       paidByMethod.set(payment.method,(paidByMethod.get(payment.method)||0)+Number(payment.amountMinor));
     }
     for(const [method,amount] of paidByMethod)journalLines.push({accountId:paymentAccount[method],debitMinor:amount});
