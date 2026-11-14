@@ -173,7 +173,7 @@ test('service sale consumes configured material components and records their cos
   receiveStock({productId:'gift-box-material',branchId:'branch-main',sourceType:'test',sourceId:'gift-box-stock',quantity:10,unitCostMinor:250});
   const serviceId=saveService({name:'Gift wrapping',priceMinor:2000});
   setServiceComponents(serviceId,[{productId:'gift-box-material',quantity:2}]);
-  const result=checkoutSale({branchId:'branch-main',lines:[{lineType:'service',itemId:serviceId,quantity:1}],payments:[{method:'cash',amountMinor:2000}]});
+  const result=checkoutSale({branchId:'branch-main',lines:[{lineType:'service',itemId:serviceId,quantity:1}],payments:[{method:'cash',amountMinor:2600}]});
   assert.equal(getStockOnHand('gift-box-material','branch-main'),8);
   const line=db.prepare('SELECT cost_total_minor FROM sale_lines WHERE sale_id=?').get(result.id);
   assert.equal(line.cost_total_minor,500);
