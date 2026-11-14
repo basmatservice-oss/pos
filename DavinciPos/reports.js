@@ -79,10 +79,10 @@ const REPORTS = {
   'tax-summary': `SELECT s.currency_code AS currency, SUM(s.tax_minor) AS collectedTaxMinor,COUNT(*) AS invoices
     FROM sales s WHERE s.status!='void' AND {{where}} GROUP BY s.currency_code`,
   'cash-movements': `SELECT occurredAt,source,reference,method,provider,direction,amountMinor FROM (
-    SELECT p.occurred_at AS occurredAt,'بيع' AS source,s.receipt_number AS reference,p.method,p.provider,'in' AS direction,p.amount_minor AS amountMinor
+    SELECT p.occurred_at AS occurredAt,CASE WHEN p.direction='out' THEN 'مرتجع بيع' ELSE 'بيع' END AS source,s.receipt_number AS reference,p.method,p.provider,p.direction,p.amount_minor AS amountMinor
     FROM payments p JOIN sales s ON s.id=p.sale_id WHERE s.status!='void'
     UNION ALL
-    SELECT pp.occurred_at AS occurredAt,'شراء' AS source,pu.invoice_number AS reference,pp.method,pp.provider,'out' AS direction,pp.amount_minor AS amountMinor
+    SELECT pp.occurred_at AS occurredAt,CASE WHEN pp.direction='in' THEN 'مرتجع شراء' ELSE 'شراء' END AS source,pu.invoice_number AS reference,pp.method,pp.provider,CASE WHEN pp.direction='in' THEN 'in' ELSE 'out' END AS direction,pp.amount_minor AS amountMinor
     FROM purchase_payments pp JOIN purchases pu ON pu.id=pp.purchase_id WHERE pu.status!='void'
     UNION ALL
     SELECT e.occurred_at AS occurredAt,'مصروف' AS source,e.category AS reference,e.payment_method AS method,e.provider,'out' AS direction,e.amount_minor AS amountMinor
