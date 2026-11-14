@@ -15,7 +15,8 @@ import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './off
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases, listUnits, createUnit, saveProductUnit, listProductUnits, lookupBarcode, listServices, saveService, setServiceComponents, listServiceComponents } from './catalog.js';
 import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryCountLine, completeInventoryCount, listInventoryCounts } from './inventory.js';
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
-import { createExpense, listExpenses } from './expenses.js';\nimport { recordCustomerPayment, recordSupplierPayment, listCustomerBalances, listSupplierBalances, getCustomerStatement, getSupplierStatement } from './settlements.js';
+import { createExpense, listExpenses } from './expenses.js';
+import { recordCustomerPayment, recordSupplierPayment, listCustomerBalances, listSupplierBalances, getCustomerStatement, getSupplierStatement } from './settlements.js';
 import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
