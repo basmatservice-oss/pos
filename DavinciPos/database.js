@@ -62,6 +62,7 @@ export function initializeDatabase() {
   if (!paymentColumns.includes('provider')) db.exec('ALTER TABLE payments ADD COLUMN provider TEXT');
   const purchasePaymentColumns = db.prepare("PRAGMA table_info(purchase_payments)").all().map(column => column.name);
   if (!purchasePaymentColumns.includes('provider')) db.exec('ALTER TABLE purchase_payments ADD COLUMN provider TEXT');
+  if (!purchasePaymentColumns.includes('direction')) db.exec("ALTER TABLE purchase_payments ADD COLUMN direction TEXT NOT NULL DEFAULT 'out' CHECK(direction IN ('out','in'))");
   const purchaseLineColumns = db.prepare("PRAGMA table_info(purchase_lines)").all().map(column => column.name);
   if (!purchaseLineColumns.includes('tax_minor')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)');
   if (!purchaseLineColumns.includes('tax_rate_bps')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)');
