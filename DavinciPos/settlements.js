@@ -8,6 +8,12 @@ const paymentAccounts = {
 };
 const walletProviders = new Set(['bankak', 'ocash', 'fawry', 'mycashy']);
 
+function auditPayment(actorUserId, action, id, details) {
+  if (!actorUserId) return;
+  db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)')
+    .run(randomUUID(), actorUserId, action, 'payment', id, JSON.stringify(details), new Date().toISOString());
+}
+
 function validatePayment(input) {
   const amountMinor = Number(input?.amountMinor);
   if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
