@@ -106,7 +106,7 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   if(type==='stock-on-hand') {
     rows=db.prepare(template).all(branchId||null);
   } else if(type==='cash-movements') {
-    const filter=buildDateFilter('x',from,to);
+    const filter={sql:(from?'x.occurredAt>=? AND ':'')+(to?'x.occurredAt<?':'1=1'),params:[...(from?[from+'T00:00:00']:[]),...(to?[nextDate(to)+'T00:00:00']:[])]};
     rows=db.prepare(template.replace('{{where}}',filter.sql)).all(...filter.params);
   } else {
     const filter=buildDateFilter(alias,from,to);
