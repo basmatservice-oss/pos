@@ -19,8 +19,8 @@ export function recordExchangeRate({fromCurrency='USD',toCurrency='SDG',rate,eff
    const currentRate=getCurrentExchangeRate(fromCurrency,toCurrency);
    const appliedRate=currentRate?.rate||rate;
    const products=db.prepare("SELECT id,foreign_cost_minor,foreign_sale_price_minor FROM products WHERE price_currency='USD' AND auto_rate_update=1 AND foreign_sale_price_minor IS NOT NULL").all();
-   const update=db.prepare('UPDATE products SET cost_minor=?,sale_price_minor=?,updated_at=? WHERE id=?');
-   for(const p of products){update.run(p.foreign_cost_minor===null?0:Math.round(p.foreign_cost_minor*appliedRate),Math.round(p.foreign_sale_price_minor*appliedRate),now,p.id);updatedProducts++;}
+   const update=db.prepare('UPDATE products SET cost_minor=COALESCE(?,cost_minor),sale_price_minor=?,updated_at=? WHERE id=?');
+   for(const p of products){update.run(p.foreign_cost_minor===null?null:Math.round(p.foreign_cost_minor*appliedRate),Math.round(p.foreign_sale_price_minor*appliedRate),now,p.id);updatedProducts++;}
   }
   db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),actorUserId,'currency.exchange_rate','exchange_rate',id,JSON.stringify({fromCurrency,toCurrency,rate,applyAutomatically,updatedProducts}),now);
   return {id,fromCurrency,toCurrency,rate,effectiveAt:date.toISOString(),updatedProducts};
