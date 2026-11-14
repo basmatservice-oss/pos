@@ -43,7 +43,7 @@ test('sales return restores stock, refunds collected money and reduces the custo
   assert.equal(getStockOnHand('sales-return-product','branch-main'),9);
   assert.equal(listCustomerBalances()[0].balanceMinor,300);
   assert.equal(getCustomerStatement(customerId).invoices[0].returnedMinor,900);
-  assert.equal(createSalesReturn(sale.id,{id:'sales-return-001',lines:[]}).duplicate,true);
+  assert.equal(createSalesReturn(sale.id,{id:'sales-return-001',lines:[{saleLineId:options.lines[0].id,quantity:3}]}).duplicate,true);
   assert.throws(()=>createSalesReturn(sale.id,{lines:[{saleLineId:options.lines[0].id,quantity:2}]}),/exceeds the unreturned quantity/);
   assertBalanced();
 });
