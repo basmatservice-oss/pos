@@ -52,31 +52,43 @@ const REPORTS = {
     FROM sales s WHERE s.status IN ('posted','partially_returned','returned') AND {{where}} GROUP BY date(s.occurred_at) ORDER BY day DESC`,
   'sales-invoices': `SELECT s.receipt_number AS reference,s.occurred_at AS occurredAt,COALESCE(c.name,'عميل نقدي') AS party,
     s.status,s.subtotal_minor AS subtotalMinor,s.tax_minor AS taxMinor,s.total_minor AS totalMinor,
-    COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.sale_id=s.id AND p.direction='in'),0) AS paidMinor,
-    s.total_minor-COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.sale_id=s.id AND p.direction='in'),0) AS dueMinor
+    COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0) AS paidMinor,
+    COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0) AS returnedMinor,
+    s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)-COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0) AS dueMinor
     FROM sales s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.status!='void' AND {{where}} ORDER BY s.occurred_at DESC`,
-  'sales-products': `SELECT sl.item_id AS itemId,sl.description AS name,SUM(sl.quantity) AS quantity,
-    SUM(sl.line_total_minor-sl.tax_minor) AS netSalesMinor,SUM(sl.tax_minor) AS taxMinor,SUM(sl.cost_total_minor) AS costMinor,
-    SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor) AS profitMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE s.status!='void' AND {{where}} GROUP BY sl.item_id,sl.description ORDER BY netSalesMinor DESC`,
-  'sales-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,SUM(sl.quantity) AS quantity,
+    'sales-products': `SELECT sl.item_id AS itemId,sl.description AS name,
+    SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
+    SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS netSalesMinor,
+    SUM(sl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor,
+    SUM(sl.cost_total_minor)-COALESCE(SUM(r.cost_minor),0) AS costMinor,
+    SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor)-COALESCE(SUM(r.net_minor-r.cost_minor),0) AS profitMinor
+    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
+    LEFT JOIN (SELECT sale_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor,SUM(cost_minor) AS cost_minor FROM sales_return_lines GROUP BY sale_line_id) r ON r.sale_line_id=sl.id
+    WHERE s.status!='void' AND {{where}} GROUP BY sl.item_id,sl.description ORDER BY netSalesMinor DESC`,
+    'sales-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,SUM(sl.quantity) AS quantity,
     SUM(sl.line_total_minor-sl.tax_minor) AS netSalesMinor,SUM(sl.tax_minor) AS taxMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id LEFT JOIN products p ON sl.line_type='product' AND p.id=sl.item_id
     LEFT JOIN categories c ON c.id=p.category_id WHERE s.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netSalesMinor DESC`,
   'sales-customers': `SELECT COALESCE(c.name,'عميل نقدي') AS customer,COUNT(DISTINCT s.id) AS invoices,
-    SUM(s.total_minor) AS totalMinor, SUM(s.total_minor-COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.sale_id=s.id AND p.direction='in'),0)) AS dueMinor
+    SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
+    SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)-COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0)) AS dueMinor
     FROM sales s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY totalMinor DESC`,
-  'sales-payments': `SELECT p.method,p.provider,COUNT(*) AS operations,SUM(p.amount_minor) AS totalMinor
+    'sales-payments': `SELECT p.method,p.provider,COUNT(*) AS operations,SUM(p.amount_minor) AS totalMinor
     FROM payments p JOIN sales s ON s.id=p.sale_id WHERE s.status!='void' AND {{where}} GROUP BY p.method,p.provider,p.direction ORDER BY totalMinor DESC`,
   'purchase-invoices': `SELECT p.invoice_number AS reference,p.occurred_at AS occurredAt,COALESCE(s.name,'بدون مورد') AS party,
     p.status,p.subtotal_minor AS subtotalMinor,p.tax_minor AS taxMinor,p.total_minor AS totalMinor,
-    COALESCE((SELECT SUM(pp.amount_minor) FROM purchase_payments pp WHERE pp.purchase_id=p.id),0) AS paidMinor,
-    p.total_minor-COALESCE((SELECT SUM(pp.amount_minor) FROM purchase_payments pp WHERE pp.purchase_id=p.id),0) AS dueMinor
+    COALESCE((SELECT SUM(CASE WHEN pp.direction='out' THEN pp.amount_minor ELSE -pp.amount_minor END) FROM purchase_payments pp WHERE pp.purchase_id=p.id),0) AS paidMinor,
+    COALESCE((SELECT SUM(pr.total_minor) FROM purchase_returns pr WHERE pr.purchase_id=p.id),0) AS returnedMinor,
+    p.total_minor-COALESCE((SELECT SUM(pr.total_minor) FROM purchase_returns pr WHERE pr.purchase_id=p.id),0)-COALESCE((SELECT SUM(CASE WHEN pp.direction='out' THEN pp.amount_minor ELSE -pp.amount_minor END) FROM purchase_payments pp WHERE pp.purchase_id=p.id),0) AS dueMinor
     FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.status!='void' AND {{where}} ORDER BY p.occurred_at DESC`,
-  'purchase-products': `SELECT pr.id AS productId,pr.name,SUM(pl.quantity) AS quantity,SUM(pl.line_total_minor) AS netCostMinor,SUM(pl.tax_minor) AS taxMinor
+    'purchase-products': `SELECT pr.id AS productId,pr.name,
+    SUM(pl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
+    SUM(pl.line_total_minor)-COALESCE(SUM(r.net_minor),0) AS netCostMinor,
+    SUM(pl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
     FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
+    LEFT JOIN (SELECT purchase_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor FROM purchase_return_lines GROUP BY purchase_line_id) r ON r.purchase_line_id=pl.id
     WHERE pu.status!='void' AND {{where}} GROUP BY pr.id,pr.name ORDER BY netCostMinor DESC`,
-  'purchase-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,SUM(pl.quantity) AS quantity,
+    'purchase-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,SUM(pl.quantity) AS quantity,
     SUM(pl.line_total_minor) AS netCostMinor,SUM(pl.tax_minor) AS taxMinor
     FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
     LEFT JOIN categories c ON c.id=pr.category_id WHERE pu.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netCostMinor DESC`,
