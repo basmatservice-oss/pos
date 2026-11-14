@@ -20,16 +20,18 @@ function prepareSale(input) {
     const quantity=Number(line.quantity);
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Line quantity must be greater than zero.');
     const item=lineType==='service'
-      ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,tax_exempt,0 AS track_stock,'service' AS unit_symbol FROM services WHERE id=? AND is_active=1").get(line.itemId)
-      :db.prepare('SELECT p.name,p.sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol FROM products p LEFT JOIN units u ON u.id=p.base_unit_id WHERE p.id=? AND p.is_active=1').get(line.itemId);
+      ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,tax_exempt,0 AS track_stock,'service' AS unit_symbol,1 AS unit_multiplier FROM services WHERE id=? AND is_active=1").get(line.itemId)
+      :db.prepare('SELECT p.name,COALESCE(pu.sale_price_minor,p.sale_price_minor) AS sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol,COALESCE(pu.base_quantity,1) AS unit_multiplier FROM products p LEFT JOIN units u ON u.id=p.base_unit_id LEFT JOIN product_units pu ON pu.id=? AND pu.product_id=p.id WHERE p.id=? AND p.is_active=1').get(line.productUnitId||null,line.itemId);
     if(!item)throw new Error(lineType==='service'?'Service not found or inactive.':'Product not found or inactive.');
     const unitPriceMinor=validateMoney(item.sale_price_minor,'product sale price');
     const discountMinor=0;
     const profile=item.tax_exempt?{rateBps:0,priceMode}:item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
-    const baseQuantity=lineType==='service'?0:quantity;
+    const baseQuantity=lineType==='service'?0:quantity*Number(item.unit_multiplier||1);
+    if(!Number.isFinite(baseQuantity)||baseQuantity<=0&&lineType==='product'&&item.track_stock)throw new Error('Invalid converted unit quantity');
     if(lineType==='product'&&item.track_stock&&baseQuantity<=0)throw new Error('Invalid base unit quantity.');
-    return {...line,lineType,itemId:line.itemId,description:item.name,quantity,baseQuantity,unitName:item.unit_symbol||'pc',
+    const components=lineType==='service'?db.prepare('SELECT product_id AS productId,quantity FROM service_components WHERE service_id=?').all(line.itemId):[];
+    return {...line,lineType,itemId:line.itemId,description:item.name,quantity,baseQuantity,components,unitName:line.unitName||item.unit_symbol||'pc',
       unitPriceMinor,unitCostMinor:0,discountMinor,trackStock:lineType==='product'&&Boolean(item.track_stock),
       taxRateBps:profile.rateBps,taxProfileId:profile.id||null,taxPriceMode:profile.priceMode||priceMode,
       taxMinor:tax.taxMinor,netMinor:tax.netMinor,totalMinor:tax.totalMinor};
@@ -60,12 +62,13 @@ export function checkoutSale(input) {
     const journalLines=[],paidByMethod=new Map();let costTotal=0;
     for(const line of lines){
       let lineCost=0;
-      if(line.lineType!=='service'&&line.trackStock!==false){
-        const issue=issueStock({productId:line.itemId,branchId,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});
-        lineCost=issue.costTotalMinor;
+      if(line.lineType==='service'){
+        for(const component of line.components||[]){const issue=issueStock({productId:component.productId,branchId,sourceType:'service_sale',sourceId:saleId,quantity:component.quantity*line.quantity,costMethod,occurredAt:now});lineCost+=issue.costTotalMinor;}
+      }else if(line.trackStock!==false){
+        const issue=issueStock({productId:line.itemId,branchId,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});lineCost=issue.costTotalMinor;
       }
       costTotal+=lineCost;
-      const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):0;
+      const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):line.quantity>0?Math.round(lineCost/line.quantity):0;
       insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
     }
     for(const payment of payments){
