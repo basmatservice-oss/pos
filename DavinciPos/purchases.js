@@ -32,7 +32,6 @@ function preparePurchase(input) {
   const payments=input.payments||[],paid=payments.reduce((sum,payment)=>sum+Number(payment.amountMinor),0);
   if(!Number.isSafeInteger(paid)||paid<0||paid>total)throw new Error('Invalid purchase payment total.');
   for(const payment of payments){if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid purchase payment.');if(payment.provider&&!walletProviders.has(payment.provider))throw new Error('Unsupported payment provider.');if(payment.method==='wallet'&&!walletProviders.has(payment.provider))throw new Error('Select a supported wallet provider.');}
-  if(total>paid&&!input.supplierId)throw new Error('A supplier is required when a purchase has an unpaid balance.');
   return {id,now,branchId,currency,taxTreatment,defaultMode,lines,subtotal,taxTotal,total,payments,paid,input};
 }
 export function quotePurchase(input) {
