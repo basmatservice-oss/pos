@@ -144,12 +144,44 @@ export async function renderInventory(root) {
   }catch(error){root.querySelector('#inventory-area').textContent=error.message;}
 }
 export async function renderPeople(root,kind) {
-  const customers=kind==='customers',title=customers?'العملاء':'الموردون',endpoint=customers?'/api/customers':'/api/suppliers';
+  const customers=kind==='customers',title=customers?'العملاء':'الموردون';
+  const listEndpoint=customers?'/api/settlements/customers':'/api/settlements/suppliers';
+  const statementEndpoint=id=>customers?'/api/customers/'+encodeURIComponent(id)+'/statement':'/api/suppliers/'+encodeURIComponent(id)+'/statement';
   root.innerHTML=`<section class="panel"><h2>${title}</h2><div id="people-area">جارٍ التحميل...</div></section>`;
   try{
-    const records=await api(endpoint);
-    root.querySelector('#people-area').innerHTML=`<form id="person-form" style="display:grid;gap:8px;max-width:520px;margin-bottom:20px"><h3>إضافة ${customers?'عميل':'مورد'}</h3><input name="name" required placeholder="الاسم"><input name="phone" placeholder="الهاتف"><input name="email" type="email" placeholder="البريد الإلكتروني">${customers?'':'<input name="address" placeholder="العنوان">'}<button class="primary-button">حفظ</button><p id="person-message"></p></form><div>${records.map(p=>`<div style="padding:10px;border-bottom:1px solid #e7eaf0"><b>${escapeHtml(p.name)}</b><small style="display:block;color:#8792a5">${escapeHtml(p.phone||p.email||'')}</small></div>`).join('')}</div>`;
-    root.querySelector('#person-form').addEventListener('submit',async event=>{event.preventDefault();const body=Object.fromEntries(new FormData(event.currentTarget).entries());try{await api(endpoint,{method:'POST',body});await renderPeople(root,kind);}catch(error){root.querySelector('#person-message').textContent=error.message;}});
+    const records=await api(listEndpoint),area=root.querySelector('#people-area');
+    area.innerHTML=records.length?records.map(person=>`<article style="padding:14px;border:1px solid #e7eaf0;border-radius:12px;margin:10px 0">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+        <div><b>${escapeHtml(person.name)}</b><small style="display:block;color:#8792a5">${escapeHtml(person.phone||'')}</small></div>
+        <div><b>المبلغ المستحق: ${(person.balanceMinor/100).toLocaleString('ar')} ج.س</b></div>
+        <button type="button" data-person-statement="${escapeHtml(person.id)}">كشف الحساب وتسجيل دفعة</button>
+      </div><div data-statement-area="${escapeHtml(person.id)}"></div>
+    </article>`).join(''):'لا توجد سجلات.';
+    for(const button of area.querySelectorAll('[data-person-statement]')){
+      button.addEventListener('click',async()=>{
+        const id=button.dataset.personStatement,panel=area.querySelector('[data-statement-area="'+CSS.escape(id)+'"]');
+        if(panel.dataset.loaded==='1'){panel.hidden=!panel.hidden;return;}
+        try{
+          const statement=await api(statementEndpoint(id));
+          panel.innerHTML=`<div style="overflow:auto;margin-top:12px"><table><thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>تسجيل دفعة</th></tr></thead><tbody>${statement.invoices.map(invoice=>`<tr><td>${escapeHtml(invoice.reference)}</td><td>${escapeHtml(invoice.occurredAt)}</td><td>${(invoice.totalMinor/100).toLocaleString('ar')}</td><td>${(invoice.paidMinor/100).toLocaleString('ar')}</td><td>${(invoice.dueMinor/100).toLocaleString('ar')}</td><td>${invoice.dueMinor>0?`<form data-invoice-payment="${escapeHtml(invoice.id)}" style="display:grid;gap:5px;min-width:170px"><input name="amount" type="number" min="0.01" max="${(invoice.dueMinor/100).toFixed(2)}" step="0.01" value="${(invoice.dueMinor/100).toFixed(2)}" required><select name="method"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select><select name="provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select><input name="reference" placeholder="مرجع الدفع (اختياري)"><button type="submit">حفظ الدفعة</button><small data-payment-message></small></form>`:'—'}</td></tr>`).join('')}</tbody></table></div>`;
+          panel.dataset.loaded='1';panel.hidden=false;
+          for(const form of panel.querySelectorAll('[data-invoice-payment]')){
+            const method=form.elements.method,provider=form.elements.provider;
+            const syncProvider=()=>{provider.hidden=method.value!=='wallet';};method.addEventListener('change',syncProvider);syncProvider();
+            form.addEventListener('submit',async event=>{
+              event.preventDefault();const data=new FormData(form),amountMinor=Math.round(Number(data.get('amount'))*100);
+              const endpoint=customers?'/api/sales/':'/api/purchases/';
+              const message=form.querySelector('[data-payment-message]');
+              try{
+                const body={amountMinor,method:data.get('method'),provider:data.get('method')==='wallet'?data.get('provider'):null,reference:data.get('reference')||null};
+                await api(endpoint+encodeURIComponent(form.dataset.invoicePayment)+'/payments',{method:'POST',body});
+                await renderPeople(root,kind);
+              }catch(error){message.textContent=error.message;}
+            });
+          }
+        }catch(error){panel.textContent=error.message;}
+      });
+    }
   }catch(error){root.querySelector('#people-area').textContent=error.message;}
 }
 export async function renderInvoices(root,kind) {
