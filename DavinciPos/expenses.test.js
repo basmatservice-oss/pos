@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-expenses-'));
+process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
+const {db,initializeDatabase}=await import('./database.js');
+const {createExpense,listExpenses}=await import('./expenses.js');
+const {getSimpleReport}=await import('./reports.js');
+const {getTrialBalance}=await import('./accounting.js');
+initializeDatabase();
+test('expense records validate payments and affect simplified net profit',()=>{
+ const expense=createExpense({category:'Electricity',amountMinor:12500,paymentMethod:'wallet',provider:'bankak',note:'Monthly bill'},{branchId:'branch-main'});
+ assert.equal(expense.amountMinor,12500);
+ assert.equal(listExpenses()[0].provider,'bankak');
+ const report=getSimpleReport({});
+ assert.equal(report.expensesTotalMinor,12500);
+ assert.equal(report.netProfitMinor,-12500);
+ const lines=getTrialBalance();
+ assert.equal(lines.reduce((sum,row)=>sum+row.debitMinor,0),lines.reduce((sum,row)=>sum+row.creditMinor,0));
+ assert.throws(()=>createExpense({category:'Rent',amountMinor:0}),/positive integer/);
+ assert.throws(()=>createExpense({category:'Other',amountMinor:100,paymentMethod:'wallet'}),/Select Bankak/);
+});
+test('closes expense database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
