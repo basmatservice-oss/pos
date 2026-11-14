@@ -258,3 +258,12 @@ CREATE TABLE IF NOT EXISTS inventory_count_lines (
  counted_quantity REAL CHECK(counted_quantity>=0),adjustment_id TEXT,UNIQUE(count_id,product_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_count_lines_count ON inventory_count_lines(count_id);
+
+CREATE TABLE IF NOT EXISTS expenses (
+ id TEXT PRIMARY KEY,branch_id TEXT REFERENCES branches(id),category TEXT NOT NULL,
+ amount_minor INTEGER NOT NULL CHECK(amount_minor>0),
+ payment_method TEXT NOT NULL CHECK(payment_method IN ('cash','card','bank','wallet','other')),
+ provider TEXT,reference TEXT,note TEXT,occurred_at TEXT NOT NULL,
+ created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_occurred ON expenses(occurred_at);
