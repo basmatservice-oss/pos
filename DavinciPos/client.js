@@ -223,7 +223,7 @@ export async function renderInvoices(root,kind) {
 export async function renderReports(root) {
   const today=new Date().toISOString().slice(0,10),monthStart=today.slice(0,8)+'01';
   const reportOptions=[
-    ['sales-daily','ملخص المبيعات اليومي'],['sales-invoices','فواتير المبيعات'],['sales-products','المبيعات حسب المنتج'],
+    ['sales-returns','مرتجعات المبيعات'],['purchase-returns','مرتجعات المشتريات'],['sales-daily','ملخص المبيعات اليومي'],['sales-invoices','فواتير المبيعات'],['sales-products','المبيعات حسب المنتج'],
     ['sales-categories','المبيعات حسب التصنيف'],['sales-customers','المبيعات حسب العميل'],['sales-payments','المبيعات حسب طريقة الدفع'],
     ['purchase-invoices','فواتير المشتريات'],['purchase-products','المشتريات حسب المنتج'],['purchase-categories','المشتريات حسب التصنيف'],
     ['purchase-payments','مدفوعات المشتريات'],['stock-on-hand','الأرصدة وقيمة المخزون'],['stock-movements','حركة المخزون'],
