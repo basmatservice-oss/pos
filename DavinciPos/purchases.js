@@ -6,6 +6,7 @@ import { calculateLineTax, getTaxProfile } from './tax.js';
 import { setting } from './settings.js';
 
 const paymentAccount={cash:'acc-cash',card:'acc-card',bank:'acc-bank',wallet:'acc-wallet',other:'acc-other-clearing'};
+const walletProviders=new Set(['bankak','ocash','fawry','mycashy']);
 function preparePurchase(input) {
   if(!input||!Array.isArray(input.lines)||input.lines.length===0)throw new Error('Purchase must contain at least one line.');
   const id=input.id||randomUUID(),now=input.occurredAt||new Date().toISOString(),branchId=input.branchId||getDefaultBranchId();
@@ -29,7 +30,7 @@ function preparePurchase(input) {
   if(!Number.isSafeInteger(total)||total<=0)throw new Error('Purchase total must be greater than zero.');
   const payments=input.payments||[],paid=payments.reduce((sum,payment)=>sum+Number(payment.amountMinor),0);
   if(!Number.isSafeInteger(paid)||paid<0||paid>total)throw new Error('Invalid purchase payment total.');
-  for(const payment of payments)if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid purchase payment.');
+  for(const payment of payments){if(!paymentAccount[payment.method]||!Number.isSafeInteger(Number(payment.amountMinor))||Number(payment.amountMinor)<=0)throw new Error('Invalid purchase payment.');if(payment.provider&&!walletProviders.has(payment.provider))throw new Error('Unsupported payment provider.');if(payment.method==='wallet'&&!walletProviders.has(payment.provider))throw new Error('Select a supported wallet provider.');}
   return {id,now,branchId,currency,taxTreatment,defaultMode,lines,subtotal,taxTotal,total,payments,paid,input};
 }
 export function quotePurchase(input) {
@@ -52,7 +53,7 @@ export function receivePurchase(input) {
       const received=receiveStock({productId:line.productId,branchId,sourceType:'purchase',sourceId:id,quantity:line.baseQuantity,unitCostMinor:line.inventoryUnitCostMinor,occurredAt:now});
       inventoryValueMinor+=received.costTotalMinor;
     }
-    for(const payment of payments)db.prepare('INSERT INTO purchase_payments(id,purchase_id,method,amount_minor,reference,occurred_at) VALUES(?,?,?,?,?,?)').run(randomUUID(),id,payment.method,Number(payment.amountMinor),payment.reference||null,now);
+    for(const payment of payments)db.prepare('INSERT INTO purchase_payments(id,purchase_id,method,amount_minor,reference,provider,occurred_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),id,payment.method,Number(payment.amountMinor),payment.reference||null,payment.provider||null,now);
     const journal=[];
     if(inventoryValueMinor>0)journal.push({accountId:'acc-inventory',debitMinor:inventoryValueMinor});
     const bookedValue=taxTreatment==='recoverable'?subtotal:total;
