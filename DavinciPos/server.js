@@ -17,7 +17,7 @@ import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryC
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
 import { createExpense, listExpenses } from './expenses.js';
 import { recordCustomerPayment, recordSupplierPayment, listCustomerBalances, listSupplierBalances, getCustomerStatement, getSupplierStatement } from './settlements.js';
-import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
+import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';\nimport { getSalesReturnOptions, getPurchaseReturnOptions, createSalesReturn, createPurchaseReturn } from './returns.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -45,7 +45,7 @@ function loginRateLimit(req,res,next){
 }
 function asyncRoute(handler){return (req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);}
 const api=(permission,handler)=>[requireAuth,requirePermission(permission),handler];
-const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.collect','sales.void','purchases.read','purchases.create','purchases.pay','customers.read','customers.write','customers.balance.read','suppliers.read','suppliers.write','suppliers.balance.read','reports.read','expenses.read','expenses.create','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
+const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.collect','sales.return','sales.void','purchases.read','purchases.create','purchases.pay','purchases.return','customers.read','customers.write','customers.balance.read','suppliers.read','suppliers.write','suppliers.balance.read','reports.read','expenses.read','expenses.create','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
@@ -169,6 +169,10 @@ app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
   catch(error){res.status(400).json({error:error.message||'Unable to complete sale.'});}
 }));
 app.post('/api/purchases/quote',...api('purchases.create',(req,res)=>{try{res.json({data:quotePurchase({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/returns/sales/:id/options',...api('sales.return',(req,res)=>{try{res.json({data:getSalesReturnOptions(req.params.id)});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/returns/sales/:id',...api('sales.return',(req,res)=>{try{res.status(201).json({data:createSalesReturn(req.params.id,req.body||{},req.user.id)});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/returns/purchases/:id/options',...api('purchases.return',(req,res)=>{try{res.json({data:getPurchaseReturnOptions(req.params.id)});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/returns/purchases/:id',...api('purchases.return',(req,res)=>{try{res.status(201).json({data:createPurchaseReturn(req.params.id,req.body||{},req.user.id)});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/purchases/receive',...api('purchases.create',(req,res)=>{
   try{const result=receivePurchase({...req.body,branchId:getDefaultBranchId()});res.status(201).json({data:result});}
   catch(error){res.status(400).json({error:error.message||'Unable to receive purchase.'});}
