@@ -21,7 +21,10 @@ export function initializeSecurity() {
   }
   const permissionVersion=db.prepare("SELECT value FROM app_settings WHERE key='security.permissions.version'").get()?.value;
   if(permissionVersion!=='4') {
-    for(const permission of ['sales.credit','expenses.read','expenses.create','sales.collect','purchases.pay','customers.balance.read','suppliers.balance.read'])grant.run('manager',permission);\n    for(const permission of ['sales.collect','customers.balance.read'])grant.run('cashier',permission);\n    for(const permission of ['sales.collect','purchases.pay','customers.balance.read','suppliers.balance.read'])grant.run('accountant',permission);\n    for(const permission of ['sales.collect','customers.balance.read'])grant.run('sales',permission);
+    for(const permission of ['sales.credit','expenses.read','expenses.create','sales.collect','purchases.pay','customers.balance.read','suppliers.balance.read'])grant.run('manager',permission);
+    for(const permission of ['sales.collect','customers.balance.read'])grant.run('cashier',permission);
+    for(const permission of ['sales.collect','purchases.pay','customers.balance.read','suppliers.balance.read'])grant.run('accountant',permission);
+    for(const permission of ['sales.collect','customers.balance.read'])grant.run('sales',permission);
     grant.run('accountant','expenses.read');
     db.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES('security.permissions.version','4',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(new Date().toISOString());
   }
