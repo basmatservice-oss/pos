@@ -10,18 +10,19 @@ function nextDate(value){const d=new Date(value+'T00:00:00Z');d.setUTCDate(d.get
 export function getSimpleReport({from=null,to=null}={}) {
   from=validDate(from);to=validDate(to);
   if(from&&to&&from>to)throw new Error('Start date must be before end date.');
-  const where=["status='posted'"],params=[];
-  if(from){where.push('occurred_at>=?');params.push(from+'T00:00:00');}
-  if(to){where.push('occurred_at<?');params.push(nextDate(to)+'T00:00:00');}
+  const where=["status='posted'"],salesWhere=["status IN ('posted','partially_returned','returned')"],params=[];
+  if(from){where.push('occurred_at>=?');salesWhere.push('occurred_at>=?');params.push(from+'T00:00:00');}
+  if(to){where.push('occurred_at<?');salesWhere.push('occurred_at<?');params.push(nextDate(to)+'T00:00:00');}
   const filter=where.join(' AND ');
-  const sales=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales WHERE ${filter}`).get(...params);
-  const salesReturns=db.prepare(`SELECT COALESCE(SUM(sr.total_minor),0) AS totalMinor,COALESCE(SUM(sr.tax_minor),0) AS taxMinor FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
+  const salesFilter=salesWhere.join(' AND ');
+  const sales=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales WHERE ${salesFilter}`).get(...params);
+  const salesReturns=db.prepare(`SELECT COALESCE(SUM(sr.total_minor),0) AS totalMinor,COALESCE(SUM(sr.tax_minor),0) AS taxMinor FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE ${salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
   const purchases=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor FROM purchases WHERE ${filter}`).get(...params);
   const purchaseReturns=db.prepare(`SELECT COALESCE(SUM(pr.total_minor),0) AS totalMinor FROM purchase_returns pr JOIN purchases p ON p.id=pr.purchase_id WHERE ${filter.split(' AND ').map(x=>'p.'+x).join(' AND ')}`).get(...params);
   const expenseWhere=[],expenseParams=[];if(from){expenseWhere.push('occurred_at>=?');expenseParams.push(from+'T00:00:00');}if(to){expenseWhere.push('occurred_at<?');expenseParams.push(nextDate(to)+'T00:00:00');}
   const expenses=db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS totalMinor FROM expenses ${expenseWhere.length?'WHERE '+expenseWhere.join(' AND '):''}`).get(...expenseParams);
   const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0) AS grossProfitMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
+    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
   const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity) AS quantity,SUM(sl.line_total_minor-sl.tax_minor) AS totalMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}
     GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params);
