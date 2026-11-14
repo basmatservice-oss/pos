@@ -185,7 +185,7 @@ export async function renderSaleCheckout(root) {
     const [products,customers]=await Promise.all([api('/api/products'),api('/api/customers')]);
     const available=products.filter(p=>p.trackStock||Number(p.stockOnHand)>0);
     let cart=[];
-    root.querySelector('#pos-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px"><label>المنتج<select id="pos-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${(p.salePriceMinor/100).toLocaleString('ar')} · الرصيد ${Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select></label><label>الكمية<input id="pos-quantity" type="number" min="0.001" step="0.001" value="1"></label></div><button id="pos-add" class="primary-button" style="margin-top:12px">إضافة إلى الفاتورة</button><div id="pos-cart" style="margin-top:18px"></div><div style="display:grid;gap:8px;max-width:520px;margin-top:16px"><label>العميل (اختياري)<select id="pos-customer"><option value="">بيع نقدي مباشر</option>${customers.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></label><label>طريقة الدفع<select id="pos-method"><option value="cash">نقداً</option><option value="card">بطاقة</option><option value="bank">تحويل بنكي</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label id="pos-provider-wrap" hidden>المحفظة الإلكترونية<select id="pos-provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><button id="pos-checkout" class="primary-button">اعتماد البيع</button><p id="pos-message" role="status"></p></div>`;
+    root.querySelector('#pos-area').innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input id="pos-barcode" placeholder="امسح الباركود ثم اضغط Enter" autocomplete="off" style="flex:1;min-width:190px"><button type="button" id="pos-camera">مسح بكاميرا الهاتف</button><span id="pos-scan-status" role="status"></span><video id="pos-camera-video" playsinline muted hidden style="width:100%;max-width:360px"></video></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px"><label>المنتج<select id="pos-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${(p.salePriceMinor/100).toLocaleString('ar')} · الرصيد ${Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select></label><label>الكمية<input id="pos-quantity" type="number" min="0.001" step="0.001" value="1"></label></div><button id="pos-add" class="primary-button" style="margin-top:12px">إضافة إلى الفاتورة</button><div id="pos-cart" style="margin-top:18px"></div><div style="display:grid;gap:8px;max-width:520px;margin-top:16px"><label>العميل (اختياري)<select id="pos-customer"><option value="">بيع نقدي مباشر</option>${customers.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></label><label>طريقة الدفع<select id="pos-method"><option value="cash">نقداً</option><option value="card">بطاقة</option><option value="bank">تحويل بنكي</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label id="pos-provider-wrap" hidden>المحفظة الإلكترونية<select id="pos-provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><button id="pos-checkout" class="primary-button">اعتماد البيع</button><p id="pos-message" role="status"></p></div>`;
     const quote=async()=>{
       if(!cart.length){root.querySelector('#pos-cart').textContent='أضف منتجاً للبدء.';return null;}
       const result=await api('/api/sales/quote',{method:'POST',body:{lines:cart}});
@@ -194,6 +194,28 @@ export async function renderSaleCheckout(root) {
       return result;
     };
     root.querySelector('#pos-method').addEventListener('change',()=>{root.querySelector('#pos-provider-wrap').hidden=root.querySelector('#pos-method').value!=='wallet';});
+    const addBarcode=async(code)=>{
+      const status=root.querySelector('#pos-scan-status');
+      try{
+        const item=await api('/api/barcode/'+encodeURIComponent(code));
+        const line={lineType:item.lineType||'product',itemId:item.productId,description:item.name,quantity:1,unitName:item.unitSymbol||'خدمة',productUnitId:item.productUnitId||null,baseQuantity:item.baseQuantity||1};
+        cart.push(line);status.textContent='تمت إضافة: '+item.name;root.querySelector('#pos-barcode').value='';await quote();
+      }catch(error){status.textContent=error.message;}
+    };
+    root.querySelector('#pos-barcode').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();const code=event.currentTarget.value.trim();if(code)addBarcode(code);}});
+    root.querySelector('#pos-camera').addEventListener('click',async()=>{
+      const status=root.querySelector('#pos-scan-status'),video=root.querySelector('#pos-camera-video');
+      if(!('BarcodeDetector' in window)||!navigator.mediaDevices?.getUserMedia){status.textContent='المتصفح لا يدعم مسح الباركود بالكاميرا؛ استخدم حقل المسح أو قارئ USB.';return;}
+      let stream;
+      try{
+        const detector=new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code']});
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        video.srcObject=stream;video.hidden=false;await video.play();status.textContent='وجّه الكاميرا نحو الباركود.';
+        const scan=async()=>{if(!video.srcObject)return;try{const found=await detector.detect(video);if(found.length){const code=found[0].rawValue;stream.getTracks().forEach(t=>t.stop());video.srcObject=null;video.hidden=true;await addBarcode(code);return;}}catch{}requestAnimationFrame(scan);};
+        requestAnimationFrame(scan);
+      }catch(error){if(stream)stream.getTracks().forEach(t=>t.stop());video.srcObject=null;video.hidden=true;status.textContent='تعذر تشغيل الكاميرا: '+error.message;}
+    });
+
     root.querySelector('#pos-add').addEventListener('click',async()=>{
       const product=products.find(p=>p.id===root.querySelector('#pos-product').value),quantity=Number(root.querySelector('#pos-quantity').value);
       if(!product||!Number.isFinite(quantity)||quantity<=0){root.querySelector('#pos-message').textContent='اختر منتجاً وأدخل كمية صحيحة.';return;}
