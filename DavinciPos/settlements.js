@@ -48,6 +48,7 @@ export function recordCustomerPayment(saleId, input, actorUserId = null) {
         { accountId: paymentAccounts[payment.method], debitMinor: payment.amountMinor },
         { accountId: 'acc-ar', creditMinor: payment.amountMinor }
       ] });
+    auditPayment(actorUserId, 'customer.payment', id, { saleId, amountMinor: payment.amountMinor, method: payment.method });
     return { id, saleId, amountMinor: payment.amountMinor, remainingMinor: due - payment.amountMinor };
   });
 }
@@ -71,6 +72,7 @@ export function recordSupplierPayment(purchaseId, input, actorUserId = null) {
         { accountId: 'acc-ap', debitMinor: payment.amountMinor },
         { accountId: paymentAccounts[payment.method], creditMinor: payment.amountMinor }
       ] });
+    auditPayment(actorUserId, 'supplier.payment', id, { purchaseId, amountMinor: payment.amountMinor, method: payment.method });
     return { id, purchaseId, amountMinor: payment.amountMinor, remainingMinor: due - payment.amountMinor };
   });
 }
