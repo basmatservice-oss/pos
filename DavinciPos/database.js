@@ -67,6 +67,16 @@ export function initializeDatabase() {
   if (!purchaseLineColumns.includes('tax_rate_bps')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)');
   if (!purchaseLineColumns.includes('tax_profile_id')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_profile_id TEXT');
   if (!purchaseLineColumns.includes('tax_price_mode')) db.exec("ALTER TABLE purchase_lines ADD COLUMN tax_price_mode TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))");
+
+  const productColumnsAfter = db.prepare('PRAGMA table_info(products)').all().map(column => column.name);
+  if (!productColumnsAfter.includes('price_currency')) db.exec("ALTER TABLE products ADD COLUMN price_currency TEXT NOT NULL DEFAULT 'SDG' CHECK(price_currency IN ('SDG','USD'))");
+  if (!productColumnsAfter.includes('foreign_cost_minor')) db.exec('ALTER TABLE products ADD COLUMN foreign_cost_minor INTEGER');
+  if (!productColumnsAfter.includes('foreign_sale_price_minor')) db.exec('ALTER TABLE products ADD COLUMN foreign_sale_price_minor INTEGER');
+  if (!productColumnsAfter.includes('auto_rate_update')) db.exec('ALTER TABLE products ADD COLUMN auto_rate_update INTEGER NOT NULL DEFAULT 0 CHECK(auto_rate_update IN (0,1))');
+  db.exec(`CREATE TABLE IF NOT EXISTS exchange_rates (
+    id TEXT PRIMARY KEY,from_currency TEXT NOT NULL,to_currency TEXT NOT NULL,rate REAL NOT NULL CHECK(rate>0),
+    effective_at TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL
+  ); CREATE INDEX IF NOT EXISTS idx_exchange_rates_pair_date ON exchange_rates(from_currency,to_currency,effective_at DESC);`);
   return { path: DB_PATH, initializedAt: new Date().toISOString() };
 }
 export function inTransaction(work) { return db.transaction(work).immediate(); }
