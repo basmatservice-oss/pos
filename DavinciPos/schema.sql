@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS products (
   tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps BETWEEN 0 AND 10000),
   tax_exempt INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1)), track_stock INTEGER NOT NULL DEFAULT 1 CHECK (track_stock IN (0,1)),
   min_stock REAL NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
+  price_currency TEXT NOT NULL DEFAULT 'SDG' CHECK(price_currency IN ('SDG','USD')),
+  foreign_cost_minor INTEGER CHECK(foreign_cost_minor IS NULL OR foreign_cost_minor>=0),
+  foreign_sale_price_minor INTEGER CHECK(foreign_sale_price_minor IS NULL OR foreign_sale_price_minor>=0),
+  auto_rate_update INTEGER NOT NULL DEFAULT 0 CHECK(auto_rate_update IN (0,1)),
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
