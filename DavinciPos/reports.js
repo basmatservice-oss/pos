@@ -16,6 +16,8 @@ export function getSimpleReport({from=null,to=null}={}) {
   const filter=where.join(' AND ');
   const sales=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales WHERE ${filter}`).get(...params);
   const purchases=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor FROM purchases WHERE ${filter}`).get(...params);
+  const expenseWhere=[],expenseParams=[];if(from){expenseWhere.push('occurred_at>=?');expenseParams.push(from+'T00:00:00');}if(to){expenseWhere.push('occurred_at<?');expenseParams.push(nextDate(to)+'T00:00:00');}
+  const expenses=db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS totalMinor FROM expenses ${expenseWhere.length?'WHERE '+expenseWhere.join(' AND '):''}`).get(...expenseParams);
   const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0) AS grossProfitMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
   const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity) AS quantity,SUM(sl.line_total_minor-sl.tax_minor) AS totalMinor
@@ -26,11 +28,12 @@ export function getSimpleReport({from=null,to=null}={}) {
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
     HAVING quantity<=p.min_stock ORDER BY quantity ASC,p.name LIMIT 20`).all();
   return {from,to,salesCount:sales.count,salesTotalMinor:sales.totalMinor,salesTaxMinor:sales.taxMinor,
-    purchasesCount:purchases.count,purchasesTotalMinor:purchases.totalMinor,grossProfitMinor:profit.grossProfitMinor,
+    purchasesCount:purchases.count,purchasesTotalMinor:purchases.totalMinor,grossProfitMinor:profit.grossProfitMinor,expensesTotalMinor:expenses.totalMinor,netProfitMinor:profit.grossProfitMinor-expenses.totalMinor,
     topProducts,lowStock};
 }
 
 const REPORTS = {
+  'expenses': `SELECT e.category,e.occurred_at AS occurredAt,e.amount_minor AS amountMinor,e.payment_method AS paymentMethod,e.provider,e.reference,e.note,u.display_name AS createdBy FROM expenses e LEFT JOIN users u ON u.id=e.created_by WHERE {{where}} ORDER BY e.occurred_at DESC`,
   'sales-daily': `SELECT date(s.occurred_at) AS day,COUNT(*) AS invoices,SUM(s.total_minor) AS totalMinor,SUM(s.tax_minor) AS taxMinor
     FROM sales s WHERE s.status IN ('posted','partially_returned','returned') AND {{where}} GROUP BY date(s.occurred_at) ORDER BY day DESC`,
   'sales-invoices': `SELECT s.receipt_number AS reference,s.occurred_at AS occurredAt,COALESCE(c.name,'عميل نقدي') AS party,
@@ -99,7 +102,7 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   const aliasByType={
     'sales-daily':'s','sales-invoices':'s','sales-products':'s','sales-categories':'s','sales-customers':'s','sales-payments':'s',
     'purchase-invoices':'p','purchase-products':'pu','purchase-categories':'pu','purchase-payments':'pu',
-    'stock-movements':'sm','tax-summary':'s','cash-movements':'x'
+    'stock-movements':'sm','tax-summary':'s','cash-movements':'x','expenses':'e'
   };
   const alias=aliasByType[type];
   let rows;
