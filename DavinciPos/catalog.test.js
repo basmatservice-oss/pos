@@ -6,7 +6,7 @@ import path from 'node:path';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-catalog-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {db,initializeDatabase}=await import('./database.js');
-const {createProduct,updateProduct,listProducts,createCategory,createCustomer,listCustomers,createSupplier,listSuppliers}=await import('./catalog.js');
+const {createProduct,updateProduct,listProducts,createCategory,createCustomer,listCustomers,createSupplier,listSuppliers,createUnit,saveProductUnit,lookupBarcode,saveService,setServiceComponents,listServiceComponents}=await import('./catalog.js');
 const {receiveStock}=await import('./inventory.js');
 initializeDatabase();
 test('catalog entities are validated and persisted',()=>{
@@ -22,5 +22,19 @@ test('catalog entities are validated and persisted',()=>{
   assert.equal(listSuppliers()[0].id,supplierId);
   receiveStock({productId,branchId:'branch-main',sourceType:'test',sourceId:'unit-lock',quantity:1,unitCostMinor:100});
   assert.throws(()=>updateProduct(productId,{baseUnitId:'unit-kg'}),/cannot be changed after stock movements/);
+});
+
+test('product units barcode lookup and service components are persisted',()=>{
+ const product=db.prepare("SELECT id FROM products WHERE sku='RT-1'").get().id;
+ const box=createUnit({name:'Carton',symbol:'ctn',precision:0});
+ saveProductUnit(product,{unitId:box,baseQuantity:12,barcode:'BOX-RT-12',salePriceMinor:24000});
+ const scanned=lookupBarcode('BOX-RT-12');
+ assert.equal(scanned.productId,product);
+ assert.equal(scanned.baseQuantity,12);
+ assert.ok(scanned.productUnitId);
+ const service=saveService({name:'Gift wrapping',code:'SVC-GIFT',priceMinor:5000});
+ setServiceComponents(service,[{productId:product,quantity:0.25}]);
+ assert.equal(listServiceComponents(service)[0].productId,product);
+ assert.equal(lookupBarcode('SVC-GIFT').lineType,'service');
 });
 test('closes isolated catalog database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
