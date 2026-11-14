@@ -58,6 +58,10 @@ export function initializeDatabase() {
   const deviceColumns = db.prepare("PRAGMA table_info(devices)").all().map(column => column.name);
   if (!deviceColumns.includes('owner_user_id')) db.exec('ALTER TABLE devices ADD COLUMN owner_user_id TEXT');
   if (!deviceColumns.includes('is_active')) db.exec('ALTER TABLE devices ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+  const paymentColumns = db.prepare("PRAGMA table_info(payments)").all().map(column => column.name);
+  if (!paymentColumns.includes('provider')) db.exec('ALTER TABLE payments ADD COLUMN provider TEXT');
+  const purchasePaymentColumns = db.prepare("PRAGMA table_info(purchase_payments)").all().map(column => column.name);
+  if (!purchasePaymentColumns.includes('provider')) db.exec('ALTER TABLE purchase_payments ADD COLUMN provider TEXT');
   const purchaseLineColumns = db.prepare("PRAGMA table_info(purchase_lines)").all().map(column => column.name);
   if (!purchaseLineColumns.includes('tax_minor')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)');
   if (!purchaseLineColumns.includes('tax_rate_bps')) db.exec('ALTER TABLE purchase_lines ADD COLUMN tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)');
