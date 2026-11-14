@@ -247,3 +247,14 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
  effective_at TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_exchange_rates_pair_date ON exchange_rates(from_currency,to_currency,effective_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_counts (
+ id TEXT PRIMARY KEY,branch_id TEXT REFERENCES branches(id),status TEXT NOT NULL CHECK(status IN ('draft','posted')),
+ opened_by TEXT REFERENCES users(id),opened_at TEXT NOT NULL,posted_by TEXT REFERENCES users(id),posted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS inventory_count_lines (
+ id TEXT PRIMARY KEY,count_id TEXT NOT NULL REFERENCES inventory_counts(id) ON DELETE CASCADE,
+ product_id TEXT NOT NULL REFERENCES products(id),expected_quantity REAL NOT NULL,
+ counted_quantity REAL CHECK(counted_quantity>=0),adjustment_id TEXT,UNIQUE(count_id,product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_count_lines_count ON inventory_count_lines(count_id);
