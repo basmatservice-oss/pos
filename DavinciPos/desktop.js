@@ -1,5 +1,5 @@
-import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,logout } from './client.js';
-const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',reports:'التقارير',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
+import { api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,logout } from './client.js';
+const labels={dashboard:'نظرة عامة',sales:'نقطة البيع',products:'المنتجات',inventory:'المخزون والتسويات',purchases:'المشتريات',customers:'العملاء',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',settings:'الإعدادات',users:'المستخدمون والصلاحيات',conflicts:'تعارضات المزامنة'};
 const title=document.querySelector('#page-title'),view=document.querySelector('#app-view');
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('ar',{dateStyle:'full'}).format(new Date());
 async function loadSummary(){
@@ -19,6 +19,8 @@ async function navigate(key){
  if(key==='products'){await renderProducts(view);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(view,key);return;}
  if(key==='reports'){await renderReports(view);return;}
+ if(key==='services'){await renderServices(view);return;}
+ if(key==='currency'){await renderCurrency(view);return;}
  view.innerHTML=`<div class="panel"><span class="eyebrow">DavinciPos / ${labels[key]}</span><h2>${labels[key]}</h2><p style="color:#7d899b">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></div>`;
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-logout]'))logout();});
