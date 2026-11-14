@@ -241,3 +241,9 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
 CREATE TABLE IF NOT EXISTS sync_receipts (
   operation_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS exchange_rates (
+ id TEXT PRIMARY KEY,from_currency TEXT NOT NULL,to_currency TEXT NOT NULL,rate REAL NOT NULL CHECK(rate>0),
+ effective_at TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_pair_date ON exchange_rates(from_currency,to_currency,effective_at DESC);
