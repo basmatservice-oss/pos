@@ -13,26 +13,37 @@ export function getSimpleReport({from=null,to=null}={}) {
   const where=["status='posted'"],salesWhere=["status IN ('posted','partially_returned','returned')"],params=[];
   if(from){where.push('occurred_at>=?');salesWhere.push('occurred_at>=?');params.push(from+'T00:00:00');}
   if(to){where.push('occurred_at<?');salesWhere.push('occurred_at<?');params.push(nextDate(to)+'T00:00:00');}
-  const filter=where.join(' AND ');
-  const salesFilter=salesWhere.join(' AND ');
+  const filter=where.join(' AND '),salesFilter=salesWhere.join(' AND ');
   const sales=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor,COALESCE(SUM(tax_minor),0) AS taxMinor FROM sales WHERE ${salesFilter}`).get(...params);
   const salesReturns=db.prepare(`SELECT COALESCE(SUM(sr.total_minor),0) AS totalMinor,COALESCE(SUM(sr.tax_minor),0) AS taxMinor FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE ${salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
   const purchases=db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS totalMinor FROM purchases WHERE ${filter}`).get(...params);
   const purchaseReturns=db.prepare(`SELECT COALESCE(SUM(pr.total_minor),0) AS totalMinor FROM purchase_returns pr JOIN purchases p ON p.id=pr.purchase_id WHERE ${filter.split(' AND ').map(x=>'p.'+x).join(' AND ')}`).get(...params);
-  const expenseWhere=[],expenseParams=[];if(from){expenseWhere.push('occurred_at>=?');expenseParams.push(from+'T00:00:00');}if(to){expenseWhere.push('occurred_at<?');expenseParams.push(nextDate(to)+'T00:00:00');}
+  const expenseWhere=[],expenseParams=[];
+  if(from){expenseWhere.push('occurred_at>=?');expenseParams.push(from+'T00:00:00');}
+  if(to){expenseWhere.push('occurred_at<?');expenseParams.push(nextDate(to)+'T00:00:00');}
   const expenses=db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS totalMinor FROM expenses ${expenseWhere.length?'WHERE '+expenseWhere.join(' AND '):''}`).get(...expenseParams);
-  const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0) AS grossProfitMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ')}`).get(...params);
-  const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity) AS quantity,SUM(sl.line_total_minor-sl.tax_minor) AS totalMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${filter.split(' AND ').map(x=>'s.'+x).join(' AND ')}
-    GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params);
+  const salesAliasFilter=salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ');
+  const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0)
+    - COALESCE((SELECT SUM(srl.amount_minor-srl.tax_minor-srl.cost_minor) FROM sales_return_lines srl
+      JOIN sales_returns sr ON sr.id=srl.return_id JOIN sales rs ON rs.id=sr.sale_id
+      WHERE ${salesFilter.split(' AND ').map(x=>'rs.'+x).join(' AND ')}),0) AS grossProfitMinor
+    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}`).get(...params);
+  const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
+      SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS totalMinor
+    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
+    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor
+      FROM sales_return_lines srl GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
+    WHERE ${salesAliasFilter} GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params);
   const lowStock=db.prepare(`SELECT p.id,p.name,COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock
     FROM products p LEFT JOIN stock_movements sm ON sm.product_id=p.id
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
     HAVING quantity<=p.min_stock ORDER BY quantity ASC,p.name LIMIT 20`).all();
-  return {from,to,salesCount:sales.count,salesTotalMinor:sales.totalMinor,salesTaxMinor:sales.taxMinor,
-    purchasesCount:purchases.count,purchasesTotalMinor:purchases.totalMinor,grossProfitMinor:profit.grossProfitMinor,expensesTotalMinor:expenses.totalMinor,netProfitMinor:profit.grossProfitMinor-expenses.totalMinor,
-    topProducts,lowStock};
+  const salesTotalMinor=sales.totalMinor-salesReturns.totalMinor;
+  const expensesTotalMinor=expenses.totalMinor;
+  const grossProfitMinor=profit.grossProfitMinor;
+  return {from,to,salesCount:sales.count,salesTotalMinor,salesTaxMinor:sales.taxMinor-salesReturns.taxMinor,
+    purchasesCount:purchases.count,purchasesTotalMinor:purchases.totalMinor-purchaseReturns.totalMinor,
+    grossProfitMinor,expensesTotalMinor,netProfitMinor:grossProfitMinor-expensesTotalMinor,topProducts,lowStock};
 }
 
 const REPORTS = {
