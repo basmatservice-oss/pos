@@ -19,6 +19,9 @@ test('USD price sources update local prices when an exchange rate is recorded',(
  assert.equal(changed.updatedProducts,1);
  assert.equal(db.prepare('SELECT sale_price_minor FROM products WHERE id=?').get(productId).sale_price_minor,1500000);
  assert.equal(getCurrentExchangeRate().rate,3000);
+ const decreased=recordExchangeRate({rate:2000,applyAutomatically:true});
+ assert.equal(decreased.updatedProducts,1);
+ assert.equal(db.prepare('SELECT sale_price_minor FROM products WHERE id=?').get(productId).sale_price_minor,1000000);
 });
 test('rejects invalid exchange rates',()=>{
  assert.throws(()=>recordExchangeRate({rate:0}),/positive number/);
