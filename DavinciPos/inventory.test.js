@@ -160,14 +160,14 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
 });
 test('inventory count reconciles actual quantities through stock adjustments',()=>{
   stock('counted-product');
-  const count=createInventoryCount({branchId:'branch-main'});
+  const count=createInventoryCount({branchId:null});
   const line=getInventoryCount(count.id).lines.find(item=>item.productId==='counted-product');
   assert.ok(line);
-  assert.equal(line.expectedQuantity,5);
-  setInventoryCountLine(count.id,'counted-product',3);
+  assert.equal(line.expectedQuantity,20);
+  setInventoryCountLine(count.id,'counted-product',18);
   const result=completeInventoryCount(count.id);
   assert.equal(result.adjustments.length,1);
-  assert.equal(getStockOnHand('counted-product','branch-main'),3);
+  assert.equal(getStockOnHand('counted-product'),18);
   assert.equal(completeInventoryCount(count.id).duplicate,true);
 });
 test('simple store report validates date ranges and returns summary fields only',()=>{
