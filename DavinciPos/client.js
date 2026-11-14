@@ -159,7 +159,7 @@ export async function renderSaleCheckout(root) {
     const [products,customers]=await Promise.all([api('/api/products'),api('/api/customers')]);
     const available=products.filter(p=>p.trackStock||Number(p.stockOnHand)>0);
     let cart=[];
-    root.querySelector('#pos-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px"><label>المنتج<select id="pos-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${(p.salePriceMinor/100).toLocaleString('ar')} · الرصيد ${Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select></label><label>الكمية<input id="pos-quantity" type="number" min="0.001" step="0.001" value="1"></label></div><button id="pos-add" class="primary-button" style="margin-top:12px">إضافة إلى الفاتورة</button><div id="pos-cart" style="margin-top:18px"></div><div style="display:grid;gap:8px;max-width:520px;margin-top:16px"><label>العميل (اختياري)<select id="pos-customer"><option value="">بيع نقدي مباشر</option>${customers.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></label><label>طريقة الدفع<select id="pos-method"><option value="cash">نقداً</option><option value="card">بطاقة</option><option value="bank">تحويل بنكي</option><option value="wallet">محفظة</option><option value="other">أخرى</option></select></label><button id="pos-checkout" class="primary-button">اعتماد البيع</button><p id="pos-message" role="status"></p></div>`;
+    root.querySelector('#pos-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px"><label>المنتج<select id="pos-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${(p.salePriceMinor/100).toLocaleString('ar')} · الرصيد ${Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select></label><label>الكمية<input id="pos-quantity" type="number" min="0.001" step="0.001" value="1"></label></div><button id="pos-add" class="primary-button" style="margin-top:12px">إضافة إلى الفاتورة</button><div id="pos-cart" style="margin-top:18px"></div><div style="display:grid;gap:8px;max-width:520px;margin-top:16px"><label>العميل (اختياري)<select id="pos-customer"><option value="">بيع نقدي مباشر</option>${customers.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></label><label>طريقة الدفع<select id="pos-method"><option value="cash">نقداً</option><option value="card">بطاقة</option><option value="bank">تحويل بنكي</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label id="pos-provider-wrap" hidden>المحفظة الإلكترونية<select id="pos-provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><button id="pos-checkout" class="primary-button">اعتماد البيع</button><p id="pos-message" role="status"></p></div>`;
     const quote=async()=>{
       if(!cart.length){root.querySelector('#pos-cart').textContent='أضف منتجاً للبدء.';return null;}
       const result=await api('/api/sales/quote',{method:'POST',body:{lines:cart}});
@@ -167,6 +167,7 @@ export async function renderSaleCheckout(root) {
       root.querySelectorAll('[data-remove]').forEach(button=>button.addEventListener('click',async()=>{cart.splice(Number(button.dataset.remove),1);await quote();}));
       return result;
     };
+    root.querySelector('#pos-method').addEventListener('change',()=>{root.querySelector('#pos-provider-wrap').hidden=root.querySelector('#pos-method').value!=='wallet';});
     root.querySelector('#pos-add').addEventListener('click',async()=>{
       const product=products.find(p=>p.id===root.querySelector('#pos-product').value),quantity=Number(root.querySelector('#pos-quantity').value);
       if(!product||!Number.isFinite(quantity)||quantity<=0){root.querySelector('#pos-message').textContent='اختر منتجاً وأدخل كمية صحيحة.';return;}
@@ -178,7 +179,7 @@ export async function renderSaleCheckout(root) {
       try{
         const totals=await quote();if(!totals)return;
         const customerId=root.querySelector('#pos-customer').value||null;
-        const sale=await api('/api/sales/checkout',{method:'POST',body:{lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,amountMinor:totals.totalMinor}]}});
+        const sale=await api('/api/sales/checkout',{method:'POST',body:{lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor:totals.totalMinor}]}});
         root.querySelector('#pos-message').textContent=`تم تسجيل الفاتورة ${sale.receiptNumber} · الإجمالي ${(sale.totalMinor/100).toLocaleString('ar')}`;
         cart=[];await quote();
       }catch(error){root.querySelector('#pos-message').textContent=error.message;}
@@ -192,7 +193,7 @@ export async function renderPurchaseEntry(root) {
   try{
     const [products,suppliers]=await Promise.all([api('/api/products'),api('/api/suppliers')]);
     let cart=[];
-    root.querySelector('#purchase-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px"><label>المنتج<select id="purchase-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label>الكمية<input id="purchase-quantity" type="number" min="0.001" step="0.001" value="1"></label><label>تكلفة الوحدة<input id="purchase-cost" type="number" min="0" value="0"></label><label>المورد<select id="purchase-supplier"><option value="">بدون مورد</option>${suppliers.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></label></div><button id="purchase-add" class="primary-button" style="margin-top:12px">إضافة الصنف</button><div id="purchase-cart" style="margin-top:16px"></div><div style="max-width:520px;display:grid;gap:8px;margin-top:16px"><label>طريقة الدفع<select id="purchase-method"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة</option><option value="other">أخرى</option></select></label><button id="purchase-submit" class="primary-button">اعتماد استلام المشتريات</button><p id="purchase-message"></p></div>`;
+    root.querySelector('#purchase-area').innerHTML=`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px"><label>المنتج<select id="purchase-product">${products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label>الكمية<input id="purchase-quantity" type="number" min="0.001" step="0.001" value="1"></label><label>تكلفة الوحدة<input id="purchase-cost" type="number" min="0" value="0"></label><label>المورد<select id="purchase-supplier"><option value="">بدون مورد</option>${suppliers.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></label></div><button id="purchase-add" class="primary-button" style="margin-top:12px">إضافة الصنف</button><div id="purchase-cart" style="margin-top:16px"></div><div style="max-width:520px;display:grid;gap:8px;margin-top:16px"><label>طريقة الدفع<select id="purchase-method"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label id="purchase-provider-wrap" hidden>المحفظة الإلكترونية<select id="purchase-provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><button id="purchase-submit" class="primary-button">اعتماد استلام المشتريات</button><p id="purchase-message"></p></div>`;
     const quote=async()=>{
       if(!cart.length){root.querySelector('#purchase-cart').textContent='أضف صنفاً للبدء.';return null;}
       const result=await api('/api/purchases/quote',{method:'POST',body:{lines:cart}});
@@ -200,6 +201,7 @@ export async function renderPurchaseEntry(root) {
       root.querySelectorAll('[data-purchase-remove]').forEach(button=>button.addEventListener('click',async()=>{cart.splice(Number(button.dataset.purchaseRemove),1);await quote();}));
       return result;
     };
+    root.querySelector('#purchase-method').addEventListener('change',()=>{root.querySelector('#purchase-provider-wrap').hidden=root.querySelector('#purchase-method').value!=='wallet';});
     root.querySelector('#purchase-add').addEventListener('click',async()=>{
       const product=products.find(p=>p.id===root.querySelector('#purchase-product').value),quantity=Number(root.querySelector('#purchase-quantity').value),unitCostMinor=Number(root.querySelector('#purchase-cost').value);
       if(!product||!Number.isFinite(quantity)||quantity<=0||!Number.isSafeInteger(unitCostMinor)||unitCostMinor<0){root.querySelector('#purchase-message').textContent='أدخل بيانات صنف صحيحة.';return;}
@@ -209,7 +211,7 @@ export async function renderPurchaseEntry(root) {
     root.querySelector('#purchase-submit').addEventListener('click',async()=>{
       try{
         const totals=await quote();if(!totals)return;
-        const purchase=await api('/api/purchases/receive',{method:'POST',body:{supplierId:root.querySelector('#purchase-supplier').value||null,lines:cart,payments:[{method:root.querySelector('#purchase-method').value,amountMinor:totals.totalMinor}]}});
+        const purchase=await api('/api/purchases/receive',{method:'POST',body:{supplierId:root.querySelector('#purchase-supplier').value||null,lines:cart,payments:[{method:root.querySelector('#purchase-method').value,provider:root.querySelector('#purchase-method').value==='wallet'?root.querySelector('#purchase-provider').value:null,amountMinor:totals.totalMinor}]}});
         root.querySelector('#purchase-message').textContent=`تم استلام الفاتورة ${purchase.invoiceNumber} · الإجمالي ${(purchase.totalMinor/100).toLocaleString('ar')}`;
         cart=[];await quote();
       }catch(error){root.querySelector('#purchase-message').textContent=error.message;}
