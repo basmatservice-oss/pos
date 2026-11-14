@@ -17,7 +17,8 @@ import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryC
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
 import { createExpense, listExpenses } from './expenses.js';
 import { recordCustomerPayment, recordSupplierPayment, listCustomerBalances, listSupplierBalances, getCustomerStatement, getSupplierStatement } from './settlements.js';
-import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';\nimport { getSalesReturnOptions, getPurchaseReturnOptions, createSalesReturn, createPurchaseReturn } from './returns.js';
+import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
+import { getSalesReturnOptions, getPurchaseReturnOptions, createSalesReturn, createPurchaseReturn } from './returns.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const app=express();
