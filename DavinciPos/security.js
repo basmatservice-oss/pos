@@ -6,9 +6,9 @@ const SESSION_HOURS=12;
 const ROLE_PERMISSIONS={
   owner:['*'],
   admin:['*'],
-  manager:['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','settings.read','users.read','sync.conflicts.read','sync.conflicts.resolve'],
+  manager:['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','expenses.read','expenses.create','accounting.read','settings.read','users.read','sync.conflicts.read','sync.conflicts.resolve'],
   cashier:['dashboard.read','products.read','inventory.read','sales.create','customers.read'],
-  accountant:['dashboard.read','sales.read','purchases.read','reports.read','accounting.read','accounting.reverse','settings.read'],
+  accountant:['dashboard.read','sales.read','purchases.read','reports.read','expenses.read','accounting.read','accounting.reverse','settings.read'],
   sales:['dashboard.read','products.read','inventory.read','sales.read','sales.create','customers.read','customers.write']
 };
 export function initializeSecurity() {
@@ -20,9 +20,10 @@ export function initializeSecurity() {
     if(!existed) for(const permission of permissions) grant.run(role,permission);
   }
   const permissionVersion=db.prepare("SELECT value FROM app_settings WHERE key='security.permissions.version'").get()?.value;
-  if(permissionVersion!=='2') {
-    grant.run('manager','sales.credit');
-    db.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES('security.permissions.version','2',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(new Date().toISOString());
+  if(permissionVersion!=='3') {
+    for(const permission of ['sales.credit','expenses.read','expenses.create'])grant.run('manager',permission);
+    grant.run('accountant','expenses.read');
+    db.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES('security.permissions.version','3',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(new Date().toISOString());
   }
 }
 function passwordHash(password,salt) {
