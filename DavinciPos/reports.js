@@ -81,7 +81,7 @@ const REPORTS = {
     UNION ALL
     SELECT pp.occurred_at AS occurredAt,'شراء' AS source,pu.invoice_number AS reference,pp.method,pp.provider,'out' AS direction,pp.amount_minor AS amountMinor
     FROM purchase_payments pp JOIN purchases pu ON pu.id=pp.purchase_id WHERE pu.status!='void'
-  ) WHERE {{where}} ORDER BY occurredAt DESC`
+  ) x WHERE {{where}} ORDER BY occurredAt DESC`
 };
 
 function buildDateFilter(alias,from,to) {
