@@ -11,14 +11,14 @@ Every authored project file is placed directly in this directory. There are no n
 - `server.js`: HTTP API and application bootstrap.
 - `database.js` / `schema.sql`: SQLite persistence and schema.
 - `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules; accounting remains internal and is not exposed as an everyday workflow.
-- `reports.js`: date-filtered detailed reports for daily sales, sales invoices/products/categories/customers/payment methods, purchase invoices/products/categories/payment methods, stock balances and movements, tax summary, and cash receipts/payments. The simplified summary remains available as well.
+- `reports.js`: date-filtered detailed reports for daily sales, sales invoices/products/categories/customers/payment methods, sales and purchase returns, purchase invoices/products/categories/payment methods, stock balances and movements, tax summary, and cash receipts/payments. The simplified summary remains available as well.
 - `sync.js` / `offline.js`: outbox primitives, idempotent server reconciliation, and stock-conflict review. The client-side durable SQLite outbox adapters are still pending.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, alternate sales units and conversion factors, barcode lookup, service catalog and service material recipes, categories, customers and suppliers.
 - `currency.js`: USD/SDG exchange-rate history and optional automatic repricing for products whose source prices are maintained in USD.
-- `expenses.js`: simple store expenses with payment method/provider, automatic internal posting, and net-profit reporting.
+- `expenses.js`: simple store expenses with payment method/provider, automatic internal posting, and net-profit reporting.\n- `returns.js`: sales and purchase returns with quantity limits, stock restoration/removal, payment refunds, customer/supplier balance reconciliation, audit records and internal accounting.
 - Inventory supports draft physical stock counts, barcode-based counting, and posting stock differences through audited adjustments.
-- The desktop and mobile interfaces include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, selectable detailed store reports, central settings, user roles and sync conflict review. Wallet payments can be distinguished as Bankak, OCash, Fawry or MyCashy while retaining a common wallet clearing account.
+- The desktop and mobile interfaces include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, return processing from invoice lists, selectable detailed store reports, central settings, user roles and sync conflict review. Wallet payments can be distinguished as Bankak, OCash, Fawry or MyCashy while retaining a common wallet clearing account.
 - `settings.js`: server-owned settings with validation and audit history.
 - `client.js`: shared authenticated API and settings/user administration UI.
 
