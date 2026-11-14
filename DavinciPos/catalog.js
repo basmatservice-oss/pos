@@ -103,7 +103,7 @@ export function lookupBarcode(code){
 }
 export function listServices(){
   return db.prepare(`SELECT s.id,s.code,s.name,s.price_minor AS priceMinor,s.tax_rate_bps AS taxRateBps,s.is_active AS isActive,
-    COALESCE((SELECT SUM(sc.quantity*p.cost_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentCostMinor,
+    COALESCE((SELECT SUM(sc.quantity*COALESCE((SELECT ROUND(SUM(CASE WHEN sm.quantity_delta>0 THEN sm.cost_total_minor ELSE -sm.cost_total_minor END)/NULLIF(SUM(sm.quantity_delta),0)) FROM stock_movements sm WHERE sm.product_id=p.id),p.cost_minor)) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentCostMinor,
     COALESCE((SELECT SUM(sc.quantity*p.sale_price_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentSaleMinor,
     COALESCE((SELECT group_concat(p.name || ' × ' || sc.quantity,'، ') FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),'بدون مواد') AS componentSummary
     FROM services s ORDER BY s.name`).all();
@@ -130,6 +130,6 @@ export function setServiceComponents(serviceId,components){
 }
 export function listServiceComponents(serviceId){
   return db.prepare(`SELECT sc.product_id AS productId,p.name,sc.quantity,u.symbol AS unitSymbol,p.cost_minor AS unitCostMinor,
-    ROUND(sc.quantity*p.cost_minor) AS componentCostMinor FROM service_components sc JOIN products p ON p.id=sc.product_id
+    ROUND(sc.quantity*COALESCE((SELECT ROUND(SUM(CASE WHEN sm.quantity_delta>0 THEN sm.cost_total_minor ELSE -sm.cost_total_minor END)/NULLIF(SUM(sm.quantity_delta),0)) FROM stock_movements sm WHERE sm.product_id=p.id),p.cost_minor)) AS componentCostMinor FROM service_components sc JOIN products p ON p.id=sc.product_id
     JOIN units u ON u.id=p.base_unit_id WHERE sc.service_id=? ORDER BY p.name`).all(serviceId);
 }
