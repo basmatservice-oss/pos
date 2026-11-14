@@ -15,6 +15,7 @@ import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './off
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases, listUnits, createUnit, saveProductUnit, listProductUnits, lookupBarcode, listServices, saveService, setServiceComponents, listServiceComponents } from './catalog.js';
 import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryCountLine, completeInventoryCount, listInventoryCounts } from './inventory.js';
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
+import { createExpense, listExpenses } from './expenses.js';
 import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
@@ -43,7 +44,7 @@ function loginRateLimit(req,res,next){
 }
 function asyncRoute(handler){return (req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);}
 const api=(permission,handler)=>[requireAuth,requirePermission(permission),handler];
-const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
+const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','expenses.read','expenses.create','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
@@ -173,6 +174,8 @@ app.get('/api/accounting/trial-balance',...api('accounting.read',(req,res)=>{
   try{res.json({data:getTrialBalance({from:req.query.from||null,to:req.query.to||null})});}
   catch(error){res.status(400).json({error:error.message||'Unable to build trial balance.'});}
 }));
+app.get('/api/expenses',...api('expenses.read',(req,res)=>{try{res.json({data:listExpenses({from:req.query.from||null,to:req.query.to||null})});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/expenses',...api('expenses.create',(req,res)=>{try{res.status(201).json({data:createExpense(req.body||{},{userId:req.user.id,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/reports/simple',...api('reports.read',(req,res)=>{try{res.json({data:getSimpleReport({from:req.query.from||null,to:req.query.to||null})});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/reports/available',...api('reports.read',(_req,res)=>res.json({data:availableReports})));
 app.get('/api/reports/detail',...api('reports.read',(req,res)=>{try{res.json({data:getDetailedReport({type:req.query.type,from:req.query.from||null,to:req.query.to||null,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
