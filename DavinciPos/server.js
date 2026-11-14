@@ -14,7 +14,7 @@ import { listTaxProfiles, saveTaxProfile } from './tax.js';
 import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases } from './catalog.js';
 import { adjustInventory } from './inventory.js';
-import { getSimpleReport } from './reports.js';
+import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -156,6 +156,8 @@ app.get('/api/accounting/trial-balance',...api('accounting.read',(req,res)=>{
   catch(error){res.status(400).json({error:error.message||'Unable to build trial balance.'});}
 }));
 app.get('/api/reports/simple',...api('reports.read',(req,res)=>{try{res.json({data:getSimpleReport({from:req.query.from||null,to:req.query.to||null})});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/reports/available',...api('reports.read',(_req,res)=>res.json({data:availableReports})));
+app.get('/api/reports/detail',...api('reports.read',(req,res)=>{try{res.json({data:getDetailedReport({type:req.query.type,from:req.query.from||null,to:req.query.to||null,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/summary',...api('dashboard.read',(_req,res)=>{
   const products=db.prepare('SELECT COUNT(*) AS count FROM products WHERE is_active=1').get().count;
   const sales=db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(total_minor),0) AS total FROM sales WHERE status='posted'").get();
