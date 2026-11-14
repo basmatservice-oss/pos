@@ -159,6 +159,13 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
   assert.equal(resolved.status,'rejected');
 });
+test('alternate sales unit price defaults to base price multiplied by conversion factor',()=>{
+  product('sales-unit-product');
+  const carton=createUnit({name:'Sales carton',symbol:'ctn',precision:0});
+  const productUnitId=saveProductUnit('sales-unit-product',{unitId:carton,baseQuantity:12});
+  const quote=quoteSale({lines:[{lineType:'product',itemId:'sales-unit-product',productUnitId,quantity:1}]});
+  assert.equal(quote.totalMinor,3600);
+});
 test('purchase receiving converts alternate package units into base stock units',()=>{
   product('purchase-unit-product');
   const carton=createUnit({name:'Test carton',symbol:'ctn',precision:0});
