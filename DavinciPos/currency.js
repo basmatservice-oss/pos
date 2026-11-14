@@ -32,7 +32,7 @@ export function configureProductCurrency(productId,{currency='SDG',foreignCostMi
  const rate=getCurrentExchangeRate('USD','SDG');
  if(currency==='USD'){
   if(!rate)throw new Error('Set the USD to SDG exchange rate before linking a product to USD prices.');
-  const cost=foreignCostMinor===null?null:Number(foreignCostMinor),sale=foreignSalePriceMinor===null?null:Number(foreignSalePriceMinor);
+  const cost=foreignCostMinor===null||foreignCostMinor===''?null:Number(foreignCostMinor),sale=foreignSalePriceMinor===null||foreignSalePriceMinor===''?null:Number(foreignSalePriceMinor);
   if(sale===null||!Number.isSafeInteger(sale)||sale<0||(cost!==null&&(!Number.isSafeInteger(cost)||cost<0)))throw new Error('Enter valid USD source prices.');
   if(autoUpdate&&!rate)throw new Error('Set the USD to SDG exchange rate before enabling automatic price updates.');
   const effective=rate?.rate||1;
