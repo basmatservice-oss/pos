@@ -129,3 +129,63 @@ export function adjustInventory({id=randomUUID(),productId,branchId=null,quantit
     return {id,duplicate:false,quantityDelta:delta,...result};
   });
 }
+
+export function createInventoryCount({branchId=getDefaultBranchId(),userId=null,productIds=null}={}){
+  const id=randomUUID(),now=new Date().toISOString();
+  return inTransaction(()=>{
+    db.prepare("INSERT INTO inventory_counts(id,branch_id,status,opened_by,opened_at) VALUES(?,?,'draft',?,?)").run(id,branchId,userId,now);
+    const products=Array.isArray(productIds)&&productIds.length
+      ?db.prepare(`SELECT id FROM products WHERE is_active=1 AND track_stock=1 AND id IN (${productIds.map(()=>'?').join(',')}) ORDER BY name`).all(...productIds)
+      :db.prepare('SELECT id FROM products WHERE is_active=1 AND track_stock=1 ORDER BY name').all();
+    const insert=db.prepare('INSERT INTO inventory_count_lines(id,count_id,product_id,expected_quantity) VALUES(?,?,?,?)');
+    for(const product of products)insert.run(randomUUID(),id,product.id,getStockOnHand(product.id,branchId));
+    return {id,branchId,status:'draft',lineCount:products.length};
+  });
+}
+export function getInventoryCount(id){
+  const count=db.prepare('SELECT id,branch_id AS branchId,status,opened_at AS openedAt,posted_at AS postedAt FROM inventory_counts WHERE id=?').get(id);
+  if(!count)throw new Error('Inventory count not found.');
+  count.lines=db.prepare(`SELECT l.id,l.product_id AS productId,p.name,u.symbol AS unitSymbol,l.expected_quantity AS expectedQuantity,
+    l.counted_quantity AS countedQuantity,CASE WHEN l.counted_quantity IS NULL THEN NULL ELSE l.counted_quantity-l.expected_quantity END AS difference
+    FROM inventory_count_lines l JOIN products p ON p.id=l.product_id JOIN units u ON u.id=p.base_unit_id
+    WHERE l.count_id=? ORDER BY p.name`).all(id);
+  return count;
+}
+export function setInventoryCountLine(countId,productId,countedQuantity){
+  const quantity=Number(countedQuantity);
+  if(!Number.isFinite(quantity)||quantity<0)throw new Error('Counted quantity must be zero or greater.');
+  const count=db.prepare("SELECT status FROM inventory_counts WHERE id=?").get(countId);
+  if(!count)throw new Error('Inventory count not found.');
+  if(count.status!=='draft')throw new Error('A posted inventory count cannot be changed.');
+  const result=db.prepare('UPDATE inventory_count_lines SET counted_quantity=? WHERE count_id=? AND product_id=?').run(quantity,countId,productId);
+  if(!result.changes)throw new Error('Product is not part of this inventory count.');
+  return getInventoryCount(countId);
+}
+export function completeInventoryCount(countId,userId=null){
+  return inTransaction(()=>{
+    const count=db.prepare('SELECT * FROM inventory_counts WHERE id=?').get(countId);
+    if(!count)throw new Error('Inventory count not found.');
+    if(count.status==='posted')return {id:countId,duplicate:true,adjustments:[]};
+    const lines=db.prepare('SELECT l.*,p.cost_minor FROM inventory_count_lines l JOIN products p ON p.id=l.product_id WHERE l.count_id=?').all(countId);
+    if(!lines.length)throw new Error('This inventory count has no products.');
+    if(lines.some(line=>line.counted_quantity===null))throw new Error('Enter the actual quantity for every product before posting.');
+    const adjustments=[];
+    for(const line of lines){
+      const delta=Number(line.counted_quantity)-Number(line.expected_quantity);
+      if(Math.abs(delta)<1e-9)continue;
+      const adjustmentId=countId+'-'+line.product_id;
+      const result=adjustInventory({id:adjustmentId,productId:line.product_id,branchId:count.branch_id,quantityDelta:delta,
+        unitCostMinor:Math.max(0,Math.round(line.cost_minor||0)),reason:'Inventory count '+countId,userId});
+      db.prepare('UPDATE inventory_count_lines SET adjustment_id=? WHERE id=?').run(adjustmentId,line.id);
+      adjustments.push({productId:line.product_id,quantityDelta:delta,costTotalMinor:result.costTotalMinor});
+    }
+    const now=new Date().toISOString();
+    db.prepare("UPDATE inventory_counts SET status='posted',posted_by=?,posted_at=? WHERE id=?").run(userId,now,countId);
+    return {id:countId,duplicate:false,adjustments};
+  });
+}
+export function listInventoryCounts({limit=50}={}){
+ return db.prepare(`SELECT c.id,c.status,c.opened_at AS openedAt,c.posted_at AS postedAt,COUNT(l.id) AS products,
+ SUM(CASE WHEN l.counted_quantity IS NOT NULL THEN 1 ELSE 0 END) AS countedProducts
+ FROM inventory_counts c LEFT JOIN inventory_count_lines l ON l.count_id=c.id GROUP BY c.id ORDER BY c.opened_at DESC LIMIT ?`).all(Math.max(1,Math.min(200,Number(limit)||50)));
+}
