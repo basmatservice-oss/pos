@@ -15,7 +15,7 @@ import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './off
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases, listUnits, createUnit, saveProductUnit, listProductUnits, lookupBarcode, listServices, saveService, setServiceComponents, listServiceComponents } from './catalog.js';
 import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryCountLine, completeInventoryCount, listInventoryCounts } from './inventory.js';
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
-import { createExpense, listExpenses } from './expenses.js';
+import { createExpense, listExpenses } from './expenses.js';\nimport { recordCustomerPayment, recordSupplierPayment, listCustomerBalances, listSupplierBalances, getCustomerStatement, getSupplierStatement } from './settlements.js';
 import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
@@ -44,7 +44,7 @@ function loginRateLimit(req,res,next){
 }
 function asyncRoute(handler){return (req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);}
 const api=(permission,handler)=>[requireAuth,requirePermission(permission),handler];
-const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.void','purchases.read','purchases.create','customers.read','customers.write','suppliers.read','suppliers.write','reports.read','expenses.read','expenses.create','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
+const VALID_PERMISSIONS=new Set(['dashboard.read','products.read','products.write','inventory.read','inventory.write','sales.read','sales.create','sales.credit','sales.collect','sales.void','purchases.read','purchases.create','purchases.pay','customers.read','customers.write','customers.balance.read','suppliers.read','suppliers.write','suppliers.balance.read','reports.read','expenses.read','expenses.create','accounting.read','accounting.reverse','settings.read','settings.update','users.read','users.manage','roles.manage','sync.conflicts.read','sync.conflicts.resolve']);
 
 app.get('/api/health',(_req,res)=>res.json({status:'ok',database:'sqlite',version:2,bootstrapRequired:db.prepare('SELECT COUNT(*) AS count FROM users').get().count===0}));
 app.post('/api/auth/bootstrap',loginRateLimit,asyncRoute(async(req,res)=>{
@@ -148,6 +148,12 @@ app.get('/api/customers',...api('customers.read',(_req,res)=>res.json({data:list
 app.post('/api/customers',...api('customers.write',(req,res)=>{try{res.status(201).json({data:{id:createCustomer(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/suppliers',...api('suppliers.read',(_req,res)=>res.json({data:listSuppliers()})));
 app.post('/api/suppliers',...api('suppliers.write',(req,res)=>{try{res.status(201).json({data:{id:createSupplier(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/settlements/customers',...api('customers.balance.read',(_req,res)=>res.json({data:listCustomerBalances()})));
+app.get('/api/settlements/suppliers',...api('suppliers.balance.read',(_req,res)=>res.json({data:listSupplierBalances()})));
+app.get('/api/customers/:id/statement',...api('customers.balance.read',(req,res)=>{try{res.json({data:getCustomerStatement(req.params.id)});}catch(error){res.status(404).json({error:error.message});}}));
+app.get('/api/suppliers/:id/statement',...api('suppliers.balance.read',(req,res)=>{try{res.json({data:getSupplierStatement(req.params.id)});}catch(error){res.status(404).json({error:error.message});}}));
+app.post('/api/sales/:id/payments',...api('sales.collect',(req,res)=>{try{res.status(201).json({data:recordCustomerPayment(req.params.id,req.body||{},req.user.id)});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/purchases/:id/payments',...api('purchases.pay',(req,res)=>{try{res.status(201).json({data:recordSupplierPayment(req.params.id,req.body||{},req.user.id)});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/sales',...api('sales.read',(req,res)=>res.json({data:listSales({limit:req.query.limit})})));
 app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listPurchases({limit:req.query.limit})})));
 app.get('/api/inventory/counts',...api('inventory.read',(_req,res)=>res.json({data:listInventoryCounts()})));
