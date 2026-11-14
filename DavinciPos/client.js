@@ -363,7 +363,7 @@ export async function renderExpenses(root){
 
 export async function renderReturns(root) {
   root.innerHTML=`<section class="panel"><h2>مرتجعات المبيعات والمشتريات</h2>
-    <p>اختر الفاتورة ثم حدد الأصناف والكميات المرتجعة. يعاد المخزون تلقائياً عند قبول المرتجع، ويحسب النظام المبلغ المسترد أو المخصوم من الرصيد.</p>
+    <p>اختر الفاتورة ثم حدد المنتجات والكميات المرتجعة. يعاد المخزون تلقائياً عند قبول المرتجع، ويحسب النظام المبلغ المسترد أو المخصوم من الرصيد. مرتجعات الخدمات غير مدعومة في هذه المرحلة.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       <label>نوع الفاتورة<select id="return-kind"><option value="sales">مرتجع مبيعات</option><option value="purchases">مرتجع مشتريات</option></select></label>
       <label>الفاتورة<select id="return-invoice"><option value="">تحميل الفواتير...</option></select></label>
