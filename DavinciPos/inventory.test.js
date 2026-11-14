@@ -7,7 +7,7 @@ import path from 'node:path';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-test-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
 const {db,initializeDatabase}=await import('./database.js');
-const {receiveStock,issueStock,getStockOnHand,getInventoryValue,adjustInventory}=await import('./inventory.js');
+const {receiveStock,issueStock,getStockOnHand,getInventoryValue,adjustInventory,createInventoryCount,getInventoryCount,setInventoryCountLine,completeInventoryCount}=await import('./inventory.js');
 const {calculateLineTax,saveTaxProfile}=await import('./tax.js');
 const {updateSettings}=await import('./settings.js');
 const {receivePurchase,quotePurchase}=await import('./purchases.js');
@@ -157,6 +157,18 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   assert.equal(second.conflictId,first.conflictId);
   const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
   assert.equal(resolved.status,'rejected');
+});
+test('inventory count reconciles actual quantities through stock adjustments',()=>{
+  stock('counted-product');
+  const count=createInventoryCount({branchId:'branch-main'});
+  const line=getInventoryCount(count.id).lines.find(item=>item.productId==='counted-product');
+  assert.ok(line);
+  assert.equal(line.expectedQuantity,5);
+  setInventoryCountLine(count.id,'counted-product',3);
+  const result=completeInventoryCount(count.id);
+  assert.equal(result.adjustments.length,1);
+  assert.equal(getStockOnHand('counted-product','branch-main'),3);
+  assert.equal(completeInventoryCount(count.id).duplicate,true);
 });
 test('simple store report validates date ranges and returns summary fields only',()=>{
   const report=getSimpleReport({from:'2099-01-01',to:'2099-01-31'});
