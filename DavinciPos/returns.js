@@ -117,9 +117,9 @@ export function createSalesReturn(saleId,input={},userId=null){
     if(restoredCost>0){journal.push({accountId:'acc-inventory',debitMinor:restoredCost});journal.push({accountId:'acc-cogs',creditMinor:restoredCost});}
     postJournalEntry({sourceType:'sales_return',sourceId:id,description:'Sales return '+returnNumber,occurredAt:now,lines:journal});
     const remaining=db.prepare(`SELECT COUNT(*) AS count FROM sale_lines sl
-      WHERE sl.sale_id=? AND sl.line_type='product' AND sl.quantity>(
+      WHERE sl.sale_id=? AND (sl.line_type!='product' OR sl.quantity>(
         SELECT COALESCE(SUM(srl.quantity),0) FROM sales_return_lines srl WHERE srl.sale_line_id=sl.id
-      )+0.000000001`).get(saleId).count;
+      )+0.000000001))`).get(saleId).count;
     db.prepare("UPDATE sales SET status=? WHERE id=?").run(remaining===0?'returned':'partially_returned',saleId);
     audit(userId,'sales.return',id,{saleId,totalMinor,refundMinor,restoredCost,lines:details.map(x=>({saleLineId:x.line.id,quantity:x.quantity}))});
     return {id,returnNumber,saleId,totalMinor,taxMinor,refundMinor,receivableReductionMinor:receivableReduction,restoredCostMinor:restoredCost,duplicate:false};
