@@ -16,7 +16,7 @@ const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
 const {getSimpleReport,getDetailedReport,availableReports}=await import('./reports.js');
 const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
 const {createUser}=await import('./security.js');
-const {saveService,setServiceComponents}=await import('./catalog.js');
+const {saveService,setServiceComponents,createUnit,saveProductUnit}=await import('./catalog.js');
 initializeDatabase();
 
 function product(id){
@@ -158,6 +158,15 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   assert.equal(second.conflictId,first.conflictId);
   const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
   assert.equal(resolved.status,'rejected');
+});
+test('purchase receiving converts alternate package units into base stock units',()=>{
+  product('purchase-unit-product');
+  const carton=createUnit({name:'Test carton',symbol:'ctn',precision:0});
+  const productUnitId=saveProductUnit('purchase-unit-product',{unitId:carton,baseQuantity:12});
+  const quote=quotePurchase({branchId:'branch-main',lines:[{productId:'purchase-unit-product',productUnitId,quantity:1,unitCostMinor:1200}]});
+  assert.equal(quote.totalMinor,1200);
+  receivePurchase({branchId:'branch-main',lines:[{productId:'purchase-unit-product',productUnitId,quantity:1,unitCostMinor:1200}],payments:[{method:'cash',amountMinor:1200}]});
+  assert.equal(getStockOnHand('purchase-unit-product','branch-main'),12);
 });
 test('service sale consumes configured material components and records their cost',()=>{
   product('gift-box-material');
