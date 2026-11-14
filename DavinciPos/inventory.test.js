@@ -16,6 +16,7 @@ const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
 const {getSimpleReport,getDetailedReport,availableReports}=await import('./reports.js');
 const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
 const {createUser}=await import('./security.js');
+const {saveService,setServiceComponents}=await import('./catalog.js');
 initializeDatabase();
 
 function product(id){
@@ -157,6 +158,16 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   assert.equal(second.conflictId,first.conflictId);
   const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
   assert.equal(resolved.status,'rejected');
+});
+test('service sale consumes configured material components and records their cost',()=>{
+  product('gift-box-material');
+  receiveStock({productId:'gift-box-material',branchId:'branch-main',sourceType:'test',sourceId:'gift-box-stock',quantity:10,unitCostMinor:250});
+  const serviceId=saveService({name:'Gift wrapping',priceMinor:2000});
+  setServiceComponents(serviceId,[{productId:'gift-box-material',quantity:2}]);
+  const result=checkoutSale({branchId:'branch-main',lines:[{lineType:'service',itemId:serviceId,quantity:1}],payments:[{method:'cash',amountMinor:2000}]});
+  assert.equal(getStockOnHand('gift-box-material','branch-main'),8);
+  const line=db.prepare('SELECT cost_total_minor FROM sale_lines WHERE sale_id=?').get(result.id);
+  assert.equal(line.cost_total_minor,500);
 });
 test('inventory count reconciles actual quantities through stock adjustments',()=>{
   stock('counted-product');
