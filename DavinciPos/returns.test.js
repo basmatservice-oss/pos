@@ -14,6 +14,7 @@ const {receivePurchase}=await import('./purchases.js');
 const {createSalesReturn,createPurchaseReturn,getSalesReturnOptions,getPurchaseReturnOptions}=await import('./returns.js');
 const {listCustomerBalances,listSupplierBalances,getCustomerStatement,getSupplierStatement}=await import('./settlements.js');
 const {getTrialBalance}=await import('./accounting.js');
+const {getSimpleReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
 initializeDatabase();
 updateSettings({'tax.enabled':false});
@@ -43,6 +44,9 @@ test('sales return restores stock, refunds collected money and reduces the custo
   assert.equal(getStockOnHand('sales-return-product','branch-main'),9);
   assert.equal(listCustomerBalances()[0].balanceMinor,300);
   assert.equal(getCustomerStatement(customerId).invoices[0].returnedMinor,900);
+  const summary=getSimpleReport({});
+  assert.equal(summary.salesTotalMinor,300);
+  assert.equal(summary.grossProfitMinor,200);
   assert.equal(createSalesReturn(sale.id,{id:'sales-return-001',lines:[{saleLineId:options.lines[0].id,quantity:3}]}).duplicate,true);
   assert.throws(()=>createSalesReturn(sale.id,{lines:[{saleLineId:options.lines[0].id,quantity:2}]}),/exceeds the unreturned quantity/);
   assertBalanced();
@@ -74,6 +78,7 @@ test('purchase return removes stock, records supplier refund and reduces supplie
   assert.equal(getStockOnHand('purchase-return-product','branch-main'),5);
   assert.equal(listSupplierBalances()[0].balanceMinor,500);
   assert.equal(getSupplierStatement(supplierId).invoices[0].returnedMinor,500);
+  assert.equal(getSimpleReport({}).purchasesTotalMinor,500);
   assertBalanced();
 });
 
