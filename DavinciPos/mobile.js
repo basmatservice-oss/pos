@@ -1,5 +1,5 @@
-import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,logout} from './client.js';
-const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,logout} from './client.js';
+const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
  try{const {data}=await api('/api/summary');document.querySelector('#mobile-products').textContent=data.products.toLocaleString('ar');document.querySelector('#mobile-sales').textContent=data.salesCount.toLocaleString('ar');}
@@ -19,6 +19,7 @@ async function show(key){
  if(key==='reports'){await renderReports(root);return;}
  if(key==='services'){await renderServices(root);return;}
  if(key==='currency'){await renderCurrency(root);return;}
+ if(key==='expenses'){await renderExpenses(root);return;}
  root.innerHTML=`<section class="panel"><small style="color:#7770dc">DAVINCIPOS / ${views[key]||'الوحدة'}</small><h2>${views[key]||'الوحدة'}</h2><p style="color:#8792a4;font-size:12px">هذه الوحدة قيد استكمال الربط بخدمات النظام.</p></section>`;
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-logout]')){logout();return;}const button=event.target.closest('[data-view]');if(button)show(button.dataset.view);});
