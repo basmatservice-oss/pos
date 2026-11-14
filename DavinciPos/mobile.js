@@ -1,5 +1,5 @@
-import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,logout} from './client.js';
-const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
+import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,renderReturns,logout} from './client.js';
+const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',returns:'المرتجعات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 async function refresh(){
  try{const {data}=await api('/api/summary');document.querySelector('#mobile-products').textContent=data.products.toLocaleString('ar');document.querySelector('#mobile-sales').textContent=data.salesCount.toLocaleString('ar');}
@@ -14,6 +14,7 @@ async function show(key){
  if(key==='inventory'){await renderInventory(root);return;}
  if(key==='sales'){await renderSaleCheckout(root);return;}
  if(key==='purchases'){await renderPurchaseEntry(root);return;}
+ if(key==='returns'){await renderReturns(root);return;}
  if(key==='products'){await renderProducts(root);return;}
  if(key==='customers'||key==='suppliers'){await renderPeople(root,key);return;}
  if(key==='reports'){await renderReports(root);return;}
