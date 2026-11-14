@@ -104,7 +104,8 @@ export function lookupBarcode(code){
 export function listServices(){
   return db.prepare(`SELECT s.id,s.code,s.name,s.price_minor AS priceMinor,s.tax_rate_bps AS taxRateBps,s.is_active AS isActive,
     COALESCE((SELECT SUM(sc.quantity*p.cost_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentCostMinor,
-    COALESCE((SELECT SUM(sc.quantity*p.sale_price_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentSaleMinor
+    COALESCE((SELECT SUM(sc.quantity*p.sale_price_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentSaleMinor,
+    COALESCE((SELECT group_concat(p.name || ' × ' || sc.quantity,'، ') FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),'بدون مواد') AS componentSummary
     FROM services s ORDER BY s.name`).all();
 }
 export function saveService(input){
