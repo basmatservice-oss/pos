@@ -47,6 +47,16 @@ export function getSimpleReport({from=null,to=null}={}) {
 }
 
 const REPORTS = {
+  'sales-returns': `SELECT sr.return_number AS returnNumber,s.receipt_number AS sourceReference,sr.occurred_at AS occurredAt,
+    COALESCE(c.name,'عميل نقدي') AS party,sr.total_minor AS totalMinor,sr.tax_minor AS taxMinor,
+    sr.refund_minor AS refundMinor,sr.reason
+    FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id LEFT JOIN customers c ON c.id=s.customer_id
+    WHERE {{where}} ORDER BY sr.occurred_at DESC`,
+  'purchase-returns': `SELECT pr.return_number AS returnNumber,p.invoice_number AS sourceReference,pr.occurred_at AS occurredAt,
+    COALESCE(s.name,'بدون مورد') AS party,pr.total_minor AS totalMinor,pr.tax_minor AS taxMinor,
+    pr.refund_minor AS refundMinor,pr.reason
+    FROM purchase_returns pr JOIN purchases p ON p.id=pr.purchase_id LEFT JOIN suppliers s ON s.id=p.supplier_id
+    WHERE {{where}} ORDER BY pr.occurred_at DESC`,
   'expenses': `SELECT e.category,e.occurred_at AS occurredAt,e.amount_minor AS amountMinor,e.payment_method AS paymentMethod,e.provider,e.reference,e.note,u.display_name AS createdBy FROM expenses e LEFT JOIN users u ON u.id=e.created_by WHERE {{where}} ORDER BY e.occurred_at DESC`,
   'sales-daily': `SELECT date(s.occurred_at) AS day,COUNT(*) AS invoices,
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
@@ -139,7 +149,7 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   const template=REPORTS[type];
   if(!template)throw new Error('Unknown report type.');
   const aliasByType={
-    'sales-daily':'s','sales-invoices':'s','sales-products':'s','sales-categories':'s','sales-customers':'s','sales-payments':'s',
+    'sales-returns':'sr','purchase-returns':'pr','sales-daily':'s','sales-invoices':'s','sales-products':'s','sales-categories':'s','sales-customers':'s','sales-payments':'s',
     'purchase-invoices':'p','purchase-products':'pu','purchase-categories':'pu','purchase-payments':'pu',
     'stock-movements':'sm','tax-summary':'s','cash-movements':'x','expenses':'e'
   };
