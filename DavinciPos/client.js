@@ -190,7 +190,34 @@ export async function renderInvoices(root,kind) {
   root.innerHTML=`<section class="panel"><h2>${title}</h2><div id="invoice-area">جارٍ التحميل...</div></section>`;
   try{
     const rows=await api(sales?'/api/sales':'/api/purchases');
-    root.querySelector('#invoice-area').innerHTML=rows.length?`<div style="overflow:auto"><table><thead><tr><th>الرقم</th><th>التاريخ</th><th>قبل الضريبة</th><th>الضريبة</th><th>الإجمالي</th><th>الحالة</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(sales?row.receiptNumber:row.invoiceNumber)}</td><td>${escapeHtml(row.occurredAt)}</td><td>${(row.subtotalMinor/100).toLocaleString('ar')}</td><td>${(row.taxMinor/100).toLocaleString('ar')}</td><td>${(row.totalMinor/100).toLocaleString('ar')}</td><td>${escapeHtml(row.status)}</td></tr>`).join('')}</tbody></table></div>`:'لا توجد فواتير حتى الآن.';
+    const area=root.querySelector('#invoice-area');
+    area.innerHTML=rows.length?`<div style="overflow:auto"><table><thead><tr><th>الرقم</th><th>التاريخ</th><th>قبل الضريبة</th><th>الضريبة</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${escapeHtml(sales?row.receiptNumber:row.invoiceNumber)}</td><td>${escapeHtml(row.occurredAt)}</td><td>${(row.subtotalMinor/100).toLocaleString('ar')}</td><td>${(row.taxMinor/100).toLocaleString('ar')}</td><td>${(row.totalMinor/100).toLocaleString('ar')}</td><td>${escapeHtml(row.status)}</td><td><button type="button" data-return-invoice="${escapeHtml(row.id)}" ${!['posted','partially_returned'].includes(row.status)?'disabled':''}>تسجيل مرتجع</button></td></tr>`).join('')}</tbody></table></div><div id="return-panel" style="margin-top:16px"></div>`:'لا توجد فواتير حتى الآن.';
+    for(const button of area.querySelectorAll('[data-return-invoice]')){
+      button.addEventListener('click',async()=>{
+        const panel=area.querySelector('#return-panel'),id=button.dataset.returnInvoice;
+        panel.textContent='جارٍ تحميل الأصناف القابلة للإرجاع...';
+        try{
+          const endpoint='/api/returns/'+(sales?'sales/':'purchases/')+encodeURIComponent(id)+'/options';
+          const options=await api(endpoint);
+          const lines=options.lines||[];
+          panel.innerHTML=`<section style="padding:14px;border:1px solid #d9e0eb;border-radius:12px"><h3>مرتجع فاتورة ${escapeHtml(sales?options.sale.reference:options.purchase.reference)}</h3><form id="return-form" style="display:grid;gap:10px"><div style="overflow:auto"><table><thead><tr><th>الصنف</th><th>الكمية الأصلية</th><th>المتبقي للإرجاع</th><th>الكمية المرتجعة الآن</th></tr></thead><tbody>${lines.map(line=>`<tr><td>${escapeHtml(line.description)}</td><td>${Number(line.quantity).toLocaleString('ar')}</td><td>${Number(line.remainingQuantity).toLocaleString('ar')}</td><td><input data-return-line="${escapeHtml(sales?line.id:line.id)}" type="number" min="0" max="${Number(line.remainingQuantity)}" step="0.001" value="0" style="width:110px"></td></tr>`).join('')}</tbody></table></div><label>طريقة إعادة المبلغ<select name="refundMethod"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label id="return-provider-wrap" hidden>المحفظة<select name="provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><label>مرجع العملية (اختياري)<input name="reference" maxlength="120"></label><label>سبب المرتجع<input name="reason" maxlength="300" placeholder="سبب الإرجاع"></label><button class="primary-button" type="submit">اعتماد المرتجع</button><p id="return-message" role="status"></p></form></section>`;
+          const form=panel.querySelector('#return-form'),method=form.elements.refundMethod,providerWrap=form.querySelector('#return-provider-wrap');
+          method.addEventListener('change',()=>{providerWrap.hidden=method.value!=='wallet';});
+          form.addEventListener('submit',async event=>{
+            event.preventDefault();
+            const selected=[...form.querySelectorAll('[data-return-line]')].map(input=>({lineId:input.dataset.returnLine,quantity:Number(input.value)})).filter(line=>line.quantity>0);
+            if(!selected.length){form.querySelector('#return-message').textContent='حدد كمية صنف واحد على الأقل.';return;}
+            const data=new FormData(form),body={lines:selected.map(line=>sales?{saleLineId:line.lineId,quantity:line.quantity}:{purchaseLineId:line.lineId,quantity:line.quantity}),refundMethod:data.get('refundMethod'),provider:data.get('refundMethod')==='wallet'?data.get('provider'):null,reference:data.get('reference')||null,reason:data.get('reason')||null};
+            const message=form.querySelector('#return-message');message.textContent='جارٍ اعتماد المرتجع...';
+            try{
+              const result=await api('/api/returns/'+(sales?'sales/':'purchases/')+encodeURIComponent(id),{method:'POST',body});
+              message.textContent='تم اعتماد المرتجع '+result.returnNumber+' · قيمة المرتجع '+(result.totalMinor/100).toLocaleString('ar')+' ج.س · المبلغ المعاد '+(result.refundMinor/100).toLocaleString('ar')+' ج.س';
+              await renderInvoices(root,kind);
+            }catch(error){message.textContent=error.message;}
+          });
+        }catch(error){panel.textContent=error.message;}
+      });
+    }
   }catch(error){root.querySelector('#invoice-area').textContent=error.message;}
 }
 export async function renderReports(root) {
