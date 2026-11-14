@@ -11,11 +11,11 @@ Every authored project file is placed directly in this directory. There are no n
 - `server.js`: HTTP API and application bootstrap.
 - `database.js` / `schema.sql`: SQLite persistence and schema.
 - `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules; accounting remains internal and is not exposed as an everyday workflow.
-- `reports.js`: simple date-filtered sales, purchases, gross-profit estimate, best-selling products and low-stock summary.
+- `reports.js`: date-filtered detailed reports for daily sales, sales invoices/products/categories/customers/payment methods, purchase invoices/products/categories/payment methods, stock balances and movements, tax summary, and cash receipts/payments. The simplified summary remains available as well.
 - `sync.js` / `offline.js`: outbox primitives, idempotent server reconciliation, and stock-conflict review. The client-side durable SQLite outbox adapters are still pending.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, categories, customers, suppliers, and invoice lists.
-- The desktop and mobile interfaces now include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, simple store reports, central settings, user roles and sync conflict review.
+- The desktop and mobile interfaces include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, selectable detailed store reports, central settings, user roles and sync conflict review. Wallet payments can be distinguished as Bankak, OCash, Fawry or MyCashy while retaining a common wallet clearing account.
 - `settings.js`: server-owned settings with validation and audit history.
 - `client.js`: shared authenticated API and settings/user administration UI.
 
