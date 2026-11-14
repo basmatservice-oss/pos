@@ -62,3 +62,72 @@ export function createSupplier(input){
 export function listSuppliers(){return db.prepare('SELECT id,name,phone,email,address FROM suppliers ORDER BY name').all();}
 export function listSales({limit=100}={}){return db.prepare("SELECT id,receipt_number AS receiptNumber,customer_id AS customerId,cashier_id AS cashierId,status,subtotal_minor AS subtotalMinor,tax_minor AS taxMinor,total_minor AS totalMinor,currency_code AS currencyCode,occurred_at AS occurredAt FROM sales ORDER BY occurred_at DESC LIMIT ?").all(Math.max(1,Math.min(500,Number(limit)||100)));}
 export function listPurchases({limit=100}={}){return db.prepare("SELECT id,invoice_number AS invoiceNumber,supplier_id AS supplierId,status,subtotal_minor AS subtotalMinor,tax_minor AS taxMinor,total_minor AS totalMinor,tax_treatment AS taxTreatment,currency_code AS currencyCode,occurred_at AS occurredAt FROM purchases ORDER BY occurred_at DESC LIMIT ?").all(Math.max(1,Math.min(500,Number(limit)||100)));}
+
+export function listUnits(){return db.prepare('SELECT id,name,symbol,precision FROM units ORDER BY name').all();}
+export function createUnit(input){
+  const name=requiredText(input?.name,'unit name'),symbol=requiredText(input?.symbol,'unit symbol',16),precision=Number(input?.precision??0);
+  if(!Number.isInteger(precision)||precision<0||precision>6)throw new Error('Unit precision must be between 0 and 6.');
+  const id=input.id||randomUUID();db.prepare('INSERT INTO units(id,name,symbol,precision) VALUES(?,?,?,?)').run(id,name,symbol,precision);return id;
+}
+export function listProductUnits(productId){
+  return db.prepare(`SELECT pu.id,pu.product_id AS productId,pu.unit_id AS unitId,u.name,u.symbol,pu.base_quantity AS baseQuantity,
+    pu.barcode,pu.sale_price_minor AS salePriceMinor,pu.is_default_sale AS isDefaultSale
+    FROM product_units pu JOIN units u ON u.id=pu.unit_id WHERE pu.product_id=? ORDER BY pu.is_default_sale DESC,u.name`).all(productId);
+}
+export function saveProductUnit(productId,input){
+  if(!db.prepare('SELECT id FROM products WHERE id=?').get(productId))throw new Error('Product not found.');
+  const unitId=requiredText(input?.unitId,'unit'),baseQuantity=Number(input?.baseQuantity);
+  if(!db.prepare('SELECT id FROM units WHERE id=?').get(unitId)||!Number.isFinite(baseQuantity)||baseQuantity<=0)throw new Error('Invalid unit conversion.');
+  const barcode=input.barcode?requiredText(input.barcode,'barcode',100):null;
+  const salePrice=input.salePriceMinor===undefined||input.salePriceMinor===''?null:money(input.salePriceMinor,'unit sale price');
+  const id=input.id||randomUUID();
+  db.prepare(`INSERT INTO product_units(id,product_id,unit_id,base_quantity,barcode,sale_price_minor,is_default_sale)
+    VALUES(?,?,?,?,?,?,?) ON CONFLICT(product_id,unit_id) DO UPDATE SET base_quantity=excluded.base_quantity,barcode=excluded.barcode,
+    sale_price_minor=excluded.sale_price_minor,is_default_sale=excluded.is_default_sale`)
+    .run(id,productId,unitId,baseQuantity,barcode,salePrice,input.isDefaultSale?1:0);
+  return id;
+}
+export function lookupBarcode(code){
+  const value=requiredText(String(code||''),'barcode',100);
+  const product=db.prepare(`SELECT p.id AS productId,p.name,p.barcode,p.sale_price_minor AS salePriceMinor,p.base_unit_id AS unitId,
+    u.name AS unitName,u.symbol AS unitSymbol,1 AS baseQuantity,'product' AS lineType
+    FROM products p JOIN units u ON u.id=p.base_unit_id WHERE p.barcode=? AND p.is_active=1
+    UNION ALL
+    SELECT p.id,p.name,pu.barcode,COALESCE(pu.sale_price_minor,p.sale_price_minor),pu.unit_id,u.name,u.symbol,pu.base_quantity,'product'
+    FROM product_units pu JOIN products p ON p.id=pu.product_id JOIN units u ON u.id=pu.unit_id
+    WHERE pu.barcode=? AND p.is_active=1 LIMIT 1`).get(value,value);
+  if(product)return product;
+  const service=db.prepare("SELECT id AS productId,name,code AS barcode,price_minor AS salePriceMinor,'service' AS lineType FROM services WHERE code=? AND is_active=1").get(value);
+  if(service)return service;
+  throw new Error('لم يتم العثور على صنف أو خدمة بهذا الباركود.');
+}
+export function listServices(){
+  return db.prepare(`SELECT s.id,s.code,s.name,s.price_minor AS priceMinor,s.tax_rate_bps AS taxRateBps,s.is_active AS isActive,
+    COALESCE((SELECT SUM(sc.quantity*p.cost_minor) FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=s.id),0) AS componentCostMinor
+    FROM services s ORDER BY s.name`).all();
+}
+export function saveService(input){
+  const name=requiredText(input?.name,'service name'),price=money(input?.priceMinor,'service price');
+  const code=input.code?requiredText(input.code,'service code',100):null;
+  const taxRate=Number(input.taxRateBps||0);
+  if(!Number.isInteger(taxRate)||taxRate<0||taxRate>10000)throw new Error('Invalid service tax rate.');
+  const id=input.id||randomUUID(),now=new Date().toISOString();
+  if(input.id)db.prepare('UPDATE services SET code=?,name=?,price_minor=?,tax_rate_bps=?,tax_exempt=?,is_active=?,updated_at=? WHERE id=?')
+    .run(code,name,price,taxRate,input.taxExempt?1:0,input.isActive===false?0:1,now,id);
+  else db.prepare('INSERT INTO services(id,code,name,price_minor,tax_rate_bps,tax_exempt,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)')
+    .run(id,code,name,price,taxRate,input.taxExempt?1:0,now,now);
+  return id;
+}
+export function setServiceComponents(serviceId,components){
+  if(!db.prepare('SELECT id FROM services WHERE id=?').get(serviceId))throw new Error('Service not found.');
+  if(!Array.isArray(components))throw new Error('Service components must be a list.');
+  const rows=components.map(item=>({productId:requiredText(item.productId,'component product'),quantity:Number(item.quantity)}));
+  if(rows.some(row=>!Number.isFinite(row.quantity)||row.quantity<=0||!db.prepare('SELECT id FROM products WHERE id=? AND track_stock=1').get(row.productId)))throw new Error('Each service component must be a stock-tracked product with a positive quantity.');
+  db.transaction(()=>{db.prepare('DELETE FROM service_components WHERE service_id=?').run(serviceId);const insert=db.prepare('INSERT INTO service_components(id,service_id,product_id,quantity) VALUES(?,?,?,?)');for(const row of rows)insert.run(randomUUID(),serviceId,row.productId,row.quantity);})();
+  return listServiceComponents(serviceId);
+}
+export function listServiceComponents(serviceId){
+  return db.prepare(`SELECT sc.product_id AS productId,p.name,sc.quantity,u.symbol AS unitSymbol,p.cost_minor AS unitCostMinor,
+    ROUND(sc.quantity*p.cost_minor) AS componentCostMinor FROM service_components sc JOIN products p ON p.id=sc.product_id
+    JOIN units u ON u.id=p.base_unit_id WHERE sc.service_id=? ORDER BY p.name`).all(serviceId);
+}
