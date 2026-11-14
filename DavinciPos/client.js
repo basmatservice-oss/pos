@@ -359,3 +359,70 @@ export async function renderExpenses(root){
   root.querySelector('#expense-form').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/expenses',{method:'POST',body:{category:f.get('category'),amountMinor:Math.round(Number(f.get('amount'))*100),occurredAt:new Date(f.get('occurredAt')).toISOString(),paymentMethod:f.get('paymentMethod'),provider:f.get('paymentMethod')==='wallet'?f.get('provider'):null,reference:f.get('reference')||null,note:f.get('note')||null}});await renderExpenses(root);}catch(error){root.querySelector('#expense-message').textContent=error.message;}});
  }catch(error){root.querySelector('#expenses-area').textContent=error.message;}
 }
+
+
+export async function renderReturns(root) {
+  root.innerHTML=`<section class="panel"><h2>مرتجعات المبيعات والمشتريات</h2>
+    <p>اختر الفاتورة ثم حدد الأصناف والكميات المرتجعة. يعاد المخزون تلقائياً عند قبول المرتجع، ويحسب النظام المبلغ المسترد أو المخصوم من الرصيد.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      <label>نوع الفاتورة<select id="return-kind"><option value="sales">مرتجع مبيعات</option><option value="purchases">مرتجع مشتريات</option></select></label>
+      <label>الفاتورة<select id="return-invoice"><option value="">تحميل الفواتير...</option></select></label>
+      <button type="button" id="return-load">عرض الأصناف القابلة للإرجاع</button>
+    </div>
+    <p id="return-message"></p><div id="return-options"></div>
+  </section>`;
+  const kind=root.querySelector('#return-kind'),invoice=root.querySelector('#return-invoice'),options=root.querySelector('#return-options'),message=root.querySelector('#return-message');
+  const loadInvoices=async()=>{
+    invoice.innerHTML='<option value="">جارٍ تحميل الفواتير...</option>';
+    try{
+      const rows=await api(kind.value==='sales'?'/api/sales':'/api/purchases');
+      invoice.innerHTML='<option value="">اختر الفاتورة</option>'+rows.map(row=>{
+        const id=row.id,label=kind.value==='sales'?row.receiptNumber:row.invoiceNumber;
+        return '<option value="'+escapeHtml(id)+'">'+escapeHtml(label)+' · '+(row.totalMinor/100).toLocaleString('ar')+' ج.س · '+escapeHtml(row.status)+'</option>';
+      }).join('');
+    }catch(error){invoice.innerHTML='<option value="">تعذر تحميل الفواتير</option>';message.textContent=error.message;}
+    options.innerHTML='';
+  };
+  const loadOptions=async()=>{
+    if(!invoice.value){message.textContent='اختر الفاتورة أولاً.';return;}
+    try{
+      const endpoint=kind.value==='sales'?'/api/returns/sales/':'/api/returns/purchases/';
+      const data=await api(endpoint+encodeURIComponent(invoice.value)+'/options');
+      const sales=kind.value==='sales';
+      options.innerHTML=`<form id="return-form" style="display:grid;gap:12px;margin-top:16px">
+        <h3>${sales?'فاتورة المبيعات ':'فاتورة المشتريات '}${escapeHtml(data[sales?'sale':'purchase'].reference)}</h3>
+        <div style="overflow:auto"><table><thead><tr><th>اختيار</th><th>الصنف</th><th>الكمية الأصلية</th><th>تم إرجاعه</th><th>المتاح للإرجاع</th><th>كمية الإرجاع</th></tr></thead><tbody>
+        ${data.lines.map(line=>`<tr><td><input type="checkbox" data-return-check="${escapeHtml(line.id)}"></td><td>${escapeHtml(line.description)}</td><td>${line.quantity}</td><td>${line.returnedQuantity}</td><td>${line.remainingQuantity}</td><td><input type="number" data-return-quantity="${escapeHtml(line.id)}" min="0.001" max="${line.remainingQuantity}" step="0.001" value="${line.remainingQuantity}" disabled style="width:100px"></td></tr>`).join('')}
+        </tbody></table></div>
+        <label>طريقة رد المبلغ<select name="refundMethod"><option value="cash">نقداً</option><option value="bank">تحويل بنكي</option><option value="card">بطاقة</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label>
+        <label data-return-provider-wrap hidden>المحفظة الإلكترونية<select name="provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label>
+        <input name="reference" placeholder="مرجع رد المبلغ (اختياري)">
+        <textarea name="reason" maxlength="300" placeholder="سبب الإرجاع (اختياري)"></textarea>
+        <button class="primary-button" type="submit">اعتماد المرتجع</button><p data-return-result></p>
+      </form>`;
+      const form=options.querySelector('#return-form');
+      for(const checkbox of form.querySelectorAll('[data-return-check]')){
+        checkbox.addEventListener('change',()=>{const input=form.querySelector('[data-return-quantity="'+CSS.escape(checkbox.dataset.returnCheck)+'"]');input.disabled=!checkbox.checked;});
+      }
+      form.elements.refundMethod.addEventListener('change',()=>{form.querySelector('[data-return-provider-wrap]').hidden=form.elements.refundMethod.value!=='wallet';});
+      form.addEventListener('submit',async event=>{
+        event.preventDefault();
+        const lines=[...form.querySelectorAll('[data-return-check]:checked')].map(check=>({
+          [sales?'saleLineId':'purchaseLineId']:check.dataset.returnCheck,
+          quantity:Number(form.querySelector('[data-return-quantity="'+CSS.escape(check.dataset.returnCheck)+'"]').value)
+        }));
+        if(!lines.length){form.querySelector('[data-return-result]').textContent='حدد صنفاً واحداً على الأقل.';return;}
+        const body={lines,refundMethod:form.elements.refundMethod.value,provider:form.elements.refundMethod.value==='wallet'?form.elements.provider.value:null,reference:form.elements.reference.value||null,reason:form.elements.reason.value||null};
+        try{
+          const result=await api('/api/returns/'+(sales?'sales/':'purchases/')+encodeURIComponent(invoice.value),{method:'POST',body});
+          form.querySelector('[data-return-result]').textContent='تم اعتماد المرتجع '+result.returnNumber+' · قيمة المرتجع '+(result.totalMinor/100).toLocaleString('ar')+' ج.س · المبلغ المسترد '+(result.refundMinor/100).toLocaleString('ar')+' ج.س';
+          await loadOptions();
+        }catch(error){form.querySelector('[data-return-result]').textContent=error.message;}
+      });
+      message.textContent='';
+    }catch(error){options.innerHTML='';message.textContent=error.message;}
+  };
+  kind.addEventListener('change',loadInvoices);
+  root.querySelector('#return-load').addEventListener('click',loadOptions);
+  await loadInvoices();
+}
