@@ -13,7 +13,7 @@ const {updateSettings}=await import('./settings.js');
 const {receivePurchase,quotePurchase}=await import('./purchases.js');
 const {checkoutSale,quoteSale}=await import('./sales.js');
 const {reverseJournalEntry,getTrialBalance}=await import('./accounting.js');
-const {getSimpleReport}=await import('./reports.js');
+const {getSimpleReport,getDetailedReport,availableReports}=await import('./reports.js');
 const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
 const {createUser}=await import('./security.js');
 initializeDatabase();
@@ -158,9 +158,6 @@ test('offline sale with insufficient authoritative stock is held as a conflict',
   const resolved=resolveSyncConflict(first.conflictId,{decision:'reject',userId:owner.id});
   assert.equal(resolved.status,'rejected');
 });
-test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
-
-
 test('simple store report validates date ranges and returns summary fields only',()=>{
   const report=getSimpleReport({from:'2099-01-01',to:'2099-01-31'});
   assert.equal(report.salesCount,0);
@@ -170,3 +167,16 @@ test('simple store report validates date ranges and returns summary fields only'
   assert.throws(()=>getSimpleReport({from:'not-a-date'}),/Invalid report date/);
   assert.throws(()=>getSimpleReport({from:'2026-12-02',to:'2026-12-01'}),/Start date must be before end date/);
 });
+
+test('detailed report catalog covers core store operations',()=>{
+  assert.ok(availableReports.includes('sales-invoices'));
+  assert.ok(availableReports.includes('sales-products'));
+  assert.ok(availableReports.includes('purchase-invoices'));
+  assert.ok(availableReports.includes('stock-on-hand'));
+  assert.ok(availableReports.includes('cash-movements'));
+  assert.equal(getDetailedReport({type:'sales-invoices',from:'2099-01-01',to:'2099-01-31'}).rows.length,0);
+  assert.equal(getDetailedReport({type:'cash-movements',from:'2099-01-01',to:'2099-01-31'}).rows.length,0);
+  assert.ok(Array.isArray(getDetailedReport({type:'stock-on-hand',branchId:'branch-main'}).rows));
+  assert.throws(()=>getDetailedReport({type:'unknown'}),/Unknown report type/);
+});
+test('closes isolated SQLite test database',()=>{db.close();fs.rmSync(dir,{recursive:true,force:true});});
