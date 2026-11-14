@@ -36,8 +36,8 @@ export function configureProductCurrency(productId,{currency='SDG',foreignCostMi
   if(sale===null||!Number.isSafeInteger(sale)||sale<0||(cost!==null&&(!Number.isSafeInteger(cost)||cost<0)))throw new Error('Enter valid USD source prices.');
   if(autoUpdate&&!rate)throw new Error('Set the USD to SDG exchange rate before enabling automatic price updates.');
   const effective=rate?.rate||1;
-  db.prepare("UPDATE products SET price_currency='USD',foreign_cost_minor=?,foreign_sale_price_minor=?,auto_rate_update=?,cost_minor=?,sale_price_minor=?,updated_at=? WHERE id=?")
-   .run(cost,sale,autoUpdate?1:0,cost===null?0:Math.round(cost*effective),Math.round(sale*effective),new Date().toISOString(),productId);
+  db.prepare("UPDATE products SET price_currency='USD',foreign_cost_minor=?,foreign_sale_price_minor=?,auto_rate_update=?,cost_minor=COALESCE(?,cost_minor),sale_price_minor=?,updated_at=? WHERE id=?")
+   .run(cost,sale,autoUpdate?1:0,cost===null?null:Math.round(cost*effective),Math.round(sale*effective),new Date().toISOString(),productId);
  }else {
   const localCost=localCostMinor===null?null:Number(localCostMinor),localSale=localSalePriceMinor===null?null:Number(localSalePriceMinor);
   if((localCost!==null&&(!Number.isSafeInteger(localCost)||localCost<0))||(localSale!==null&&(!Number.isSafeInteger(localSale)||localSale<0)))throw new Error('Enter valid local currency prices.');
