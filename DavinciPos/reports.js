@@ -73,7 +73,7 @@ const REPORTS = {
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)-COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0)) AS dueMinor
     FROM sales s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY totalMinor DESC`,
-    'sales-payments': `SELECT p.method,p.provider,COUNT(*) AS operations,SUM(p.amount_minor) AS totalMinor
+    'sales-payments': `SELECT p.method,p.provider,p.direction,COUNT(*) AS operations,SUM(p.amount_minor) AS totalMinor
     FROM payments p JOIN sales s ON s.id=p.sale_id WHERE s.status!='void' AND {{where}} GROUP BY p.method,p.provider,p.direction ORDER BY totalMinor DESC`,
   'purchase-invoices': `SELECT p.invoice_number AS reference,p.occurred_at AS occurredAt,COALESCE(s.name,'بدون مورد') AS party,
     p.status,p.subtotal_minor AS subtotalMinor,p.tax_minor AS taxMinor,p.total_minor AS totalMinor,
@@ -92,7 +92,7 @@ const REPORTS = {
     SUM(pl.line_total_minor) AS netCostMinor,SUM(pl.tax_minor) AS taxMinor
     FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
     LEFT JOIN categories c ON c.id=pr.category_id WHERE pu.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netCostMinor DESC`,
-  'purchase-payments': `SELECT pp.method,pp.provider,COUNT(*) AS operations,SUM(pp.amount_minor) AS totalMinor
+  'purchase-payments': `SELECT pp.method,pp.provider,pp.direction,COUNT(*) AS operations,SUM(pp.amount_minor) AS totalMinor
     FROM purchase_payments pp JOIN purchases pu ON pu.id=pp.purchase_id WHERE pu.status!='void' AND {{where}} GROUP BY pp.method,pp.provider,pp.direction ORDER BY totalMinor DESC`,
   'stock-on-hand': `SELECT p.id AS productId,p.name,p.sku,p.barcode,u.symbol AS unit,
     COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock,
