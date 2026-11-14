@@ -111,13 +111,13 @@ CREATE TABLE IF NOT EXISTS purchase_lines (
 );
 CREATE TABLE IF NOT EXISTS purchase_payments (
   id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),
-  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, occurred_at TEXT NOT NULL
+  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, provider TEXT, occurred_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY, sale_id TEXT REFERENCES sales(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')),
   method TEXT NOT NULL CHECK (method IN ('cash','card','bank','wallet','credit','other')),
-  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0), reference TEXT, occurred_at TEXT NOT NULL
+  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0), reference TEXT, provider TEXT, occurred_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS stock_movements (
   id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id),
