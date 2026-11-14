@@ -23,14 +23,15 @@ function prepareSale(input) {
       ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,tax_exempt,0 AS track_stock,'service' AS unit_symbol,1 AS unit_multiplier FROM services WHERE id=? AND is_active=1").get(line.itemId)
       :db.prepare('SELECT p.name,COALESCE(pu.sale_price_minor,p.sale_price_minor) AS sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol,COALESCE(pu.base_quantity,1) AS unit_multiplier FROM products p LEFT JOIN product_units pu ON pu.id=? AND pu.product_id=p.id LEFT JOIN units u ON u.id=COALESCE(pu.unit_id,p.base_unit_id) WHERE p.id=? AND p.is_active=1').get(line.productUnitId||null,line.itemId);
     if(!item)throw new Error(lineType==='service'?'Service not found or inactive.':'Product not found or inactive.');
-    const unitPriceMinor=validateMoney(item.sale_price_minor,'product sale price');
+    const components=lineType==='service'?db.prepare('SELECT sc.product_id AS productId,sc.quantity,p.sale_price_minor AS componentSalePriceMinor FROM service_components sc JOIN products p ON p.id=sc.product_id WHERE sc.service_id=?').all(line.itemId):[];
+    const componentSaleMinor=components.reduce((sum,component)=>sum+Math.round(component.quantity*component.componentSalePriceMinor),0);
+    const unitPriceMinor=validateMoney(item.sale_price_minor+componentSaleMinor,'product or service price');
     const discountMinor=0;
     const profile=item.tax_exempt?{rateBps:0,priceMode}:item.tax_rate_bps>0?{rateBps:item.tax_rate_bps,priceMode}:getTaxProfile();
     const tax=calculateLineTax({unitPriceMinor,quantity,discountMinor,rateBps:profile.rateBps,priceMode:profile.priceMode||priceMode,enabled:taxEnabled});
     const baseQuantity=lineType==='service'?0:quantity*Number(item.unit_multiplier||1);
     if(!Number.isFinite(baseQuantity)||baseQuantity<=0&&lineType==='product'&&item.track_stock)throw new Error('Invalid converted unit quantity');
     if(lineType==='product'&&item.track_stock&&baseQuantity<=0)throw new Error('Invalid base unit quantity.');
-    const components=lineType==='service'?db.prepare('SELECT product_id AS productId,quantity FROM service_components WHERE service_id=?').all(line.itemId):[];
     return {...line,lineType,itemId:line.itemId,description:item.name,quantity,baseQuantity,components,unitName:line.unitName||item.unit_symbol||'pc',
       unitPriceMinor,unitCostMinor:0,discountMinor,trackStock:lineType==='product'&&Boolean(item.track_stock),
       taxRateBps:profile.rateBps,taxProfileId:profile.id||null,taxPriceMode:profile.priceMode||priceMode,
