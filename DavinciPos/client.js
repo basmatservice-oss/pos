@@ -147,9 +147,9 @@ export async function renderPeople(root,kind) {
   const customers=kind==='customers',title=customers?'العملاء':'الموردون';
   const listEndpoint=customers?'/api/settlements/customers':'/api/settlements/suppliers';
   const statementEndpoint=id=>customers?'/api/customers/'+encodeURIComponent(id)+'/statement':'/api/suppliers/'+encodeURIComponent(id)+'/statement';
-  root.innerHTML=`<section class="panel"><h2>${title}</h2><div id="people-area">جارٍ التحميل...</div></section>`;
+  root.innerHTML=`<section class="panel"><h2>${title}</h2><form id="person-form" style="display:grid;gap:8px;max-width:520px;margin-bottom:18px"><input name="name" required placeholder="الاسم"><input name="phone" placeholder="الهاتف"><input name="email" type="email" placeholder="البريد الإلكتروني">${customers?'':'<input name="address" placeholder="العنوان">'}<button class="primary-button">إضافة ${customers?'عميل':'مورد'}</button><p id="person-message"></p></form><div id="people-area">جارٍ التحميل...</div></section>`;
   try{
-    const records=await api(listEndpoint),area=root.querySelector('#people-area');
+    const records=await api(listEndpoint),area=root.querySelector('#people-area');\n    root.querySelector('#person-form').addEventListener('submit',async event=>{event.preventDefault();const body=Object.fromEntries(new FormData(event.currentTarget).entries());try{await api(customers?'/api/customers':'/api/suppliers',{method:'POST',body});await renderPeople(root,kind);}catch(error){root.querySelector('#person-message').textContent=error.message;}});
     area.innerHTML=records.length?records.map(person=>`<article style="padding:14px;border:1px solid #e7eaf0;border-radius:12px;margin:10px 0">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
         <div><b>${escapeHtml(person.name)}</b><small style="display:block;color:#8792a5">${escapeHtml(person.phone||'')}</small></div>
