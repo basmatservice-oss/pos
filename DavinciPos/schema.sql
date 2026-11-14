@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS purchase_lines (
 );
 CREATE TABLE IF NOT EXISTS purchase_payments (
   id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),
-  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, provider TEXT, occurred_at TEXT NOT NULL
+  amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, provider TEXT, occurred_at TEXT NOT NULL, direction TEXT NOT NULL DEFAULT 'out' CHECK(direction IN ('out','in'))
 );
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY, sale_id TEXT REFERENCES sales(id),
@@ -271,3 +271,33 @@ CREATE TABLE IF NOT EXISTS expenses (
  created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_occurred ON expenses(occurred_at);
+
+
+CREATE TABLE IF NOT EXISTS sales_returns (
+  id TEXT PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id), return_number TEXT NOT NULL UNIQUE,
+  branch_id TEXT REFERENCES branches(id), total_minor INTEGER NOT NULL CHECK(total_minor>0),
+  tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0), refund_minor INTEGER NOT NULL DEFAULT 0 CHECK(refund_minor>=0),
+  refund_method TEXT, reference TEXT, reason TEXT, created_by TEXT REFERENCES users(id), occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_return_lines (
+  id TEXT PRIMARY KEY, return_id TEXT NOT NULL REFERENCES sales_returns(id),
+  sale_line_id TEXT NOT NULL REFERENCES sale_lines(id), quantity REAL NOT NULL CHECK(quantity>0),
+  base_quantity REAL NOT NULL DEFAULT 0 CHECK(base_quantity>=0), amount_minor INTEGER NOT NULL CHECK(amount_minor>0),
+  tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0), cost_minor INTEGER NOT NULL DEFAULT 0 CHECK(cost_minor>=0)
+);
+CREATE TABLE IF NOT EXISTS purchase_returns (
+  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), return_number TEXT NOT NULL UNIQUE,
+  branch_id TEXT REFERENCES branches(id), total_minor INTEGER NOT NULL CHECK(total_minor>0),
+  tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0), refund_minor INTEGER NOT NULL DEFAULT 0 CHECK(refund_minor>=0),
+  refund_method TEXT, reference TEXT, reason TEXT, created_by TEXT REFERENCES users(id), occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS purchase_return_lines (
+  id TEXT PRIMARY KEY, return_id TEXT NOT NULL REFERENCES purchase_returns(id),
+  purchase_line_id TEXT NOT NULL REFERENCES purchase_lines(id), quantity REAL NOT NULL CHECK(quantity>0),
+  base_quantity REAL NOT NULL CHECK(base_quantity>0), amount_minor INTEGER NOT NULL CHECK(amount_minor>0),
+  tax_minor INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0), cost_minor INTEGER NOT NULL DEFAULT 0 CHECK(cost_minor>=0)
+);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_sale ON sales_returns(sale_id,occurred_at);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_purchase ON purchase_returns(purchase_id,occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sales_return_lines_source ON sales_return_lines(sale_line_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_return_lines_source ON purchase_return_lines(purchase_line_id);
