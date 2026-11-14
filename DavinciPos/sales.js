@@ -21,7 +21,7 @@ function prepareSale(input) {
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error('Line quantity must be greater than zero.');
     const item=lineType==='service'
       ?db.prepare("SELECT name,price_minor AS sale_price_minor,tax_rate_bps,tax_exempt,0 AS track_stock,'service' AS unit_symbol,1 AS unit_multiplier FROM services WHERE id=? AND is_active=1").get(line.itemId)
-      :db.prepare('SELECT p.name,COALESCE(pu.sale_price_minor,p.sale_price_minor) AS sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol,COALESCE(pu.base_quantity,1) AS unit_multiplier FROM products p LEFT JOIN units u ON u.id=p.base_unit_id LEFT JOIN product_units pu ON pu.id=? AND pu.product_id=p.id WHERE p.id=? AND p.is_active=1').get(line.productUnitId||null,line.itemId);
+      :db.prepare('SELECT p.name,COALESCE(pu.sale_price_minor,p.sale_price_minor) AS sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,u.symbol AS unit_symbol,COALESCE(pu.base_quantity,1) AS unit_multiplier FROM products p LEFT JOIN product_units pu ON pu.id=? AND pu.product_id=p.id LEFT JOIN units u ON u.id=COALESCE(pu.unit_id,p.base_unit_id) WHERE p.id=? AND p.is_active=1').get(line.productUnitId||null,line.itemId);
     if(!item)throw new Error(lineType==='service'?'Service not found or inactive.':'Product not found or inactive.');
     const unitPriceMinor=validateMoney(item.sale_price_minor,'product sale price');
     const discountMinor=0;
