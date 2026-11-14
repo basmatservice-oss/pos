@@ -171,7 +171,7 @@ test('service sale consumes configured material components and records their cos
 });
 test('inventory count reconciles actual quantities through stock adjustments',()=>{
   stock('counted-product');
-  const count=createInventoryCount({branchId:null});
+  const count=createInventoryCount({branchId:null,productIds:['counted-product']});
   const line=getInventoryCount(count.id).lines.find(item=>item.productId==='counted-product');
   assert.ok(line);
   assert.equal(line.expectedQuantity,20);
