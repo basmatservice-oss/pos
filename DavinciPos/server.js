@@ -13,7 +13,7 @@ import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermis
 import { listTaxProfiles, saveTaxProfile } from './tax.js';
 import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases, listUnits, createUnit, saveProductUnit, listProductUnits, lookupBarcode, listServices, saveService, setServiceComponents, listServiceComponents } from './catalog.js';
-import { adjustInventory } from './inventory.js';
+import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryCountLine, completeInventoryCount, listInventoryCounts } from './inventory.js';
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
 import { getCurrentExchangeRate, listExchangeRates, recordExchangeRate, configureProductCurrency } from './currency.js';
 
@@ -149,6 +149,11 @@ app.get('/api/suppliers',...api('suppliers.read',(_req,res)=>res.json({data:list
 app.post('/api/suppliers',...api('suppliers.write',(req,res)=>{try{res.status(201).json({data:{id:createSupplier(req.body||{})}});}catch(error){res.status(400).json({error:error.message});}}));
 app.get('/api/sales',...api('sales.read',(req,res)=>res.json({data:listSales({limit:req.query.limit})})));
 app.get('/api/purchases',...api('purchases.read',(req,res)=>res.json({data:listPurchases({limit:req.query.limit})})));
+app.get('/api/inventory/counts',...api('inventory.read',(_req,res)=>res.json({data:listInventoryCounts()})));
+app.post('/api/inventory/counts',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:createInventoryCount({branchId:getDefaultBranchId(),userId:req.user.id,productIds:req.body?.productIds||null})});}catch(error){res.status(400).json({error:error.message});}}));
+app.get('/api/inventory/counts/:id',...api('inventory.read',(req,res)=>{try{res.json({data:getInventoryCount(req.params.id)});}catch(error){res.status(404).json({error:error.message});}}));
+app.put('/api/inventory/counts/:id/lines/:productId',...api('inventory.write',(req,res)=>{try{res.json({data:setInventoryCountLine(req.params.id,req.params.productId,req.body?.countedQuantity)});}catch(error){res.status(400).json({error:error.message});}}));
+app.post('/api/inventory/counts/:id/post',...api('inventory.write',(req,res)=>{try{res.json({data:completeInventoryCount(req.params.id,req.user.id)});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/inventory/adjustments',...api('inventory.write',(req,res)=>{try{res.status(201).json({data:adjustInventory({...req.body,branchId:getDefaultBranchId(),userId:req.user.id})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/quote',...api('sales.create',(req,res)=>{try{res.json({data:quoteSale({...req.body,branchId:getDefaultBranchId()})});}catch(error){res.status(400).json({error:error.message});}}));
 app.post('/api/sales/checkout',...api('sales.create',(req,res)=>{
