@@ -16,6 +16,7 @@ Every authored project file is placed directly in this directory. There are no n
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, alternate sales units and conversion factors, barcode lookup, service catalog and service material recipes, categories, customers and suppliers.
 - `currency.js`: USD/SDG exchange-rate history and optional automatic repricing for products whose source prices are maintained in USD.
+- `expenses.js`: simple store expenses with payment method/provider, automatic internal posting, and net-profit reporting.
 - Inventory supports draft physical stock counts, barcode-based counting, and posting stock differences through audited adjustments.
 - The desktop and mobile interfaces include product management, stock adjustments, customer/supplier records, server-quoted sales checkout, purchase receiving, selectable detailed store reports, central settings, user roles and sync conflict review. Wallet payments can be distinguished as Bankak, OCash, Fawry or MyCashy while retaining a common wallet clearing account.
 - `settings.js`: server-owned settings with validation and audit history.
