@@ -31,7 +31,12 @@
     "productName": "DavinciPos",
     "asar": true,
     "asarUnpack": [
-      "node_modules/better-sqlite3/**"
+      "node_modules/better-sqlite3/**",
+      "server.js",
+      "*.js",
+      "schema.sql",
+      "*.html",
+      "*.css"
     ],
     "files": [
       "**/*",
