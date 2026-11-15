@@ -7,6 +7,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
@@ -108,7 +109,7 @@ public class MainActivity extends Activity {
         String content = "HOST=127.0.0.1\n" +
             "PORT=3187\n" +
             "DAVINCIPOS_DB=" + new File(getFilesDir(), "DavinciPos.sqlite").getAbsolutePath() + "\n" +
-            "DAVINCIPOS_SQLITE_BINDING=" + new File(project, "node_modules/better-sqlite3/build/Release/better_sqlite3.node").getAbsolutePath() + "\n" +
+            "DAVINCIPOS_SQLITE_BINDING=" + new File(project, "native/" + Build.SUPPORTED_ABIS[0] + "/better_sqlite3.node").getAbsolutePath() + "\n" +
             "DAVINCIPOS_BOOTSTRAP_TOKEN=" + bootstrapToken + "\n";
         writeFile(env, content);
     }
