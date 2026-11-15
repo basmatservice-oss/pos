@@ -104,7 +104,7 @@ export function createSalesReturn(saleId,input={},userId=null){
       let costMinor=0;
       if(detail.line.track_stock&&detail.baseQuantity>0){
         const branchId=sale.branchId||getDefaultBranchId();
-        const layers=db.prepare(`SELECT id,inventory_layer_id AS layerId,quantity,returned_quantity AS returnedQuantity,unit_cost_minor AS unitCostMinor
+        const layers=db.prepare(`SELECT id,inventory_layer_id AS layerId,quantity,returned_quantity AS returnedQuantity,unit_cost_minor AS unitCostMinor,cost_total_minor AS costTotalMinor,returned_cost_minor AS returnedCostMinor
           FROM sale_line_cost_layers WHERE sale_line_id=? AND returned_quantity<quantity ORDER BY rowid`).all(detail.line.id);
         if(layers.length){
           let remaining=detail.baseQuantity;
@@ -114,8 +114,10 @@ export function createSalesReturn(saleId,input={},userId=null){
             const available=Number(layer.quantity)-Number(layer.returnedQuantity);
             const take=Math.min(remaining,available);
             if(take<=1e-9)continue;
-            db.prepare('UPDATE sale_line_cost_layers SET returned_quantity=returned_quantity+? WHERE id=?').run(take,layer.id);
-            allocations.push({layerId:layer.layerId,quantity:take,unitCostMinor:Number(layer.unitCostMinor)});
+            const remainingCost=Number(layer.costTotalMinor)-Number(layer.returnedCostMinor);
+            const allocationCost=take>=available-1e-9?remainingCost:Math.round(Number(layer.costTotalMinor)*take/Number(layer.quantity));
+            db.prepare('UPDATE sale_line_cost_layers SET returned_quantity=returned_quantity+?,returned_cost_minor=returned_cost_minor+? WHERE id=?').run(take,allocationCost,layer.id);
+            allocations.push({layerId:layer.layerId,quantity:take,unitCostMinor:Number(layer.unitCostMinor),costTotalMinor:allocationCost});
             remaining-=take;
           }
           if(remaining>1e-7)throw new Error('FIFO return quantity does not reconcile with the original sale cost layers.');
