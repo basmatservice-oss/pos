@@ -1,6 +1,6 @@
 import {IndexedDbLocalStore} from './local-store.js';
 
-export const localStore=new IndexedDbLocalStore();
+export const localStore=globalThis.indexedDB?new IndexedDbLocalStore():null;
 
 function createId(cryptoProvider=globalThis.crypto){
   if(cryptoProvider?.randomUUID)return cryptoProvider.randomUUID();
@@ -10,6 +10,7 @@ function createId(cryptoProvider=globalThis.crypto){
 }
 
 export async function getLocalDeviceId(store=localStore,cryptoProvider=globalThis.crypto){
+  if(!store)throw new Error('Persistent local storage is unavailable on this device.');
   let id=await store.getMetadata('device-id');
   if(!id){id=createId(cryptoProvider);await store.setMetadata('device-id',id);}
   return id;
@@ -23,6 +24,7 @@ export async function registerLocalDevice(api,{store=localStore,name=globalThis.
 }
 
 export async function cachePosSnapshot(snapshot,store=localStore){
+  if(!store)throw new Error('Persistent local storage is unavailable on this device.');
   if(!snapshot||typeof snapshot!=='object'||!Array.isArray(snapshot.products)||!Array.isArray(snapshot.customers)||!Array.isArray(snapshot.services))
     throw new Error('POS snapshot must contain products, customers and services.');
   await store.setMetadata('pos-snapshot',snapshot);
@@ -30,15 +32,18 @@ export async function cachePosSnapshot(snapshot,store=localStore){
 }
 
 export async function loadPosSnapshot(store=localStore){
+  if(!store)throw new Error('Persistent local storage is unavailable on this device.');
   return store.getMetadata('pos-snapshot');
 }
 
 export async function queueOfflineSale({sale,deviceId,store=localStore,operationId=createId()}){
+  if(!store)throw new Error('Persistent local storage is unavailable on this device.');
   if(!deviceId)throw new Error('Device identity is required before queuing an offline sale.');
   return store.enqueueSale({sale,deviceId,operationId});
 }
 
 export async function synchronizePendingSales({api,store=localStore,deviceId=null}){
+  if(!store)throw new Error('Persistent local storage is unavailable on this device.');
   if(typeof api!=='function')throw new Error('Authenticated API function is required.');
   const pending=await store.listPending({deviceId,limit:100});
   const results=[];
