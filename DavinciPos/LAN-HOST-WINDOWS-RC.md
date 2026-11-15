@@ -7,7 +7,7 @@ The Windows installer can run the authoritative SQLite database and serve Androi
 1. Install the DavinciPos Windows RC installer and run it once.
 2. Give the host PC a reserved/static IPv4 address on the shop network (example: 192.168.1.10).
 3. Open PowerShell. Run it as Administrator if you want the helper to add the Private-profile firewall rule.
-4. Run the helper from the repository: powershell -ExecutionPolicy Bypass -File .\enable-lan-host.ps1 -LanIp 192.168.1.10. OpenSSL must be available on PATH (Git for Windows or Win64 OpenSSL).
+4. Run enable-lan-host.ps1 from the installed DavinciPos resources directory (or from the repository): powershell -ExecutionPolicy Bypass -File .\enable-lan-host.ps1 -LanIp 192.168.1.10. OpenSSL must be available on PATH (Git for Windows or Win64 OpenSSL).
 5. The helper creates a private local CA and a server certificate with the host IP in its SAN, imports the CA into the current Windows user's trusted roots, and writes %APPDATA%\davincipos\lan-host.json.
 6. Restart DavinciPos. The desktop app should open using the secure LAN address and show the mobile URL.
 7. If the helper was not run as Administrator, allow inbound TCP 3187 on the Windows Firewall Private profile only. Do not create a Public-profile rule and do not configure router port forwarding.
