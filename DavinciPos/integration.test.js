@@ -287,6 +287,19 @@ test('reversed journal entries remain in trial balance and net to zero in profit
   }
   assert.equal(getSimpleReport({}).netProfitMinor,beforeProfit);
 });
+test('trial balance totals reconcile and profit and loss matches ledger account balances',()=>{
+  const rows=getTrialBalance();
+  const debitTotal=rows.reduce((sum,row)=>sum+row.debitMinor,0);
+  const creditTotal=rows.reduce((sum,row)=>sum+row.creditMinor,0);
+  assert.equal(debitTotal,creditTotal,'Trial balance debits must equal credits');
+  const ledgerNetProfit=rows
+    .filter(row=>row.accountType==='revenue'||row.accountType==='expense')
+    .reduce((sum,row)=>sum-row.netDebitMinor,0);
+  const profitAndLoss=getSimpleReport({}).netProfitMinor;
+  assert.equal(profitAndLoss,ledgerNetProfit,'Profit and loss must reconcile to revenue and expense ledger balances');
+  const summary=getSimpleReport({});
+  assert.equal(summary.grossProfitMinor,summary.ledgerSalesMinor-summary.cogsMinor);
+});
 test('closes integrated-cycle database',()=>{
   db.close();
   fs.rmSync(dir,{recursive:true,force:true});
