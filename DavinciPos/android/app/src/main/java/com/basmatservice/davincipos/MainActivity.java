@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
+import android.util.Log;
 import android.view.Gravity;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -44,11 +45,6 @@ public class MainActivity extends Activity {
     private String remoteServerUrl = "";
     private boolean remoteMode = false;
 
-    static {
-        System.loadLibrary("node");
-        System.loadLibrary("davincipos-native");
-    }
-
     private native int startNodeWithArguments(String[] arguments, String workingDirectory);
 
     @Override
@@ -57,21 +53,36 @@ public class MainActivity extends Activity {
         remoteServerUrl = getPreferences(0).getString("remote_server_url", "");
         showStartingScreen();
         try {
+            // Load native libraries after rendering the startup screen so linker
+            // failures are shown as diagnostics instead of an immediate silent exit.
+            System.loadLibrary("node");
+            System.loadLibrary("davincipos-native");
             File project = new File(getFilesDir(), "nodejs-project-" + BuildConfig.VERSION_NAME);
             if (!new File(project, "server.js").exists()) copyAssetFolder("nodejs-project", project);
             prepareEnvironment(project);
             if (!nodeStarted) {
                 nodeStarted = true;
-                Thread nodeThread = new Thread(() -> startNodeWithArguments(
-                    new String[]{"node", "--env-file=" + new File(getFilesDir(), "davincipos.env").getAbsolutePath(), "server.js"},
-                    project.getAbsolutePath()
-                ), "DavinciPos-Node");
+                Thread nodeThread = new Thread(() -> {
+                    try {
+                        int exitCode = startNodeWithArguments(
+                            new String[]{"node", "--env-file=" + new File(getFilesDir(), "davincipos.env").getAbsolutePath(), "server.js"},
+                            project.getAbsolutePath()
+                        );
+                        nodeStarted = false;
+                        handler.post(() -> showFatal("توقف محرك Node.js أثناء بدء الخدمة. رمز الخروج: " + exitCode));
+                    } catch (Throwable failure) {
+                        nodeStarted = false;
+                        Log.e("DavinciPos", "Embedded Node.js failed", failure);
+                        handler.post(() -> showFatal("فشل تشغيل محرك Node.js: " + failure.getClass().getSimpleName() + ": " + failure.getMessage()));
+                    }
+                }, "DavinciPos-Node");
                 nodeThread.setDaemon(false);
                 nodeThread.start();
             }
             waitForServer(0);
-        } catch (Exception error) {
-            showFatal("تعذر تجهيز DavinciPos: " + error.getMessage());
+        } catch (Throwable error) {
+            Log.e("DavinciPos", "Application startup failed", error);
+            showFatal("تعذر بدء التطبيق: " + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
     }
 
