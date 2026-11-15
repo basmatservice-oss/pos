@@ -99,6 +99,34 @@ jobs:
           find "$ASSETS/native" -type f -printf '%p %s bytes\\n'
       - name: Build standalone Android APK
         run: gradle --no-daemon -p DavinciPos/android assembleDebug
+      - name: Exercise the standalone APK on an Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          script: |
+            set -euo pipefail
+            adb install -r DavinciPos/android/app/build/outputs/apk/debug/app-debug.apk
+            adb forward tcp:3187 tcp:3187
+            adb shell am start -n com.basmatservice.davincipos/.MainActivity
+            TOKEN=""
+            for attempt in $(seq 1 90); do
+              TOKEN="$(adb exec-out run-as com.basmatservice.davincipos cat files/bootstrap-token.txt 2>/dev/null || true)"
+              if [ -n "$TOKEN" ] && curl -fsS http://127.0.0.1:3187/api/health >/dev/null; then break; fi
+              sleep 1
+            done
+            test -n "$TOKEN"
+            DAVINCIPOS_BOOTSTRAP_TOKEN="$TOKEN" node DavinciPos/android-smoke-test.mjs
+            adb shell am force-stop com.basmatservice.davincipos
+            adb shell am start -n com.basmatservice.davincipos/.MainActivity
+            for attempt in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:3187/api/health >/dev/null; then break; fi
+              sleep 1
+            done
+            VERIFY_RESTART=1 node DavinciPos/android-smoke-test.mjs
+            adb shell run-as com.basmatservice.davincipos test -s files/DavinciPos.sqlite
       - uses: actions/upload-artifact@v4
         with:
           name: DavinciPos-Android-Standalone-RC
