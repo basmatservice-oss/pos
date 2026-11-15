@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const https=require('node:https');
 const crypto=require('node:crypto');
+const net=require('node:net');
 
 let serverProcess=null,bootstrapToken=null;
 const appRoot=app.getAppPath();
@@ -15,13 +16,16 @@ function loadLanConfig(){
  try{
   const config=JSON.parse(fs.readFileSync(lanConfigPath,'utf8'));
   if(!config.enabled)return {enabled:false};
+  if(net.isIP(config.hostIp)!==4)throw new Error('lan-host.json hostIp must be a valid IPv4 address.');
+  const port=Number(config.port||3187);
+  if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('lan-host.json port must be between 1024 and 65535.');
   for(const key of ['hostIp','certPath','keyPath','caPath']){
    if(typeof config[key]!=='string'||!config[key])throw new Error('Missing '+key+' in '+lanConfigPath);
   }
   for(const key of ['certPath','keyPath','caPath']){
    if(!fs.existsSync(config[key]))throw new Error('LAN certificate file not found: '+config[key]);
   }
-  return {...config,enabled:true,port:Number(config.port||3187)};
+  return {...config,enabled:true,port};
  }catch(error){
   if(error.code==='ENOENT')return {enabled:false};
   throw error;
