@@ -1,6 +1,28 @@
 plugins { id 'com.android.application' }
+
 android {
- namespace 'com.basmatservice.davincipos'
- compileSdk 35
- defaultConfig { applicationId 'com.basmatservice.davincipos'; minSdk 26; targetSdk 35; versionCode 1; versionName '0.1.0-rc1' }
+    namespace 'com.basmatservice.davincipos'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.basmatservice.davincipos'
+        minSdk 26
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0-rc1'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        externalNativeBuild { cmake { cppFlags '-std=c++17' } }
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+    externalNativeBuild {
+        cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }
