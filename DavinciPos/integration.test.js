@@ -119,6 +119,17 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(returnPeriod.purchasesTotalMinor,-3000);
   assert.equal(returnPeriod.grossProfitMinor,-4000);
 
+  const dailyInvoice=getDetailedReport({type:'sales-daily',from:'2026-11-01',to:'2026-11-01'}).rows[0];
+  assert.equal(dailyInvoice.day,'2026-11-01');
+  assert.equal(dailyInvoice.invoices,1);
+  assert.equal(dailyInvoice.returns,0);
+  assert.equal(dailyInvoice.totalMinor,12000);
+  const dailyReturns=getDetailedReport({type:'sales-daily',from:'2026-11-15',to:'2026-11-15'}).rows[0];
+  assert.equal(dailyReturns.day,'2026-11-15');
+  assert.equal(dailyReturns.invoices,0);
+  assert.equal(dailyReturns.returns,2);
+  assert.equal(dailyReturns.totalMinor,-6000);
+
   const salesReturnReport=getDetailedReport({type:'sales-returns'});
   assert.equal(salesReturnReport.count,2);
   assert.equal(salesReturnReport.totalMinor,6000);
