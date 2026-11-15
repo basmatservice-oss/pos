@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         showStartingScreen();
         try {
-            File project = new File(getFilesDir(), "nodejs-project");
+            File project = new File(getFilesDir(), "nodejs-project-" + BuildConfig.VERSION_NAME);
             if (!new File(project, "server.js").exists()) copyAssetFolder("nodejs-project", project);
             prepareEnvironment(project);
             if (!nodeStarted) {
@@ -185,15 +185,17 @@ public class MainActivity extends Activity {
     private void copyAssetFolder(String assetPath, File destination) throws Exception {
         if (!destination.exists() && !destination.mkdirs()) throw new Exception("Cannot create app data directory");
         String[] children = getAssets().list(assetPath);
-        if (children == null || children.length == 0) {
-            try (InputStream input = getAssets().open(assetPath); FileOutputStream output = new FileOutputStream(destination)) {
-                byte[] buffer = new byte[64 * 1024];
-                int count;
-                while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
-            }
+        if (children != null && children.length > 0) {
+            for (String child : children) copyAssetFolder(assetPath + "/" + child, new File(destination, child));
             return;
         }
-        for (String child : children) copyAssetFolder(assetPath + "/" + child, new File(destination, child));
+        try (InputStream input = getAssets().open(assetPath); FileOutputStream output = new FileOutputStream(destination)) {
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+        } catch (java.io.FileNotFoundException emptyDirectory) {
+            if (!destination.exists() && !destination.mkdirs()) throw new Exception("Cannot create empty app asset directory");
+        }
     }
 
     private String readFile(File file) throws Exception {
