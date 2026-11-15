@@ -101,12 +101,35 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
 
   assert.throws(()=>recordCustomerPayment(sale.id,{amountMinor:5001,method:'cash'}),/exceeds the remaining invoice balance/);
   assert.throws(()=>recordSupplierPayment(purchase.id,{amountMinor:5001,method:'cash'}),/exceeds the remaining supplier balance/);
-  assert.throws(()=>createSalesReturn(sale.id,{lines:[{saleLineId:saleLine.id,quantity:2}]}),/exceeds the unreturned quantity/);
+  assert.throws(()=>createSalesReturn(sale.id,{lines:[{saleLineId:saleLine.id,quantity:3}]}),/exceeds the unreturned quantity/);
   assert.throws(()=>createPurchaseReturn(purchase.id,{lines:[{purchaseLineId:purchaseLine.id,quantity:8}]}),/exceeds the unreturned quantity/);
 
   const report=getSimpleReport({});
   assert.equal(report.salesTotalMinor,6000);
   assert.equal(report.purchasesTotalMinor,7000);
+  assert.equal(report.grossProfitMinor,4000);
+  assert.equal(report.expensesTotalMinor,0);
+  assert.equal(report.netProfitMinor,4000);
+
+  const salesReturnReport=getDetailedReport({type:'sales-returns'});
+  assert.equal(salesReturnReport.count,2);
+  assert.equal(salesReturnReport.totalMinor,6000);
+  const purchaseReturnReport=getDetailedReport({type:'purchase-returns'});
+  assert.equal(purchaseReturnReport.count,2);
+  assert.equal(purchaseReturnReport.totalMinor,3000);
+
+  const salesInvoices=getDetailedReport({type:'sales-invoices'}).rows;
+  assert.equal(salesInvoices.find(row=>row.reference===sale.receiptNumber).dueMinor,5000);
+  const purchaseInvoices=getDetailedReport({type:'purchase-invoices'}).rows;
+  assert.equal(purchaseInvoices.find(row=>row.reference===purchase.invoiceNumber).dueMinor,5000);
+
+  const salesPayments=getDetailedReport({type:'sales-payments'}).rows;
+  assert.equal(salesPayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),7000);
+  assert.equal(salesPayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
+  const purchasePayments=getDetailedReport({type:'purchase-payments'}).rows;
+  assert.equal(purchasePayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),5000);
+  assert.equal(purchasePayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
+
   assertLedgerBalanced();
 });
 
