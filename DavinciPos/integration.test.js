@@ -17,9 +17,26 @@ const {getTrialBalance,postJournalEntry,reverseJournalEntry}=await import('./acc
 const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
 const {saveTaxProfile}=await import('./tax.js');
+const {acceptOfflineSale}=await import('./offline.js');
 
 initializeDatabase();
 updateSettings({'tax.enabled':false});
+
+test('offline sync receipt replay is restricted to the device that created the operation',()=>{
+  const now=new Date().toISOString();
+  const userId='offline-replay-owner';
+  db.prepare("INSERT INTO users(id,username,password_hash,display_name,role,is_active,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)")
+    .run(userId,'offline-replay-owner','test-hash','Offline Replay Owner','owner',now,now);
+  for(const deviceId of ['offline-device-a','offline-device-b']){
+    db.prepare("INSERT INTO devices(id,name,platform,branch_id,owner_user_id,is_active,created_at) VALUES(?,?, 'web','branch-main',?,1,?)")
+      .run(deviceId,deviceId,userId,now);
+  }
+  const operationId='shared-operation-id';
+  db.prepare("INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)")
+    .run(operationId,'offline-device-a',JSON.stringify({status:'accepted',sale:{id:'already-recorded'}}),now);
+  assert.deepEqual(acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{},userId}),{status:'accepted',sale:{id:'already-recorded'}});
+  assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-b',payload:{},userId}),/another device/);
+});
 
 test('rejects impossible calendar dates in financial reports',()=>{
   assert.throws(()=>getSimpleReport({from:'2026-02-31'}),/Invalid report date/);
