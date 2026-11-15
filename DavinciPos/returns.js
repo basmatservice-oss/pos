@@ -95,7 +95,7 @@ export function createSalesReturn(saleId,input={},userId=null){
     if(!Number.isSafeInteger(totalMinor)||totalMinor<=0)throw new Error('Return value must be greater than zero.');
     const received=db.prepare("SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount_minor ELSE -amount_minor END),0) AS total FROM payments WHERE sale_id=?").get(saleId).total;
     const refundMinor=Math.min(totalMinor,Math.max(0,received));
-    const returnNumber=input.returnNumber||'SR-'+Date.now()+'-'+id.slice(0,6).toUpperCase();
+    const returnNumber=input.returnNumber||'SR-'+Date.now()+'-'+randomUUID().slice(0,8).toUpperCase();
     db.prepare(`INSERT INTO sales_returns(id,sale_id,return_number,branch_id,total_minor,tax_minor,refund_minor,refund_method,reference,reason,created_by,occurred_at,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,saleId,returnNumber,sale.branchId||getDefaultBranchId(),totalMinor,taxMinor,refundMinor,refundMinor?refund.method:null,input.reference||null,input.reason||'Customer return',userId,now,new Date().toISOString());
     const insert=db.prepare('INSERT INTO sales_return_lines(id,return_id,sale_line_id,quantity,base_quantity,amount_minor,tax_minor,cost_minor) VALUES(?,?,?,?,?,?,?,?)');
@@ -181,7 +181,7 @@ export function createPurchaseReturn(purchaseId,input={},userId=null){
     if(!Number.isSafeInteger(totalMinor)||totalMinor<=0)throw new Error('Return value must be greater than zero.');
     const paid=db.prepare("SELECT COALESCE(SUM(CASE WHEN direction='out' THEN amount_minor ELSE -amount_minor END),0) AS total FROM purchase_payments WHERE purchase_id=?").get(purchaseId).total;
     const refundMinor=Math.min(totalMinor,Math.max(0,paid));
-    const returnNumber=input.returnNumber||'PR-'+Date.now()+'-'+id.slice(0,6).toUpperCase();
+    const returnNumber=input.returnNumber||'PR-'+Date.now()+'-'+randomUUID().slice(0,8).toUpperCase();
     db.prepare(`INSERT INTO purchase_returns(id,purchase_id,return_number,branch_id,total_minor,tax_minor,refund_minor,refund_method,reference,reason,created_by,occurred_at,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,purchaseId,returnNumber,purchase.branchId||getDefaultBranchId(),totalMinor,taxMinor,refundMinor,refundMinor?refund.method:null,input.reference||null,input.reason||'Supplier return',userId,now,new Date().toISOString());
     const insert=db.prepare('INSERT INTO purchase_return_lines(id,return_id,purchase_line_id,quantity,base_quantity,amount_minor,tax_minor,cost_minor) VALUES(?,?,?,?,?,?,?,?)');
