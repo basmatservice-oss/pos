@@ -134,7 +134,7 @@ jobs:
           mkdir -p /tmp/davincipos-apk-check
           unzip -oq "$APK" 'lib/*' -d /tmp/davincipos-apk-check
           while IFS= read -r -d '' LIB; do
-            readelf -lW "$LIB" | python3 -c 'import re,sys; s=sys.stdin.read(); a=[int(x,16) for x in re.findall(r"^\\s*LOAD\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+(0x[0-9a-fA-F]+)",s,re.M)]; assert a and min(a)>=16384, f"ELF LOAD alignment below 16 KB: {a}"'
+            readelf -lW "$LIB" | python3 -c 'import sys; s=sys.stdin.read(); a=[int(line.split()[-1],16) for line in s.splitlines() if line.strip().startswith("LOAD ")]; assert a and min(a)>=16384, f"ELF LOAD alignment below 16 KB: {a}"'
           done < <(find /tmp/davincipos-apk-check/lib -name '*.so' -print0)
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -name zipalign -type f | sort -V | tail -1)"
           "$ZIPALIGN" -c -P 16 -v 4 "$APK"
