@@ -60,6 +60,16 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "DavinciPos"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "enable-lan-host.ps1",
+        "to": "enable-lan-host.ps1"
+      },
+      {
+        "from": "LAN-HOST-WINDOWS-RC.md",
+        "to": "LAN-HOST-WINDOWS-RC.md"
+      }
+    ]
   }
 }
