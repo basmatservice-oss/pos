@@ -58,7 +58,8 @@ $config = @{
     caPath = $caCert
 }
 $configPath = Join-Path $userData "lan-host.json"
-$config | ConvertTo-Json | Set-Content -Path $configPath -Encoding utf8
+$configJson = $config | ConvertTo-Json
+[System.IO.File]::WriteAllText($configPath, $configJson, (New-Object System.Text.UTF8Encoding($false)))
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
