@@ -88,7 +88,8 @@ const REPORTS = {
     SUM(sl.cost_total_minor)-COALESCE(SUM(r.cost_minor),0) AS costMinor,
     SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor)-COALESCE(SUM(r.net_minor-r.cost_minor),0) AS profitMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
-    LEFT JOIN (SELECT sale_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor,SUM(cost_minor) AS cost_minor FROM sales_return_lines GROUP BY sale_line_id) r ON r.sale_line_id=sl.id
+    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor,SUM(srl.tax_minor) AS tax_minor,SUM(srl.cost_minor) AS cost_minor
+      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id WHERE {{returnWhere}} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
     WHERE s.status!='void' AND {{where}} GROUP BY sl.item_id,sl.description ORDER BY netSalesMinor DESC`,
     'sales-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,
     SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
@@ -96,7 +97,8 @@ const REPORTS = {
     SUM(sl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id LEFT JOIN products p ON sl.line_type='product' AND p.id=sl.item_id
     LEFT JOIN categories c ON c.id=p.category_id
-    LEFT JOIN (SELECT sale_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor FROM sales_return_lines GROUP BY sale_line_id) r ON r.sale_line_id=sl.id
+    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor,SUM(srl.tax_minor) AS tax_minor
+      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id WHERE {{returnWhere}} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
     WHERE s.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netSalesMinor DESC`,
     'sales-customers': `SELECT COALESCE(c.name,'عميل نقدي') AS customer,COUNT(DISTINCT s.id) AS invoices,
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
@@ -115,7 +117,8 @@ const REPORTS = {
     SUM(pl.line_total_minor)-COALESCE(SUM(r.net_minor),0) AS netCostMinor,
     SUM(pl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
     FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
-    LEFT JOIN (SELECT purchase_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor FROM purchase_return_lines GROUP BY purchase_line_id) r ON r.purchase_line_id=pl.id
+    LEFT JOIN (SELECT prl.purchase_line_id,SUM(prl.quantity) AS quantity,SUM(prl.amount_minor-prl.tax_minor) AS net_minor,SUM(prl.tax_minor) AS tax_minor
+      FROM purchase_return_lines prl JOIN purchase_returns pr ON pr.id=prl.return_id WHERE {{returnWhere}} GROUP BY prl.purchase_line_id) r ON r.purchase_line_id=pl.id
     WHERE pu.status!='void' AND {{where}} GROUP BY pr.id,pr.name ORDER BY netCostMinor DESC`,
     'purchase-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,
     SUM(pl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
@@ -177,6 +180,12 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
     const salesFilter=buildDateFilter('s',from,to),returnFilter=buildDateFilter('sr',from,to);
     rows=db.prepare(template.replace('{{salesWhere}}',salesFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
       .all(...salesFilter.params,...returnFilter.params);
+  } else if(['sales-products','sales-categories','purchase-products','purchase-categories'].includes(type)) {
+    const returnAlias=type.startsWith('sales-')?'sr':'pr';
+    const returnFilter=buildDateFilter(returnAlias,from,to);
+    const filter=buildDateFilter(alias,from,to);
+    rows=db.prepare(template.replace('{{returnWhere}}',returnFilter.sql).replace('{{where}}',filter.sql))
+      .all(...returnFilter.params,...filter.params);
   } else {
     const filter=buildDateFilter(alias,from,to);
     rows=db.prepare(template.replaceAll('{{where}}',filter.sql)).all(...filter.params);
