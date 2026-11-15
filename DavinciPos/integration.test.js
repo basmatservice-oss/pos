@@ -151,9 +151,21 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(salesProducts.find(row=>row.itemId===productId).netSalesMinor,6000);
   assert.equal(salesProducts.find(row=>row.itemId===productId).costMinor,2000);
   assert.equal(salesProducts.find(row=>row.itemId===productId).profitMinor,4000);
+  const salesProductsOnInvoiceDate=getDetailedReport({type:'sales-products',from:'2026-11-01',to:'2026-11-01'}).rows;
+  assert.equal(salesProductsOnInvoiceDate.find(row=>row.itemId===productId).quantity,4);
+  assert.equal(salesProductsOnInvoiceDate.find(row=>row.itemId===productId).profitMinor,8000);
+  const salesProductsOnReturnDate=getDetailedReport({type:'sales-products',from:'2026-11-15',to:'2026-11-15'}).rows;
+  assert.equal(salesProductsOnReturnDate.find(row=>row.itemId===productId).quantity,-2);
+  assert.equal(salesProductsOnReturnDate.find(row=>row.itemId===productId).profitMinor,-4000);
   const purchaseProducts=getDetailedReport({type:'purchase-products'}).rows;
   assert.equal(purchaseProducts.find(row=>row.productId===productId).quantity,7);
   assert.equal(purchaseProducts.find(row=>row.productId===productId).netCostMinor,7000);
+  const purchaseProductsOnInvoiceDate=getDetailedReport({type:'purchase-products',from:'2026-11-01',to:'2026-11-01'}).rows;
+  assert.equal(purchaseProductsOnInvoiceDate.find(row=>row.productId===productId).quantity,10);
+  assert.equal(purchaseProductsOnInvoiceDate.find(row=>row.productId===productId).netCostMinor,10000);
+  const purchaseProductsOnReturnDate=getDetailedReport({type:'purchase-products',from:'2026-11-15',to:'2026-11-15'}).rows;
+  assert.equal(purchaseProductsOnReturnDate.find(row=>row.productId===productId).quantity,-3);
+  assert.equal(purchaseProductsOnReturnDate.find(row=>row.productId===productId).netCostMinor,-3000);
 
   const salesPayments=getDetailedReport({type:'sales-payments'}).rows;
   assert.equal(salesPayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),7000);
