@@ -5,6 +5,7 @@ def buildTag = System.getenv('GITHUB_SHA') ?: 'local'
 android {
     namespace 'com.basmatservice.davincipos'
     compileSdk 35
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'com.basmatservice.davincipos'
         minSdk 26
