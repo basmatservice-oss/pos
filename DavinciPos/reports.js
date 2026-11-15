@@ -32,7 +32,7 @@ export function getSimpleReport({from=null,to=null}={}) {
       WHEN a.account_type='expense' THEN jl.credit_minor-jl.debit_minor ELSE 0 END),0) AS netProfitMinor
     FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
     JOIN accounts a ON a.id=jl.account_id
-    WHERE je.status='posted' ${from?'AND je.occurred_at>=?':''} ${to?'AND je.occurred_at<?':''}`)
+    WHERE je.status IN ('posted','reversed') ${from?'AND je.occurred_at>=?':''} ${to?'AND je.occurred_at<?':''}`)
     .get(...expenseParams);
   const salesAliasFilter=salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ');
   const returnAliasFilter=returnsFilter.split(' AND ').filter(x=>x!=='1=1').map(x=>'sr.'+x).join(' AND ')||'1=1';
