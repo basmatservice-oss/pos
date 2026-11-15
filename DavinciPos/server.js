@@ -201,6 +201,7 @@ app.get('/api/summary',...api('dashboard.read',(_req,res)=>{
   res.json({data:{products,salesCount:sales.count,salesTotalMinor:sales.total}});
 }));
 
+app.get('/service-worker.js',(_req,res)=>{res.setHeader('Service-Worker-Allowed','/');res.sendFile(path.join(ROOT,'service-worker.js'));});
 app.get('/desktop',(_req,res)=>res.sendFile(path.join(ROOT,'desktop.html')));
 app.get('/mobile',(_req,res)=>res.sendFile(path.join(ROOT,'mobile.html')));
 const publicAssets=new Set(['desktop.css','desktop.js','mobile.css','mobile.js','client.js']);
