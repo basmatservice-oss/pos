@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID,createHash } from 'node:crypto';
 import { db, inTransaction } from './database.js';
 import { postJournalEntry } from './accounting.js';
 
@@ -10,6 +10,25 @@ function auditPayment(actorUserId, action, id, details) {
   db.prepare('INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)')
     .run(randomUUID(), actorUserId, action, 'payment', id, JSON.stringify(details), new Date().toISOString());
 }
+function paymentReplay(operation,entityId,payment) {
+  const key=payment.idempotencyKey;
+  if(!key)return null;
+  if(typeof key!=='string'||key.length>200||key.trim()!==key||!key)throw new Error('Invalid idempotency key.');
+  const payloadHash=createHash('sha256').update(JSON.stringify({
+    amountMinor:payment.amountMinor,method:payment.method,provider:payment.provider,
+    reference:payment.reference
+  })).digest('hex');
+  const existing=db.prepare('SELECT operation,entity_id,payload_hash,response_json FROM payment_idempotency WHERE idempotency_key=?').get(key);
+  if(!existing)return {key,payloadHash};
+  if(existing.operation!==operation||existing.entity_id!==entityId||existing.payload_hash!==payloadHash)
+    throw new Error('Idempotency key was already used for a different payment request.');
+  return {replay:JSON.parse(existing.response_json)};
+}
+function savePaymentReplay(replay,operation,entityId,response) {
+  if(!replay?.key)return;
+  db.prepare('INSERT INTO payment_idempotency(idempotency_key,operation,entity_id,payload_hash,response_json,created_at) VALUES(?,?,?,?,?,?)')
+    .run(replay.key,operation,entityId,replay.payloadHash,JSON.stringify(response),new Date().toISOString());
+}
 function validatePayment(input) {
   const amountMinor=Number(input?.amountMinor);
   if(!Number.isSafeInteger(amountMinor)||amountMinor<=0)throw new Error('Payment amount must be a positive integer in minor currency units.');
@@ -19,12 +38,14 @@ function validatePayment(input) {
   if(provider&&!walletProviders.has(provider))throw new Error('Unsupported wallet provider.');
   if(method==='wallet'&&!provider)throw new Error('Select a supported wallet provider.');
   if(method!=='wallet'&&provider)throw new Error('A wallet provider is only valid for wallet payments.');
-  return {amountMinor,method,provider,reference:input.reference||null,occurredAt:input.occurredAt||new Date().toISOString()};
+  return {amountMinor,method,provider,reference:input.reference||null,occurredAt:input.occurredAt||new Date().toISOString(),idempotencyKey:input.idempotencyKey||null};
 }
 
 export function recordCustomerPayment(saleId,input,actorUserId=null) {
   const payment=validatePayment(input);
   return inTransaction(()=>{
+    const replay=paymentReplay('customer_collection',saleId,payment);
+    if(replay?.replay)return replay.replay;
     const sale=db.prepare('SELECT id,receipt_number,customer_id,total_minor,status FROM sales WHERE id=?').get(saleId);
     if(!sale||!sale.customer_id||!['posted','partially_returned'].includes(sale.status))throw new Error('Customer invoice not found or not eligible for collection.');
     const paid=db.prepare("SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount_minor ELSE -amount_minor END),0) AS total FROM payments WHERE sale_id=?").get(saleId).total;
@@ -38,13 +59,17 @@ export function recordCustomerPayment(saleId,input,actorUserId=null) {
       {accountId:paymentAccounts[payment.method],debitMinor:payment.amountMinor},{accountId:'acc-ar',creditMinor:payment.amountMinor}
     ]});
     auditPayment(actorUserId,'customer.payment',id,{saleId,amountMinor:payment.amountMinor,method:payment.method});
-    return {id,saleId,amountMinor:payment.amountMinor,remainingMinor:due-payment.amountMinor};
+    const response={id,saleId,amountMinor:payment.amountMinor,remainingMinor:due-payment.amountMinor};
+    savePaymentReplay(replay,'customer_collection',saleId,response);
+    return response;
   });
 }
 
 export function recordSupplierPayment(purchaseId,input,actorUserId=null) {
   const payment=validatePayment(input);
   return inTransaction(()=>{
+    const replay=paymentReplay('supplier_payment',purchaseId,payment);
+    if(replay?.replay)return replay.replay;
     const purchase=db.prepare('SELECT id,invoice_number,supplier_id,total_minor,status FROM purchases WHERE id=?').get(purchaseId);
     if(!purchase||!purchase.supplier_id||purchase.status!=='posted')throw new Error('Supplier invoice not found or not eligible for payment.');
     const paid=db.prepare("SELECT COALESCE(SUM(CASE WHEN direction='out' THEN amount_minor ELSE -amount_minor END),0) AS total FROM purchase_payments WHERE purchase_id=?").get(purchaseId).total;
@@ -58,7 +83,9 @@ export function recordSupplierPayment(purchaseId,input,actorUserId=null) {
       {accountId:'acc-ap',debitMinor:payment.amountMinor},{accountId:paymentAccounts[payment.method],creditMinor:payment.amountMinor}
     ]});
     auditPayment(actorUserId,'supplier.payment',id,{purchaseId,amountMinor:payment.amountMinor,method:payment.method});
-    return {id,purchaseId,amountMinor:payment.amountMinor,remainingMinor:due-payment.amountMinor};
+    const response={id,purchaseId,amountMinor:payment.amountMinor,remainingMinor:due-payment.amountMinor};
+    savePaymentReplay(replay,'supplier_payment',purchaseId,response);
+    return response;
   });
 }
 
