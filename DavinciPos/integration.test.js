@@ -143,9 +143,15 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   const salesPayments=getDetailedReport({type:'sales-payments'}).rows;
   assert.equal(salesPayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),7000);
   assert.equal(salesPayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
+  const salesPaymentPeriod=getDetailedReport({type:'sales-payments',from:'2026-11-15',to:'2026-11-15'}).rows;
+  assert.equal(salesPaymentPeriod.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
+  assert.equal(salesPaymentPeriod.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
   const purchasePayments=getDetailedReport({type:'purchase-payments'}).rows;
   assert.equal(purchasePayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),5000);
   assert.equal(purchasePayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
+  const purchasePaymentPeriod=getDetailedReport({type:'purchase-payments',from:'2026-11-15',to:'2026-11-15'}).rows;
+  assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),2000);
+  assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
 
   assertLedgerBalanced();
 });
