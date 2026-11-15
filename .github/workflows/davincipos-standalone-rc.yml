@@ -145,6 +145,9 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_2
+          disk-size: 4G
+          ram-size: 2048M
+          heap-size: 512M
           script: |
             set -euo pipefail
             adb install -r DavinciPos/android/app/build/outputs/apk/debug/app-debug.apk
