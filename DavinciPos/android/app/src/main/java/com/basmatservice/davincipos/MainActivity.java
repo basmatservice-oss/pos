@@ -17,6 +17,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
+import android.widget.EditText;
+import android.text.InputType;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -39,6 +41,8 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView webView;
     private String bootstrapToken = "";
+    private String remoteServerUrl = "";
+    private boolean remoteMode = false;
 
     static {
         System.loadLibrary("node");
@@ -50,6 +54,7 @@ public class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
+        remoteServerUrl = getPreferences(0).getString("remote_server_url", "");
         showStartingScreen();
         try {
             File project = new File(getFilesDir(), "nodejs-project-" + BuildConfig.VERSION_NAME);
@@ -168,9 +173,16 @@ public class MainActivity extends Activity {
         settings.setLoadsImagesAutomatically(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                String scheme = request.getUrl().getScheme();
+                return !("https".equals(scheme) || ("http".equals(scheme) && "localhost".equals(request.getUrl().getHost())));
+            }
+        });
         setContentView(webView);
-        webView.loadUrl(BASE_URL + "/mobile");
+        if (!remoteServerUrl.isEmpty()) probeRemoteServer(remoteServerUrl, true);
+        else webView.loadUrl(BASE_URL + "/mobile");
     }
 
     private void showFatal(String message) {
@@ -213,9 +225,70 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void probeRemoteServer(String serverUrl, boolean fallbackToLocal) {
+        new Thread(() -> {
+            boolean reachable = false;
+            try {
+                String healthUrl = serverUrl.substring(0, serverUrl.length() - "/mobile".length()) + "/api/health";
+                HttpURLConnection connection = (HttpURLConnection) new URL(healthUrl).openConnection();
+                connection.setConnectTimeout(2500);
+                connection.setReadTimeout(2500);
+                reachable = connection.getResponseCode() == 200;
+                connection.disconnect();
+            } catch (Exception ignored) {}
+            final boolean connected = reachable;
+            handler.post(() -> {
+                if (connected) {
+                    remoteMode = true;
+                    webView.loadUrl(serverUrl);
+                } else if (fallbackToLocal) {
+                    remoteMode = false;
+                    webView.loadUrl(BASE_URL + "/mobile");
+                    Toast.makeText(this, "خادم المتجر غير متاح؛ تم فتح قاعدة الهاتف المحلية.", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(this, "تعذر الاتصال. تحقق من عنوان الخادم وشبكة LAN وشهادة الأمان.", Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "DavinciPos-RemoteProbe").start();
+    }
+
+    private void showRemoteServerDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        input.setHint("https://192.168.1.10:3187/mobile");
+        input.setText(remoteServerUrl);
+        new AlertDialog.Builder(this)
+            .setTitle("الاتصال بخادم المتجر عبر LAN")
+            .setMessage("أدخل عنوان خادم الكمبيوتر على شبكة Wi-Fi أو LAN. يجب أن يبدأ بـ HTTPS وينتهي بـ /mobile، وأن تكون شهادة الخادم موثوقة على الهاتف.")
+            .setView(input)
+            .setNegativeButton("إلغاء", null)
+            .setNeutralButton("مسح العنوان", (dialog, which) -> {
+                remoteServerUrl = "";
+                getPreferences(0).edit().remove("remote_server_url").apply();
+                remoteMode = false;
+                if (webView != null) webView.loadUrl(BASE_URL + "/mobile");
+            })
+            .setPositiveButton("اتصال", (dialog, which) -> {
+                String value = input.getText().toString().trim();
+                if (!value.startsWith("https://") || !value.endsWith("/mobile") || value.contains(" ")) {
+                    Toast.makeText(this, "عنوان الخادم غير صالح؛ استخدم HTTPS وينتهي بـ /mobile", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                remoteServerUrl = value;
+                getPreferences(0).edit().putString("remote_server_url", remoteServerUrl).apply();
+                probeRemoteServer(remoteServerUrl, false);
+            })
+            .show();
+    }
+
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
+        if (webView != null && remoteMode) {
+            remoteMode = false;
+            webView.loadUrl(BASE_URL + "/mobile");
+        } else if (webView != null && webView.canGoBack()) webView.goBack();
+        else if (webView != null) showRemoteServerDialog();
         else super.onBackPressed();
     }
 }
