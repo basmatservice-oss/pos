@@ -28,13 +28,13 @@ export function getSimpleReport({from=null,to=null}={}) {
     - COALESCE((SELECT SUM(srl.amount_minor-srl.tax_minor-srl.cost_minor) FROM sales_return_lines srl
       JOIN sales_returns sr ON sr.id=srl.return_id WHERE ${returnAliasFilter}),0) AS grossProfitMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}`).get(...params,...params);
-  const topProducts=db.prepare(`SELECT name,SUM(quantity)-SUM(returnQuantity) AS quantity,
+  const topProducts=db.prepare(`SELECT itemId,name,SUM(quantity)-SUM(returnQuantity) AS quantity,
       SUM(netMinor)-SUM(returnNetMinor) AS totalMinor FROM (
-      SELECT sl.description AS name,sl.quantity AS quantity,0 AS returnQuantity,
+      SELECT sl.item_id AS itemId,sl.description AS name,sl.quantity AS quantity,0 AS returnQuantity,
         sl.line_total_minor-sl.tax_minor AS netMinor,0 AS returnNetMinor
       FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}
       UNION ALL
-      SELECT sl.description AS name,0 AS quantity,srl.quantity AS returnQuantity,
+      SELECT sl.item_id AS itemId,sl.description AS name,0 AS quantity,srl.quantity AS returnQuantity,
         0 AS netMinor,srl.amount_minor-srl.tax_minor AS returnNetMinor
       FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
       JOIN sale_lines sl ON sl.id=srl.sale_line_id WHERE ${returnAliasFilter}
