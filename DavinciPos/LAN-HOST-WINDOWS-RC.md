@@ -24,7 +24,7 @@ The Windows installer can run the authoritative SQLite database and serve Androi
 
 - Connect to store: the Android WebView uses the Windows host API and central SQLite database. Normal sales, purchases, stock and reports are shared with other terminals.
 - Standalone on phone: the embedded Node.js service and SQLite database run inside the phone. This mode works without a computer or Internet.
-- These two databases are separate. A sale made in the phone's standalone database is not automatically merged into the Windows host database. The browser offline outbox supports queued sales while a previously loaded remote session is disconnected and then reconnects, but it is not a general-purpose two-way database merge. Do not switch to standalone mode as a substitute for reconnecting a remote session if you need those queued sales to post to the central host.
+- These two databases are separate. A sale made in the phone's standalone database is not automatically merged into the Windows host database. In Connect to store mode, the mobile shell, authenticated session and IndexedDB outbox are cached on the device; queued sales can survive an app restart while the LAN is down and are replayed to the central host when connectivity returns. This is a sale outbox, not a general-purpose two-way database merge. Do not switch to standalone mode as a substitute for reconnecting a remote session if you need those queued sales to post to the central host.
 
 ## Security and recovery
 
