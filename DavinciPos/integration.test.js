@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'davincipos-full-cycle-'));
 process.env.DAVINCIPOS_DB=path.join(dir,'test.sqlite');
@@ -32,10 +33,11 @@ test('offline sync receipt replay is restricted to the device that created the o
       .run(deviceId,deviceId,userId,now);
   }
   const operationId='shared-operation-id';
-  db.prepare("INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)")
-    .run(operationId,'offline-device-a',JSON.stringify({status:'accepted',sale:{id:'already-recorded'}}),now);
-  assert.deepEqual(acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{},userId}),{status:'accepted',sale:{id:'already-recorded'}});
-  assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-b',payload:{},userId}),/another device/);
+  db.prepare("INSERT INTO sync_receipts(operation_id,device_id,payload_hash,response,created_at) VALUES(?,?,?,?,?)")
+    .run(operationId,'offline-device-a',createHash('sha256').update(JSON.stringify({test:'original'})).digest('hex'),JSON.stringify({status:'accepted',sale:{id:'already-recorded'}}),now);
+  assert.deepEqual(acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{test:'original'},userId}),{status:'accepted',sale:{id:'already-recorded'}});
+  assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-b',payload:{test:'original'},userId}),/another device/);
+  assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{test:'changed'},userId}),/different payload/);
 });
 
 test('rejects impossible calendar dates in financial reports',()=>{
