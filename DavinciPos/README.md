@@ -95,3 +95,12 @@ DavinciPos is a local-network application. When the cashier devices and the host
 - **Host computer down:** other terminals cannot reach the central database. A separate high-availability/server-recovery design is required; do not allow independent terminals to write competing copies of the central SQLite database.
 
 SQLite must remain on the host machine's local disk. Never place the SQLite database file on a shared SMB/NAS/network folder and let multiple clients open it directly. Clients communicate with the host API over LAN instead.
+
+## POS device identity and disconnected-terminal queue
+
+- Every browser terminal now creates and persists a device UUID in IndexedDB and registers that identity with the authenticated local LAN server.
+- The authenticated client preloads products, customers, services, tax settings and tax profiles into the device-local database while the LAN server is reachable. Product unit definitions are cached when opened.
+- If the LAN server becomes unreachable, the POS screen can use that cached catalogue and calculate an explicitly marked **estimated** quote. Completed checkout payloads are written to the durable local outbox before the UI reports that the sale was saved.
+- On the next LAN connection, the client submits queued operations to `/api/sync/offline-sales`. The server remains authoritative: it recomputes prices/taxes, posts the sale and stock movements in one transaction, and checks the operation ID, device identity and payload hash to prevent replay or payload substitution. Stock conflicts are held for review; rejected and failed operations are retained locally.
+- A cached estimate is not a final posted sale. Prices, tax settings, customer credit permissions and stock are revalidated by the server at synchronization. The cashier must be shown the resulting accepted/conflict/rejected state before treating an offline sale as centrally posted.
+- Browser IndexedDB is currently the implemented local adapter. A separate native SQLite adapter, offline printing/receipt recovery, long-duration queue retention, and end-to-end multi-terminal LAN outage/reconnect acceptance tests remain outstanding. Do not declare disconnected-terminal operation production-ready until those tests pass.
