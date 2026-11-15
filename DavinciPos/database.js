@@ -20,6 +20,8 @@ export function initializeDatabase() {
   if(!saleCostLayerColumns.includes('returned_cost_minor')) {
     db.exec('ALTER TABLE sale_line_cost_layers ADD COLUMN returned_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK(returned_cost_minor>=0 AND returned_cost_minor<=cost_total_minor)');
   }
+  const syncReceiptColumns=db.prepare('PRAGMA table_info(sync_receipts)').all().map(column=>column.name);
+  if(!syncReceiptColumns.includes('payload_hash')) db.exec('ALTER TABLE sync_receipts ADD COLUMN payload_hash TEXT');
   const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');
   const nowBranch=new Date().toISOString();
   insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);
