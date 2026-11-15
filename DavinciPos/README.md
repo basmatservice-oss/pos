@@ -23,6 +23,10 @@ Every authored project file is placed directly in this directory. There are no n
 - `settings.js`: server-owned settings with validation and audit history.
 - `client.js`: shared authenticated API and settings/user administration UI.
 
+## Database and clean migration
+
+DavinciPos uses its own `DavinciPos.sqlite` file (or the path supplied by `DAVINCIPOS_DB`). It does not import or migrate legacy POS records. The legacy database and legacy application are left untouched. The initial DavinciPos database starts with an empty catalog, customers, suppliers, transactions and users; only required system defaults such as the main branch, units, chart of accounts and settings are seeded. The first owner is created through the one-time bootstrap flow. Existing DavinciPos databases are upgraded in place by the DavinciPos schema initialization; this is separate from importing the legacy database.
+
 ## Run
 
 Requires Node.js 20 or newer.
