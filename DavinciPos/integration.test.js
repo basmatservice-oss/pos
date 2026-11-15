@@ -32,7 +32,7 @@ function assertProfitAndLossMatchesTrialBalance({from=null,to=null}={}){
   const rows=getTrialBalance({from,to});
   const ledgerNetProfit=rows.reduce((sum,row)=>sum+
     (row.accountType==='revenue'?row.creditMinor-row.debitMinor:
-      row.accountType==='expense'?row.debitMinor-row.creditMinor:0),0);
+      row.accountType==='expense'?row.creditMinor-row.debitMinor:0),0);
   assert.equal(getSimpleReport({from,to}).netProfitMinor,ledgerNetProfit);
 }
 
