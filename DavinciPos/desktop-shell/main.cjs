@@ -6,6 +6,7 @@ const crypto=require('node:crypto');
 const PORT=3187,HOST='127.0.0.1';
 let serverProcess=null,bootstrapToken=null;
 const appRoot=app.getAppPath();
+const runtimeRoot=appRoot.endsWith('.asar')?appRoot+'.unpacked':appRoot;
 function tokenForFirstRun(){
  const file=path.join(app.getPath('userData'),'bootstrap-token.txt');
  fs.mkdirSync(path.dirname(file),{recursive:true});
@@ -15,8 +16,8 @@ function tokenForFirstRun(){
 }
 function startServer(){
  bootstrapToken=tokenForFirstRun();
- serverProcess=spawn(process.execPath,[path.join(appRoot,'server.js')],{
-  cwd:process.resourcesPath,windowsHide:true,stdio:'ignore',
+ serverProcess=spawn(process.execPath,[path.join(runtimeRoot,'server.js')],{
+  cwd:runtimeRoot,windowsHide:true,stdio:'ignore',
   env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HOST,PORT:String(PORT),
    DAVINCIPOS_DB:path.join(app.getPath('userData'),'DavinciPos.sqlite'),
    DAVINCIPOS_BOOTSTRAP_TOKEN:bootstrapToken}
