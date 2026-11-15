@@ -12,7 +12,7 @@ Every authored project file is placed directly in this directory. There are no n
 - `database.js` / `schema.sql`: SQLite persistence and schema.
 - `sales.js`, `purchases.js`, `inventory.js`, `tax.js`, `accounting.js`: shared business rules; accounting remains internal and is not exposed as an everyday workflow.
 - `reports.js`: date-filtered detailed reports for daily sales, sales invoices/products/categories/customers/payment methods, sales and purchase returns, purchase invoices/products/categories/payment methods, stock balances and movements, tax summary, and cash receipts/payments. The simplified summary remains available as well.
-- `sync.js` / `offline.js`: outbox primitives, device-bound idempotent server reconciliation, payload-integrity checks, and stock-conflict review. The client-side durable SQLite outbox adapters are still pending.
+- `sync.js` / `offline.js`: server-side sync receipts, device-bound idempotent reconciliation, payload-integrity checks, status lookup, and stock-conflict review. Browser terminals use IndexedDB for the durable local outbox.
 - `security.js`: password hashing, expiring sessions, role permissions and account management.
 - `catalog.js`: products, alternate sales units and conversion factors, barcode lookup, service catalog and service material recipes, categories, customers and suppliers.
 - `currency.js`: USD/SDG exchange-rate history and optional automatic repricing for products whose source prices are maintained in USD.
@@ -91,7 +91,7 @@ DavinciPos is a local-network application. When the cashier devices and the host
 ### Operating modes and data authority
 
 - **Internet down, LAN up:** fully connected operation continues normally. Every device sends requests to the same local server and central SQLite database; no cloud service is involved.
-- **LAN down for one terminal:** local durable queueing and later synchronization is a separate offline-terminal mode. The IndexedDB outbox currently provides the persistence foundation; the sales screen still needs the complete cached-catalog, local quote, queued checkout and automatic replay integration before this mode is accepted.
+- **LAN down for one terminal:** cached catalogue and estimated offline quoting are available when the terminal has previously loaded its snapshot. The browser persists the completed sale in IndexedDB and replays it to the host API after reconnect. The server returns an accepted, rejected, or stock-conflict result; a lost response can safely be retried with the same operation ID.
 - **Host computer down:** other terminals cannot reach the central database. A separate high-availability/server-recovery design is required; do not allow independent terminals to write competing copies of the central SQLite database.
 
 SQLite must remain on the host machine's local disk. Never place the SQLite database file on a shared SMB/NAS/network folder and let multiple clients open it directly. Clients communicate with the host API over LAN instead.
@@ -104,3 +104,11 @@ SQLite must remain on the host machine's local disk. Never place the SQLite data
 - On the next LAN connection, the client submits queued operations to `/api/sync/offline-sales`. The server remains authoritative: it recomputes prices/taxes, posts the sale and stock movements in one transaction, and checks the operation ID, device identity and payload hash to prevent replay or payload substitution. Stock conflicts are held for review; rejected and failed operations are retained locally.
 - A cached estimate is not a final posted sale. Prices, tax settings, customer credit permissions and stock are revalidated by the server at synchronization. The cashier must be shown the resulting accepted/conflict/rejected state before treating an offline sale as centrally posted.
 - Browser IndexedDB is currently the implemented local adapter. A separate native SQLite adapter, offline printing/receipt recovery, long-duration queue retention, and end-to-end multi-terminal LAN outage/reconnect acceptance tests remain outstanding. Do not declare disconnected-terminal operation production-ready until those tests pass.
+
+### LAN-only operation and trust setup
+
+Internet access is not required for terminals to communicate with the POS host. The host and all terminals must remain on the same reachable LAN/Wi-Fi network. Configure the host with a stable LAN address, then set `HOST=0.0.0.0`, `PORT=3000`, `TLS_CERT_PATH`, and `TLS_KEY_PATH`. Open the POS from each terminal using the host's HTTPS address, for example `https://192.168.1.10:3000/desktop` (replace the example address with the host's actual LAN address). Allow the selected TCP port through the host firewall only on the trusted private network.
+
+The certificate must be trusted by every terminal and its hostname/IP must match the address used to open the POS. A self-signed certificate that browsers do not trust is not sufficient for production use; install a certificate issued by a local trusted CA on each terminal, or use an organization-managed certificate. Do not disable TLS verification. The host machine owns the SQLite database; terminals must never open the database file directly or share it over SMB/NAS.
+
+A LAN deployment has two distinct outage cases: loss of internet while LAN remains up should not interrupt normal online-to-host POS operations; loss of the host/LAN path requires the terminal's local IndexedDB offline queue and later replay. The current automated suite does not replace physical multi-device LAN acceptance tests.
