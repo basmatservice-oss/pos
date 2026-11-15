@@ -32,8 +32,9 @@ export function getSimpleReport({from=null,to=null}={}) {
       SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS totalMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
     LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor
-      FROM sales_return_lines srl GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
-    WHERE ${salesAliasFilter} GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params);
+      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
+      WHERE ${returnAliasFilter} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
+    WHERE ${salesAliasFilter} GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params,...params);
   const lowStock=db.prepare(`SELECT p.id,p.name,COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock
     FROM products p LEFT JOIN stock_movements sm ON sm.product_id=p.id
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
