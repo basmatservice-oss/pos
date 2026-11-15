@@ -18,14 +18,19 @@ async function refreshLocalPosSnapshot(){
 }
 let onlineSyncHookInstalled=false;
 let backgroundSyncInProgress=false;
+let backgroundHostReachable=true;
 async function attemptBackgroundSync(){
   if(backgroundSyncInProgress||!sessionStorage.getItem(TOKEN_KEY))return;
   backgroundSyncInProgress=true;
   try{
     await api('/api/auth/me');
     const deviceId=await registerLocalDevice(api);
+    if(!backgroundHostReachable)await refreshLocalPosSnapshot();
+    backgroundHostReachable=true;
     await synchronizePendingSales({api,deviceId});
-  }catch{}
+  }catch{
+    backgroundHostReachable=false;
+  }
   finally{backgroundSyncInProgress=false;}
 }
 function installOnlineSyncHook(){
