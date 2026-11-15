@@ -43,7 +43,7 @@ test('offline sync receipt replay is restricted to the device that created the o
   const originalPayload={test:'conflict-payload'};
   const conflictId='offline-conflict-test';
   db.prepare("INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,payload_hash,reason,status,created_at) VALUES(?,?,?,'sale',?,?,?,?, 'pending',?)")
-    .run(conflictId,conflictOperation,'offline-device-a',conflictOperation,JSON.stringify({...originalPayload,deviceId:'offline-device-a',cashierId:userId,branchId:'branch-main',allowCredit:false}),createHash('sha256').update(JSON.stringify(originalPayload)).digest('hex'),'test conflict','pending',now);
+    .run(conflictId,conflictOperation,'offline-device-a',conflictOperation,JSON.stringify({...originalPayload,deviceId:'offline-device-a',cashierId:userId,branchId:'branch-main',allowCredit:false}),createHash('sha256').update(JSON.stringify(originalPayload)).digest('hex'),'test conflict',now);
   assert.equal(resolveSyncConflict(conflictId,{decision:'reject',userId}).status,'rejected');
   assert.equal(acceptOfflineSale({operationId:conflictOperation,deviceId:'offline-device-a',payload:originalPayload,userId}).status,'rejected');
   assert.throws(()=>acceptOfflineSale({operationId:conflictOperation,deviceId:'offline-device-a',payload:{test:'tampered'},userId}),/different payload/);
