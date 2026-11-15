@@ -67,5 +67,7 @@ export async function synchronizePendingSales({api,store=localStore,deviceId=nul
       break;
     }
   }
+  if(results.length&&typeof globalThis.dispatchEvent==='function'&&typeof globalThis.Event==='function')
+    globalThis.dispatchEvent(new Event('davincipos-sync-updated'));
   return results;
 }
