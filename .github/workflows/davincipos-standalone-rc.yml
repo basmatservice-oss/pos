@@ -65,18 +65,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/davincipos-node /tmp/davincipos-sqlite
+          mkdir -p /tmp/davincipos-node /tmp/sqlite-arm64 /tmp/sqlite-x64
           curl -fL --retry 3 -o /tmp/nodejs-mobile.zip \
             https://github.com/digidem/nodejs-mobile/releases/download/v24.20.0-0/nodejs-mobile-android-24.20.0-0.zip
           unzip -q /tmp/nodejs-mobile.zip -d /tmp/davincipos-node
-          curl -fL --retry 3 -o /tmp/better-sqlite3-android-arm64.tar.gz \
+          curl -fL --retry 3 -o /tmp/sqlite-arm64.tar.gz \
             https://github.com/digidem/better-sqlite3-nodejs-mobile/releases/download/13.0.3/better-sqlite3-13.0.3-android-arm64.tar.gz
-          tar -xzf /tmp/better-sqlite3-android-arm64.tar.gz -C /tmp/davincipos-sqlite
-          curl -fL --retry 3 -o /tmp/better-sqlite3-android-x64.tar.gz \
+          tar -xzf /tmp/sqlite-arm64.tar.gz -C /tmp/sqlite-arm64
+          curl -fL --retry 3 -o /tmp/sqlite-x64.tar.gz \
             https://github.com/digidem/better-sqlite3-nodejs-mobile/releases/download/13.0.3/better-sqlite3-13.0.3-android-x64.tar.gz
-          tar -xzf /tmp/better-sqlite3-android-x64.tar.gz -C /tmp/davincipos-sqlite
+          tar -xzf /tmp/sqlite-x64.tar.gz -C /tmp/sqlite-x64
           APP=DavinciPos/android/app/src/main
-          mkdir -p "$APP/jniLibs/arm64-v8a" "$APP/jniLibs/x86_64" "$APP/cpp/include/node"
+          ASSETS="$APP/assets/nodejs-project"
+          mkdir -p "$APP/jniLibs/arm64-v8a" "$APP/jniLibs/x86_64" "$APP/cpp/include/node" \
+            "$ASSETS/native/arm64-v8a" "$ASSETS/native/x86_64"
           for ABI in arm64-v8a x86_64; do
             LIB="$(find /tmp/davincipos-node -path "*/$ABI/libnode.so" -print -quit)"
             test -n "$LIB"
@@ -85,12 +87,16 @@ jobs:
           HEADER="$(find /tmp/davincipos-node -path '*/include/node/node.h' -print -quit)"
           test -n "$HEADER"
           cp -a "$(dirname "$HEADER")/." "$APP/cpp/include/node/"
-          ADDON="$(find /tmp/davincipos-sqlite -name better_sqlite3.node -print -quit)"
-          test -n "$ADDON"
-          cp "$ADDON" DavinciPos/android/app/src/main/assets/nodejs-project/node_modules/better-sqlite3/build/Release/better_sqlite3.node
-          echo "Node runtime: $(find /tmp/davincipos-node -name libnode.so | wc -l) ABI libraries"
-          echo "SQLite addon: $ADDON"
-          tar -tzf /tmp/better-sqlite3-android-arm64.tar.gz | head -30
+          ARM_ADDON="$(find /tmp/sqlite-arm64 -name better_sqlite3.node -print -quit)"
+          X64_ADDON="$(find /tmp/sqlite-x64 -name better_sqlite3.node -print -quit)"
+          test -n "$ARM_ADDON"
+          test -n "$X64_ADDON"
+          cp "$ARM_ADDON" "$ASSETS/native/arm64-v8a/better_sqlite3.node"
+          cp "$X64_ADDON" "$ASSETS/native/x86_64/better_sqlite3.node"
+          echo "Node runtime libraries:"
+          find "$APP/jniLibs" -type f -printf '%p %s bytes\\n'
+          echo "SQLite addon libraries:"
+          find "$ASSETS/native" -type f -printf '%p %s bytes\\n'
       - name: Build standalone Android APK
         run: gradle --no-daemon -p DavinciPos/android assembleDebug
       - uses: actions/upload-artifact@v4
