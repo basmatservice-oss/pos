@@ -22,6 +22,8 @@ export function initializeDatabase() {
   }
   const syncReceiptColumns=db.prepare('PRAGMA table_info(sync_receipts)').all().map(column=>column.name);
   if(!syncReceiptColumns.includes('payload_hash')) db.exec('ALTER TABLE sync_receipts ADD COLUMN payload_hash TEXT');
+  const syncConflictColumns=db.prepare('PRAGMA table_info(sync_conflicts)').all().map(column=>column.name);
+  if(!syncConflictColumns.includes('payload_hash')) db.exec('ALTER TABLE sync_conflicts ADD COLUMN payload_hash TEXT');
   const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');
   const nowBranch=new Date().toISOString();
   insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);
