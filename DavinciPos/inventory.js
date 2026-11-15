@@ -58,7 +58,7 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
       const avg=getWeightedAverageCost(productId,branchId);
       totalCost=Math.round(quantity*avg);
       const b=sameBranchClause(branchId);
-      const layers=db.prepare(`SELECT id,remaining_quantity FROM inventory_layers WHERE product_id=? AND ${b.sql} AND remaining_quantity>0 ORDER BY received_at,id`).all(productId,...b.params);
+      const layers=db.prepare(`SELECT id,remaining_quantity FROM inventory_layers WHERE product_id=? AND ${b.sql} AND remaining_quantity>0 ORDER BY received_at,rowid`).all(productId,...b.params);
       let left=quantity;
       for(let i=0;i<layers.length&&left>1e-9;i++){
         const take=Math.min(left,layers[i].remaining_quantity);
