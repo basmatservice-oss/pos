@@ -161,13 +161,27 @@ const REPORTS = {
   'stock-movements': `SELECT sm.occurred_at AS occurredAt,p.name AS product,sm.source_type AS source,
     sm.source_id AS reference,sm.quantity_delta AS quantityDelta,sm.unit_cost_minor AS unitCostMinor,sm.cost_total_minor AS costTotalMinor
     FROM stock_movements sm JOIN products p ON p.id=sm.product_id WHERE {{where}} ORDER BY sm.occurred_at DESC`,
-  'tax-summary': `SELECT currency,SUM(taxMinor) AS collectedTaxMinor,SUM(invoices) AS invoices,SUM(returns) AS returns
+  'tax-summary': `SELECT currency,SUM(outputTaxMinor) AS collectedTaxMinor,SUM(inputTaxMinor) AS inputTaxMinor,
+    SUM(outputTaxMinor)-SUM(inputTaxMinor) AS netTaxMinor,SUM(invoices) AS invoices,SUM(returns) AS returns,
+    SUM(purchaseInvoices) AS purchaseInvoices,SUM(purchaseReturns) AS purchaseReturns
     FROM (
-      SELECT s.currency_code AS currency,SUM(s.tax_minor) AS taxMinor,COUNT(*) AS invoices,0 AS returns
+      SELECT s.currency_code AS currency,SUM(s.tax_minor) AS outputTaxMinor,0 AS inputTaxMinor,COUNT(*) AS invoices,
+        0 AS returns,0 AS purchaseInvoices,0 AS purchaseReturns
       FROM sales s WHERE s.status!='void' AND {{salesWhere}} GROUP BY s.currency_code
       UNION ALL
-      SELECT s.currency_code AS currency,-SUM(sr.tax_minor) AS taxMinor,0 AS invoices,COUNT(*) AS returns
-      FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE {{returnWhere}} GROUP BY s.currency_code
+      SELECT s.currency_code AS currency,-SUM(sr.tax_minor) AS outputTaxMinor,0 AS inputTaxMinor,0 AS invoices,
+        COUNT(*) AS returns,0 AS purchaseInvoices,0 AS purchaseReturns
+      FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE {{salesReturnWhere}} GROUP BY s.currency_code
+      UNION ALL
+      SELECT p.currency_code AS currency,0 AS outputTaxMinor,
+        SUM(CASE WHEN p.tax_treatment='recoverable' THEN p.tax_minor ELSE 0 END) AS inputTaxMinor,
+        0 AS invoices,0 AS returns,COUNT(*) AS purchaseInvoices,0 AS purchaseReturns
+      FROM purchases p WHERE p.status!='void' AND {{purchaseWhere}} GROUP BY p.currency_code
+      UNION ALL
+      SELECT p.currency_code AS currency,0 AS outputTaxMinor,
+        -SUM(CASE WHEN p.tax_treatment='recoverable' THEN pr.tax_minor ELSE 0 END) AS inputTaxMinor,
+        0 AS invoices,0 AS returns,0 AS purchaseInvoices,COUNT(*) AS purchaseReturns
+      FROM purchase_returns pr JOIN purchases p ON p.id=pr.purchase_id WHERE {{purchaseReturnWhere}} GROUP BY p.currency_code
     ) taxActivity GROUP BY currency`,
   'cash-movements': `SELECT occurredAt,source,reference,method,provider,direction,amountMinor FROM (
     SELECT p.occurred_at AS occurredAt,CASE WHEN p.direction='out' THEN 'مرتجع بيع' ELSE 'بيع' END AS source,s.receipt_number AS reference,p.method,p.provider,p.direction,p.amount_minor AS amountMinor
@@ -205,10 +219,15 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   } else if(type==='cash-movements') {
     const filter={sql:(from?'x.occurredAt>=? AND ':'')+(to?'x.occurredAt<?':'1=1'),params:[...(from?[from+'T00:00:00']:[]),...(to?[nextDate(to)+'T00:00:00']:[])]};
     rows=db.prepare(template.replace('{{where}}',filter.sql)).all(...filter.params);
-  } else if(type==='sales-daily'||type==='tax-summary') {
+  } else if(type==='sales-daily') {
     const salesFilter=buildDateFilter('s',from,to),returnFilter=buildDateFilter('sr',from,to);
     rows=db.prepare(template.replace('{{salesWhere}}',salesFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
       .all(...salesFilter.params,...returnFilter.params);
+  } else if(type==='tax-summary') {
+    const filters=[buildDateFilter('s',from,to),buildDateFilter('sr',from,to),buildDateFilter('p',from,to),buildDateFilter('pr',from,to)];
+    const query=template.replace('{{salesWhere}}',filters[0].sql).replace('{{salesReturnWhere}}',filters[1].sql)
+      .replace('{{purchaseWhere}}',filters[2].sql).replace('{{purchaseReturnWhere}}',filters[3].sql);
+    rows=db.prepare(query).all(...filters.flatMap(filter=>filter.params));
   } else if(['sales-products','sales-categories','purchase-products','purchase-categories'].includes(type)) {
     const returnAlias=type.startsWith('sales-')?'sr':'rr';
     const saleAlias=type.startsWith('sales-')?'s':'pu';
