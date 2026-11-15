@@ -14,7 +14,7 @@ const {createSalesReturn,createPurchaseReturn,getSalesReturnOptions,getPurchaseR
 const {recordCustomerPayment,recordSupplierPayment,listCustomerBalances,listSupplierBalances}=await import('./settlements.js');
 const {getStockOnHand}=await import('./inventory.js');
 const {getTrialBalance}=await import('./accounting.js');
-const {getSimpleReport}=await import('./reports.js');
+const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
 
 initializeDatabase();
