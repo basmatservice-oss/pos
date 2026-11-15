@@ -5,6 +5,15 @@ on:
     branches:
       - feature/davincipos-android-standalone
       - fix/davincipos-android-startup-rc2
+    paths:
+      - 'DavinciPos/**'
+      - '.github/workflows/davincipos-standalone-rc.yml'
+  pull_request:
+    branches:
+      - feature/davincipos-android-standalone
+    paths:
+      - 'DavinciPos/**'
+      - '.github/workflows/davincipos-standalone-rc.yml'
   workflow_dispatch:
 
 permissions:
