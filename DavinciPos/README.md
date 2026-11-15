@@ -43,7 +43,7 @@ Before first startup, set a one-time `DAVINCIPOS_BOOTSTRAP_TOKEN` environment va
 
 The server-side SQLite database is the authoritative store. Business rules are shared by both interfaces. The desktop and mobile interfaces are intentionally separate presentations.
 
-The current milestone provides server-side offline-sale reconciliation and conflict handling, but does not yet include the finished local SQLite adapters or a complete offline-capable client UI. Electron will use a native SQLite adapter, and Android Capacitor will use a Capacitor SQLite adapter. Both adapters must implement the same repository contract and durable outbox before true device-side offline operation is enabled.
+The browser desktop/mobile client now includes an IndexedDB-backed device identity, cached POS snapshot, estimated offline quote, durable sale outbox, and retry/reconciliation flow. The central SQLite database on the host remains authoritative. Electron and Android Capacitor native SQLite adapters are not included in this browser milestone.
 
 The app is designed for shop owners and everyday staff, not accountants. Users work with familiar screens for sales, purchases, stock, expenses and simple reports; journal entries and double-entry checks remain internal implementation details only. Users are not expected to understand ledgers, debit/credit columns or journal numbers. Amounts are stored as integer minor units to keep totals accurate.
 
@@ -64,8 +64,8 @@ The app is designed for shop owners and everyday staff, not accountants. Users w
 
 - `local-store.js` introduces a persistent browser IndexedDB store for queued offline sales, retry state, acknowledgements, conflict holds and device metadata.
 - The server-side sync receipt still binds each operation ID to its originating registered device and payload hash.
-- `sync.test.js` covers the server outbox lifecycle; `local-store.test.js` covers local sale-envelope validation and refuses silent in-memory fallback when IndexedDB is unavailable.
-- This is the storage foundation, not the completed offline checkout: the sales UI still depends on server-loaded catalog/quotes and must be connected to this store, then paired with native SQLite adapters for Electron and Android Capacitor before offline operation can be accepted.
+- `sync.test.js` covers server-side reconciliation; `local-store.test.js` exercises the actual IndexedDB API through `fake-indexeddb`, including persistence across store reopen, retry/acknowledgement states, duplicate operation IDs, and device-scoped queue reads.
+- `sync-client.test.js` covers the client orchestration and server response handling. These automated tests do not replace browser-specific testing on supported desktop and Android browsers, nor multi-device LAN outage/reconnect acceptance.
 
 ## Local LAN / Wi-Fi deployment (internet is not required)
 
