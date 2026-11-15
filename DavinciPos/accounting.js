@@ -33,10 +33,20 @@ export function postJournalEntry({ sourceType, sourceId, description, occurredAt
   });
 }
 
+function trialBalanceDateFilter(value,{end=false}={}) {
+  if(/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) {
+    const date=new Date(value+'T00:00:00Z');
+    if(Number.isNaN(date.getTime())) throw new Error('Invalid trial balance date.');
+    if(end) date.setUTCDate(date.getUTCDate()+1);
+    return {sql:end?'je.occurred_at<?':'je.occurred_at>=?',value:date.toISOString().slice(0,10)+'T00:00:00'};
+  }
+  return {sql:end?'je.occurred_at<=?':'je.occurred_at>=?',value};
+}
+
 export function getTrialBalance({from=null,to=null}={}) {
   const filters=["je.status='posted'"],params=[];
-  if(from){filters.push('je.occurred_at>=?');params.push(from);}
-  if(to){filters.push('je.occurred_at<=?');params.push(to);}
+  if(from){const boundary=trialBalanceDateFilter(from);filters.push(boundary.sql);params.push(boundary.value);}
+  if(to){const boundary=trialBalanceDateFilter(to,{end:true});filters.push(boundary.sql);params.push(boundary.value);}
   return db.prepare(`SELECT a.id AS accountId,a.code,a.name,a.account_type AS accountType,
     COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit_minor ELSE 0 END),0) AS debitMinor,COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.credit_minor ELSE 0 END),0) AS creditMinor,
     COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit_minor-jl.credit_minor ELSE 0 END),0) AS netDebitMinor
