@@ -179,10 +179,22 @@ public class MainActivity extends Activity {
                 String scheme = request.getUrl().getScheme();
                 return !("https".equals(scheme) || ("http".equals(scheme) && "localhost".equals(request.getUrl().getHost())));
             }
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (request.isForMainFrame() && remoteMode) {
+                    remoteMode = false;
+                    view.post(() -> {
+                        view.loadUrl(BASE_URL + "/mobile");
+                        Toast.makeText(MainActivity.this, "تعذر فتح خادم المتجر؛ تم فتح قاعدة الهاتف المحلية المستقلة.", Toast.LENGTH_LONG).show();
+                    });
+                }
+            }
         });
         setContentView(webView);
-        if (!remoteServerUrl.isEmpty()) probeRemoteServer(remoteServerUrl, true);
-        else webView.loadUrl(BASE_URL + "/mobile");
+        if (!remoteServerUrl.isEmpty()) {
+            remoteMode = true;
+            webView.loadUrl(remoteServerUrl);
+        } else webView.loadUrl(BASE_URL + "/mobile");
     }
 
     private void showFatal(String message) {
