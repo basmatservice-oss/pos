@@ -12,6 +12,14 @@ db.pragma('busy_timeout = 5000');
 
 export function initializeDatabase() {
   db.exec(fs.readFileSync(path.join(ROOT, 'schema.sql'), 'utf8'));
+  const saleCostLayerColumns=db.prepare('PRAGMA table_info(sale_line_cost_layers)').all().map(column=>column.name);
+  if(!saleCostLayerColumns.includes('cost_total_minor')) {
+    db.exec('ALTER TABLE sale_line_cost_layers ADD COLUMN cost_total_minor INTEGER NOT NULL DEFAULT 0 CHECK(cost_total_minor>=0)');
+    db.exec('UPDATE sale_line_cost_layers SET cost_total_minor=CAST(ROUND(quantity*unit_cost_minor) AS INTEGER) WHERE cost_total_minor=0');
+  }
+  if(!saleCostLayerColumns.includes('returned_cost_minor')) {
+    db.exec('ALTER TABLE sale_line_cost_layers ADD COLUMN returned_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK(returned_cost_minor>=0 AND returned_cost_minor<=cost_total_minor)');
+  }
   const insertBranch = db.prepare('INSERT OR IGNORE INTO branches(id,name,code,is_active,created_at,updated_at) VALUES(?,?,?,1,?,?)');
   const nowBranch=new Date().toISOString();
   insertBranch.run('branch-main','Main Branch','MAIN',nowBranch,nowBranch);
