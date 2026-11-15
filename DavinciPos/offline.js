@@ -13,9 +13,9 @@ export function acceptOfflineSale(args) {
   db.prepare('UPDATE devices SET last_seen_at=? WHERE id=?').run(new Date().toISOString(),deviceId);
   const prior=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=?').get(operationId);
   if(prior)return JSON.parse(prior.response);
+  const role=db.prepare('SELECT role FROM users WHERE id=?').get(userId)?.role;
+  const allowCredit=role==='owner'||role==='admin'||Boolean(db.prepare("SELECT 1 FROM role_permissions WHERE role_name=? AND permission='sales.credit'").get(role));
   try {
-    const role=db.prepare('SELECT role FROM users WHERE id=?').get(userId)?.role;
-    const allowCredit=role==='owner'||role==='admin'||db.prepare("SELECT 1 FROM role_permissions WHERE role_name=? AND permission='sales.credit'").get(role);
     const result=checkoutSale({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)});
     const response={status:'accepted',sale:result};
     db.prepare('INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)').run(operationId,deviceId,JSON.stringify(response),new Date().toISOString());
