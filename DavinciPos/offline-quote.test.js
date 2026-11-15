@@ -23,7 +23,7 @@ test('cached offline quote honors inclusive pricing, exemptions and custom units
   const exempt=calculateCachedSaleQuote({lines:[{itemId:'p1',quantity:1}],snapshot:data});
   assert.equal(exempt.taxMinor,0);
   data.products=[snapshot.products[0]];
-  const custom=calculateCachedSaleQuote({lines:[{itemId:'p1',quantity:2,productUnitId:'case'}],snapshot:data,productUnits:{p1:[{id:'case',baseQuantity:12,salePriceMinor:100000}]}});
+  const custom=calculateCachedSaleQuote({lines:[{itemId:'p1',quantity:1,productUnitId:'case'}],snapshot:data,productUnits:{p1:[{id:'case',baseQuantity:12,salePriceMinor:100000}]}});
   assert.equal(custom.totalMinor,100000);
   assert.equal(custom.taxMinor,13043);
   assert.equal(custom.subtotalMinor,86957);
