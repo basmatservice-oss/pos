@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: davincipos-standalone-rc
+  cancel-in-progress: true
+
 jobs:
   verify-and-windows:
     runs-on: windows-2022
