@@ -11,7 +11,7 @@ import { getTrialBalance, reverseJournalEntry } from './accounting.js';
 import { getSettings, updateSettings } from './settings.js';
 import { initializeSecurity, createUser, verifyLogin, requireAuth, requirePermission, logoutToken, listUsers, setUserRole, hasPermission } from './security.js';
 import { listTaxProfiles, saveTaxProfile } from './tax.js';
-import { acceptOfflineSale, listSyncConflicts, resolveSyncConflict } from './offline.js';
+import { acceptOfflineSale, getOfflineSaleStatus, listSyncConflicts, resolveSyncConflict } from './offline.js';
 import { createProduct, updateProduct, listProducts, createCategory, listCategories, createCustomer, listCustomers, createSupplier, listSuppliers, listSales, listPurchases, listUnits, createUnit, saveProductUnit, listProductUnits, lookupBarcode, listServices, saveService, setServiceComponents, listServiceComponents } from './catalog.js';
 import { adjustInventory, createInventoryCount, getInventoryCount, setInventoryCountLine, completeInventoryCount, listInventoryCounts } from './inventory.js';
 import { getSimpleReport, getDetailedReport, availableReports } from './reports.js';
@@ -116,6 +116,10 @@ app.get('/api/roles',...api('users.read',(_req,res)=>res.json({data:db.prepare('
 
 app.post('/api/sync/offline-sales',...api('sales.create',(req,res)=>{
   try{res.status(202).json({data:acceptOfflineSale({operationId:req.body?.operationId,deviceId:req.body?.deviceId,payload:req.body?.sale,userId:req.user.id})});}
+  catch(error){res.status(400).json({error:error.message});}
+}));
+app.get('/api/sync/offline-sales/:operationId/status',...api('sales.read',(req,res)=>{
+  try{res.json({data:getOfflineSaleStatus({operationId:req.params.operationId,deviceId:req.query.deviceId,userId:req.user.id})});}
   catch(error){res.status(400).json({error:error.message});}
 }));
 app.get('/api/sync/conflicts',...api('sync.conflicts.read',(_req,res)=>res.json({data:listSyncConflicts()})));
