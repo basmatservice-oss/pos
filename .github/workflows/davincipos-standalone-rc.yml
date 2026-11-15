@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/davincipos-android-standalone
+      - fix/davincipos-android-startup-rc2
   workflow_dispatch:
 
 permissions:
@@ -125,6 +126,28 @@ jobs:
           find "$ASSETS/native" -type f -printf '%p %s bytes\\n'
       - name: Build standalone Android APK
         run: gradle --no-daemon -p DavinciPos/android assembleDebug
+      - name: Verify native ELF 16 KB page compatibility and APK alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=DavinciPos/android/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p /tmp/davincipos-apk-check
+          unzip -oq "$APK" 'lib/*' -d /tmp/davincipos-apk-check
+          while IFS= read -r -d '' LIB; do
+            readelf -lW "$LIB" | awk '
+              $1 == "LOAD" {
+                value = $NF
+                if (value !~ /^0x[0-9a-fA-F]+$/ || strtonum(value) < 16384) {
+                  print "ELF segment is not 16 KB aligned: " FILENAME " alignment=" value
+                  exit 1
+                }
+                found = 1
+              }
+              END { if (!found) exit 1 }
+            ' "$LIB"
+          done < <(find /tmp/davincipos-apk-check/lib -name '*.so' -print0)
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -name zipalign -type f | sort -V | tail -1)"
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
       - name: Exercise the standalone APK on an Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
