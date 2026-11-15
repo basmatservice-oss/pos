@@ -41,6 +41,18 @@ export function acceptOfflineSale(args) {
   }
   });
 }
+export function getOfflineSaleStatus({operationId,deviceId,userId}){
+  if(typeof operationId!=='string'||!operationId||typeof deviceId!=='string'||!deviceId)
+    throw new Error('Offline sale status request is invalid.');
+  const device=db.prepare('SELECT id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
+  if(!device)throw new Error('Device is not registered to this user.');
+  const receipt=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=? AND device_id=?').get(operationId,deviceId);
+  if(receipt)return JSON.parse(receipt.response);
+  const conflict=db.prepare("SELECT id,reason FROM sync_conflicts WHERE operation_id=? AND device_id=? AND status='pending'").get(operationId,deviceId);
+  if(conflict)return {status:'conflict',conflictId:conflict.id,reason:conflict.reason};
+  return {status:'pending'};
+}
+
 export function listSyncConflicts() {
   return db.prepare("SELECT id,operation_id AS operationId,device_id AS deviceId,entity_id AS entityId,reason,status,created_at AS createdAt FROM sync_conflicts WHERE status='pending' ORDER BY created_at").all();
 }
