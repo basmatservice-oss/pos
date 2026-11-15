@@ -38,7 +38,7 @@ export function getSimpleReport({from=null,to=null}={}) {
         0 AS netMinor,srl.amount_minor-srl.tax_minor AS returnNetMinor
       FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
       JOIN sale_lines sl ON sl.id=srl.sale_line_id WHERE ${returnAliasFilter}
-    ) activity GROUP BY name ORDER BY totalMinor DESC LIMIT 5`).all(...params,...params);
+    ) activity GROUP BY itemId,name ORDER BY totalMinor DESC LIMIT 5`).all(...params,...params);
   const lowStock=db.prepare(`SELECT p.id,p.name,COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock
     FROM products p LEFT JOIN stock_movements sm ON sm.product_id=p.id
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
