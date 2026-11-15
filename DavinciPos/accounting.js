@@ -42,7 +42,7 @@ function trialBalanceDateFilter(value,{end=false}={}) {
 }
 
 export function getTrialBalance({from=null,to=null}={}) {
-  const filters=["je.status='posted'"],params=[];
+  const filters=["je.status IN ('posted','reversed')"],params=[];
   if(from){const boundary=trialBalanceDateFilter(from);filters.push(boundary.sql);params.push(boundary.value);}
   if(to){const boundary=trialBalanceDateFilter(to,{end:true});filters.push(boundary.sql);params.push(boundary.value);}
   return db.prepare(`SELECT a.id AS accountId,a.code,a.name,a.account_type AS accountType,
