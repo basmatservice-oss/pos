@@ -149,8 +149,8 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   const template=REPORTS[type];
   if(!template)throw new Error('Unknown report type.');
   const aliasByType={
-    'sales-returns':'sr','purchase-returns':'pr','sales-daily':'s','sales-invoices':'s','sales-products':'s','sales-categories':'s','sales-customers':'s','sales-payments':'s',
-    'purchase-invoices':'p','purchase-products':'pu','purchase-categories':'pu','purchase-payments':'pu',
+    'sales-returns':'sr','purchase-returns':'pr','sales-daily':'s','sales-invoices':'s','sales-products':'s','sales-categories':'s','sales-customers':'s','sales-payments':'p',
+    'purchase-invoices':'p','purchase-products':'pu','purchase-categories':'pu','purchase-payments':'pp',
     'stock-movements':'sm','tax-summary':'s','cash-movements':'x','expenses':'e'
   };
   const alias=aliasByType[type];
