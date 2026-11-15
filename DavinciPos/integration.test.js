@@ -35,7 +35,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
     .run(productId,'Integrated cycle item','unit-piece',new Date().toISOString(),new Date().toISOString());
 
   const purchase=receivePurchase({
-    id:'integrated-cycle-purchase',branchId:'branch-main',supplierId,
+    id:'integrated-cycle-purchase',branchId:'branch-main',supplierId,occurredAt:'2026-11-01T10:00:00.000Z',
     lines:[{productId,quantity:10,unitCostMinor:1000}],
     payments:[{method:'cash',amountMinor:3000}]
   });
@@ -57,7 +57,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(listSupplierBalances().find(x=>x.id===supplierId).balanceMinor,5000);
 
   const sale=checkoutSale({
-    id:'integrated-cycle-sale',branchId:'branch-main',customerId,allowCredit:true,
+    id:'integrated-cycle-sale',branchId:'branch-main',customerId,allowCredit:true,occurredAt:'2026-11-01T10:00:00.000Z',
     lines:[{itemId:productId,quantity:4}],
     payments:[{method:'cash',amountMinor:4000}]
   });
@@ -110,6 +110,14 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(report.grossProfitMinor,4000);
   assert.equal(report.expensesTotalMinor,0);
   assert.equal(report.netProfitMinor,4000);
+  const invoicePeriod=getSimpleReport({from:'2026-11-01',to:'2026-11-01'});
+  assert.equal(invoicePeriod.salesTotalMinor,12000);
+  assert.equal(invoicePeriod.purchasesTotalMinor,10000);
+  assert.equal(invoicePeriod.grossProfitMinor,8000);
+  const returnPeriod=getSimpleReport({from:'2026-11-15',to:'2026-11-15'});
+  assert.equal(returnPeriod.salesTotalMinor,-6000);
+  assert.equal(returnPeriod.purchasesTotalMinor,-3000);
+  assert.equal(returnPeriod.grossProfitMinor,-4000);
 
   const salesReturnReport=getDetailedReport({type:'sales-returns'});
   assert.equal(salesReturnReport.count,2);
