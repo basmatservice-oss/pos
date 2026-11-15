@@ -1,0 +1,101 @@
+name: DavinciPos standalone RC builds
+
+on:
+  push:
+    branches:
+      - feature/davincipos-android-standalone
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: DavinciPos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Verify syntax and complete test suite
+        run: |
+          npm run check
+          npm test
+      - name: Build Windows installer
+        run: npm run package:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DavinciPos-Windows-Standalone-RC
+          path: DavinciPos/dist/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  android-standalone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - name: Prepare embedded Node.js project and production dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p DavinciPos/android/app/src/main/assets/nodejs-project
+          rsync -a DavinciPos/ DavinciPos/android/app/src/main/assets/nodejs-project/ \
+            --exclude android --exclude node_modules --exclude dist --exclude release \
+            --exclude desktop-shell --exclude '*.test.js' --exclude '*.sqlite*' \
+            --exclude '.env' --exclude '.env.*' --exclude README.md
+          cd DavinciPos/android/app/src/main/assets/nodejs-project
+          npm install --omit=dev --ignore-scripts
+          mkdir -p node_modules/better-sqlite3/build/Release
+      - name: Fetch pinned Android Node.js runtime and SQLite N-API addon
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/davincipos-node /tmp/davincipos-sqlite
+          curl -fL --retry 3 -o /tmp/nodejs-mobile.zip \
+            https://github.com/digidem/nodejs-mobile/releases/download/v24.20.0-0/nodejs-mobile-android-24.20.0-0.zip
+          unzip -q /tmp/nodejs-mobile.zip -d /tmp/davincipos-node
+          curl -fL --retry 3 -o /tmp/better-sqlite3-android-arm64.tar.gz \
+            https://github.com/digidem/better-sqlite3-nodejs-mobile/releases/download/13.0.3/better-sqlite3-13.0.3-android-arm64.tar.gz
+          tar -xzf /tmp/better-sqlite3-android-arm64.tar.gz -C /tmp/davincipos-sqlite
+          curl -fL --retry 3 -o /tmp/better-sqlite3-android-x64.tar.gz \
+            https://github.com/digidem/better-sqlite3-nodejs-mobile/releases/download/13.0.3/better-sqlite3-13.0.3-android-x64.tar.gz
+          tar -xzf /tmp/better-sqlite3-android-x64.tar.gz -C /tmp/davincipos-sqlite
+          APP=DavinciPos/android/app/src/main
+          mkdir -p "$APP/jniLibs/arm64-v8a" "$APP/jniLibs/x86_64" "$APP/cpp/include/node"
+          for ABI in arm64-v8a x86_64; do
+            LIB="$(find /tmp/davincipos-node -path "*/$ABI/libnode.so" -print -quit)"
+            test -n "$LIB"
+            cp "$LIB" "$APP/jniLibs/$ABI/libnode.so"
+          done
+          HEADER="$(find /tmp/davincipos-node -path '*/include/node/node.h' -print -quit)"
+          test -n "$HEADER"
+          cp -a "$(dirname "$HEADER")/." "$APP/cpp/include/node/"
+          ADDON="$(find /tmp/davincipos-sqlite -name better_sqlite3.node -print -quit)"
+          test -n "$ADDON"
+          cp "$ADDON" DavinciPos/android/app/src/main/assets/nodejs-project/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+          echo "Node runtime: $(find /tmp/davincipos-node -name libnode.so | wc -l) ABI libraries"
+          echo "SQLite addon: $ADDON"
+          tar -tzf /tmp/better-sqlite3-android-arm64.tar.gz | head -30
+      - name: Build standalone Android APK
+        run: gradle --no-daemon -p DavinciPos/android assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DavinciPos-Android-Standalone-RC
+          path: DavinciPos/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
