@@ -1,6 +1,7 @@
 import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,renderReturns,logout} from './client.js';
 const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',returns:'المرتجعات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/service-worker.js',{scope:'/'}).catch(()=>{});
 async function refresh(){
  try{const {data}=await api('/api/summary');document.querySelector('#mobile-products').textContent=data.products.toLocaleString('ar');document.querySelector('#mobile-sales').textContent=data.salesCount.toLocaleString('ar');}
  catch{document.querySelector('#mobile-products').textContent='—';}
