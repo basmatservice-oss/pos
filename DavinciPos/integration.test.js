@@ -13,7 +13,7 @@ const {checkoutSale}=await import('./sales.js');
 const {createSalesReturn,createPurchaseReturn,getSalesReturnOptions,getPurchaseReturnOptions}=await import('./returns.js');
 const {recordCustomerPayment,recordSupplierPayment,listCustomerBalances,listSupplierBalances}=await import('./settlements.js');
 const {getStockOnHand}=await import('./inventory.js');
-const {getTrialBalance}=await import('./accounting.js');
+const {getTrialBalance,postJournalEntry,reverseJournalEntry}=await import('./accounting.js');
 const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
 const {saveTaxProfile}=await import('./tax.js');
@@ -271,4 +271,21 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
 test('closes integrated-cycle database',()=>{
   db.close();
   fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('reversed journal entries remain in trial balance and net to zero in profit and loss',()=>{
+  const entryId=postJournalEntry({
+    sourceType:'test-reversal',sourceId:'test-reversal-2026-11-15',
+    description:'Reversal reconciliation test',occurredAt:'2026-11-15T12:00:00.000Z',
+    lines:[{accountId:'acc-cash',debitMinor:1250},{accountId:'acc-sales',creditMinor:1250}]
+  });
+  const reversalId=reverseJournalEntry(entryId,'Integration test');
+  assert.ok(reversalId);
+  assert.equal(reverseJournalEntry(entryId,'Repeat reversal'),reversalId);
+  const rows=getTrialBalance({from:'2026-11-15',to:'2026-11-15'});
+  const cash=rows.find(row=>row.accountId==='acc-cash');
+  const sales=rows.find(row=>row.accountId==='acc-sales');
+  assert.equal(cash.debitMinor-cash.creditMinor,0);
+  assert.equal(sales.creditMinor-sales.debitMinor,0);
+  assert.equal(getSimpleReport({from:'2026-11-15',to:'2026-11-15'}).netProfitMinor,0);
 });
