@@ -103,7 +103,13 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
     payments:[{method:'cash',amountMinor:4000}]
   });
   assert.equal(sale.totalMinor,12000);
-  assert.equal(getStockOnHand(productId,'branch-main'),4);
+  const retriedSale=checkoutSale({
+    id:'integrated-cycle-sale',branchId:'branch-main',customerId,allowCredit:true,occurredAt:'2026-11-01T10:00:00.000Z',
+    lines:[{itemId:productId,quantity:4}],
+    payments:[{method:'cash',amountMinor:4000}]
+  });
+  assert.equal(retriedSale.duplicate,true,'Retrying the same sale ID must return the original sale instead of posting twice');
+  assert.equal(getStockOnHand(productId,'branch-main'),4,'A repeated checkout must not issue stock a second time');
   assert.equal(listCustomerBalances().find(x=>x.id===customerId).balanceMinor,8000);
 
   const customerInstallment=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank'});
