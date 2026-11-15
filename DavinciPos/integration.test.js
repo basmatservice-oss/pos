@@ -136,7 +136,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(invoicePeriod.topProducts[0].quantity,4);
   assert.equal(invoicePeriod.topProducts[0].totalMinor,12000);
   assertProfitAndLossMatchesTrialBalance({from:'2026-11-01',to:'2026-11-01'});
-  const returnPeriod=getSimpleReport({from:'2026-11-15',to:'2026-11-15'});
+  const returnPeriod=getSimpleReport({from:'2099-12-30',to:'2099-12-30'});
   assert.equal(returnPeriod.salesTotalMinor,-6000);
   assert.equal(returnPeriod.purchasesTotalMinor,-3000);
   assert.equal(returnPeriod.ledgerSalesMinor,-6000);
@@ -144,14 +144,14 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(returnPeriod.grossProfitMinor,-4000);
   assert.equal(returnPeriod.topProducts[0].quantity,-2);
   assert.equal(returnPeriod.topProducts[0].totalMinor,-6000);
-  assertProfitAndLossMatchesTrialBalance({from:'2026-11-15',to:'2026-11-15'});
+  assertProfitAndLossMatchesTrialBalance({from:'2099-12-30',to:'2099-12-30'});
 
   const dailyInvoice=getDetailedReport({type:'sales-daily',from:'2026-11-01',to:'2026-11-01'}).rows[0];
   assert.equal(dailyInvoice.day,'2026-11-01');
   assert.equal(dailyInvoice.invoices,1);
   assert.equal(dailyInvoice.returns,0);
   assert.equal(dailyInvoice.totalMinor,12000);
-  const dailyReturns=getDetailedReport({type:'sales-daily',from:'2026-11-15',to:'2026-11-15'}).rows[0];
+  const dailyReturns=getDetailedReport({type:'sales-daily',from:'2099-12-30',to:'2099-12-30'}).rows[0];
   assert.equal(dailyReturns.day,'2026-11-15');
   assert.equal(dailyReturns.invoices,0);
   assert.equal(dailyReturns.returns,2);
@@ -177,7 +177,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   const salesProductsOnInvoiceDate=getDetailedReport({type:'sales-products',from:'2026-11-01',to:'2026-11-01'}).rows;
   assert.equal(salesProductsOnInvoiceDate.find(row=>row.itemId===productId).quantity,4);
   assert.equal(salesProductsOnInvoiceDate.find(row=>row.itemId===productId).profitMinor,8000);
-  const salesProductsOnReturnDate=getDetailedReport({type:'sales-products',from:'2026-11-15',to:'2026-11-15'}).rows;
+  const salesProductsOnReturnDate=getDetailedReport({type:'sales-products',from:'2099-12-30',to:'2099-12-30'}).rows;
   assert.equal(salesProductsOnReturnDate.find(row=>row.itemId===productId).quantity,-2);
   assert.equal(salesProductsOnReturnDate.find(row=>row.itemId===productId).profitMinor,-4000);
   const purchaseProducts=getDetailedReport({type:'purchase-products'}).rows;
@@ -186,20 +186,20 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   const purchaseProductsOnInvoiceDate=getDetailedReport({type:'purchase-products',from:'2026-11-01',to:'2026-11-01'}).rows;
   assert.equal(purchaseProductsOnInvoiceDate.find(row=>row.productId===productId).quantity,10);
   assert.equal(purchaseProductsOnInvoiceDate.find(row=>row.productId===productId).netCostMinor,10000);
-  const purchaseProductsOnReturnDate=getDetailedReport({type:'purchase-products',from:'2026-11-15',to:'2026-11-15'}).rows;
+  const purchaseProductsOnReturnDate=getDetailedReport({type:'purchase-products',from:'2099-12-30',to:'2099-12-30'}).rows;
   assert.equal(purchaseProductsOnReturnDate.find(row=>row.productId===productId).quantity,-3);
   assert.equal(purchaseProductsOnReturnDate.find(row=>row.productId===productId).netCostMinor,-3000);
 
   const salesPayments=getDetailedReport({type:'sales-payments'}).rows;
   assert.equal(salesPayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),7000);
   assert.equal(salesPayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
-  const salesPaymentPeriod=getDetailedReport({type:'sales-payments',from:'2026-11-15',to:'2026-11-15'}).rows;
+  const salesPaymentPeriod=getDetailedReport({type:'sales-payments',from:'2099-12-30',to:'2099-12-30'}).rows;
   assert.equal(salesPaymentPeriod.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
   assert.equal(salesPaymentPeriod.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
   const purchasePayments=getDetailedReport({type:'purchase-payments'}).rows;
   assert.equal(purchasePayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),5000);
   assert.equal(purchasePayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
-  const purchasePaymentPeriod=getDetailedReport({type:'purchase-payments',from:'2026-11-15',to:'2026-11-15'}).rows;
+  const purchasePaymentPeriod=getDetailedReport({type:'purchase-payments',from:'2099-12-30',to:'2099-12-30'}).rows;
   assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),2000);
   assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
 
@@ -259,7 +259,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(taxOnInvoiceDate.netTaxMinor,400);
   assert.equal(taxOnInvoiceDate.returns,0);
   assert.equal(taxOnInvoiceDate.purchaseInvoices,2); // Original untaxed purchase plus the taxable purchase.
-  const taxOnReturnDate=getDetailedReport({type:'tax-summary',from:'2026-11-15',to:'2026-11-15'}).rows[0];
+  const taxOnReturnDate=getDetailedReport({type:'tax-summary',from:'2099-12-30',to:'2099-12-30'}).rows[0];
   assert.equal(taxOnReturnDate.collectedTaxMinor,-300);
   assert.equal(taxOnReturnDate.inputTaxMinor,-100);
   assert.equal(taxOnReturnDate.netTaxMinor,-200);
@@ -268,24 +268,25 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assertLedgerBalanced();
 });
 
-test('closes integrated-cycle database',()=>{
-  db.close();
-  fs.rmSync(dir,{recursive:true,force:true});
-});
-
 test('reversed journal entries remain in trial balance and net to zero in profit and loss',()=>{
   const entryId=postJournalEntry({
-    sourceType:'test-reversal',sourceId:'test-reversal-2026-11-15',
-    description:'Reversal reconciliation test',occurredAt:'2026-11-15T12:00:00.000Z',
+    sourceType:'test-reversal',sourceId:'test-reversal-2099-12-30',
+    description:'Reversal reconciliation test',occurredAt:'2099-12-30T12:00:00.000Z',
     lines:[{accountId:'acc-cash',debitMinor:1250},{accountId:'acc-sales',creditMinor:1250}]
   });
   const reversalId=reverseJournalEntry(entryId,'Integration test');
   assert.ok(reversalId);
   assert.equal(reverseJournalEntry(entryId,'Repeat reversal'),reversalId);
-  const rows=getTrialBalance({from:'2026-11-15',to:'2026-11-15'});
+  const rows=getTrialBalance({from:'2099-12-30',to:'2099-12-30'});
   const cash=rows.find(row=>row.accountId==='acc-cash');
   const sales=rows.find(row=>row.accountId==='acc-sales');
   assert.equal(cash.debitMinor-cash.creditMinor,0);
   assert.equal(sales.creditMinor-sales.debitMinor,0);
-  assert.equal(getSimpleReport({from:'2026-11-15',to:'2026-11-15'}).netProfitMinor,0);
+  assert.equal(getSimpleReport({from:'2099-12-30',to:'2099-12-30'}).netProfitMinor,0);
 });
+
+test('closes integrated-cycle database',()=>{
+  db.close();
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
