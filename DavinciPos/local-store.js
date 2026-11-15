@@ -40,7 +40,7 @@ export class IndexedDbLocalStore{
         const database=request.result;
         if(!database.objectStoreNames.contains(OPERATIONS)){
           const store=database.createObjectStore(OPERATIONS,{keyPath:'operationId'});
-          store.createIndex('status_created','status_created',{unique:false});
+          store.createIndex('status_created',['status','createdAt'],{unique:false});
           store.createIndex('device_created',['deviceId','createdAt'],{unique:false});
         }
         if(!database.objectStoreNames.contains(METADATA))database.createObjectStore(METADATA,{keyPath:'key'});
@@ -79,9 +79,16 @@ export class IndexedDbLocalStore{
   }
   async updateOperation(operationId,update){
     const database=await this.open(),transaction=database.transaction(OPERATIONS,'readwrite'),store=transaction.objectStore(OPERATIONS);
-    const record=await requestResult(store.get(operationId));
-    if(!record){transaction.abort();throw new Error('Offline operation not found.');}
-    const updated=update(record);store.put(updated);await transactionDone(transaction);return updated;
+    const done=transactionDone(transaction);
+    const updated=await new Promise((resolve,reject)=>{
+      const request=store.get(operationId);
+      request.onsuccess=()=>{
+        if(!request.result){transaction.abort();reject(new Error('Offline operation not found.'));return;}
+        const next=update(request.result);store.put(next);resolve(next);
+      };
+      request.onerror=()=>reject(request.error||new Error('Unable to update offline operation.'));
+    });
+    await done;return updated;
   }
   async setMetadata(key,value){
     const database=await this.open(),transaction=database.transaction(METADATA,'readwrite'),done=transactionDone(transaction);
