@@ -93,7 +93,7 @@ export function lookupBarcode(code){
     u.name AS unitName,u.symbol AS unitSymbol,1 AS baseQuantity,NULL AS productUnitId,'product' AS lineType
     FROM products p JOIN units u ON u.id=p.base_unit_id WHERE p.barcode=? AND p.is_active=1
     UNION ALL
-    SELECT p.id,p.name,pu.barcode,COALESCE(pu.sale_price_minor,p.sale_price_minor),pu.unit_id,u.name,u.symbol,pu.base_quantity,'product'
+    SELECT p.id,p.name,pu.barcode,COALESCE(pu.sale_price_minor,p.sale_price_minor),pu.unit_id,u.name,u.symbol,pu.base_quantity,pu.id,'product'
     FROM product_units pu JOIN products p ON p.id=pu.product_id JOIN units u ON u.id=pu.unit_id
     WHERE pu.barcode=? AND p.is_active=1 LIMIT 1`).get(value,value);
   if(product)return product;
