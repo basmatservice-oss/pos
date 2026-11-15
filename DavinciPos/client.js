@@ -9,6 +9,13 @@ export async function api(path,{method='GET',body,headers={}}={}) {
   if(!response.ok){const error=new Error(result.error||'Request failed.');error.status=response.status;throw error;}
   return result.data;
 }
+async function refreshLocalPosSnapshot(){
+  const [products,customers,services,settings,taxProfiles]=await Promise.all([
+    api('/api/products'),api('/api/customers'),api('/api/services'),api('/api/settings'),api('/api/tax-profiles')
+  ]);
+  const productUnits=await localStore.getMetadata('product-units')||{};
+  return cachePosSnapshot({products,customers,services,settings,taxProfiles,productUnits},localStore);
+}
 let onlineSyncHookInstalled=false;
 function installOnlineSyncHook(){
   if(onlineSyncHookInstalled||typeof window==='undefined')return;
@@ -18,6 +25,7 @@ function installOnlineSyncHook(){
     try{
       await api('/api/auth/me');
       const deviceId=await registerLocalDevice(api);
+      await refreshLocalPosSnapshot();
       await synchronizePendingSales({api,deviceId});
     }catch{}
   });
@@ -28,7 +36,7 @@ export async function ensureSession() {
     try{
       await api('/api/auth/me');
       installOnlineSyncHook();
-      try{const deviceId=await registerLocalDevice(api);await synchronizePendingSales({api,deviceId});}catch{}
+      try{const deviceId=await registerLocalDevice(api);await refreshLocalPosSnapshot();await synchronizePendingSales({api,deviceId});}catch{}
       return true;
     }catch(error){
       if(!error.status){
