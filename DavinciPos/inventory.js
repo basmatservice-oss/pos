@@ -73,8 +73,9 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
       for(const layer of layers){
         if(left<=1e-9) break;
         const take=Math.min(left,layer.remaining_quantity);
-        totalCost+=Math.round(take*layer.unit_cost_minor);
-        allocations.push({layerId:layer.id,quantity:take,unitCostMinor:layer.unit_cost_minor});
+        const layerCost=Math.round(take*layer.unit_cost_minor);
+        totalCost+=layerCost;
+        allocations.push({layerId:layer.id,quantity:take,unitCostMinor:layer.unit_cost_minor,costTotalMinor:layerCost});
         db.prepare('UPDATE inventory_layers SET remaining_quantity=remaining_quantity-? WHERE id=?').run(take,layer.id);
         left-=take;
       }
@@ -100,7 +101,8 @@ export function restoreFifoAllocation({productId,branchId=null,sourceType,source
       if(Number(layer.remaining_quantity)+take>Number(layer.received_quantity)+1e-8)throw new Error('FIFO return exceeds the quantity originally issued from this layer.');
       db.prepare('UPDATE inventory_layers SET remaining_quantity=remaining_quantity+? WHERE id=?').run(take,layer.id);
       quantity+=take;
-      costTotal+=Math.round(take*unitCost);
+      const allocationCost=Number.isSafeInteger(Number(allocation.costTotalMinor))?Number(allocation.costTotalMinor):Math.round(take*unitCost);
+      costTotal+=allocationCost;
     }
     const unitCostMinor=quantity>0?costTotal/quantity:0,id=randomUUID();
     db.prepare(`INSERT INTO stock_movements(id,product_id,branch_id,source_type,source_id,quantity_delta,unit_cost_minor,cost_total_minor,cost_method,occurred_at)
