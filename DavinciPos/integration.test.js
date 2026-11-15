@@ -16,6 +16,7 @@ const {getStockOnHand}=await import('./inventory.js');
 const {getTrialBalance}=await import('./accounting.js');
 const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
+const {saveTaxProfile}=await import('./tax.js');
 
 initializeDatabase();
 updateSettings({'tax.enabled':false});
@@ -180,6 +181,62 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),2000);
   assert.equal(purchasePaymentPeriod.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),3000);
 
+  assertLedgerBalanced();
+
+  updateSettings({'tax.enabled':true,'tax.purchase_mode':'recoverable','tax.price_mode':'exclusive'});
+  saveTaxProfile({id:'integration-tax-10',name:'Integration 10%',rateBps:1000,priceMode:'exclusive',isDefault:true});
+  const taxedProductId='integrated-tax-product';
+  db.prepare("INSERT INTO products(id,name,base_unit_id,cost_minor,sale_price_minor,track_stock,created_at,updated_at) VALUES(?,?,?,1000,3000,1,?,?)")
+    .run(taxedProductId,'Taxed integration item','unit-piece',new Date().toISOString(),new Date().toISOString());
+  const taxedPurchase=receivePurchase({
+    id:'integrated-tax-purchase',branchId:'branch-main',supplierId,occurredAt:'2026-11-01T11:00:00.000Z',
+    lines:[{productId:taxedProductId,quantity:2,unitCostMinor:1000}],
+    payments:[{method:'cash',amountMinor:2200}]
+  });
+  assert.equal(taxedPurchase.subtotalMinor,2000);
+  assert.equal(taxedPurchase.taxMinor,200);
+  assert.equal(taxedPurchase.totalMinor,2200);
+  const taxedSale=checkoutSale({
+    id:'integrated-tax-sale',branchId:'branch-main',customerId,allowCredit:false,occurredAt:'2026-11-01T12:00:00.000Z',
+    lines:[{itemId:taxedProductId,quantity:2}],
+    payments:[{method:'cash',amountMinor:6600}]
+  });
+  assert.equal(taxedSale.subtotalMinor,6000);
+  assert.equal(taxedSale.taxMinor,600);
+  assert.equal(taxedSale.totalMinor,6600);
+  const taxedSaleLine=getSalesReturnOptions(taxedSale.id).lines[0];
+  const taxedSalesReturn=createSalesReturn(taxedSale.id,{
+    id:'integrated-tax-sales-return',occurredAt:'2026-11-15T10:00:00.000Z',
+    lines:[{saleLineId:taxedSaleLine.id,quantity:1}],refundMethod:'cash'
+  });
+  assert.equal(taxedSalesReturn.totalMinor,3300);
+  assert.equal(taxedSalesReturn.taxMinor,300);
+  assert.equal(taxedSalesReturn.refundMinor,3300);
+  const taxedPurchaseLine=getPurchaseReturnOptions(taxedPurchase.id).lines[0];
+  const taxedPurchaseReturn=createPurchaseReturn(taxedPurchase.id,{
+    id:'integrated-tax-purchase-return',occurredAt:'2026-11-15T11:00:00.000Z',
+    lines:[{purchaseLineId:taxedPurchaseLine.id,quantity:1}],refundMethod:'cash'
+  });
+  assert.equal(taxedPurchaseReturn.totalMinor,1100);
+  assert.equal(taxedPurchaseReturn.taxMinor,100);
+  assert.equal(taxedPurchaseReturn.removedCostMinor,1000);
+
+  const taxedSalesProducts=getDetailedReport({type:'sales-products'}).rows.find(row=>row.itemId===taxedProductId);
+  assert.equal(taxedSalesProducts.quantity,1);
+  assert.equal(taxedSalesProducts.netSalesMinor,3000);
+  assert.equal(taxedSalesProducts.taxMinor,300);
+  assert.equal(taxedSalesProducts.costMinor,1000);
+  assert.equal(taxedSalesProducts.profitMinor,2000);
+  const taxedPurchaseProducts=getDetailedReport({type:'purchase-products'}).rows.find(row=>row.productId===taxedProductId);
+  assert.equal(taxedPurchaseProducts.quantity,1);
+  assert.equal(taxedPurchaseProducts.netCostMinor,1000);
+  assert.equal(taxedPurchaseProducts.taxMinor,100);
+  const taxOnInvoiceDate=getDetailedReport({type:'tax-summary',from:'2026-11-01',to:'2026-11-01'}).rows[0];
+  assert.equal(taxOnInvoiceDate.collectedTaxMinor,600);
+  assert.equal(taxOnInvoiceDate.returns,0);
+  const taxOnReturnDate=getDetailedReport({type:'tax-summary',from:'2026-11-15',to:'2026-11-15'}).rows[0];
+  assert.equal(taxOnReturnDate.collectedTaxMinor,-300);
+  assert.equal(taxOnReturnDate.returns,1);
   assertLedgerBalanced();
 });
 
