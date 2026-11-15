@@ -53,7 +53,7 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
   return inTransaction(()=>{
     const available=getStockOnHand(productId,branchId);
     if(available+1e-9<quantity) throw new Error(`Insufficient stock. Available: ${available}`);
-    let totalCost=0;
+    let totalCost=0,allocations=[];
     if(costMethod==='weighted') {
       const avg=getWeightedAverageCost(productId,branchId);
       totalCost=Math.round(quantity*avg);
@@ -74,6 +74,7 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
         if(left<=1e-9) break;
         const take=Math.min(left,layer.remaining_quantity);
         totalCost+=Math.round(take*layer.unit_cost_minor);
+        allocations.push({layerId:layer.id,quantity:take,unitCostMinor:layer.unit_cost_minor});
         db.prepare('UPDATE inventory_layers SET remaining_quantity=remaining_quantity-? WHERE id=?').run(take,layer.id);
         left-=take;
       }
@@ -82,9 +83,32 @@ export function issueStock({productId,branchId=null,sourceType,sourceId,quantity
     const unitCost=Math.round(totalCost/quantity), id=randomUUID();
     db.prepare(`INSERT INTO stock_movements(id,product_id,branch_id,source_type,source_id,quantity_delta,unit_cost_minor,cost_total_minor,cost_method,occurred_at)
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id,productId,branchId,sourceType,sourceId,-quantity,unitCost,totalCost,costMethod,occurredAt);
-    return {movementId:id,quantity,costMethod,costTotalMinor:totalCost,unitCostMinor:unitCost};
+    return {movementId:id,quantity,costMethod,costTotalMinor:totalCost,unitCostMinor:unitCost,allocations:costMethod==='fifo'?allocations:[]};
   });
 }
+
+export function restoreFifoAllocation({productId,branchId=null,sourceType,sourceId,allocations,occurredAt=new Date().toISOString()}) {
+  if(!productId||!sourceType||!sourceId||!Array.isArray(allocations)||!allocations.length)throw new Error('FIFO restoration requires source references and layer allocations.');
+  return inTransaction(()=>{
+    let quantity=0,costTotal=0;
+    for(const allocation of allocations){
+      const take=Number(allocation.quantity),unitCost=Number(allocation.unitCostMinor);
+      if(!Number.isFinite(take)||take<=0||!Number.isFinite(unitCost)||unitCost<0)throw new Error('Invalid FIFO layer allocation.');
+      const layer=db.prepare('SELECT id,product_id,branch_id,received_quantity,remaining_quantity,unit_cost_minor FROM inventory_layers WHERE id=?').get(allocation.layerId);
+      if(!layer||layer.product_id!==productId||layer.branch_id!==branchId)throw new Error('FIFO return layer does not match the product branch.');
+      if(Math.abs(Number(layer.unit_cost_minor)-unitCost)>1e-9)throw new Error('FIFO layer cost changed since the original sale.');
+      if(Number(layer.remaining_quantity)+take>Number(layer.received_quantity)+1e-8)throw new Error('FIFO return exceeds the quantity originally issued from this layer.');
+      db.prepare('UPDATE inventory_layers SET remaining_quantity=remaining_quantity+? WHERE id=?').run(take,layer.id);
+      quantity+=take;
+      costTotal+=Math.round(take*unitCost);
+    }
+    const unitCostMinor=quantity>0?costTotal/quantity:0,id=randomUUID();
+    db.prepare(`INSERT INTO stock_movements(id,product_id,branch_id,source_type,source_id,quantity_delta,unit_cost_minor,cost_total_minor,cost_method,occurred_at)
+      VALUES(?,?,?,?,?,?,?,?, 'fifo',?)`).run(id,productId,branchId,sourceType,sourceId,quantity,unitCostMinor,costTotal,occurredAt);
+    return {movementId:id,quantity,costTotalMinor:costTotal,unitCostMinor};
+  });
+}
+
 export function getProductCostPreview(productId,branchId=null) {
   return {quantity:getStockOnHand(productId,branchId),inventoryValueMinor:getInventoryValue(productId,branchId),
     weightedAverageUnitCostMinor:getWeightedAverageCost(productId,branchId)};
