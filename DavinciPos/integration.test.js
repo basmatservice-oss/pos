@@ -109,6 +109,8 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
     payments:[{method:'cash',amountMinor:4000}]
   });
   assert.equal(retriedSale.duplicate,true,'Retrying the same sale ID must return the original sale instead of posting twice');
+  assert.equal(retriedSale.receiptNumber,sale.receiptNumber,'A retry must return the original receipt number');
+  assert.equal(retriedSale.totalMinor,sale.totalMinor,'A retry must return the original financial totals');
   assert.equal(getStockOnHand(productId,'branch-main'),4,'A repeated checkout must not issue stock a second time');
   assert.equal(listCustomerBalances().find(x=>x.id===customerId).balanceMinor,8000);
 
