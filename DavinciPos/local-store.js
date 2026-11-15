@@ -61,6 +61,13 @@ export class IndexedDbLocalStore{
     await done;
     return record;
   }
+  async listOperations({deviceId=null,limit=500}={}){
+    const database=await this.open(),transaction=database.transaction(OPERATIONS,'readonly');
+    const records=await requestResult(transaction.objectStore(OPERATIONS).getAll());
+    await transactionDone(transaction);
+    return records.filter(item=>!deviceId||item.deviceId===deviceId)
+      .sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).slice(0,Math.max(1,Math.min(1000,Number(limit)||500)));
+  }
   async listPending({deviceId=null,limit=100}={}){
     const database=await this.open(),transaction=database.transaction(OPERATIONS,'readonly');
     const records=await requestResult(transaction.objectStore(OPERATIONS).getAll());
