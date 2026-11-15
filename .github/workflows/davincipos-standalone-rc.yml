@@ -5,6 +5,7 @@ on:
     branches:
       - feature/davincipos-android-standalone
       - fix/davincipos-android-startup-rc2
+      - feature/davincipos-android-kotlin-sqlite
     paths:
       - 'DavinciPos/**'
       - '.github/workflows/davincipos-standalone-rc.yml'
