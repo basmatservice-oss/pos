@@ -30,13 +30,13 @@ export function acceptOfflineSale(args) {
     const policy=setting('sync.stock_conflict_policy','hold_for_review');
     if(policy==='reject_sale') {
       const response={status:'rejected',reason:'Insufficient stock on the authoritative server.'};
-      db.prepare('INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)').run(operationId,deviceId,JSON.stringify(response),new Date().toISOString());
+      db.prepare('INSERT INTO sync_receipts(operation_id,device_id,payload_hash,response,created_at) VALUES(?,?,?,?,?)').run(operationId,deviceId,payloadHash,JSON.stringify(response),new Date().toISOString());
       return response;
     }
     const existing=db.prepare('SELECT id FROM sync_conflicts WHERE operation_id=?').get(operationId);
     const conflictId=existing?.id||randomUUID();
-    if(!existing)db.prepare(`INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,reason,status,created_at)
-      VALUES(?,?,?,'sale',?,?,?,'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)}),error.message,new Date().toISOString());
+    if(!existing)db.prepare(`INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,payload_hash,reason,status,created_at)
+      VALUES(?,?,?,'sale',?,?,?,?, 'pending',?)`).run(conflictId,operationId,deviceId,payload.id||operationId,JSON.stringify({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)}),payloadHash,error.message,new Date().toISOString());
     return {status:'conflict',conflictId,reason:'Insufficient stock on the authoritative server. Sale is held for review.'};
   }
   });
@@ -58,7 +58,7 @@ export function resolveSyncConflict(conflictId,{decision,userId}) {
     db.prepare("UPDATE sync_conflicts SET status='resolved',resolved_at=?,resolved_by=? WHERE id=?")
       .run(new Date().toISOString(),userId,conflictId);
     db.prepare('INSERT OR REPLACE INTO sync_receipts(operation_id,device_id,payload_hash,response,created_at) VALUES(?,?,?,?,?)')
-      .run(conflict.operation_id,conflict.device_id,createHash('sha256').update(JSON.stringify(JSON.parse(conflict.payload))).digest('hex'),JSON.stringify(response),new Date().toISOString());
+      .run(conflict.operation_id,conflict.device_id,conflict.payload_hash||createHash('sha256').update(JSON.stringify(JSON.parse(conflict.payload))).digest('hex'),JSON.stringify(response),new Date().toISOString());
     return response;
   });
 }
