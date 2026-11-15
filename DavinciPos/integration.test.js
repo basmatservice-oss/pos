@@ -269,9 +269,8 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
 });
 
 test('reversed journal entries remain in trial balance and net to zero in profit and loss',()=>{
-  const period={from:'2026-11-15',to:'2026-11-15'};
-  const beforeRows=getTrialBalance(period);
-  const beforeProfit=getSimpleReport(period).netProfitMinor;
+  const beforeRows=getTrialBalance();
+  const beforeProfit=getSimpleReport({}).netProfitMinor;
   const entryId=postJournalEntry({
     sourceType:'test-reversal',sourceId:'test-reversal-2026-11-15',
     description:'Reversal reconciliation test',occurredAt:'2026-11-15T12:00:00.000Z',
@@ -280,14 +279,13 @@ test('reversed journal entries remain in trial balance and net to zero in profit
   const reversalId=reverseJournalEntry(entryId,'Integration test');
   assert.ok(reversalId);
   assert.equal(reverseJournalEntry(entryId,'Repeat reversal'),reversalId);
-  const afterRows=getTrialBalance(period);
+  const afterRows=getTrialBalance();
   for(const accountId of ['acc-cash','acc-sales']){
     const before=beforeRows.find(row=>row.accountId===accountId);
     const after=afterRows.find(row=>row.accountId===accountId);
-    assert.equal(after.debitMinor-before.debitMinor,0);
-    assert.equal(after.creditMinor-before.creditMinor,0);
+    assert.equal(after.netDebitMinor-before.netDebitMinor,0);
   }
-  assert.equal(getSimpleReport(period).netProfitMinor,beforeProfit);
+  assert.equal(getSimpleReport({}).netProfitMinor,beforeProfit);
 });
 test('closes integrated-cycle database',()=>{
   db.close();
