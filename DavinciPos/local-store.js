@@ -48,7 +48,7 @@ export class IndexedDbLocalStore{
       request.onsuccess=()=>resolve(request.result);
       request.onerror=()=>reject(request.error||new Error('Unable to open local database.'));
       request.onblocked=()=>reject(new Error('Local database upgrade is blocked by another open DavinciPos tab.'));
-    });
+    }).catch(error=>{this.databasePromise=null;throw error;});
     return this.databasePromise;
   }
   async enqueueSale({deviceId,sale,operationId=this.crypto?.randomUUID?.()}){
@@ -86,12 +86,15 @@ export class IndexedDbLocalStore{
     const updated=await new Promise((resolve,reject)=>{
       const request=store.get(operationId);
       request.onsuccess=()=>{
-        if(!request.result){transaction.abort();reject(new Error('Offline operation not found.'));return;}
-        const next=update(request.result);store.put(next);resolve(next);
+        if(!request.result){resolve(null);return;}
+        try{const next=update(request.result);store.put(next);resolve(next);}
+        catch(error){reject(error);}
       };
       request.onerror=()=>reject(request.error||new Error('Unable to update offline operation.'));
     });
-    await done;return updated;
+    await done;
+    if(!updated)throw new Error('Offline operation not found.');
+    return updated;
   }
   async setMetadata(key,value){
     const database=await this.open(),transaction=database.transaction(METADATA,'readwrite'),done=transactionDone(transaction);
