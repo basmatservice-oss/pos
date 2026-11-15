@@ -406,25 +406,31 @@ export async function renderSaleCheckout(root) {
       root.querySelector('#pos-message').textContent='';await quote();
     });
     root.querySelector('#pos-checkout').addEventListener('click',async()=>{
+      const checkoutButton=root.querySelector('#pos-checkout');
+      if(checkoutButton.disabled)return;
+      checkoutButton.disabled=true;
       try{
         const totals=await quote();if(!totals)return;
         const customerId=root.querySelector('#pos-customer').value||null,amountMinor=Math.round(Number(root.querySelector('#pos-payment-amount').value)*100);
         if(!Number.isSafeInteger(amountMinor)||amountMinor<=0||amountMinor>totals.totalMinor)throw new Error('أدخل مبلغاً صحيحاً لا يتجاوز إجمالي الفاتورة.');
         if(amountMinor<totals.totalMinor&&!customerId)throw new Error('اختر عميلاً لتسجيل المبلغ المتبقي عليه.');
-        const salePayload={lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor}]};
+        const saleId=globalThis.crypto?.randomUUID?.();
+        if(!saleId)throw new Error('تعذر إنشاء معرف آمن للفاتورة. تحقق من اتصال HTTPS المحلي.');
+        const salePayload={id:saleId,occurredAt:new Date().toISOString(),lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor}]};
         let sale;
         try{
           sale=await api('/api/sales/checkout',{method:'POST',body:salePayload});
         }catch(error){
           if(error.status)throw error;
           const deviceId=await (await import('./sync-client.js')).getLocalDeviceId(localStore);
-          await queueOfflineSale({sale:salePayload,deviceId,store:localStore});
-          root.querySelector('#pos-message').textContent='حُفظت الفاتورة محلياً بأمان. ستتم مزامنتها تلقائياً عند عودة الاتصال بالخادم المحلي.';
+          await queueOfflineSale({sale:salePayload,deviceId,store:localStore,operationId:saleId});
+          root.querySelector('#pos-message').textContent='تعذر الوصول إلى الخادم المحلي. حُفظت الفاتورة محلياً بمعرف ثابت لمنع تكرارها عند المزامنة.';
           cart=[];paymentAmountEdited=false;lastQuote=null;await updateSyncStatus();await quote();return;
         }
-        root.querySelector('#pos-message').textContent=`تم تسجيل الفاتورة ${sale.receiptNumber} · الإجمالي ${(sale.totalMinor/100).toLocaleString('ar')}`;
-        cart=[];paymentAmountEdited=false;await quote();
+        root.querySelector('#pos-message').textContent=`تم تسجيل الفاتورة ${sale.receiptNumber||sale.id} · الإجمالي ${((sale.totalMinor??totals.totalMinor)/100).toLocaleString('ar')}`;
+        cart=[];paymentAmountEdited=false;lastQuote=null;await quote();
       }catch(error){root.querySelector('#pos-message').textContent=error.message;}
+      finally{checkoutButton.disabled=false;}
     });
     await quote();
   }catch(error){root.querySelector('#pos-area').textContent=error.message;}
