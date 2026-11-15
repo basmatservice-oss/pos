@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db, inTransaction, getDefaultBranchId } from './database.js';
-import { issueStock, receiveStock } from './inventory.js';
+import { issueStock, receiveStock, restoreFifoAllocation } from './inventory.js';
 import { postJournalEntry } from './accounting.js';
 import { setting } from './settings.js';
 
@@ -103,8 +103,28 @@ export function createSalesReturn(saleId,input={},userId=null){
     for(const detail of details){
       let costMinor=0;
       if(detail.line.track_stock&&detail.baseQuantity>0){
-        const receivedStock=receiveStock({productId:detail.line.item_id,branchId:sale.branchId||getDefaultBranchId(),sourceType:'sale_return',sourceId:id+'-'+detail.line.id,quantity:detail.baseQuantity,unitCostMinor:detail.line.unit_cost_minor,occurredAt:now});
-        costMinor=receivedStock.costTotalMinor;
+        const branchId=sale.branchId||getDefaultBranchId();
+        const layers=db.prepare(`SELECT id,inventory_layer_id AS layerId,quantity,returned_quantity AS returnedQuantity,unit_cost_minor AS unitCostMinor
+          FROM sale_line_cost_layers WHERE sale_line_id=? AND returned_quantity<quantity ORDER BY rowid`).all(detail.line.id);
+        if(layers.length){
+          let remaining=detail.baseQuantity;
+          const allocations=[];
+          for(const layer of layers){
+            if(remaining<=1e-9)break;
+            const available=Number(layer.quantity)-Number(layer.returnedQuantity);
+            const take=Math.min(remaining,available);
+            if(take<=1e-9)continue;
+            db.prepare('UPDATE sale_line_cost_layers SET returned_quantity=returned_quantity+? WHERE id=?').run(take,layer.id);
+            allocations.push({layerId:layer.layerId,quantity:take,unitCostMinor:Number(layer.unitCostMinor)});
+            remaining-=take;
+          }
+          if(remaining>1e-7)throw new Error('FIFO return quantity does not reconcile with the original sale cost layers.');
+          const restored=restoreFifoAllocation({productId:detail.line.item_id,branchId,sourceType:'sale_return',sourceId:id+'-'+detail.line.id,allocations,occurredAt:now});
+          costMinor=restored.costTotalMinor;
+        }else{
+          const receivedStock=receiveStock({productId:detail.line.item_id,branchId,sourceType:'sale_return',sourceId:id+'-'+detail.line.id,quantity:detail.baseQuantity,unitCostMinor:detail.line.unit_cost_minor,occurredAt:now});
+          costMinor=receivedStock.costTotalMinor;
+        }
       }
       restoredCost+=costMinor;
       insert.run(randomUUID(),id,detail.line.id,detail.quantity,detail.baseQuantity,detail.amountMinor,detail.taxMinor,costMinor);
