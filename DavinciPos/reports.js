@@ -27,7 +27,7 @@ export function getSimpleReport({from=null,to=null}={}) {
     - COALESCE((SELECT SUM(srl.amount_minor-srl.tax_minor-srl.cost_minor) FROM sales_return_lines srl
       JOIN sales_returns sr ON sr.id=srl.return_id JOIN sales rs ON rs.id=sr.sale_id
       WHERE ${salesFilter.split(' AND ').map(x=>'rs.'+x).join(' AND ')}),0) AS grossProfitMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}`).get(...params);
+    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}`).get(...params,...params);
   const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
       SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS totalMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
