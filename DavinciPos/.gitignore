@@ -4,3 +4,12 @@ DavinciPos.sqlite-wal
 node_modules/
 .env
 *.log
+
+.env
+lan-cert.pem
+lan-key.pem
+davincipos-local-ca.key
+davincipos-local-ca.crt
+lan-server.csr
+lan-server.ext
+*.srl

@@ -66,3 +66,32 @@ The app is designed for shop owners and everyday staff, not accountants. Users w
 - The server-side sync receipt still binds each operation ID to its originating registered device and payload hash.
 - `sync.test.js` covers the server outbox lifecycle; `local-store.test.js` covers local sale-envelope validation and refuses silent in-memory fallback when IndexedDB is unavailable.
 - This is the storage foundation, not the completed offline checkout: the sales UI still depends on server-loaded catalog/quotes and must be connected to this store, then paired with native SQLite adapters for Electron and Android Capacitor before offline operation can be accepted.
+
+## Local LAN / Wi-Fi deployment (internet is not required)
+
+DavinciPos is a local-network application. When the cashier devices and the host computer are connected to the same Ethernet LAN or Wi-Fi network, sales, stock, reports and central SQLite transactions work through the host even if the router has no WAN/Internet connection. The router/access point only provides local connectivity; it does not need an Internet uplink.
+
+### Host computer
+
+1. Give the host computer a reserved/static LAN address, for example `192.168.1.10`.
+2. From this directory, generate a local CA and a server certificate whose SAN contains the host IP:
+   `LAN_IP=192.168.1.10 LAN_DNS=davincipos.local sh generate-lan-certificate.sh`
+3. Copy `.env.example` to `.env`. Set `HOST=0.0.0.0`, `PORT=3000`, `TLS_CERT_PATH=./lan-cert.pem`, `TLS_KEY_PATH=./lan-key.pem`, and a long one-time bootstrap token.
+4. Start with `npm run start:lan`.
+5. Allow inbound TCP port 3000 in the host firewall for the **Private/local network only**. Do not expose it to the public Internet or configure router port forwarding.
+6. Keep the CA private key and server private key on the host. Never copy either private key to cashier devices.
+
+### Client devices
+
+- Install and trust `davincipos-local-ca.crt` on each managed desktop/Android device, then open `https://192.168.1.10:3000/desktop` or `https://192.168.1.10:3000/mobile`.
+- If using the local DNS name, configure it in the LAN DNS/router and use the matching certificate name.
+- Do not bypass certificate warnings. A trusted HTTPS certificate is required for secure browser features and authenticated LAN access.
+- Register each POS device with its own device identity. Use the same server URL on every device.
+
+### Operating modes and data authority
+
+- **Internet down, LAN up:** fully connected operation continues normally. Every device sends requests to the same local server and central SQLite database; no cloud service is involved.
+- **LAN down for one terminal:** local durable queueing and later synchronization is a separate offline-terminal mode. The IndexedDB outbox currently provides the persistence foundation; the sales screen still needs the complete cached-catalog, local quote, queued checkout and automatic replay integration before this mode is accepted.
+- **Host computer down:** other terminals cannot reach the central database. A separate high-availability/server-recovery design is required; do not allow independent terminals to write competing copies of the central SQLite database.
+
+SQLite must remain on the host machine's local disk. Never place the SQLite database file on a shared SMB/NAS/network folder and let multiple clients open it directly. Clients communicate with the host API over LAN instead.
