@@ -322,6 +322,7 @@ export async function renderSaleCheckout(root) {
       }catch{}
     };
     await updateSyncStatus();
+    window.addEventListener('davincipos-sync-updated',updateSyncStatus);
     const quote=async()=>{
       if(!cart.length){root.querySelector('#pos-cart').textContent='أضف منتجاً للبدء.';return null;}
       let result;
