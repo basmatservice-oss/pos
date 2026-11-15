@@ -3,7 +3,7 @@ project(davincipos_node LANGUAGES CXX)
 
 add_library(node SHARED IMPORTED)
 set_target_properties(node PROPERTIES
-  IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/../../jniLibs/${ANDROID_ABI}/libnode.so"
+  IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libnode.so"
 )
 include_directories("${CMAKE_SOURCE_DIR}/include/node")
 
