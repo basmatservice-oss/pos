@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS purchase_payments (
   id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(id), method TEXT NOT NULL CHECK(method IN ('cash','card','bank','wallet','other')),
   amount_minor INTEGER NOT NULL CHECK(amount_minor>0), reference TEXT, provider TEXT, occurred_at TEXT NOT NULL, direction TEXT NOT NULL DEFAULT 'out' CHECK(direction IN ('out','in'))
 );
+CREATE TABLE IF NOT EXISTS payment_idempotency (
+  idempotency_key TEXT PRIMARY KEY,
+  operation TEXT NOT NULL CHECK(operation IN ('customer_collection','supplier_payment')),
+  entity_id TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY, sale_id TEXT REFERENCES sales(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')),
