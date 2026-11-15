@@ -50,11 +50,12 @@ export function quoteSale(input) {
     lines:sale.lines.map(line=>({itemId:line.itemId,quantity:line.quantity,netMinor:line.netMinor,taxMinor:line.taxMinor,totalMinor:line.totalMinor,taxRateBps:line.taxRateBps,taxPriceMode:line.taxPriceMode}))};
 }
 export function checkoutSale(input) {
-  const sale=prepareSale(input);
-  const {saleId,now,branchId,currencyCode,priceMode,taxEnabled,costMethod,lines,subtotal,taxTotal,total,payments,paid}=sale;
+  const saleId=input?.id||randomUUID();
   return inTransaction(()=>{
-    const existing=db.prepare('SELECT id FROM sales WHERE id=?').get(saleId);
-    if(existing)return {id:saleId,duplicate:true};
+    const existing=db.prepare('SELECT id,receipt_number AS receiptNumber,subtotal_minor AS subtotalMinor,tax_minor AS taxMinor,total_minor AS totalMinor FROM sales WHERE id=?').get(saleId);
+    if(existing)return {...existing,duplicate:true};
+    const sale=prepareSale({...input,id:saleId});
+    const {now,branchId,currencyCode,priceMode,taxEnabled,costMethod,lines,subtotal,taxTotal,total,payments,paid}=sale;
     const receipt=input.receiptNumber||`S-${Date.now()}-${saleId.slice(0,6).toUpperCase()}`;
     db.prepare(`INSERT INTO sales(id,receipt_number,branch_id,device_id,customer_id,cashier_id,status,subtotal_minor,discount_minor,tax_minor,total_minor,currency_code,occurred_at,created_at,tax_enabled,tax_price_mode)
       VALUES(?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)`).run(saleId,receipt,branchId,input.deviceId||null,input.customerId||null,input.cashierId||null,subtotal,lines.reduce((sum,line)=>sum+line.discountMinor,0),taxTotal,total,currencyCode,now,new Date().toISOString(),taxEnabled?1:0,priceMode);
