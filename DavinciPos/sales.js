@@ -62,15 +62,21 @@ export function checkoutSale(input) {
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const journalLines=[],paidByMethod=new Map();let costTotal=0;
     for(const line of lines){
-      let lineCost=0;
+      let lineCost=0,lineAllocations=[];
+      const saleLineId=randomUUID();
       if(line.lineType==='service'){
         for(const component of line.components||[]){const issue=issueStock({productId:component.productId,branchId,sourceType:'service_sale',sourceId:saleId,quantity:component.quantity*line.quantity,costMethod,occurredAt:now});lineCost+=issue.costTotalMinor;}
       }else if(line.trackStock!==false){
-        const issue=issueStock({productId:line.itemId,branchId,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});lineCost=issue.costTotalMinor;
+        const issue=issueStock({productId:line.itemId,branchId,sourceType:'sale',sourceId:saleId,quantity:line.baseQuantity,costMethod,occurredAt:now});
+        lineCost=issue.costTotalMinor;lineAllocations=issue.allocations||[];
       }
       costTotal+=lineCost;
       const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):line.quantity>0?Math.round(lineCost/line.quantity):0;
-      insertLine.run(randomUUID(),saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
+      insertLine.run(saleLineId,saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
+      if(lineAllocations.length){
+        const insertAllocation=db.prepare('INSERT INTO sale_line_cost_layers(id,sale_line_id,inventory_layer_id,quantity,unit_cost_minor) VALUES(?,?,?,?,?)');
+        for(const allocation of lineAllocations)insertAllocation.run(randomUUID(),saleLineId,allocation.layerId,allocation.quantity,allocation.unitCostMinor);
+      }
     }
     for(const payment of payments){
       db.prepare("INSERT INTO payments(id,sale_id,direction,method,amount_minor,reference,provider,occurred_at) VALUES(?,?,'in',?,?,?,?,?)")
