@@ -135,8 +135,9 @@ test('disabling tax removes purchase tax without changing server accounting bala
   assert.equal(purchase.taxMinor,0);
   assert.equal(purchase.totalMinor,1000);
 });
-test('inventory adjustments update stock and generate balanced journal entries',()=>{
+test('inventory adjustments update stock and are included in ledger-based net profit',()=>{
   product('adjustment-product');
+  const before=getSimpleReport({});
   const added=adjustInventory({id:'adjustment-add',productId:'adjustment-product',branchId:'branch-main',quantityDelta:5,unitCostMinor:100,reason:'Opening count'});
   assert.equal(added.duplicate,false);
   assert.equal(getStockOnHand('adjustment-product','branch-main'),5);
@@ -144,6 +145,10 @@ test('inventory adjustments update stock and generate balanced journal entries',
   assert.equal(removed.costTotalMinor,200);
   assert.equal(getStockOnHand('adjustment-product','branch-main'),3);
   assert.equal(adjustInventory({id:'adjustment-remove',productId:'adjustment-product',branchId:'branch-main',quantityDelta:-2}).duplicate,true);
+  const after=getSimpleReport({});
+  assert.equal(after.otherIncomeMinor-before.otherIncomeMinor,500);
+  assert.equal(after.expensesTotalMinor-before.expensesTotalMinor,200);
+  assert.equal(after.netProfitMinor-before.netProfitMinor,300);
   const rows=getTrialBalance();
   assert.equal(rows.reduce((sum,row)=>sum+row.debitMinor,0),rows.reduce((sum,row)=>sum+row.creditMinor,0));
 });
