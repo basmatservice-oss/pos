@@ -404,7 +404,7 @@ export async function renderSaleCheckout(root) {
           const deviceId=await (await import('./sync-client.js')).getLocalDeviceId(localStore);
           await queueOfflineSale({sale:salePayload,deviceId,store:localStore});
           root.querySelector('#pos-message').textContent='حُفظت الفاتورة محلياً بأمان. ستتم مزامنتها تلقائياً عند عودة الاتصال بالخادم المحلي.';
-          cart=[];paymentAmountEdited=false;lastQuote=null;await quote();return;
+          cart=[];paymentAmountEdited=false;lastQuote=null;await updateSyncStatus();await quote();return;
         }
         root.querySelector('#pos-message').textContent=`تم تسجيل الفاتورة ${sale.receiptNumber} · الإجمالي ${(sale.totalMinor/100).toLocaleString('ar')}`;
         cart=[];paymentAmountEdited=false;await quote();
