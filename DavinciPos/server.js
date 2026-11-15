@@ -118,7 +118,7 @@ app.post('/api/sync/offline-sales',...api('sales.create',(req,res)=>{
   try{res.status(202).json({data:acceptOfflineSale({operationId:req.body?.operationId,deviceId:req.body?.deviceId,payload:req.body?.sale,userId:req.user.id})});}
   catch(error){res.status(400).json({error:error.message});}
 }));
-app.get('/api/sync/offline-sales/:operationId/status',...api('sales.read',(req,res)=>{
+app.get('/api/sync/offline-sales/:operationId/status',...api('sales.create',(req,res)=>{
   try{res.json({data:getOfflineSaleStatus({operationId:req.params.operationId,deviceId:req.query.deviceId,userId:req.user.id})});}
   catch(error){res.status(400).json({error:error.message});}
 }));
