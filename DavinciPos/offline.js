@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID,createHash } from 'node:crypto';
 import { db, inTransaction } from './database.js';
 import { checkoutSale } from './sales.js';
 import { setting } from './settings.js';
@@ -11,9 +11,11 @@ export function acceptOfflineSale(args) {
   const device=db.prepare('SELECT id,branch_id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
   if(!device) throw new Error('Device is not registered to this user. Register this device before syncing.');
   db.prepare('UPDATE devices SET last_seen_at=? WHERE id=?').run(new Date().toISOString(),deviceId);
-  const prior=db.prepare('SELECT device_id,response FROM sync_receipts WHERE operation_id=?').get(operationId);
+  const payloadHash=createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  const prior=db.prepare('SELECT device_id,payload_hash,response FROM sync_receipts WHERE operation_id=?').get(operationId);
   if(prior){
     if(prior.device_id!==deviceId)throw new Error('Offline operation ID is already assigned to another device.');
+    if(prior.payload_hash&&prior.payload_hash!==payloadHash)throw new Error('Offline operation ID was reused with a different payload.');
     return JSON.parse(prior.response);
   }
   const role=db.prepare('SELECT role FROM users WHERE id=?').get(userId)?.role;
@@ -21,7 +23,7 @@ export function acceptOfflineSale(args) {
   try {
     const result=checkoutSale({...payload,deviceId,cashierId:userId,branchId:device.branch_id,allowCredit:Boolean(allowCredit)});
     const response={status:'accepted',sale:result};
-    db.prepare('INSERT INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)').run(operationId,deviceId,JSON.stringify(response),new Date().toISOString());
+    db.prepare('INSERT INTO sync_receipts(operation_id,device_id,payload_hash,response,created_at) VALUES(?,?,?,?,?)').run(operationId,deviceId,payloadHash,JSON.stringify(response),new Date().toISOString());
     return response;
   } catch(error) {
     if(!/Insufficient stock/.test(error.message)) throw error;
@@ -55,8 +57,8 @@ export function resolveSyncConflict(conflictId,{decision,userId}) {
     } else throw new Error('Decision must be retry or reject.');
     db.prepare("UPDATE sync_conflicts SET status='resolved',resolved_at=?,resolved_by=? WHERE id=?")
       .run(new Date().toISOString(),userId,conflictId);
-    db.prepare('INSERT OR REPLACE INTO sync_receipts(operation_id,device_id,response,created_at) VALUES(?,?,?,?)')
-      .run(conflict.operation_id,conflict.device_id,JSON.stringify(response),new Date().toISOString());
+    db.prepare('INSERT OR REPLACE INTO sync_receipts(operation_id,device_id,payload_hash,response,created_at) VALUES(?,?,?,?,?)')
+      .run(conflict.operation_id,conflict.device_id,createHash('sha256').update(JSON.stringify(JSON.parse(conflict.payload))).digest('hex'),JSON.stringify(response),new Date().toISOString());
     return response;
   });
 }
