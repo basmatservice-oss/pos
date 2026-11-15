@@ -57,7 +57,7 @@ export async function synchronizePendingSales({api,store=localStore,deviceId=nul
       else await store.acknowledge(operation.operationId,response);
       results.push({operationId:operation.operationId,status:response.status||'accepted'});
     }catch(error){
-      if(Number(error.status)>=400&&Number(error.status)<500&&error.status!==408&&error.status!==429){
+      if(Number(error.status)>=400&&Number(error.status)<500&&!([401,403,408,429].includes(Number(error.status)))){
         await store.rejectOperation(operation.operationId,{reason:error.message,statusCode:error.status});
         results.push({operationId:operation.operationId,status:'rejected',error:error.message});
         continue;
