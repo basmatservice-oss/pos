@@ -28,13 +28,17 @@ export function getSimpleReport({from=null,to=null}={}) {
     - COALESCE((SELECT SUM(srl.amount_minor-srl.tax_minor-srl.cost_minor) FROM sales_return_lines srl
       JOIN sales_returns sr ON sr.id=srl.return_id WHERE ${returnAliasFilter}),0) AS grossProfitMinor
     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}`).get(...params,...params);
-  const topProducts=db.prepare(`SELECT sl.description AS name,SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
-      SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS totalMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
-    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor
+  const topProducts=db.prepare(`SELECT name,SUM(quantity)-SUM(returnQuantity) AS quantity,
+      SUM(netMinor)-SUM(returnNetMinor) AS totalMinor FROM (
+      SELECT sl.description AS name,sl.quantity AS quantity,0 AS returnQuantity,
+        sl.line_total_minor-sl.tax_minor AS netMinor,0 AS returnNetMinor
+      FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE ${salesAliasFilter}
+      UNION ALL
+      SELECT sl.description AS name,0 AS quantity,srl.quantity AS returnQuantity,
+        0 AS netMinor,srl.amount_minor-srl.tax_minor AS returnNetMinor
       FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
-      WHERE ${returnAliasFilter} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
-    WHERE ${salesAliasFilter} GROUP BY sl.item_id,sl.description ORDER BY totalMinor DESC LIMIT 5`).all(...params,...params);
+      JOIN sale_lines sl ON sl.id=srl.sale_line_id WHERE ${returnAliasFilter}
+    ) activity GROUP BY name ORDER BY totalMinor DESC LIMIT 5`).all(...params,...params);
   const lowStock=db.prepare(`SELECT p.id,p.name,COALESCE(SUM(sm.quantity_delta),0) AS quantity,p.min_stock AS minStock
     FROM products p LEFT JOIN stock_movements sm ON sm.product_id=p.id
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
