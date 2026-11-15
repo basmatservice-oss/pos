@@ -131,6 +131,15 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   const purchaseInvoices=getDetailedReport({type:'purchase-invoices'}).rows;
   assert.equal(purchaseInvoices.find(row=>row.reference===purchase.invoiceNumber).dueMinor,5000);
 
+  const salesProducts=getDetailedReport({type:'sales-products'}).rows;
+  assert.equal(salesProducts.find(row=>row.itemId===productId).quantity,2);
+  assert.equal(salesProducts.find(row=>row.itemId===productId).netSalesMinor,6000);
+  assert.equal(salesProducts.find(row=>row.itemId===productId).costMinor,2000);
+  assert.equal(salesProducts.find(row=>row.itemId===productId).profitMinor,4000);
+  const purchaseProducts=getDetailedReport({type:'purchase-products'}).rows;
+  assert.equal(purchaseProducts.find(row=>row.productId===productId).quantity,7);
+  assert.equal(purchaseProducts.find(row=>row.productId===productId).netCostMinor,7000);
+
   const salesPayments=getDetailedReport({type:'sales-payments'}).rows;
   assert.equal(salesPayments.filter(row=>row.direction==='in').reduce((sum,row)=>sum+row.totalMinor,0),7000);
   assert.equal(salesPayments.filter(row=>row.direction==='out').reduce((sum,row)=>sum+row.totalMinor,0),6000);
