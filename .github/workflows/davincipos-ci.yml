@@ -22,7 +22,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install --no-package-lock
+          node-version: 24
+      - run: node -e "if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node.js 22+ required')"
+      - run: npm install --no-audit --no-fund
       - run: npm run check
-      - run: npm test
+      - run: node --input-type=module -e "import Database from 'better-sqlite3'; const db = new Database(':memory:'); db.exec('CREATE TABLE smoke (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO smoke(value) VALUES (\'sqlite-ok\')'); if (db.prepare('SELECT value FROM smoke').get()?.value !== 'sqlite-ok') throw new Error('SQLite smoke test failed'); db.close(); console.log('SQLite native binding OK')"
+      - run: npm test -- --test-concurrency=1
