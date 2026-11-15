@@ -46,6 +46,9 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to sign the DavinciPos server certifica
 
 Import-Certificate -FilePath $caCert -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
 
+$account = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+icacls $certDir /inheritance:r /grant:r "$($account):(OI)(CI)F" | Out-Null
+
 $config = @{
     enabled = $true
     hostIp = $LanIp
