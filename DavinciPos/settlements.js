@@ -16,7 +16,7 @@ function paymentReplay(operation,entityId,payment) {
   if(typeof key!=='string'||key.length>200||key.trim()!==key||!key)throw new Error('Invalid idempotency key.');
   const payloadHash=createHash('sha256').update(JSON.stringify({
     amountMinor:payment.amountMinor,method:payment.method,provider:payment.provider,
-    reference:payment.reference
+    reference:payment.reference,occurredAt:payment.requestedOccurredAt
   })).digest('hex');
   const existing=db.prepare('SELECT operation,entity_id,payload_hash,response_json FROM payment_idempotency WHERE idempotency_key=?').get(key);
   if(!existing)return {key,payloadHash};
@@ -38,7 +38,7 @@ function validatePayment(input) {
   if(provider&&!walletProviders.has(provider))throw new Error('Unsupported wallet provider.');
   if(method==='wallet'&&!provider)throw new Error('Select a supported wallet provider.');
   if(method!=='wallet'&&provider)throw new Error('A wallet provider is only valid for wallet payments.');
-  return {amountMinor,method,provider,reference:input.reference||null,occurredAt:input.occurredAt||new Date().toISOString(),idempotencyKey:input.idempotencyKey||null};
+  return {amountMinor,method,provider,reference:input.reference||null,occurredAt:input.occurredAt||new Date().toISOString(),idempotencyKey:input.idempotencyKey||null,requestedOccurredAt:input.occurredAt||null};
 }
 
 export function recordCustomerPayment(saleId,input,actorUserId=null) {
