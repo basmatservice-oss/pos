@@ -256,7 +256,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
 CREATE TABLE IF NOT EXISTS sync_conflicts (
   id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, device_id TEXT NOT NULL,
-  entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, payload TEXT NOT NULL,
+  entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT,
   reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','rejected')),
   created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT REFERENCES users(id)
 );
