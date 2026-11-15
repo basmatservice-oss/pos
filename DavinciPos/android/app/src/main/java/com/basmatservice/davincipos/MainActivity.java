@@ -287,8 +287,7 @@ public class MainActivity extends Activity {
         if (webView != null && remoteMode) {
             remoteMode = false;
             webView.loadUrl(BASE_URL + "/mobile");
-        } else if (webView != null && webView.canGoBack()) webView.goBack();
-        else if (webView != null) showRemoteServerDialog();
+        } else if (webView != null) showRemoteServerDialog();
         else super.onBackPressed();
     }
 }
