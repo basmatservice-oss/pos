@@ -34,7 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 
 public class MainActivity extends Activity {
-    private static final String BASE_URL = "http://127.0.0.1:3187";
+    private static final String BASE_URL = "http://localhost:3187";
     private static boolean nodeStarted = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView webView;
