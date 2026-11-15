@@ -138,6 +138,15 @@ CREATE TABLE IF NOT EXISTS inventory_layers (
   unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0), received_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_layers_fifo ON inventory_layers(product_id, branch_id, received_at, id);
+CREATE TABLE IF NOT EXISTS sale_line_cost_layers (
+  id TEXT PRIMARY KEY,
+  sale_line_id TEXT NOT NULL REFERENCES sale_lines(id),
+  inventory_layer_id TEXT NOT NULL REFERENCES inventory_layers(id),
+  quantity REAL NOT NULL CHECK(quantity>0),
+  returned_quantity REAL NOT NULL DEFAULT 0 CHECK(returned_quantity>=0 AND returned_quantity<=quantity),
+  unit_cost_minor REAL NOT NULL CHECK(unit_cost_minor>=0)
+);
+CREATE INDEX IF NOT EXISTS idx_sale_line_cost_layers_line ON sale_line_cost_layers(sale_line_id);
 CREATE TABLE IF NOT EXISTS tax_profiles (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),
   price_mode TEXT NOT NULL CHECK (price_mode IN ('inclusive','exclusive')), is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
