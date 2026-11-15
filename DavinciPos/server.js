@@ -204,7 +204,7 @@ app.get('/api/summary',...api('dashboard.read',(_req,res)=>{
 app.get('/service-worker.js',(_req,res)=>{res.setHeader('Service-Worker-Allowed','/');res.sendFile(path.join(ROOT,'service-worker.js'));});
 app.get('/desktop',(_req,res)=>res.sendFile(path.join(ROOT,'desktop.html')));
 app.get('/mobile',(_req,res)=>res.sendFile(path.join(ROOT,'mobile.html')));
-const publicAssets=new Set(['desktop.css','desktop.js','mobile.css','mobile.js','client.js']);
+const publicAssets=new Set(['desktop.css','desktop.js','mobile.css','mobile.js','client.js','sync-client.js','local-store.js','offline-quote.js','sale-id.js']);
 app.get('/assets/:asset',(req,res)=>{if(!publicAssets.has(req.params.asset))return res.sendStatus(404);res.sendFile(path.join(ROOT,req.params.asset));});
 app.use((error,_req,res,_next)=>{res.status(500).json({error:'Internal server error.'});});
 
