@@ -236,7 +236,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(taxOnInvoiceDate.returns,0);
   const taxOnReturnDate=getDetailedReport({type:'tax-summary',from:'2026-11-15',to:'2026-11-15'}).rows[0];
   assert.equal(taxOnReturnDate.collectedTaxMinor,-300);
-  assert.equal(taxOnReturnDate.returns,1);
+  assert.equal(taxOnReturnDate.returns,3); // Includes the two earlier sales returns plus this taxable return.
   assertLedgerBalanced();
 });
 
