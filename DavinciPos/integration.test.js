@@ -20,7 +20,10 @@ const {saveTaxProfile}=await import('./tax.js');
 
 initializeDatabase();
 updateSettings({'tax.enabled':false});
-assert.throws(()=>getSimpleReport({from:'2026-02-31'}),/Invalid report date/);
+
+test('rejects impossible calendar dates in financial reports',()=>{
+  assert.throws(()=>getSimpleReport({from:'2026-02-31'}),/Invalid report date/);
+});
 
 function assertLedgerBalanced({from=null,to=null}={}){
   const rows=getTrialBalance({from,to});
