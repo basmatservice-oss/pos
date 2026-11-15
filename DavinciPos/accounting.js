@@ -34,13 +34,11 @@ export function postJournalEntry({ sourceType, sourceId, description, occurredAt
 }
 
 function trialBalanceDateFilter(value,{end=false}={}) {
-  if(/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const date=new Date(value+'T00:00:00Z');
-    if(Number.isNaN(date.getTime())||date.toISOString().slice(0,10)!==value) throw new Error('Invalid trial balance date.');
-    if(end) date.setUTCDate(date.getUTCDate()+1);
-    return {sql:end?'je.occurred_at<?':'je.occurred_at>=?',value:date.toISOString().slice(0,10)+'T00:00:00'};
-  }
-  return {sql:end?'je.occurred_at<=?':'je.occurred_at>=?',value};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Invalid trial balance date.');
+  const date=new Date(value+'T00:00:00Z');
+  if(Number.isNaN(date.getTime())||date.toISOString().slice(0,10)!==value) throw new Error('Invalid trial balance date.');
+  if(end) date.setUTCDate(date.getUTCDate()+1);
+  return {sql:end?'je.occurred_at<?':'je.occurred_at>=?',value:date.toISOString().slice(0,10)+'T00:00:00'};
 }
 
 export function getTrialBalance({from=null,to=null}={}) {
