@@ -17,18 +17,28 @@ async function refreshLocalPosSnapshot(){
   return cachePosSnapshot({products,customers,services,settings,taxProfiles,productUnits},localStore);
 }
 let onlineSyncHookInstalled=false;
+let backgroundSyncInProgress=false;
+async function attemptBackgroundSync(){
+  if(backgroundSyncInProgress||!sessionStorage.getItem(TOKEN_KEY))return;
+  backgroundSyncInProgress=true;
+  try{
+    await api('/api/auth/me');
+    const deviceId=await registerLocalDevice(api);
+    await synchronizePendingSales({api,deviceId});
+  }catch{}
+  finally{backgroundSyncInProgress=false;}
+}
 function installOnlineSyncHook(){
   if(onlineSyncHookInstalled||typeof window==='undefined')return;
   onlineSyncHookInstalled=true;
-  window.addEventListener('online',async()=>{
-    if(!sessionStorage.getItem(TOKEN_KEY))return;
-    try{
-      await api('/api/auth/me');
-      const deviceId=await registerLocalDevice(api);
-      await refreshLocalPosSnapshot();
-      await synchronizePendingSales({api,deviceId});
-    }catch{}
+  // navigator.onLine can remain true while the local POS host is unreachable.
+  // Retry the authenticated host connection periodically and on user return.
+  window.addEventListener('online',attemptBackgroundSync);
+  window.addEventListener('focus',attemptBackgroundSync);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible')attemptBackgroundSync();
   });
+  window.setInterval(attemptBackgroundSync,20000);
 }
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 export async function ensureSession() {
