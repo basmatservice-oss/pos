@@ -21,7 +21,17 @@ export function getSimpleReport({from=null,to=null}={}) {
   const expenseWhere=[],expenseParams=[];
   if(from){expenseWhere.push('occurred_at>=?');expenseParams.push(from+'T00:00:00');}
   if(to){expenseWhere.push('occurred_at<?');expenseParams.push(nextDate(to)+'T00:00:00');}
-  const expenses=db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS totalMinor FROM expenses ${expenseWhere.length?'WHERE '+expenseWhere.join(' AND '):''}`).get(...expenseParams);
+  const profitAndLoss=db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN a.id IN ('acc-sales','acc-sales-returns') THEN jl.credit_minor-jl.debit_minor ELSE 0 END),0) AS ledgerSalesMinor,
+    COALESCE(SUM(CASE WHEN a.id='acc-cogs' THEN jl.debit_minor-jl.credit_minor ELSE 0 END),0) AS cogsMinor,
+    COALESCE(SUM(CASE WHEN a.account_type='expense' AND a.id!='acc-cogs' THEN jl.debit_minor-jl.credit_minor ELSE 0 END),0) AS expensesTotalMinor,
+    COALESCE(SUM(CASE WHEN a.account_type='revenue' AND a.id NOT IN ('acc-sales','acc-sales-returns') THEN jl.credit_minor-jl.debit_minor ELSE 0 END),0) AS otherIncomeMinor,
+    COALESCE(SUM(CASE WHEN a.account_type='revenue' THEN jl.credit_minor-jl.debit_minor
+      WHEN a.account_type='expense' THEN jl.credit_minor-jl.debit_minor ELSE 0 END),0) AS netProfitMinor
+    FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+    JOIN accounts a ON a.id=jl.account_id
+    WHERE je.status='posted' ${from?'AND je.occurred_at>=?':''} ${to?'AND je.occurred_at<?':''}`)
+    .get(...expenseParams);
   const salesAliasFilter=salesFilter.split(' AND ').map(x=>'s.'+x).join(' AND ');
   const returnAliasFilter=returnsFilter.split(' AND ').filter(x=>x!=='1=1').map(x=>'sr.'+x).join(' AND ')||'1=1';
   const profit=db.prepare(`SELECT COALESCE(SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor),0)
@@ -44,11 +54,13 @@ export function getSimpleReport({from=null,to=null}={}) {
     WHERE p.is_active=1 AND p.track_stock=1 GROUP BY p.id
     HAVING quantity<=p.min_stock ORDER BY quantity ASC,p.name LIMIT 20`).all();
   const salesTotalMinor=sales.totalMinor-salesReturns.totalMinor;
-  const expensesTotalMinor=expenses.totalMinor;
-  const grossProfitMinor=profit.grossProfitMinor;
+  const expensesTotalMinor=profitAndLoss.expensesTotalMinor;
+  const grossProfitMinor=profitAndLoss.ledgerSalesMinor-profitAndLoss.cogsMinor;
   return {from,to,salesCount:sales.count,salesTotalMinor,salesTaxMinor:sales.taxMinor-salesReturns.taxMinor,
     purchasesCount:purchases.count,purchasesTotalMinor:purchases.totalMinor-purchaseReturns.totalMinor,
-    grossProfitMinor,expensesTotalMinor,netProfitMinor:grossProfitMinor-expensesTotalMinor,topProducts,lowStock};
+    ledgerSalesMinor:profitAndLoss.ledgerSalesMinor,cogsMinor:profitAndLoss.cogsMinor,
+    grossProfitMinor,otherIncomeMinor:profitAndLoss.otherIncomeMinor,expensesTotalMinor,
+    netProfitMinor:profitAndLoss.netProfitMinor,topProducts,lowStock};
 }
 
 const REPORTS = {
