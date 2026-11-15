@@ -238,7 +238,7 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
     const filter=buildDateFilter(alias,from,to);
     rows=db.prepare(template.replaceAll('{{where}}',filter.sql)).all(...filter.params);
   }
-  const totalMinor=rows.reduce((sum,row)=>sum+Number(row.totalMinor??row.netSalesMinor??row.netCostMinor??row.amountMinor??row.collectedTaxMinor??0),0);
+  const totalMinor=rows.reduce((sum,row)=>sum+Number(row.totalMinor??row.netSalesMinor??row.netCostMinor??row.amountMinor??row.netTaxMinor??row.collectedTaxMinor??0),0);
   return {type,from,to,count:rows.length,totalMinor,rows};
 }
 
