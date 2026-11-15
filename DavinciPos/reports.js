@@ -124,7 +124,7 @@ const REPORTS = {
       FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
       WHERE pu.status!='void' AND {{salesWhere}}
       UNION ALL
-      SELECT pr.id AS productId,pr.name,-prl.quantity AS quantity,-prl.amount_minor AS netCostMinor,-prl.tax_minor AS taxMinor
+      SELECT pr.id AS productId,pr.name,-prl.quantity AS quantity,-(prl.amount_minor-prl.tax_minor) AS netCostMinor,-prl.tax_minor AS taxMinor
       FROM purchase_return_lines prl JOIN purchase_returns rr ON rr.id=prl.return_id
       JOIN purchase_lines pl ON pl.id=prl.purchase_line_id JOIN products pr ON pr.id=pl.product_id
       WHERE {{returnWhere}}
@@ -134,7 +134,7 @@ const REPORTS = {
       FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
       LEFT JOIN categories c ON c.id=pr.category_id WHERE pu.status!='void' AND {{salesWhere}}
       UNION ALL
-      SELECT COALESCE(c.name,'بدون تصنيف') AS category,-prl.quantity AS quantity,-prl.amount_minor AS netCostMinor,-prl.tax_minor AS taxMinor
+      SELECT COALESCE(c.name,'بدون تصنيف') AS category,-prl.quantity AS quantity,-(prl.amount_minor-prl.tax_minor) AS netCostMinor,-prl.tax_minor AS taxMinor
       FROM purchase_return_lines prl JOIN purchase_returns rr ON rr.id=prl.return_id
       JOIN purchase_lines pl ON pl.id=prl.purchase_line_id JOIN products pr ON pr.id=pl.product_id
       LEFT JOIN categories c ON c.id=pr.category_id WHERE {{returnWhere}}
@@ -149,8 +149,14 @@ const REPORTS = {
   'stock-movements': `SELECT sm.occurred_at AS occurredAt,p.name AS product,sm.source_type AS source,
     sm.source_id AS reference,sm.quantity_delta AS quantityDelta,sm.unit_cost_minor AS unitCostMinor,sm.cost_total_minor AS costTotalMinor
     FROM stock_movements sm JOIN products p ON p.id=sm.product_id WHERE {{where}} ORDER BY sm.occurred_at DESC`,
-  'tax-summary': `SELECT s.currency_code AS currency,SUM(s.tax_minor-COALESCE((SELECT SUM(sr.tax_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS collectedTaxMinor,COUNT(*) AS invoices
-    FROM sales s WHERE s.status!='void' AND {{where}} GROUP BY s.currency_code`,
+  'tax-summary': `SELECT currency,SUM(taxMinor) AS collectedTaxMinor,SUM(invoices) AS invoices,SUM(returns) AS returns
+    FROM (
+      SELECT s.currency_code AS currency,SUM(s.tax_minor) AS taxMinor,COUNT(*) AS invoices,0 AS returns
+      FROM sales s WHERE s.status!='void' AND {{salesWhere}} GROUP BY s.currency_code
+      UNION ALL
+      SELECT s.currency_code AS currency,-SUM(sr.tax_minor) AS taxMinor,0 AS invoices,COUNT(*) AS returns
+      FROM sales_returns sr JOIN sales s ON s.id=sr.sale_id WHERE {{returnWhere}} GROUP BY s.currency_code
+    ) taxActivity GROUP BY currency`,
   'cash-movements': `SELECT occurredAt,source,reference,method,provider,direction,amountMinor FROM (
     SELECT p.occurred_at AS occurredAt,CASE WHEN p.direction='out' THEN 'مرتجع بيع' ELSE 'بيع' END AS source,s.receipt_number AS reference,p.method,p.provider,p.direction,p.amount_minor AS amountMinor
     FROM payments p JOIN sales s ON s.id=p.sale_id WHERE s.status!='void'
@@ -187,7 +193,7 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   } else if(type==='cash-movements') {
     const filter={sql:(from?'x.occurredAt>=? AND ':'')+(to?'x.occurredAt<?':'1=1'),params:[...(from?[from+'T00:00:00']:[]),...(to?[nextDate(to)+'T00:00:00']:[])]};
     rows=db.prepare(template.replace('{{where}}',filter.sql)).all(...filter.params);
-  } else if(type==='sales-daily') {
+  } else if(type==='sales-daily'||type==='tax-summary') {
     const salesFilter=buildDateFilter('s',from,to),returnFilter=buildDateFilter('sr',from,to);
     rows=db.prepare(template.replace('{{salesWhere}}',salesFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
       .all(...salesFilter.params,...returnFilter.params);
