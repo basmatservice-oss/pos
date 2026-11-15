@@ -421,7 +421,7 @@ export async function renderSaleCheckout(root) {
         try{
           sale=await api('/api/sales/checkout',{method:'POST',body:salePayload});
         }catch(error){
-          if(error.status)throw error;
+          if(error.status&&error.status<500&&![408,429].includes(Number(error.status)))throw error;
           const deviceId=await (await import('./sync-client.js')).getLocalDeviceId(localStore);
           await queueOfflineSale({sale:salePayload,deviceId,store:localStore,operationId:saleId});
           root.querySelector('#pos-message').textContent='تعذر الوصول إلى الخادم المحلي. حُفظت الفاتورة محلياً بمعرف ثابت لمنع تكرارها عند المزامنة.';
