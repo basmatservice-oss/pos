@@ -1,15 +1,32 @@
+import {localStore} from './sync-client.js';
+import {registerLocalDevice,synchronizePendingSales,loadPosSnapshot,cachePosSnapshot,queueOfflineSale} from './sync-client.js';
 const TOKEN_KEY='davincipos-session-token';
 export async function api(path,{method='GET',body,headers={}}={}) {
   const token=sessionStorage.getItem(TOKEN_KEY);
   const response=await fetch(path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{}),...headers},body:body?JSON.stringify(body):undefined});
   const result=await response.json().catch(()=>({}));
-  if(!response.ok)throw new Error(result.error||'Request failed.');
+  if(!response.ok){const error=new Error(result.error||'Request failed.');error.status=response.status;throw error;}
   return result.data;
 }
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 export async function ensureSession() {
   if(sessionStorage.getItem(TOKEN_KEY)) {
-    try{await api('/api/auth/me');return true;}catch{sessionStorage.removeItem(TOKEN_KEY);}
+    try{
+      await api('/api/auth/me');
+      try{
+        const deviceId=await registerLocalDevice(api);
+        await synchronizePendingSales({api,deviceId});
+        window.addEventListener('online',async()=>{try{const id=await registerLocalDevice(api);await synchronizePendingSales({api,deviceId:id});}catch{}});
+      }catch{}
+      return true;
+    }catch(error){
+      if(!error.status){
+        const snapshot=await loadPosSnapshot(localStore).catch(()=>null);
+        if(snapshot)return true;
+        return false;
+      }
+      sessionStorage.removeItem(TOKEN_KEY);
+    }
   }
   const health=await fetch('/api/health').then(r=>r.json());
   const overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;z-index:9999;background:#101827ee;display:grid;place-items:center;padding:20px;font-family:inherit';
@@ -256,13 +273,33 @@ export async function renderReports(root) {
 export async function renderSaleCheckout(root) {
   root.innerHTML='<section class="panel"><h2>نقطة البيع</h2><div id="pos-area">جارٍ التحميل...</div></section>';
   try{
-    const [products,customers,services]=await Promise.all([api('/api/products'),api('/api/customers'),api('/api/services')]);
+    let products,customers,services;
+    try{
+      [products,customers,services]=await Promise.all([api('/api/products'),api('/api/customers'),api('/api/services')]);
+      await cachePosSnapshot({products,customers,services},localStore);
+    }catch(error){
+      const snapshot=await loadPosSnapshot(localStore);
+      if(!snapshot)throw error;
+      ({products,customers,services}=snapshot);
+    }
     const saleItems=[...products,...services.filter(s=>s.isActive).map(s=>({id:s.id,name:s.name,salePriceMinor:s.priceMinor,stockOnHand:0,trackStock:false,baseUnitSymbol:'خدمة',lineType:'service'}))];
-    let cart=[],paymentAmountEdited=false;
+    let cart=[],paymentAmountEdited=false,lastQuote=null;
     root.querySelector('#pos-area').innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input id="pos-barcode" placeholder="امسح الباركود ثم اضغط Enter" autocomplete="off" style="flex:1;min-width:190px"><button type="button" id="pos-camera">مسح بكاميرا الهاتف</button><span id="pos-scan-status" role="status"></span><video id="pos-camera-video" playsinline muted hidden style="width:100%;max-width:360px"></video></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px"><label>المنتج<select id="pos-product">${saleItems.map(p=>`<option value="${p.id}" data-line-type="${p.lineType||'product'}">${escapeHtml(p.name)} · ${(p.salePriceMinor/100).toLocaleString('ar')} · ${p.lineType==='service'?'خدمة':'الرصيد '+Number(p.stockOnHand).toLocaleString('ar')}</option>`).join('')}</select></label><label>وحدة البيع<select id="pos-unit"><option value="" data-base-quantity="1">الوحدة الأساسية</option></select></label><label>الكمية<input id="pos-quantity" type="number" min="0.001" step="0.001" value="1"></label></div><button id="pos-add" class="primary-button" style="margin-top:12px">إضافة إلى الفاتورة</button><div id="pos-cart" style="margin-top:18px"></div><div style="display:grid;gap:8px;max-width:520px;margin-top:16px"><label>العميل (اختياري)<select id="pos-customer"><option value="">بيع نقدي مباشر</option>${customers.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></label><label>طريقة الدفع<select id="pos-method"><option value="cash">نقداً</option><option value="card">بطاقة</option><option value="bank">تحويل بنكي</option><option value="wallet">محفظة إلكترونية</option><option value="other">أخرى</option></select></label><label>المبلغ المدفوع الآن بالجنيه السوداني<input id="pos-payment-amount" type="number" min="0" step="0.01" placeholder="اتركه فارغاً للدفع الكامل"></label><label id="pos-provider-wrap" hidden>المحفظة الإلكترونية<select id="pos-provider"><option value="bankak">بنكك</option><option value="ocash">أوكاش</option><option value="fawry">فوري</option><option value="mycashy">ماي كاشي</option></select></label><button id="pos-checkout" class="primary-button">اعتماد البيع</button><p id="pos-message" role="status"></p></div>`;
     const quote=async()=>{
       if(!cart.length){root.querySelector('#pos-cart').textContent='أضف منتجاً للبدء.';return null;}
-      const result=await api('/api/sales/quote',{method:'POST',body:{lines:cart}});
+      let result;
+      const signature=JSON.stringify(cart);
+      try{
+        result=await api('/api/sales/quote',{method:'POST',body:{lines:cart}});
+        lastQuote={signature,result};
+        await localStore.setMetadata('pos-last-quote',lastQuote);
+      }catch(error){
+        const cached=lastQuote?.signature===signature?lastQuote:await localStore.getMetadata('pos-last-quote');
+        if(!cached||cached.signature!==signature)throw error;
+        result=cached.result;
+        lastQuote=cached;
+        root.querySelector('#pos-message').textContent='وضع محلي: يتم استخدام آخر تسعيرة محفوظة. تحقق من المخزون عند عودة الاتصال.';
+      }
       if(!paymentAmountEdited)root.querySelector('#pos-payment-amount').value=(result.totalMinor/100).toFixed(2);
       root.querySelector('#pos-cart').innerHTML=`<h3>تفاصيل الفاتورة</h3><div style="overflow:auto"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th></th></tr></thead><tbody>${cart.map((line,i)=>`<tr><td>${escapeHtml(line.description)}</td><td>${line.quantity} ${escapeHtml(line.unitName||'')}</td><td>${(result.lines[i].totalMinor/100).toLocaleString('ar')}</td><td><button data-remove="${i}">حذف</button></td></tr>`).join('')}</tbody></table></div><p>قبل الضريبة: ${(result.subtotalMinor/100).toLocaleString('ar')} · الضريبة: ${(result.taxMinor/100).toLocaleString('ar')}</p><h3>الإجمالي: ${(result.totalMinor/100).toLocaleString('ar')} ${escapeHtml(result.currencyCode)}</h3>`;
       root.querySelectorAll('[data-remove]').forEach(button=>button.addEventListener('click',async()=>{cart.splice(Number(button.dataset.remove),1);await quote();}));
@@ -308,7 +345,17 @@ export async function renderSaleCheckout(root) {
         const customerId=root.querySelector('#pos-customer').value||null,amountMinor=Math.round(Number(root.querySelector('#pos-payment-amount').value)*100);
         if(!Number.isSafeInteger(amountMinor)||amountMinor<=0||amountMinor>totals.totalMinor)throw new Error('أدخل مبلغاً صحيحاً لا يتجاوز إجمالي الفاتورة.');
         if(amountMinor<totals.totalMinor&&!customerId)throw new Error('اختر عميلاً لتسجيل المبلغ المتبقي عليه.');
-        const sale=await api('/api/sales/checkout',{method:'POST',body:{lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor}]}});
+        const salePayload={lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor}]};
+        let sale;
+        try{
+          sale=await api('/api/sales/checkout',{method:'POST',body:salePayload});
+        }catch(error){
+          if(error.status)throw error;
+          const deviceId=await (await import('./sync-client.js')).getLocalDeviceId(localStore);
+          await queueOfflineSale({sale:salePayload,deviceId,store:localStore});
+          root.querySelector('#pos-message').textContent='حُفظت الفاتورة محلياً بأمان. ستتم مزامنتها تلقائياً عند عودة الاتصال بالخادم المحلي.';
+          cart=[];paymentAmountEdited=false;lastQuote=null;await quote();return;
+        }
         root.querySelector('#pos-message').textContent=`تم تسجيل الفاتورة ${sale.receiptNumber} · الإجمالي ${(sale.totalMinor/100).toLocaleString('ar')}`;
         cart=[];paymentAmountEdited=false;await quote();
       }catch(error){root.querySelector('#pos-message').textContent=error.message;}
