@@ -144,7 +144,9 @@ CREATE TABLE IF NOT EXISTS sale_line_cost_layers (
   inventory_layer_id TEXT NOT NULL REFERENCES inventory_layers(id),
   quantity REAL NOT NULL CHECK(quantity>0),
   returned_quantity REAL NOT NULL DEFAULT 0 CHECK(returned_quantity>=0 AND returned_quantity<=quantity),
-  unit_cost_minor REAL NOT NULL CHECK(unit_cost_minor>=0)
+  unit_cost_minor REAL NOT NULL CHECK(unit_cost_minor>=0),
+  cost_total_minor INTEGER NOT NULL CHECK(cost_total_minor>=0),
+  returned_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK(returned_cost_minor>=0 AND returned_cost_minor<=cost_total_minor)
 );
 CREATE INDEX IF NOT EXISTS idx_sale_line_cost_layers_line ON sale_line_cost_layers(sale_line_id);
 CREATE TABLE IF NOT EXISTS tax_profiles (
