@@ -59,10 +59,18 @@ const REPORTS = {
     FROM purchase_returns pr JOIN purchases p ON p.id=pr.purchase_id LEFT JOIN suppliers s ON s.id=p.supplier_id
     WHERE {{where}} ORDER BY pr.occurred_at DESC`,
   'expenses': `SELECT e.category,e.occurred_at AS occurredAt,e.amount_minor AS amountMinor,e.payment_method AS paymentMethod,e.provider,e.reference,e.note,u.display_name AS createdBy FROM expenses e LEFT JOIN users u ON u.id=e.created_by WHERE {{where}} ORDER BY e.occurred_at DESC`,
-  'sales-daily': `SELECT date(s.occurred_at) AS day,COUNT(*) AS invoices,
-    SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
-    SUM(s.tax_minor-COALESCE((SELECT SUM(sr.tax_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS taxMinor
-    FROM sales s WHERE s.status IN ('posted','partially_returned','returned') AND {{where}} GROUP BY date(s.occurred_at) ORDER BY day DESC`,
+  'sales-daily': `SELECT day,SUM(invoices) AS invoices,SUM(returns) AS returns,
+    SUM(totalMinor) AS totalMinor,SUM(taxMinor) AS taxMinor
+    FROM (
+      SELECT date(s.occurred_at) AS day,COUNT(*) AS invoices,0 AS returns,
+        SUM(s.total_minor) AS totalMinor,SUM(s.tax_minor) AS taxMinor
+      FROM sales s WHERE s.status IN ('posted','partially_returned','returned') AND {{salesWhere}}
+      GROUP BY date(s.occurred_at)
+      UNION ALL
+      SELECT date(sr.occurred_at) AS day,0 AS invoices,COUNT(*) AS returns,
+        -SUM(sr.total_minor) AS totalMinor,-SUM(sr.tax_minor) AS taxMinor
+      FROM sales_returns sr WHERE {{returnWhere}} GROUP BY date(sr.occurred_at)
+    ) daily GROUP BY day ORDER BY day DESC`,
     'sales-invoices': `SELECT s.receipt_number AS reference,s.occurred_at AS occurredAt,COALESCE(c.name,'عميل نقدي') AS party,
     s.status,s.subtotal_minor AS subtotalMinor,s.tax_minor AS taxMinor,s.total_minor AS totalMinor,
     COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0) AS paidMinor,
@@ -161,6 +169,10 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
   } else if(type==='cash-movements') {
     const filter={sql:(from?'x.occurredAt>=? AND ':'')+(to?'x.occurredAt<?':'1=1'),params:[...(from?[from+'T00:00:00']:[]),...(to?[nextDate(to)+'T00:00:00']:[])]};
     rows=db.prepare(template.replace('{{where}}',filter.sql)).all(...filter.params);
+  } else if(type==='sales-daily') {
+    const salesFilter=buildDateFilter('s',from,to),returnFilter=buildDateFilter('sr',from,to);
+    rows=db.prepare(template.replace('{{salesWhere}}',salesFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
+      .all(...salesFilter.params,...returnFilter.params);
   } else {
     const filter=buildDateFilter(alias,from,to);
     rows=db.prepare(template.replaceAll('{{where}}',filter.sql)).all(...filter.params);
