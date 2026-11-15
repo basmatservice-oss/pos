@@ -13,7 +13,7 @@ const {receivePurchase}=await import('./purchases.js');
 const {checkoutSale}=await import('./sales.js');
 const {createSalesReturn,createPurchaseReturn,getSalesReturnOptions,getPurchaseReturnOptions}=await import('./returns.js');
 const {recordCustomerPayment,recordSupplierPayment,listCustomerBalances,listSupplierBalances}=await import('./settlements.js');
-const {getStockOnHand}=await import('./inventory.js');
+const {getStockOnHand,getInventoryValue}=await import('./inventory.js');
 const {getTrialBalance,postJournalEntry,reverseJournalEntry}=await import('./accounting.js');
 const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
@@ -139,6 +139,10 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(secondPurchaseReturn.refundMinor,1000);
   assert.equal(getStockOnHand(productId,'branch-main'),5);
   assert.equal(listSupplierBalances().find(x=>x.id===supplierId).balanceMinor,5000);
+  const stockValue=getInventoryValue(productId,'branch-main');
+  const inventoryLedger=getTrialBalance().find(account=>account.accountId==='acc-inventory');
+  assert.equal(stockValue,5000,'Remaining stock valuation must reflect the net purchase, sale and return movements');
+  assert.equal(inventoryLedger.netDebitMinor,stockValue,'Inventory asset ledger must reconcile to on-hand stock valuation');
 
   assert.throws(()=>recordCustomerPayment(sale.id,{amountMinor:5001,method:'cash'}),/exceeds the remaining invoice balance/);
   assert.throws(()=>recordSupplierPayment(purchase.id,{amountMinor:5001,method:'cash'}),/exceeds the remaining supplier balance/);
