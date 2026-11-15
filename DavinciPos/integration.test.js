@@ -21,11 +21,19 @@ const {saveTaxProfile}=await import('./tax.js');
 initializeDatabase();
 updateSettings({'tax.enabled':false});
 
-function assertLedgerBalanced(){
-  const rows=getTrialBalance();
+function assertLedgerBalanced({from=null,to=null}={}){
+  const rows=getTrialBalance({from,to});
   const debits=rows.reduce((sum,row)=>sum+row.debitMinor,0);
   const credits=rows.reduce((sum,row)=>sum+row.creditMinor,0);
   assert.equal(debits,credits);
+}
+
+function assertProfitAndLossMatchesTrialBalance({from=null,to=null}={}){
+  const rows=getTrialBalance({from,to});
+  const ledgerNetProfit=rows.reduce((sum,row)=>sum+
+    (row.accountType==='revenue'?row.creditMinor-row.debitMinor:
+      row.accountType==='expense'?row.debitMinor-row.creditMinor:0),0);
+  assert.equal(getSimpleReport({from,to}).netProfitMinor,ledgerNetProfit);
 }
 
 test('integrated purchase, supplier installments, purchase returns, sale, customer installments and sales returns reconcile',()=>{
@@ -114,6 +122,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(report.otherIncomeMinor,0);
   assert.equal(report.expensesTotalMinor,0);
   assert.equal(report.netProfitMinor,4000);
+  assertProfitAndLossMatchesTrialBalance();
   const invoicePeriod=getSimpleReport({from:'2026-11-01',to:'2026-11-01'});
   assert.equal(invoicePeriod.salesTotalMinor,12000);
   assert.equal(invoicePeriod.purchasesTotalMinor,10000);
@@ -122,6 +131,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(invoicePeriod.grossProfitMinor,8000);
   assert.equal(invoicePeriod.topProducts[0].quantity,4);
   assert.equal(invoicePeriod.topProducts[0].totalMinor,12000);
+  assertProfitAndLossMatchesTrialBalance({from:'2026-11-01',to:'2026-11-01'});
   const returnPeriod=getSimpleReport({from:'2026-11-15',to:'2026-11-15'});
   assert.equal(returnPeriod.salesTotalMinor,-6000);
   assert.equal(returnPeriod.purchasesTotalMinor,-3000);
@@ -130,6 +140,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(returnPeriod.grossProfitMinor,-4000);
   assert.equal(returnPeriod.topProducts[0].quantity,-2);
   assert.equal(returnPeriod.topProducts[0].totalMinor,-6000);
+  assertProfitAndLossMatchesTrialBalance({from:'2026-11-15',to:'2026-11-15'});
 
   const dailyInvoice=getDetailedReport({type:'sales-daily',from:'2026-11-01',to:'2026-11-01'}).rows[0];
   assert.equal(dailyInvoice.day,'2026-11-01');
@@ -249,7 +260,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(taxOnReturnDate.inputTaxMinor,-100);
   assert.equal(taxOnReturnDate.netTaxMinor,-200);
   assert.equal(taxOnReturnDate.returns,3);
-  assert.equal(taxOnReturnDate.purchaseReturns,1); // Includes the two earlier sales returns plus this taxable return.
+  assert.equal(taxOnReturnDate.purchaseReturns,3); // Two earlier purchase returns plus this taxable return.
   assertLedgerBalanced();
 });
 
