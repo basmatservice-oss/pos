@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DAVINCIPOS_DB || path.join(ROOT, 'DavinciPos.sqlite');
-export const db = new Database(DB_PATH);
+const sqliteOptions=process.env.DAVINCIPOS_SQLITE_BINDING
+  ? {nativeBinding:process.env.DAVINCIPOS_SQLITE_BINDING}
+  : undefined;
+export const db = new Database(DB_PATH, sqliteOptions);
 db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
