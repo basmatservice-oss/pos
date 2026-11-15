@@ -58,3 +58,25 @@ test('conflicts and rejected sales are held locally; transport failures remain r
   assert.equal(results[2].status,'failed');
   assert.equal(store.operations[2].attempts,1);
 });
+
+test('permanent client errors reject an offline operation and continue with later sales',async()=>{
+  const store=memoryStore();
+  for(const id of ['invalid','valid'])await queueOfflineSale({sale:{id,lines:[{itemId:'p1',quantity:1}]},deviceId:'device-1234',store,operationId:id});
+  let calls=0;
+  const results=await synchronizePendingSales({store,api:async()=>{
+    calls++;
+    if(calls===1){const error=new Error('Sale validation failed');error.status=422;throw error;}
+    return {status:'accepted'};
+  }});
+  assert.deepEqual(store.operations.map(x=>x.status),['rejected','acknowledged']);
+  assert.deepEqual(results.map(x=>x.status),['rejected','accepted']);
+});
+
+test('rate limits remain retryable and stop the current synchronization batch',async()=>{
+  const store=memoryStore();
+  await queueOfflineSale({sale:{id:'rate-limited',lines:[{itemId:'p1',quantity:1}]},deviceId:'device-1234',store,operationId:'rate-limited'});
+  const results=await synchronizePendingSales({store,api:async()=>{const error=new Error('Rate limited');error.status=429;throw error;}});
+  assert.equal(results[0].status,'failed');
+  assert.equal(store.operations[0].status,'failed');
+  assert.equal(store.operations[0].attempts,1);
+});
