@@ -11,8 +11,11 @@ export function acceptOfflineSale(args) {
   const device=db.prepare('SELECT id,branch_id FROM devices WHERE id=? AND owner_user_id=? AND is_active=1').get(deviceId,userId);
   if(!device) throw new Error('Device is not registered to this user. Register this device before syncing.');
   db.prepare('UPDATE devices SET last_seen_at=? WHERE id=?').run(new Date().toISOString(),deviceId);
-  const prior=db.prepare('SELECT response FROM sync_receipts WHERE operation_id=?').get(operationId);
-  if(prior)return JSON.parse(prior.response);
+  const prior=db.prepare('SELECT device_id,response FROM sync_receipts WHERE operation_id=?').get(operationId);
+  if(prior){
+    if(prior.device_id!==deviceId)throw new Error('Offline operation ID is already assigned to another device.');
+    return JSON.parse(prior.response);
+  }
   const role=db.prepare('SELECT role FROM users WHERE id=?').get(userId)?.role;
   const allowCredit=role==='owner'||role==='admin'||Boolean(db.prepare("SELECT 1 FROM role_permissions WHERE role_name=? AND permission='sales.credit'").get(role));
   try {
