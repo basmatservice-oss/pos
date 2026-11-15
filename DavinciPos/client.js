@@ -4,7 +4,7 @@ import {calculateCachedSaleQuote} from './offline-quote.js';
 import {createSaleId} from './sale-id.js';
 const TOKEN_KEY='davincipos-session-token';
 export async function api(path,{method='GET',body,headers={}}={}) {
-  const token=sessionStorage.getItem(TOKEN_KEY);
+  const token=localStorage.getItem(TOKEN_KEY);
   const response=await fetch(path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{}),...headers},body:body?JSON.stringify(body):undefined});
   const result=await response.json().catch(()=>({}));
   if(!response.ok){const error=new Error(result.error||'Request failed.');error.status=response.status;throw error;}
@@ -21,7 +21,7 @@ let onlineSyncHookInstalled=false;
 let backgroundSyncInProgress=false;
 let backgroundHostReachable=true;
 async function attemptBackgroundSync(){
-  if(backgroundSyncInProgress||!sessionStorage.getItem(TOKEN_KEY))return;
+  if(backgroundSyncInProgress||!localStorage.getItem(TOKEN_KEY))return;
   backgroundSyncInProgress=true;
   try{
     await api('/api/auth/me');
@@ -48,7 +48,7 @@ function installOnlineSyncHook(){
 }
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 export async function ensureSession() {
-  if(sessionStorage.getItem(TOKEN_KEY)) {
+  if(localStorage.getItem(TOKEN_KEY)) {
     try{
       await api('/api/auth/me');
       installOnlineSyncHook();
@@ -61,7 +61,7 @@ export async function ensureSession() {
         if(snapshot)return true;
         return false;
       }
-      sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
     }
   }
   const health=await fetch('/api/health').then(r=>r.json());
@@ -79,7 +79,7 @@ export async function ensureSession() {
     event.preventDefault();const form=new FormData(event.currentTarget),data=Object.fromEntries(form.entries());
     try{
       const result=health.bootstrapRequired?await fetch('/api/auth/bootstrap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error);return j.data;}):await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error);return j.data;});
-      sessionStorage.setItem(TOKEN_KEY,result.token);location.reload();
+      localStorage.setItem(TOKEN_KEY,result.token);location.reload();
     }catch(error){overlay.querySelector('#auth-error').textContent=error.message;}
   });
   return false;
@@ -162,7 +162,7 @@ export async function renderConflicts(root) {
 
 export async function logout() {
   try { await api('/api/auth/logout',{method:'POST'}); } catch {}
-  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
   location.reload();
 }
 
