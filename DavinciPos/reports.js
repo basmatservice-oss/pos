@@ -81,25 +81,32 @@ const REPORTS = {
     COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0) AS returnedMinor,
     s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)-COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0) AS dueMinor
     FROM sales s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.status!='void' AND {{where}} ORDER BY s.occurred_at DESC`,
-    'sales-products': `SELECT sl.item_id AS itemId,sl.description AS name,
-    SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
-    SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS netSalesMinor,
-    SUM(sl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor,
-    SUM(sl.cost_total_minor)-COALESCE(SUM(r.cost_minor),0) AS costMinor,
-    SUM(sl.line_total_minor-sl.tax_minor-sl.cost_total_minor)-COALESCE(SUM(r.net_minor-r.cost_minor),0) AS profitMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
-    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor,SUM(srl.tax_minor) AS tax_minor,SUM(srl.cost_minor) AS cost_minor
-      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id WHERE {{returnWhere}} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
-    WHERE s.status!='void' AND {{where}} GROUP BY sl.item_id,sl.description ORDER BY netSalesMinor DESC`,
-    'sales-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,
-    SUM(sl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
-    SUM(sl.line_total_minor-sl.tax_minor)-COALESCE(SUM(r.net_minor),0) AS netSalesMinor,
-    SUM(sl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
-    FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id LEFT JOIN products p ON sl.line_type='product' AND p.id=sl.item_id
-    LEFT JOIN categories c ON c.id=p.category_id
-    LEFT JOIN (SELECT srl.sale_line_id,SUM(srl.quantity) AS quantity,SUM(srl.amount_minor-srl.tax_minor) AS net_minor,SUM(srl.tax_minor) AS tax_minor
-      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id WHERE {{returnWhere}} GROUP BY srl.sale_line_id) r ON r.sale_line_id=sl.id
-    WHERE s.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netSalesMinor DESC`,
+    'sales-products': `SELECT itemId,name,SUM(quantity) AS quantity,SUM(netSalesMinor) AS netSalesMinor,
+      SUM(taxMinor) AS taxMinor,SUM(costMinor) AS costMinor,SUM(profitMinor) AS profitMinor FROM (
+      SELECT sl.item_id AS itemId,sl.description AS name,sl.quantity AS quantity,
+        sl.line_total_minor-sl.tax_minor AS netSalesMinor,sl.tax_minor AS taxMinor,
+        sl.cost_total_minor AS costMinor,sl.line_total_minor-sl.tax_minor-sl.cost_total_minor AS profitMinor
+      FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE s.status!='void' AND {{salesWhere}}
+      UNION ALL
+      SELECT sl.item_id AS itemId,sl.description AS name,-srl.quantity AS quantity,
+        -(srl.amount_minor-srl.tax_minor) AS netSalesMinor,-srl.tax_minor AS taxMinor,
+        -srl.cost_minor AS costMinor,-(srl.amount_minor-srl.tax_minor-srl.cost_minor) AS profitMinor
+      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
+      JOIN sale_lines sl ON sl.id=srl.sale_line_id WHERE {{returnWhere}}
+    ) activity GROUP BY itemId,name ORDER BY netSalesMinor DESC`,
+    'sales-categories': `SELECT category,SUM(quantity) AS quantity,SUM(netSalesMinor) AS netSalesMinor,SUM(taxMinor) AS taxMinor FROM (
+      SELECT COALESCE(c.name,'بدون تصنيف') AS category,sl.quantity AS quantity,
+        sl.line_total_minor-sl.tax_minor AS netSalesMinor,sl.tax_minor AS taxMinor
+      FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id
+      LEFT JOIN products p ON sl.line_type='product' AND p.id=sl.item_id LEFT JOIN categories c ON c.id=p.category_id
+      WHERE s.status!='void' AND {{salesWhere}}
+      UNION ALL
+      SELECT COALESCE(c.name,'بدون تصنيف') AS category,-srl.quantity AS quantity,
+        -(srl.amount_minor-srl.tax_minor) AS netSalesMinor,-srl.tax_minor AS taxMinor
+      FROM sales_return_lines srl JOIN sales_returns sr ON sr.id=srl.return_id
+      JOIN sale_lines sl ON sl.id=srl.sale_line_id LEFT JOIN products p ON sl.line_type='product' AND p.id=sl.item_id
+      LEFT JOIN categories c ON c.id=p.category_id WHERE {{returnWhere}}
+    ) activity GROUP BY category ORDER BY netSalesMinor DESC`,
     'sales-customers': `SELECT COALESCE(c.name,'عميل نقدي') AS customer,COUNT(DISTINCT s.id) AS invoices,
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)) AS totalMinor,
     SUM(s.total_minor-COALESCE((SELECT SUM(sr.total_minor) FROM sales_returns sr WHERE sr.sale_id=s.id),0)-COALESCE((SELECT SUM(CASE WHEN p.direction='in' THEN p.amount_minor ELSE -p.amount_minor END) FROM payments p WHERE p.sale_id=s.id),0)) AS dueMinor
@@ -112,22 +119,26 @@ const REPORTS = {
     COALESCE((SELECT SUM(pr.total_minor) FROM purchase_returns pr WHERE pr.purchase_id=p.id),0) AS returnedMinor,
     p.total_minor-COALESCE((SELECT SUM(pr.total_minor) FROM purchase_returns pr WHERE pr.purchase_id=p.id),0)-COALESCE((SELECT SUM(CASE WHEN pp.direction='out' THEN pp.amount_minor ELSE -pp.amount_minor END) FROM purchase_payments pp WHERE pp.purchase_id=p.id),0) AS dueMinor
     FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.status!='void' AND {{where}} ORDER BY p.occurred_at DESC`,
-    'purchase-products': `SELECT pr.id AS productId,pr.name,
-    SUM(pl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
-    SUM(pl.line_total_minor)-COALESCE(SUM(r.net_minor),0) AS netCostMinor,
-    SUM(pl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
-    FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
-    LEFT JOIN (SELECT prl.purchase_line_id,SUM(prl.quantity) AS quantity,SUM(prl.amount_minor-prl.tax_minor) AS net_minor,SUM(prl.tax_minor) AS tax_minor
-      FROM purchase_return_lines prl JOIN purchase_returns pr ON pr.id=prl.return_id WHERE {{returnWhere}} GROUP BY prl.purchase_line_id) r ON r.purchase_line_id=pl.id
-    WHERE pu.status!='void' AND {{where}} GROUP BY pr.id,pr.name ORDER BY netCostMinor DESC`,
-    'purchase-categories': `SELECT COALESCE(c.name,'بدون تصنيف') AS category,
-    SUM(pl.quantity)-COALESCE(SUM(r.quantity),0) AS quantity,
-    SUM(pl.line_total_minor)-COALESCE(SUM(r.net_minor),0) AS netCostMinor,
-    SUM(pl.tax_minor)-COALESCE(SUM(r.tax_minor),0) AS taxMinor
-    FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
-    LEFT JOIN categories c ON c.id=pr.category_id
-    LEFT JOIN (SELECT purchase_line_id,SUM(quantity) AS quantity,SUM(amount_minor-tax_minor) AS net_minor,SUM(tax_minor) AS tax_minor FROM purchase_return_lines GROUP BY purchase_line_id) r ON r.purchase_line_id=pl.id
-    WHERE pu.status!='void' AND {{where}} GROUP BY c.id,c.name ORDER BY netCostMinor DESC`,
+    'purchase-products': `SELECT productId,name,SUM(quantity) AS quantity,SUM(netCostMinor) AS netCostMinor,SUM(taxMinor) AS taxMinor FROM (
+      SELECT pr.id AS productId,pr.name,pl.quantity AS quantity,pl.line_total_minor AS netCostMinor,pl.tax_minor AS taxMinor
+      FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
+      WHERE pu.status!='void' AND {{salesWhere}}
+      UNION ALL
+      SELECT pr.id AS productId,pr.name,-prl.quantity AS quantity,-prl.amount_minor AS netCostMinor,-prl.tax_minor AS taxMinor
+      FROM purchase_return_lines prl JOIN purchase_returns rr ON rr.id=prl.return_id
+      JOIN purchase_lines pl ON pl.id=prl.purchase_line_id JOIN products pr ON pr.id=pl.product_id
+      WHERE {{returnWhere}}
+    ) activity GROUP BY productId,name ORDER BY netCostMinor DESC`,
+    'purchase-categories': `SELECT category,SUM(quantity) AS quantity,SUM(netCostMinor) AS netCostMinor,SUM(taxMinor) AS taxMinor FROM (
+      SELECT COALESCE(c.name,'بدون تصنيف') AS category,pl.quantity AS quantity,pl.line_total_minor AS netCostMinor,pl.tax_minor AS taxMinor
+      FROM purchase_lines pl JOIN purchases pu ON pu.id=pl.purchase_id JOIN products pr ON pr.id=pl.product_id
+      LEFT JOIN categories c ON c.id=pr.category_id WHERE pu.status!='void' AND {{salesWhere}}
+      UNION ALL
+      SELECT COALESCE(c.name,'بدون تصنيف') AS category,-prl.quantity AS quantity,-prl.amount_minor AS netCostMinor,-prl.tax_minor AS taxMinor
+      FROM purchase_return_lines prl JOIN purchase_returns rr ON rr.id=prl.return_id
+      JOIN purchase_lines pl ON pl.id=prl.purchase_line_id JOIN products pr ON pr.id=pl.product_id
+      LEFT JOIN categories c ON c.id=pr.category_id WHERE {{returnWhere}}
+    ) activity GROUP BY category ORDER BY netCostMinor DESC`,
     'purchase-payments': `SELECT pp.method,pp.provider,pp.direction,COUNT(*) AS operations,SUM(pp.amount_minor) AS totalMinor
     FROM purchase_payments pp JOIN purchases pu ON pu.id=pp.purchase_id WHERE pu.status!='void' AND {{where}} GROUP BY pp.method,pp.provider,pp.direction ORDER BY totalMinor DESC`,
   'stock-on-hand': `SELECT p.id AS productId,p.name,p.sku,p.barcode,u.symbol AS unit,
@@ -181,11 +192,11 @@ export function getDetailedReport({type,from=null,to=null,branchId=null}={}) {
     rows=db.prepare(template.replace('{{salesWhere}}',salesFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
       .all(...salesFilter.params,...returnFilter.params);
   } else if(['sales-products','sales-categories','purchase-products','purchase-categories'].includes(type)) {
-    const returnAlias=type.startsWith('sales-')?'sr':'pr';
-    const returnFilter=buildDateFilter(returnAlias,from,to);
-    const filter=buildDateFilter(alias,from,to);
-    rows=db.prepare(template.replace('{{returnWhere}}',returnFilter.sql).replace('{{where}}',filter.sql))
-      .all(...returnFilter.params,...filter.params);
+    const returnAlias=type.startsWith('sales-')?'sr':'rr';
+    const saleAlias=type.startsWith('sales-')?'s':'pu';
+    const returnFilter=buildDateFilter(returnAlias,from,to),saleFilter=buildDateFilter(saleAlias,from,to);
+    rows=db.prepare(template.replace('{{salesWhere}}',saleFilter.sql).replace('{{returnWhere}}',returnFilter.sql))
+      .all(...saleFilter.params,...returnFilter.params);
   } else {
     const filter=buildDateFilter(alias,from,to);
     rows=db.prepare(template.replaceAll('{{where}}',filter.sql)).all(...filter.params);
