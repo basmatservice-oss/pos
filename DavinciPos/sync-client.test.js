@@ -80,3 +80,14 @@ test('rate limits remain retryable and stop the current synchronization batch',a
   assert.equal(store.operations[0].status,'failed');
   assert.equal(store.operations[0].attempts,1);
 });
+
+test('authentication and permission failures do not permanently reject queued sales',async()=>{
+  for(const status of [401,403]){
+    const store=memoryStore();
+    await queueOfflineSale({sale:{id:'auth-'+status,lines:[{itemId:'p1',quantity:1}]},deviceId:'device-1234',store,operationId:'auth-'+status});
+    const results=await synchronizePendingSales({store,api:async()=>{const error=new Error('Authentication required');error.status=status;throw error;}});
+    assert.equal(results[0].status,'failed');
+    assert.equal(store.operations[0].status,'failed');
+    assert.equal(store.operations[0].attempts,1);
+  }
+});
