@@ -74,6 +74,9 @@ export class IndexedDbLocalStore{
   async acknowledge(operationId,response){
     return this.updateOperation(operationId,record=>({...record,status:'acknowledged',acknowledgedAt:new Date().toISOString(),response,lastError:null}));
   }
+  async rejectOperation(operationId,response){
+    return this.updateOperation(operationId,record=>({...record,status:'rejected',response,lastError:null}));
+  }
   async holdConflict(operationId,conflict){
     return this.updateOperation(operationId,record=>({...record,status:'conflict',conflict,lastError:null}));
   }
