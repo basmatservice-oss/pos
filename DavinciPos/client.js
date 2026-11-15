@@ -8,19 +8,30 @@ export async function api(path,{method='GET',body,headers={}}={}) {
   if(!response.ok){const error=new Error(result.error||'Request failed.');error.status=response.status;throw error;}
   return result.data;
 }
+let onlineSyncHookInstalled=false;
+function installOnlineSyncHook(){
+  if(onlineSyncHookInstalled||typeof window==='undefined')return;
+  onlineSyncHookInstalled=true;
+  window.addEventListener('online',async()=>{
+    if(!sessionStorage.getItem(TOKEN_KEY))return;
+    try{
+      await api('/api/auth/me');
+      const deviceId=await registerLocalDevice(api);
+      await synchronizePendingSales({api,deviceId});
+    }catch{}
+  });
+}
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 export async function ensureSession() {
   if(sessionStorage.getItem(TOKEN_KEY)) {
     try{
       await api('/api/auth/me');
-      try{
-        const deviceId=await registerLocalDevice(api);
-        await synchronizePendingSales({api,deviceId});
-        window.addEventListener('online',async()=>{try{const id=await registerLocalDevice(api);await synchronizePendingSales({api,deviceId:id});}catch{}});
-      }catch{}
+      installOnlineSyncHook();
+      try{const deviceId=await registerLocalDevice(api);await synchronizePendingSales({api,deviceId});}catch{}
       return true;
     }catch(error){
       if(!error.status){
+        installOnlineSyncHook();
         const snapshot=await loadPosSnapshot(localStore).catch(()=>null);
         if(snapshot)return true;
         return false;
