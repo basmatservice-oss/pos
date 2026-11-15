@@ -19,9 +19,10 @@ test('customer collections reduce invoice balance and post balanced cash movemen
   db.prepare("INSERT INTO products(id,name,base_unit_id,cost_minor,sale_price_minor,track_stock,created_at,updated_at) VALUES('settlement-product','Test item','unit-piece',1000,10000,0,?,?)").run(new Date().toISOString(),new Date().toISOString());
   const sale=checkoutSale({customerId,allowCredit:true,lines:[{itemId:'settlement-product',quantity:1}],payments:[{method:'cash',amountMinor:2500}]});
   assert.equal(listCustomerBalances()[0].balanceMinor,7500);
-  const collected=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',idempotencyKey:'customer-collect-1'});
-  const replayed=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',idempotencyKey:'customer-collect-1'});
+  const collected=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',idempotencyKey:'customer-collect-1',occurredAt:'2026-11-15T10:00:00.000Z'});
+  const replayed=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',idempotencyKey:'customer-collect-1',occurredAt:'2026-11-15T10:00:00.000Z'});
   assert.deepEqual(replayed,collected);
+  assert.throws(()=>recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',idempotencyKey:'customer-collect-1',occurredAt:'2026-11-15T11:00:00.000Z'}),/different payment request/);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM payments WHERE sale_id=?').get(sale.id).count,2);
   assert.equal(collected.remainingMinor,4500);
   assert.equal(getCustomerStatement(customerId).balanceMinor,4500);
