@@ -59,3 +59,10 @@ The app is designed for shop owners and everyday staff, not accountants. Users w
 - All APIs require authenticated sessions and server-enforced permissions; network binding requires HTTPS/TLS.
 - Posted journal entries are balanced, protected against line edits/deletion, and corrected through reversing entries.
 - `npm test` runs accounting, inventory, tax, offline conflict, catalog and purchase-to-sale tests. `npm run check` runs JavaScript syntax checks.
+
+## Device-side offline storage milestone
+
+- `local-store.js` introduces a persistent browser IndexedDB store for queued offline sales, retry state, acknowledgements, conflict holds and device metadata.
+- The server-side sync receipt still binds each operation ID to its originating registered device and payload hash.
+- `sync.test.js` covers the server outbox lifecycle; `local-store.test.js` covers local sale-envelope validation and refuses silent in-memory fallback when IndexedDB is unavailable.
+- This is the storage foundation, not the completed offline checkout: the sales UI still depends on server-loaded catalog/quotes and must be connected to this store, then paired with native SQLite adapters for Electron and Android Capacitor before offline operation can be accepted.
