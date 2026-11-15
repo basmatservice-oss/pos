@@ -244,7 +244,7 @@ public class MainActivity extends Activity {
                 } else if (fallbackToLocal) {
                     remoteMode = false;
                     webView.loadUrl(BASE_URL + "/mobile");
-                    Toast.makeText(this, "خادم المتجر غير متاح؛ تم فتح قاعدة الهاتف المحلية.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "خادم المتجر غير متاح؛ تم فتح قاعدة الهاتف المستقلة. بياناتها لا تندمج تلقائياً مع قاعدة الكمبيوتر.", Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(this, "تعذر الاتصال. تحقق من عنوان الخادم وشبكة LAN وشهادة الأمان.", Toast.LENGTH_LONG).show();
                 }
