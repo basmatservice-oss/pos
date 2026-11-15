@@ -1,6 +1,7 @@
 import {localStore} from './sync-client.js';
 import {registerLocalDevice,synchronizePendingSales,loadPosSnapshot,cachePosSnapshot,queueOfflineSale} from './sync-client.js';
 import {calculateCachedSaleQuote} from './offline-quote.js';
+import {createSaleId} from './sale-id.js';
 const TOKEN_KEY='davincipos-session-token';
 export async function api(path,{method='GET',body,headers={}}={}) {
   const token=sessionStorage.getItem(TOKEN_KEY);
@@ -414,8 +415,7 @@ export async function renderSaleCheckout(root) {
         const customerId=root.querySelector('#pos-customer').value||null,amountMinor=Math.round(Number(root.querySelector('#pos-payment-amount').value)*100);
         if(!Number.isSafeInteger(amountMinor)||amountMinor<=0||amountMinor>totals.totalMinor)throw new Error('أدخل مبلغاً صحيحاً لا يتجاوز إجمالي الفاتورة.');
         if(amountMinor<totals.totalMinor&&!customerId)throw new Error('اختر عميلاً لتسجيل المبلغ المتبقي عليه.');
-        const saleId=globalThis.crypto?.randomUUID?.();
-        if(!saleId)throw new Error('تعذر إنشاء معرف آمن للفاتورة. تحقق من اتصال HTTPS المحلي.');
+        const saleId=createSaleId();
         const salePayload={id:saleId,occurredAt:new Date().toISOString(),lines:cart,customerId,payments:[{method:root.querySelector('#pos-method').value,provider:root.querySelector('#pos-method').value==='wallet'?root.querySelector('#pos-provider').value:null,amountMinor}]};
         let sale;
         try{
