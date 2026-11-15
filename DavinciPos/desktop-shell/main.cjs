@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const PORT=3187,HOST='127.0.0.1';
-let serverProcess=null,mainWindow=null,bootstrapToken=null;
+let serverProcess=null,bootstrapToken=null;
 const appRoot=app.getAppPath();
 function tokenForFirstRun(){
  const file=path.join(app.getPath('userData'),'bootstrap-token.txt');
@@ -16,7 +16,7 @@ function tokenForFirstRun(){
 function startServer(){
  bootstrapToken=tokenForFirstRun();
  serverProcess=spawn(process.execPath,[path.join(appRoot,'server.js')],{
-  cwd:appRoot,windowsHide:true,stdio:'ignore',
+  cwd:process.resourcesPath,windowsHide:true,stdio:'ignore',
   env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HOST,PORT:String(PORT),
    DAVINCIPOS_DB:path.join(app.getPath('userData'),'DavinciPos.sqlite'),
    DAVINCIPOS_BOOTSTRAP_TOKEN:bootstrapToken}
@@ -38,11 +38,10 @@ async function createWindow(){
    message:'Copy this one-time setup token and enter it on the first owner-account screen.',
    detail:bootstrapToken,buttons:['Continue']});
  }else{try{fs.unlinkSync(path.join(app.getPath('userData'),'bootstrap-token.txt'));}catch{}}
- mainWindow=new BrowserWindow({width:1440,height:920,minWidth:980,minHeight:680,
+ const win=new BrowserWindow({width:1440,height:920,minWidth:980,minHeight:680,
   backgroundColor:'#101827',autoHideMenuBar:true,
   webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
- await mainWindow.loadURL('http://'+HOST+':'+PORT+'/desktop');
- mainWindow.on('closed',()=>{mainWindow=null;});
+ await win.loadURL('http://'+HOST+':'+PORT+'/desktop');
 }
 app.whenReady().then(async()=>{startServer();try{await createWindow();}catch(e){dialog.showErrorBox('DavinciPos could not start',e.message);app.quit();}});
 app.on('before-quit',()=>{if(serverProcess&&!serverProcess.killed)serverProcess.kill();serverProcess=null;});
