@@ -18,7 +18,7 @@ const {getTrialBalance,postJournalEntry,reverseJournalEntry}=await import('./acc
 const {getSimpleReport,getDetailedReport}=await import('./reports.js');
 const {updateSettings}=await import('./settings.js');
 const {saveTaxProfile}=await import('./tax.js');
-const {acceptOfflineSale}=await import('./offline.js');
+const {acceptOfflineSale,resolveSyncConflict}=await import('./offline.js');
 
 initializeDatabase();
 updateSettings({'tax.enabled':false});
@@ -38,6 +38,15 @@ test('offline sync receipt replay is restricted to the device that created the o
   assert.deepEqual(acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{test:'original'},userId}),{status:'accepted',sale:{id:'already-recorded'}});
   assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-b',payload:{test:'original'},userId}),/another device/);
   assert.throws(()=>acceptOfflineSale({operationId,deviceId:'offline-device-a',payload:{test:'changed'},userId}),/different payload/);
+
+  const conflictOperation='offline-conflict-operation';
+  const originalPayload={test:'conflict-payload'};
+  const conflictId='offline-conflict-test';
+  db.prepare("INSERT INTO sync_conflicts(id,operation_id,device_id,entity_type,entity_id,payload,payload_hash,reason,status,created_at) VALUES(?,?,?,'sale',?,?,?,?, 'pending',?)")
+    .run(conflictId,conflictOperation,'offline-device-a',conflictOperation,JSON.stringify({...originalPayload,deviceId:'offline-device-a',cashierId:userId,branchId:'branch-main',allowCredit:false}),createHash('sha256').update(JSON.stringify(originalPayload)).digest('hex'),'test conflict','pending',now);
+  assert.equal(resolveSyncConflict(conflictId,{decision:'reject',userId}).status,'rejected');
+  assert.equal(acceptOfflineSale({operationId:conflictOperation,deviceId:'offline-device-a',payload:originalPayload,userId}).status,'rejected');
+  assert.throws(()=>acceptOfflineSale({operationId:conflictOperation,deviceId:'offline-device-a',payload:{test:'tampered'},userId}),/different payload/);
 });
 
 test('rejects impossible calendar dates in financial reports',()=>{
