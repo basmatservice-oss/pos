@@ -74,8 +74,8 @@ export function checkoutSale(input) {
       const unitCostMinor=line.baseQuantity>0?Math.round(lineCost/line.baseQuantity):line.quantity>0?Math.round(lineCost/line.quantity):0;
       insertLine.run(saleLineId,saleId,line.lineType||'product',line.itemId,line.description,line.quantity,line.unitName||'pc',line.baseQuantity,line.unitPriceMinor,unitCostMinor,lineCost,line.discountMinor,line.taxMinor,line.totalMinor,line.taxRateBps,line.taxProfileId,line.taxPriceMode);
       if(lineAllocations.length){
-        const insertAllocation=db.prepare('INSERT INTO sale_line_cost_layers(id,sale_line_id,inventory_layer_id,quantity,unit_cost_minor) VALUES(?,?,?,?,?)');
-        for(const allocation of lineAllocations)insertAllocation.run(randomUUID(),saleLineId,allocation.layerId,allocation.quantity,allocation.unitCostMinor);
+        const insertAllocation=db.prepare('INSERT INTO sale_line_cost_layers(id,sale_line_id,inventory_layer_id,quantity,unit_cost_minor,cost_total_minor) VALUES(?,?,?,?,?,?)');
+        for(const allocation of lineAllocations)insertAllocation.run(randomUUID(),saleLineId,allocation.layerId,allocation.quantity,allocation.unitCostMinor,allocation.costTotalMinor);
       }
     }
     for(const payment of payments){
