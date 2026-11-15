@@ -1,5 +1,6 @@
 import {localStore} from './sync-client.js';
 import {registerLocalDevice,synchronizePendingSales,loadPosSnapshot,cachePosSnapshot,queueOfflineSale} from './sync-client.js';
+import {calculateCachedSaleQuote} from './offline-quote.js';
 const TOKEN_KEY='davincipos-session-token';
 export async function api(path,{method='GET',body,headers={}}={}) {
   const token=sessionStorage.getItem(TOKEN_KEY);
@@ -284,14 +285,20 @@ export async function renderReports(root) {
 export async function renderSaleCheckout(root) {
   root.innerHTML='<section class="panel"><h2>نقطة البيع</h2><div id="pos-area">جارٍ التحميل...</div></section>';
   try{
-    let products,customers,services;
+    let products,customers,services,snapshot,productUnits;
     try{
-      [products,customers,services]=await Promise.all([api('/api/products'),api('/api/customers'),api('/api/services')]);
-      await cachePosSnapshot({products,customers,services},localStore);
+      const [loadedProducts,loadedCustomers,loadedServices,settings,taxProfiles]=await Promise.all([
+        api('/api/products'),api('/api/customers'),api('/api/services'),api('/api/settings'),api('/api/tax-profiles')
+      ]);
+      products=loadedProducts;customers=loadedCustomers;services=loadedServices;
+      productUnits=await localStore.getMetadata('product-units')||{};
+      snapshot={products,customers,services,settings,taxProfiles,productUnits};
+      await cachePosSnapshot(snapshot,localStore);
     }catch(error){
-      const snapshot=await loadPosSnapshot(localStore);
+      snapshot=await loadPosSnapshot(localStore);
       if(!snapshot)throw error;
       ({products,customers,services}=snapshot);
+      productUnits=snapshot.productUnits||await localStore.getMetadata('product-units')||{};
     }
     const saleItems=[...products,...services.filter(s=>s.isActive).map(s=>({id:s.id,name:s.name,salePriceMinor:s.priceMinor,stockOnHand:0,trackStock:false,baseUnitSymbol:'خدمة',lineType:'service'}))];
     let cart=[],paymentAmountEdited=false,lastQuote=null;
@@ -306,10 +313,9 @@ export async function renderSaleCheckout(root) {
         await localStore.setMetadata('pos-last-quote',lastQuote);
       }catch(error){
         const cached=lastQuote?.signature===signature?lastQuote:await localStore.getMetadata('pos-last-quote');
-        if(!cached||cached.signature!==signature)throw error;
-        result=cached.result;
-        lastQuote=cached;
-        root.querySelector('#pos-message').textContent='وضع محلي: يتم استخدام آخر تسعيرة محفوظة. تحقق من المخزون عند عودة الاتصال.';
+        if(cached&&cached.signature===signature){result=cached.result;lastQuote=cached;}
+        else{result=calculateCachedSaleQuote({lines:cart,snapshot,productUnits});lastQuote={signature,result};}
+        root.querySelector('#pos-message').textContent='وضع محلي: التسعيرة تقديرية من بيانات محفوظة. سيعيد الخادم التحقق من السعر والضريبة والمخزون عند المزامنة.';
       }
       if(!paymentAmountEdited)root.querySelector('#pos-payment-amount').value=(result.totalMinor/100).toFixed(2);
       root.querySelector('#pos-cart').innerHTML=`<h3>تفاصيل الفاتورة</h3><div style="overflow:auto"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th></th></tr></thead><tbody>${cart.map((line,i)=>`<tr><td>${escapeHtml(line.description)}</td><td>${line.quantity} ${escapeHtml(line.unitName||'')}</td><td>${(result.lines[i].totalMinor/100).toLocaleString('ar')}</td><td><button data-remove="${i}">حذف</button></td></tr>`).join('')}</tbody></table></div><p>قبل الضريبة: ${(result.subtotalMinor/100).toLocaleString('ar')} · الضريبة: ${(result.taxMinor/100).toLocaleString('ar')}</p><h3>الإجمالي: ${(result.totalMinor/100).toLocaleString('ar')} ${escapeHtml(result.currencyCode)}</h3>`;
@@ -340,7 +346,21 @@ export async function renderSaleCheckout(root) {
       }catch(error){if(stream)stream.getTracks().forEach(t=>t.stop());video.srcObject=null;video.hidden=true;status.textContent='تعذر تشغيل الكاميرا: '+error.message;}
     });
 
-    const loadSaleUnits=async()=>{const item=saleItems.find(p=>p.id===root.querySelector('#pos-product').value),select=root.querySelector('#pos-unit');select.innerHTML='<option value="" data-base-quantity="1">الوحدة الأساسية</option>';if(!item||item.lineType==='service'){select.disabled=true;return;}select.disabled=false;try{const units=await api('/api/products/'+item.id+'/units');select.innerHTML+units.map(u=>`<option value="${u.id}" data-base-quantity="${u.baseQuantity}" data-symbol="${escapeHtml(u.symbol)}">${escapeHtml(u.name)} (${escapeHtml(u.symbol)}) · ${u.baseQuantity} أساسي</option>`).join('');}catch{}};
+    const loadSaleUnits=async()=>{
+      const item=saleItems.find(p=>p.id===root.querySelector('#pos-product').value),select=root.querySelector('#pos-unit');
+      select.innerHTML='<option value="" data-base-quantity="1">الوحدة الأساسية</option>';
+      if(!item||item.lineType==='service'){select.disabled=true;return;}
+      select.disabled=false;
+      try{
+        const units=await api('/api/products/'+item.id+'/units');
+        productUnits[item.id]=units;snapshot.productUnits=productUnits;
+        await localStore.setMetadata('product-units',productUnits);
+        select.innerHTML+=units.map(u=>`<option value="${u.id}" data-base-quantity="${u.baseQuantity}" data-symbol="${escapeHtml(u.symbol)}">${escapeHtml(u.name)} (${escapeHtml(u.symbol)}) · ${u.baseQuantity} أساسي</option>`).join('');
+      }catch{
+        const units=productUnits[item.id]||[];
+        select.innerHTML+=units.map(u=>`<option value="${u.id}" data-base-quantity="${u.baseQuantity}" data-symbol="${escapeHtml(u.symbol)}">${escapeHtml(u.name)} (${escapeHtml(u.symbol)}) · ${u.baseQuantity} أساسي</option>`).join('');
+      }
+    };
     root.querySelector('#pos-product').addEventListener('change',loadSaleUnits);await loadSaleUnits();
     root.querySelector('#pos-add').addEventListener('click',async()=>{
       const product=saleItems.find(p=>p.id===root.querySelector('#pos-product').value),quantity=Number(root.querySelector('#pos-quantity').value);
