@@ -36,7 +36,7 @@ Java_com_basmatservice_davincipos_MainActivity_startNodeWithArguments(
     bufferSize += static_cast<size_t>(length) + 1;
   }
 
-  std::vector<char> argumentBuffer(bufferSize, '\\0');
+  std::vector<char> argumentBuffer(bufferSize, '\0');
   std::vector<char*> argv(static_cast<size_t>(count) + 1, nullptr);
   size_t offset = 0;
 
@@ -52,7 +52,7 @@ Java_com_basmatservice_davincipos_MainActivity_startNodeWithArguments(
     argv[static_cast<size_t>(i)] = argumentBuffer.data() + offset;
     const size_t length = static_cast<size_t>(lengths[static_cast<size_t>(i)]);
     std::memcpy(argumentBuffer.data() + offset, value, length);
-    argumentBuffer[offset + length] = '\\0';
+    argumentBuffer[offset + length] = '\0';
     offset += length + 1;
 
     env->ReleaseStringUTFChars(item, value);
