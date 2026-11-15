@@ -91,3 +91,45 @@ test('authentication and permission failures do not permanently reject queued sa
     assert.equal(store.operations[0].attempts,1);
   }
 });
+
+
+import {indexedDB} from 'fake-indexeddb';
+import {IndexedDbLocalStore} from './local-store.js';
+
+test('runs the offline sale lifecycle against real IndexedDB API across store reopen',async()=>{
+  const request=indexedDB.deleteDatabase('davincipos-local');
+  await new Promise((resolve,reject)=>{
+    request.onsuccess=resolve;
+    request.onerror=()=>reject(request.error||new Error('Unable to reset IndexedDB test database.'));
+    request.onblocked=()=>reject(new Error('IndexedDB test database deletion was blocked.'));
+  });
+  const store=new IndexedDbLocalStore({indexedDB});
+  const deviceId=await getLocalDeviceId(store,{randomUUID:()=> 'persistent-device-id'});
+  assert.equal(deviceId,'persistent-device-id');
+  const snapshot={products:[{id:'p1',salePriceMinor:250}],customers:[],services:[]};
+  await cachePosSnapshot(snapshot,store);
+  await queueOfflineSale({sale:{id:'sale-real-idb',lines:[{itemId:'p1',quantity:2}]},deviceId,store,operationId:'operation-real-idb'});
+  await store.close();
+
+  const reopened=new IndexedDbLocalStore({indexedDB});
+  assert.deepEqual(await loadPosSnapshot(reopened),snapshot);
+  const calls=[];
+  const results=await synchronizePendingSales({
+    store:reopened,deviceId,
+    api:async(path,{body})=>{
+      calls.push({path,body});
+      return {status:'accepted',sale:{id:'sale-real-idb',receiptNumber:'R-900'}};
+    }
+  });
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].body.deviceId,deviceId);
+  assert.equal(calls[0].body.operationId,'operation-real-idb');
+  assert.equal(results[0].status,'accepted');
+  const [record]=await reopened.listOperations({deviceId});
+  assert.equal(record.status,'acknowledged');
+  assert.equal(record.response.sale.receiptNumber,'R-900');
+  assert.equal((await reopened.listPending({deviceId})).length,0);
+  await reopened.close();
+  const cleanup=indexedDB.deleteDatabase('davincipos-local');
+  await new Promise((resolve,reject)=>{cleanup.onsuccess=resolve;cleanup.onerror=()=>reject(cleanup.error);});
+});
