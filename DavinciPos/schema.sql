@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
 );
 
 CREATE TABLE IF NOT EXISTS sync_receipts (
-  operation_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL
+  operation_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, payload_hash TEXT, response TEXT NOT NULL, created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS exchange_rates (
