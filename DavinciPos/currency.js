@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db, inTransaction } from './database.js';
 function validRate(value){const rate=Number(value);if(!Number.isFinite(rate)||rate<=0||rate>1000000)throw new Error('Exchange rate must be a positive number.');return rate;}
 export function getCurrentExchangeRate(from='USD',to='SDG'){
- return db.prepare("SELECT id,from_currency AS fromCurrency,to_currency AS toCurrency,rate,effective_at AS effectiveAt FROM exchange_rates WHERE from_currency=? AND to_currency=? ORDER BY effective_at DESC,created_at DESC LIMIT 1").get(from,to)||null;
+ return db.prepare("SELECT id,from_currency AS fromCurrency,to_currency AS toCurrency,rate,effective_at AS effectiveAt FROM exchange_rates WHERE from_currency=? AND to_currency=? ORDER BY effective_at DESC,created_at DESC,rowid DESC LIMIT 1").get(from,to)||null;
 }
 export function listExchangeRates({limit=50}={}){
  return db.prepare("SELECT er.id,er.from_currency AS fromCurrency,er.to_currency AS toCurrency,er.rate,er.effective_at AS effectiveAt,u.display_name AS createdBy FROM exchange_rates er LEFT JOIN users u ON u.id=er.created_by ORDER BY er.effective_at DESC,er.created_at DESC LIMIT ?").all(Math.max(1,Math.min(200,Number(limit)||50)));
