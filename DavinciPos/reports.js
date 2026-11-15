@@ -2,7 +2,9 @@ import { db } from './database.js';
 
 function validDate(value) {
   if(value==null||value==='') return null;
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||Number.isNaN(Date.parse(value+'T00:00:00Z'))) throw new Error('Invalid report date.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Invalid report date.');
+  const parsed=new Date(value+'T00:00:00Z');
+  if(Number.isNaN(parsed.getTime())||parsed.toISOString().slice(0,10)!==value) throw new Error('Invalid report date.');
   return value;
 }
 function nextDate(value){const d=new Date(value+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10);}
