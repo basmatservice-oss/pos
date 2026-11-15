@@ -144,14 +144,14 @@ jobs:
               sleep 1
             done
             test -n "$TOKEN"
-            DAVINCIPOS_BOOTSTRAP_TOKEN="$TOKEN" node DavinciPos/android-smoke-test.mjs
+            DAVINCIPOS_BOOTSTRAP_TOKEN="$TOKEN" node DavinciPos/scripts/android-smoke.mjs
             adb shell am force-stop com.basmatservice.davincipos
             adb shell am start -n com.basmatservice.davincipos/.MainActivity
             for attempt in $(seq 1 60); do
               if curl -fsS http://127.0.0.1:3187/api/health >/dev/null; then break; fi
               sleep 1
             done
-            VERIFY_RESTART=1 node DavinciPos/android-smoke-test.mjs
+            VERIFY_RESTART=1 node DavinciPos/scripts/android-smoke.mjs
             adb shell run-as com.basmatservice.davincipos test -s files/DavinciPos.sqlite
       - uses: actions/upload-artifact@v4
         with:
