@@ -106,4 +106,14 @@ jobs:
         with:
           gradle-version: 8.9
       - name: Run Kotlin/JVM unit tests only
-        run: gradle --no-daemon -p DavinciPos/android testDebugUnitTest
+        run: gradle --no-daemon -p DavinciPos/android testDebugUnitTest --stacktrace
+      - name: Upload Kotlin test reports even when tests fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DavinciPos-Android-Kotlin-Test-Reports
+          path: |
+            DavinciPos/android/app/build/reports/tests/testDebugUnitTest/**
+            DavinciPos/android/app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 14
