@@ -1,7 +1,7 @@
 package com.basmatservice.davincipos
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
+import android.os.Looper
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
@@ -39,13 +39,16 @@ class DavinciAuthRepository(context: android.content.Context) {
         role: String = "cashier",
         actorUserId: String? = null
     ): String {
+        require(Looper.myLooper() != Looper.getMainLooper()) { "Password derivation must run on a background thread." }
         val normalized = username.trim().lowercase()
         require(normalized.matches(Regex("^[a-zA-Z0-9._-]{3,48}$"))) { "Invalid username." }
         require(password.size in 12..256) { "Password must contain at least 12 characters." }
         val cleanDisplayName = requiredText(displayName, "display name", 160)
         require(role in ROLES) { "Invalid role." }
-        if (role == "owner" && actorUserId != null) {
-            require(getUserRole(actorUserId) == "owner") { "Only an owner can create another owner." }
+        if (role == "owner") {
+            require(actorUserId != null && getUserRole(actorUserId) == "owner") {
+                "Only an authenticated owner can create another owner account."
+            }
         }
         val salt = ByteArray(16).also(random::nextBytes)
         val derived = try {
@@ -87,6 +90,7 @@ class DavinciAuthRepository(context: android.content.Context) {
     }
 
     fun login(username: String, password: CharArray): DavinciLoginSession? {
+        require(Looper.myLooper() != Looper.getMainLooper()) { "Password verification must run on a background thread." }
         val normalized = username.trim().lowercase()
         val row = helper.readableDatabase.rawQuery(
             "SELECT id,username,password_hash,display_name,role FROM users WHERE username=? AND is_active=1",
