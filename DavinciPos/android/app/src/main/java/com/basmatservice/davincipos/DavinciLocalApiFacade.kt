@@ -25,6 +25,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val expenses = DavinciExpenseRepository(context)
     private val documents = DavinciDocumentRepository(context)
     private val purchases = DavinciPurchaseRepository(context)
+    private val returns = DavinciReturnRepository(context)
 
     fun dispatch(
         method: String,
@@ -85,6 +86,18 @@ class DavinciLocalApiFacade(context: Context) {
                     val result = purchases.receivePurchase(body.toPurchaseInput())
                     DavinciLocalApiResult(201, data(result.toJson()))
                 }
+
+                method == "GET" && path.matches(Regex("^/api/returns/sales/[^/]+/options$")) ->
+                    success(returns.getSalesReturnOptions(path.split("/")[4]).toSalesJson())
+
+                method == "POST" && path.matches(Regex("^/api/returns/sales/[^/]+$")) ->
+                    DavinciLocalApiResult(201, data(returns.createSalesReturn(path.substringAfterLast("/"), body, actorUserId).toJson()))
+
+                method == "GET" && path.matches(Regex("^/api/returns/purchases/[^/]+/options$")) ->
+                    success(returns.getPurchaseReturnOptions(path.split("/")[4]).toPurchaseJson())
+
+                method == "POST" && path.matches(Regex("^/api/returns/purchases/[^/]+$")) ->
+                    DavinciLocalApiResult(201, data(returns.createPurchaseReturn(path.substringAfterLast("/"), body, actorUserId).toJson()))
 
                 method == "GET" && path == "/api/sales" ->
                     success(JSONArray().apply { documents.listSales().forEach { put(it.toJson()) } })
@@ -290,6 +303,28 @@ class DavinciLocalApiFacade(context: Context) {
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
 
+
+    private fun DavinciReturnOptions.toSalesJson() = JSONObject()
+        .put("sale", JSONObject().put("id", sourceId).put("reference", reference)
+            .put("branchId", branchId ?: JSONObject.NULL).put("customerId", partnerId ?: JSONObject.NULL)
+            .put("totalMinor", totalMinor).put("taxMinor", taxMinor).put("status", status).put("occurredAt", occurredAt))
+        .put("lines", JSONArray().apply { lines.forEach { put(it.toJson()) } })
+    private fun DavinciReturnOptions.toPurchaseJson() = JSONObject()
+        .put("purchase", JSONObject().put("id", sourceId).put("reference", reference)
+            .put("branchId", branchId ?: JSONObject.NULL).put("supplierId", partnerId ?: JSONObject.NULL)
+            .put("totalMinor", totalMinor).put("taxMinor", taxMinor).put("status", status).put("occurredAt", occurredAt))
+        .put("lines", JSONArray().apply { lines.forEach { put(it.toJson()) } })
+    private fun DavinciReturnLineOption.toJson() = JSONObject()
+        .put("id", sourceLineId).put("productId", productId).put("description", description)
+        .put("quantity", quantity).put("baseQuantity", baseQuantity).put("amountMinor", amountMinor)
+        .put("taxMinor", taxMinor).put("costMinor", costMinor).put("unitCostMinor", unitCostMinor)
+        .put("trackStock", trackStock).put("returnedQuantity", returnedQuantity)
+        .put("remainingQuantity", remainingQuantity)
+    private fun DavinciReturnResult.toJson() = JSONObject()
+        .put("id", id).put("returnNumber", returnNumber).put("sourceId", sourceId)
+        .put("totalMinor", totalMinor).put("taxMinor", taxMinor).put("refundMinor", refundMinor)
+        .put("balanceReductionMinor", balanceReductionMinor).put("inventoryCostMinor", inventoryCostMinor)
+        .put("duplicate", duplicate)
 
     private fun DavinciPurchaseQuote.toJson() = JSONObject()
         .put("subtotalMinor", subtotalMinor).put("taxMinor", taxMinor).put("totalMinor", totalMinor)
