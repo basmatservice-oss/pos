@@ -84,8 +84,8 @@ Status meanings:
 | POST /api/returns/purchases/:id | purchase-return + inventory + accounting service | Not ported |
 | POST /api/purchases/receive | purchase receiving + inventory/FIFO service | Not ported |
 | POST /api/accounting/journal-entries/:id/reverse | DavinciAccountingRepository.reverseJournalEntry | Foundation implemented; DB integration tests still required |
-| GET /api/accounting/trial-balance | DavinciAccountingRepository.getTrialBalance | Foundation implemented; date-filter parity and DB integration tests still required |
-| GET /api/expenses | expense repository | Not ported |
+| GET /api/accounting/trial-balance | DavinciAccountingRepository.getTrialBalance | Foundation implemented with inclusive from/exclusive next-day to filters; DB integration/parity tests still required |
+| GET /api/accounting/ledger/:accountId | DavinciAccountingRepository.getAccountLedger | Foundation implemented; DB integration and route response parity still required |\n| GET /api/expenses | expense repository | Not ported |
 | POST /api/expenses | expense + accounting transaction service | Not ported |
 | GET /api/reports/simple | reporting repository | Not ported |
 | GET /api/reports/available | reporting repository | Not ported |
@@ -116,7 +116,7 @@ Static UI routes (`/mobile`, `/desktop`, `/assets/*`, `/service-worker.js`) rema
 - WebView: all current screens work through the compatibility facade with no direct Node dependency.
 - Only after these gates pass: remove Android Node runtime assets, JNI libraries, CMake target, `node-host.cpp`, and Node SQLite addon packaging. Windows Node/Express remains unchanged.
 
-## Accounting slice added after the initial audit\n\n- `DavinciAccountingRepository.kt` now provides balanced journal posting with source idempotency, active-account validation, atomic draft-to-post transition, reversal entries, and trial-balance aggregation.\n- `DavinciJournalValidatorTest.kt` covers balanced multi-line entries, imbalance, zero/both-sided lines, blank account IDs, single-line entries, and safe-integer overflow.\n- Remaining before accounting parity: instrumented SQLite integration tests for schema triggers, source idempotency and reversal behavior; trial-balance date filters; ledger endpoint parity; then wire the service into sale, purchase, payment, returns and expense workflows.\n\n## Known correctness check completed during this audit
+## Accounting slice added after the initial audit\n\n- `DavinciAccountingRepository.kt` now provides balanced journal posting with source idempotency, active-account validation, atomic draft-to-post transition, reversal entries, and trial-balance aggregation.\n- `DavinciJournalValidatorTest.kt` covers balanced multi-line entries, imbalance, zero/both-sided lines, blank account IDs, single-line entries, and safe-integer overflow.\n- Added trial-balance date filtering with strict calendar-date validation and an account-ledger query matching the Node SQL ordering and optional timestamp bounds. Added unit tests for date boundaries and invalid dates.\n- Remaining before accounting parity: instrumented SQLite integration tests for schema triggers, source idempotency and reversal behavior; ledger response/route parity; then wire the service into sale, purchase, payment, returns and expense workflows.\n\n## Known correctness check completed during this audit
 
 The Node scrypt text-salt compatibility vector was independently recalculated with Node's `crypto.scryptSync`. The expected value in `DavinciScryptTest.matchesNodeHexTextSaltEncoding` matches Node exactly:
 `fe1559ad60e4066f60b60896ee0fb5d61fe7722a3a6e095dec5022c958d79b4d5faf1e7bc0a42f3fc74306c88bec2460f8fd052cf0ec75de912719a206285c7c`.
