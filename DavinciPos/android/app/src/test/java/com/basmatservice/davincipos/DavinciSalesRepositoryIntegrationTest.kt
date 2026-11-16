@@ -52,6 +52,13 @@ class DavinciSalesRepositoryIntegrationTest {
             payments = listOf(DavinciSalePayment("cash", 2_000)),
             occurredAt = "2026-11-16T09:00:00.000Z"
         )
+        val salesBeforeQuote = db.rawQuery("SELECT COUNT(*) FROM sales", null).use { cursor ->
+            cursor.moveToFirst(); cursor.getInt(0)
+        }
+        val movementsBeforeQuote = db.rawQuery(
+            "SELECT COUNT(*) FROM stock_movements WHERE product_id=?",
+            arrayOf(productId)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
         val quote = try {
             sales.quoteSale(input)
         } catch (error: IllegalArgumentException) {
@@ -62,6 +69,19 @@ class DavinciSalesRepositoryIntegrationTest {
         assertEquals(2_000L, quote.totalMinor)
         assertEquals(2_000L, quote.subtotalMinor)
         assertEquals(0L, quote.taxMinor)
+        assertEquals(
+            salesBeforeQuote,
+            db.rawQuery("SELECT COUNT(*) FROM sales", null).use { cursor ->
+                cursor.moveToFirst(); cursor.getInt(0)
+            }
+        )
+        assertEquals(
+            movementsBeforeQuote,
+            db.rawQuery(
+                "SELECT COUNT(*) FROM stock_movements WHERE product_id=?",
+                arrayOf(productId)
+            ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+        )
 
         val result = try {
             sales.checkoutSale(input)
@@ -77,7 +97,7 @@ class DavinciSalesRepositoryIntegrationTest {
 
         val allocation = db.rawQuery(
             """
-            SELECT COUNT(*),COALESCE(SUM(quantity),0),COALESCE(SUM(cost_total_minor),0)
+            SELECT COUNT(*),COALESCE(SUM(scl.quantity),0),COALESCE(SUM(scl.cost_total_minor),0)
             FROM sale_line_cost_layers scl
             JOIN sale_lines sl ON sl.id=scl.sale_line_id
             WHERE sl.sale_id=?
