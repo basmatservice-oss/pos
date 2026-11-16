@@ -17,12 +17,14 @@ data class DavinciLocalApiResult(
 class DavinciLocalApiFacade(context: Context) {
     private val services = DavinciServiceRepository(context)
     private val settings = DavinciSettingsRepository(context)
+    private val settlements = DavinciSettlementRepository(context)
 
     fun dispatch(
         method: String,
         rawPath: String,
         body: JSONObject = JSONObject(),
-        actorUserId: String? = null
+        actorUserId: String? = null,
+        idempotencyKey: String? = null
     ): DavinciLocalApiResult {
         val path = rawPath.substringBefore('?').trimEnd('/').ifEmpty { "/" }
         return try {
@@ -68,6 +70,35 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/settlements/customers" ->
+                    success(JSONArray().apply { settlements.listCustomerBalances().forEach { put(it.toJson()) } })
+
+                method == "GET" && path == "/api/settlements/suppliers" ->
+                    success(JSONArray().apply { settlements.listSupplierBalances().forEach { put(it.toJson()) } })
+
+                method == "GET" && path.matches(Regex("^/api/customers/[^/]+/statement$")) -> {
+                    val id = path.split('/')[3]
+                    success(settlements.getCustomerStatement(id).toJson())
+                }
+
+                method == "GET" && path.matches(Regex("^/api/suppliers/[^/]+/statement$")) -> {
+                    val id = path.split('/')[3]
+                    success(settlements.getSupplierStatement(id).toJson())
+                }
+
+                method == "POST" && path.matches(Regex("^/api/sales/[^/]+/payments$")) -> {
+                    val id = path.split('/')[3]
+                    val payment = settlements.recordCustomerPayment(id, body.toPaymentInput(idempotencyKey), actorUserId)
+                    DavinciLocalApiResult(201, data(payment.toJson("saleId")))
+                }
+
+                method == "POST" && path.matches(Regex("^/api/purchases/[^/]+/payments$")) -> {
+                    val id = path.split('/')[3]
+                    val payment = settlements.recordSupplierPayment(id, body.toPaymentInput(idempotencyKey), actorUserId)
+                    DavinciLocalApiResult(201, data(payment.toJson("purchaseId")))
+                }
+
                 method == "POST" && path == "/api/tax-profiles" -> {
                     val id = settings.saveTaxProfile(
                         DavinciSettingsRepository.SaveTaxProfileInput(
@@ -94,6 +125,36 @@ class DavinciLocalApiFacade(context: Context) {
 
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
+
+
+    private fun DavinciPartyBalance.toJson() = JSONObject()
+        .put("id", id).put("name", name).put("phone", phone ?: JSONObject.NULL)
+        .put("balanceMinor", balanceMinor)
+
+    private fun DavinciPartyStatement.toJson() = JSONObject()
+        .put("party", JSONObject().put("id", party.id).put("name", party.name)
+            .put("phone", party.phone ?: JSONObject.NULL))
+        .put("balanceMinor", balanceMinor)
+        .put("invoices", JSONArray().apply { invoices.forEach { put(it.toJson()) } })
+
+    private fun DavinciStatementInvoice.toJson() = JSONObject()
+        .put("id", id).put("reference", reference).put("occurredAt", occurredAt)
+        .put("totalMinor", totalMinor).put("paidMinor", paidMinor)
+        .put("returnedMinor", returnedMinor).put("dueMinor", dueMinor)
+
+    private fun DavinciRecordedPayment.toJson(entityKey: String) = JSONObject()
+        .put("id", id).put(entityKey, entityId)
+        .put("amountMinor", amountMinor).put("remainingMinor", remainingMinor)
+
+    private fun JSONObject.toPaymentInput(headerKey: String?) = DavinciPaymentInput(
+        amountMinor = optLong("amountMinor", -1),
+        method = optString("method", "cash"),
+        provider = optString("provider").takeIf { it.isNotBlank() },
+        reference = optString("reference").takeIf { it.isNotBlank() },
+        occurredAt = optString("occurredAt").takeIf { it.isNotBlank() },
+        idempotencyKey = headerKey?.takeIf { it.isNotBlank() }
+            ?: optString("idempotencyKey").takeIf { it.isNotBlank() }
+    )
 
     private fun DavinciService.toJson() = JSONObject()
         .put("id", id).put("code", code ?: JSONObject.NULL).put("name", name)
