@@ -8,9 +8,9 @@ if [[ -z "$APK" || ! -s "$APK" ]]; then
   exit 1
 fi
 
-adb install -r "$APK"
-adb shell am force-stop com.basmatservice.davincipos
-adb shell am start -W -n com.basmatservice.davincipos/.MainActivity
+timeout 90s adb install -r "$APK"
+timeout 30s adb shell am force-stop com.basmatservice.davincipos
+timeout 45s adb shell am start -W -n com.basmatservice.davincipos/.MainActivity
 sleep 5
 PID="$(adb shell pidof com.basmatservice.davincipos | tr -d '\r')"
 if [[ -z "$PID" ]]; then
@@ -19,8 +19,8 @@ if [[ -z "$PID" ]]; then
   exit 1
 fi
 
-adb shell uiautomator dump /sdcard/davincipos-window.xml
-adb pull /sdcard/davincipos-window.xml /tmp/davincipos-window.xml
+timeout 45s adb shell uiautomator dump /sdcard/davincipos-window.xml
+timeout 30s adb pull /sdcard/davincipos-window.xml /tmp/davincipos-window.xml
 
 # Parse the UI hierarchy as XML instead of grepping raw serialized XML.
 # This handles XML escaping and whitespace normalization and prints the
