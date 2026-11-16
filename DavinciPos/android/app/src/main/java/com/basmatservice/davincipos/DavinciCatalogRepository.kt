@@ -36,6 +36,9 @@ data class DavinciProduct(
     val stockOnHand: Double,
     val inventoryValueMinor: Long,
     val priceCurrency: String,
+    val foreignCostMinor: Long?,
+    val foreignSalePriceMinor: Long?,
+    val autoRateUpdate: Boolean,
     val isActive: Boolean
 )
 
@@ -74,7 +77,8 @@ class DavinciCatalogRepository(context: android.content.Context) {
             """
             SELECT p.id,p.sku,p.barcode,p.name,p.category_id,c.name,p.base_unit_id,u.symbol,
                    p.cost_minor,p.sale_price_minor,p.tax_rate_bps,p.tax_exempt,p.track_stock,
-                   p.min_stock,p.price_currency,p.is_active,
+                   p.min_stock,p.price_currency,p.foreign_cost_minor,p.foreign_sale_price_minor,
+                   p.auto_rate_update,p.is_active,
                    COALESCE((SELECT SUM(sm.quantity_delta) FROM stock_movements sm
                              WHERE sm.product_id=p.id AND sm.branch_id=?),0),
                    COALESCE((SELECT SUM(CASE WHEN sm.quantity_delta>0
@@ -93,6 +97,96 @@ class DavinciCatalogRepository(context: android.content.Context) {
                 while (cursor.moveToNext()) add(cursor.toDavinciProduct())
             }
         }
+
+    fun createUnit(name: String, symbol: String, precision: Int = 0, id: String = UUID.randomUUID().toString()): String {
+        val cleanName = requiredText(name, "unit name", 160)
+        val cleanSymbol = requiredText(symbol, "unit symbol", 16)
+        require(precision in 0..6) { "Unit precision must be between 0 and 6." }
+        helper.writableDatabase.insertOrThrow("units", null, ContentValues().apply {
+            put("id", id)
+            put("name", cleanName)
+            put("symbol", cleanSymbol)
+            put("precision", precision)
+        })
+        return id
+    }
+
+    fun listProductUnits(productId: String): List<DavinciProductUnit> =
+        helper.readableDatabase.rawQuery(
+            """
+            SELECT pu.id,pu.product_id,pu.unit_id,u.name,u.symbol,pu.base_quantity,
+                   pu.barcode,pu.sale_price_minor,pu.is_default_sale
+            FROM product_units pu JOIN units u ON u.id=pu.unit_id
+            WHERE pu.product_id=?
+            ORDER BY pu.is_default_sale DESC,u.name
+            """.trimIndent(), arrayOf(productId)
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(
+                    DavinciProductUnit(
+                        id = cursor.getString(0),
+                        productId = cursor.getString(1),
+                        unitId = cursor.getString(2),
+                        unitName = cursor.getString(3),
+                        unitSymbol = cursor.getString(4),
+                        baseQuantity = cursor.getDouble(5),
+                        barcode = cursor.nullableString(6),
+                        salePriceMinor = if (cursor.isNull(7)) null else cursor.getLong(7),
+                        isDefaultSale = cursor.getInt(8) == 1
+                    )
+                )
+            }
+        }
+
+    /** Saves a conversion without relying on SQLite UPSERT (Android API 26 compatibility). */
+    fun saveProductUnit(
+        productId: String,
+        unitId: String,
+        baseQuantity: Double,
+        barcode: String? = null,
+        salePriceMinor: Long? = null,
+        isDefaultSale: Boolean = false,
+        id: String = UUID.randomUUID().toString()
+    ): String {
+        require(baseQuantity.isFinite() && baseQuantity > 0.0) { "Invalid unit conversion." }
+        require(salePriceMinor == null || salePriceMinor >= 0) { "Invalid unit sale price." }
+        val cleanBarcode = barcode?.let { requiredText(it, "barcode", 100) }
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            requireExists(db, "products", productId, "Product not found.")
+            requireExists(db, "units", unitId, "Unit not found.")
+            val existingId = db.rawQuery(
+                "SELECT id FROM product_units WHERE product_id=? AND unit_id=? LIMIT 1",
+                arrayOf(productId, unitId)
+            ).use { if (it.moveToFirst()) it.getString(0) else null }
+            val values = ContentValues().apply {
+                put("base_quantity", baseQuantity)
+                if (cleanBarcode == null) putNull("barcode") else put("barcode", cleanBarcode)
+                if (salePriceMinor == null) putNull("sale_price_minor") else put("sale_price_minor", salePriceMinor)
+                put("is_default_sale", if (isDefaultSale) 1 else 0)
+            }
+            val savedId = existingId ?: id
+            if (existingId == null) {
+                values.put("id", savedId)
+                values.put("product_id", productId)
+                values.put("unit_id", unitId)
+                db.insertOrThrow("product_units", null, values)
+            } else {
+                db.update("product_units", values, "id=?", arrayOf(existingId))
+            }
+            if (isDefaultSale) {
+                db.execSQL(
+                    "UPDATE product_units SET is_default_sale=0 WHERE product_id=? AND id<>?",
+                    arrayOf(productId, savedId)
+                )
+            }
+            db.setTransactionSuccessful()
+            return savedId
+        } finally {
+            db.endTransaction()
+        }
+    }
 
     fun createCategory(name: String, color: String = "#64748b", id: String = UUID.randomUUID().toString()): String {
         val cleanName = requiredText(name, "category name", 160)
@@ -170,9 +264,12 @@ class DavinciCatalogRepository(context: android.content.Context) {
         trackStock = getInt(12) == 1,
         minStock = getDouble(13),
         priceCurrency = getString(14),
-        isActive = getInt(15) == 1,
-        stockOnHand = getDouble(16),
-        inventoryValueMinor = getLong(17)
+        foreignCostMinor = if (isNull(15)) null else getLong(15),
+        foreignSalePriceMinor = if (isNull(16)) null else getLong(16),
+        autoRateUpdate = getInt(17) == 1,
+        isActive = getInt(18) == 1,
+        stockOnHand = getDouble(19),
+        inventoryValueMinor = getLong(20)
     )
 
     private fun Cursor.nullableString(index: Int): String? =
