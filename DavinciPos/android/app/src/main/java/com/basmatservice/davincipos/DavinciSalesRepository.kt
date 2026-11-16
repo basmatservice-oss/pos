@@ -310,7 +310,7 @@ class DavinciSalesRepository(context: Context) {
                     LEFT JOIN product_units pu ON pu.id=? AND pu.product_id=p.id
                     LEFT JOIN units u ON u.id=COALESCE(pu.unit_id,p.base_unit_id)
                     WHERE p.id=? AND p.is_active=1
-                    """.trimIndent(), arrayOf(line.productUnitId, line.itemId)
+                    """.trimIndent(), arrayOf(line.productUnitId ?: "", line.itemId)
                 ).use { cursor ->
                     if (!cursor.moveToFirst()) null else SaleItem(
                         cursor.getString(0), cursor.getLong(1), cursor.getInt(2),
