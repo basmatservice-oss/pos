@@ -21,6 +21,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val people = DavinciPeopleRepository(context)
     private val catalog = DavinciCatalogRepository(context)
     private val currency = DavinciCurrencyRepository(context)
+    private val inventoryWorkflows = DavinciInventoryWorkflowRepository(context)
 
     fun dispatch(
         method: String,
@@ -73,6 +74,38 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/inventory/counts" ->
+                    success(JSONArray().apply { inventoryWorkflows.listInventoryCounts().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/inventory/counts" -> {
+                    val ids = body.optJSONArray("productIds")?.let { array -> (0 until array.length()).map { array.getString(it) } }
+                    val result = inventoryWorkflows.createInventoryCount(userId = actorUserId, productIds = ids)
+                    DavinciLocalApiResult(201, data(result.toJson()))
+                }
+
+                method == "GET" && path.matches(Regex("^/api/inventory/counts/[^/]+$")) ->
+                    success(inventoryWorkflows.getInventoryCount(path.split("/")[4]).toJson())
+
+                method == "PUT" && path.matches(Regex("^/api/inventory/counts/[^/]+/lines/[^/]+$")) -> {
+                    val parts = path.split("/")
+                    success(inventoryWorkflows.setInventoryCountLine(parts[4], parts[6], body.optDouble("countedQuantity", Double.NaN)).toJson())
+                }
+
+                method == "POST" && path.matches(Regex("^/api/inventory/counts/[^/]+/post$")) ->
+                    success(inventoryWorkflows.completeInventoryCount(path.split("/")[4], actorUserId).toJson())
+
+                method == "POST" && path == "/api/inventory/adjustments" -> {
+                    val result = inventoryWorkflows.adjustInventory(
+                        productId = body.optString("productId"),
+                        quantityDelta = body.optDouble("quantityDelta", Double.NaN),
+                        unitCostMinor = body.optLong("unitCostMinor", 0),
+                        reason = body.optString("reason", "Inventory adjustment"),
+                        id = body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString(),
+                        userId = actorUserId
+                    )
+                    success(result.toJson())
+                }
 
                 method == "GET" && path == "/api/currency/rates" -> {
                     val current = currency.getCurrentExchangeRate()
@@ -223,6 +256,28 @@ class DavinciLocalApiFacade(context: Context) {
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
 
+
+    private fun DavinciInventoryCountCreated.toJson() = JSONObject()
+        .put("id", id).put("branchId", branchId ?: JSONObject.NULL).put("status", status).put("lineCount", lineCount)
+    private fun DavinciInventoryCount.toJson() = JSONObject()
+        .put("id", id).put("branchId", branchId ?: JSONObject.NULL).put("status", status)
+        .put("openedAt", openedAt).put("postedAt", postedAt ?: JSONObject.NULL)
+        .put("lines", JSONArray().apply { lines.forEach { put(it.toJson()) } })
+    private fun DavinciInventoryCountLine.toJson() = JSONObject()
+        .put("id", id).put("productId", productId).put("name", name).put("unitSymbol", unitSymbol)
+        .put("expectedQuantity", expectedQuantity)
+        .put("countedQuantity", countedQuantity ?: JSONObject.NULL)
+        .put("difference", difference ?: JSONObject.NULL)
+    private fun DavinciInventoryCountSummary.toJson() = JSONObject()
+        .put("id", id).put("status", status).put("openedAt", openedAt)
+        .put("postedAt", postedAt ?: JSONObject.NULL).put("products", products)
+        .put("countedProducts", countedProducts)
+    private fun DavinciInventoryAdjustmentResult.toJson() = JSONObject()
+        .put("id", id).put("duplicate", duplicate).put("quantityDelta", quantityDelta)
+        .put("costTotalMinor", costTotalMinor)
+    private fun DavinciInventoryCountPostResult.toJson() = JSONObject()
+        .put("id", id).put("duplicate", duplicate)
+        .put("adjustments", JSONArray().apply { adjustments.forEach { put(JSONObject().put("productId", it.productId).put("quantityDelta", it.quantityDelta).put("costTotalMinor", it.costTotalMinor)) } })
 
     private fun DavinciExchangeRate.toJson() = JSONObject()
         .put("id", id).put("fromCurrency", fromCurrency).put("toCurrency", toCurrency)
