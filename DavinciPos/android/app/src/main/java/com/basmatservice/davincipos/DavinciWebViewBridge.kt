@@ -34,6 +34,8 @@ class DavinciWebViewBridge(
             method == "PUT" && path in setOf("/api/settings") -> true
             method == "GET" && path.startsWith("/api/barcode/") -> true
             method == "GET" && path in setOf("/api/sales", "/api/purchases") -> true
+            method == "GET" && (path.matches(Regex("^/api/returns/sales/[^/]+/options$")) || path.matches(Regex("^/api/returns/purchases/[^/]+/options$"))) -> true
+            method == "POST" && (path.matches(Regex("^/api/returns/sales/[^/]+$")) || path.matches(Regex("^/api/returns/purchases/[^/]+$"))) -> true
             method == "GET" && path == "/api/expenses" -> true
             method == "POST" && path in setOf("/api/purchases/quote", "/api/purchases/receive") -> true
             method == "POST" && path == "/api/expenses" -> true
@@ -102,6 +104,8 @@ class DavinciWebViewBridge(
             path.matches(Regex("^/api/services/[^/]+$")) && method == "PATCH" -> "products.write"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "GET" -> "products.read"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "PUT" -> "products.write"
+            path.matches(Regex("^/api/returns/sales/[^/]+(/options)?$")) -> "sales.return"
+            path.matches(Regex("^/api/returns/purchases/[^/]+(/options)?$")) -> "purchases.return"
             path == "/api/sales" && method == "GET" -> "sales.read"
             path == "/api/purchases" && method == "GET" -> "purchases.read"
             path in setOf("/api/purchases/quote", "/api/purchases/receive") -> "purchases.create"
