@@ -64,3 +64,25 @@ Still intentionally not implemented:
 - launcher switch and Node/JNI removal.
 
 The repository methods are a foundation only. They are not yet wired to WebView and do not make the Android application functionally independent. CI must compile this code before expanding the service surface.
+
+
+## LAN connectivity implementation update
+
+The existing Windows/LAN host remains Node.js + Express + SQLite. Android connects to its existing HTTPS API; the Kotlin migration does not change the server's API contract.
+
+Added `DavinciLanClient.kt`:
+- accepts only an HTTPS server URL at the host root or `/mobile`;
+- checks `GET /api/health` and supports the existing `POST /api/auth/login` contract;
+- sends bearer authorization and idempotency headers for subsequent API calls;
+- uses Android's standard TLS certificate validation and bounded connection/read timeouts;
+- rejects arbitrary non-API paths and refuses to execute network requests on the UI thread.
+
+Updated `MainActivity` so that when a LAN server URL has already been saved, Android opens that remote server directly without first loading embedded Node/JNI libraries. The default local mode remains unchanged. If the remote server cannot be opened in this remote-only mode, the app reports the connection failure instead of silently opening a separate local database and implying that it is the same store.
+
+### Computer server requirements
+
+For LAN access, the computer server must bind to a LAN interface (commonly `HOST=0.0.0.0`) and use a certificate and private key through `TLS_CERT_PATH` and `TLS_KEY_PATH`. The certificate must contain the exact computer IP or DNS name used by the phone in its Subject Alternative Name. Install the issuing CA/certificate as trusted on Android, or use a certificate already trusted by the device. Keep the firewall limited to the required LAN port and trusted network.
+
+Example phone URL: `https://192.168.1.10:3000/mobile` (only if the computer actually uses that IP and port). No WAN/Internet connection is required when both devices can reach each other over the same LAN/Wi-Fi.
+
+The client is added as a typed transport foundation. It is not yet wired into all WebView operations or offline queue replay; those remain release-gate work. The LAN-mode startup change avoids the current unnecessary dependency on embedded Node at launch, but still requires a real phone-to-computer TLS/login/sync test before release.
