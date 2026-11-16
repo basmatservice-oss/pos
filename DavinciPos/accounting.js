@@ -38,7 +38,7 @@ function trialBalanceDateFilter(value,{end=false}={}) {
   const date=new Date(value+'T00:00:00Z');
   if(Number.isNaN(date.getTime())||date.toISOString().slice(0,10)!==value) throw new Error('Invalid trial balance date.');
   if(end) date.setUTCDate(date.getUTCDate()+1);
-  return {sql:end?'je.occurred_at<?':'je.occurred_at>=?',value:date.toISOString().slice(0,10)+'T00:00:00'};
+  return {sql:end?'je.occurred_at<?':'je.occurred_at>=?',value:date.toISOString().slice(0,10)+'T00:00:00.000Z'};
 }
 
 export function getTrialBalance({from=null,to=null}={}) {
