@@ -61,14 +61,14 @@ class DavinciReturnRepository(context: Context) {
     fun getSalesReturnOptions(saleId: String): DavinciReturnOptions {
         val db = helper.readableDatabase
         val sale = db.rawQuery(
-            "SELECT id,receipt_number,branch_id,customer_id,total_minor,status,occurred_at FROM sales WHERE id=?",
+            "SELECT id,receipt_number,branch_id,customer_id,total_minor,tax_minor,status,occurred_at FROM sales WHERE id=?",
             arrayOf(saleId)
         ).use { cursor ->
             if (!cursor.moveToFirst()) null else SourceHeader(
                 cursor.getString(0), cursor.getString(1),
                 if (cursor.isNull(2)) null else cursor.getString(2),
                 if (cursor.isNull(3)) null else cursor.getString(3),
-                cursor.getLong(4), cursor.getString(5), cursor.getString(6), 0L
+                cursor.getLong(4), cursor.getString(6), cursor.getString(7), cursor.getLong(5)
             )
         } ?: throw IllegalArgumentException("Sales invoice not found or not eligible for return.")
         require(sale.status == "posted" || sale.status == "partially_returned") {
@@ -163,7 +163,7 @@ class DavinciReturnRepository(context: Context) {
     ): DavinciReturnResult {
         val id = input.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val now = input.optString("occurredAt").takeIf { it.isNotBlank() } ?: Instant.now().toString()
-        val refund = validateRefund(input.optString("refundMethod", "cash"), input.optString("provider").takeIf { it.isNotBlank() })
+        val refundMethod = validateRefund(input.optString("refundMethod", "cash"), input.optString("provider").takeIf { it.isNotBlank() })
         val entries = input.optJSONArray("lines") ?: throw IllegalArgumentException("Select at least one item to return.")
         require(entries.length() > 0) { "Select at least one item to return." }
         val reason = input.optString("reason", "Customer return")
@@ -227,14 +227,14 @@ class DavinciReturnRepository(context: Context) {
                 "SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount_minor ELSE -amount_minor END),0) FROM payments WHERE sale_id=?",
                 arrayOf(saleId)
             ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
-            val refund = minOf(total, received.coerceAtLeast(0L))
+            val refundAmount = minOf(total, received.coerceAtLeast(0L))
             val returnNumber = input.optString("returnNumber").takeIf { it.isNotBlank() }
                 ?: "SR-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(8).uppercase()}"
             db.insertOrThrow("sales_returns", null, ContentValues().apply {
                 put("id", id); put("sale_id", saleId); put("return_number", returnNumber)
                 putNullable("branch_id", sale.branchId)
-                put("total_minor", total); put("tax_minor", tax); put("refund_minor", refund)
-                putNullable("refund_method", if (refund > 0L) refund.first else null)
+                put("total_minor", total); put("tax_minor", tax); put("refund_minor", refundAmount)
+                putNullable("refund_method", if (refundAmount > 0L) refundMethod.first else null)
                 putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
                 put("reason", reason); putNullable("created_by", userId)
                 put("occurred_at", now); put("created_at", Instant.now().toString())
@@ -256,18 +256,18 @@ class DavinciReturnRepository(context: Context) {
                     put("tax_minor", detail.taxMinor); put("cost_minor", cost)
                 })
             }
-            if (refund > 0L) db.insertOrThrow("payments", null, ContentValues().apply {
+            if (refundAmount > 0L) db.insertOrThrow("payments", null, ContentValues().apply {
                 put("id", UUID.randomUUID().toString()); put("sale_id", saleId)
-                put("direction", "out"); put("method", refund.first)
-                put("amount_minor", refund); putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
-                putNullable("provider", refund.second); put("occurred_at", now)
+                put("direction", "out"); put("method", refundMethod.first)
+                put("amount_minor", refundAmount); putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
+                putNullable("provider", refundMethod.second); put("occurred_at", now)
             })
-            val receivableReduction = total - refund
+            val receivableReduction = total - refundAmount
             val journal = mutableListOf<DavinciJournalLine>()
             val net = total - tax
             if (net > 0L) journal += DavinciJournalLine("acc-sales-returns", debitMinor = net)
             if (tax > 0L) journal += DavinciJournalLine("acc-tax", debitMinor = tax)
-            if (refund > 0L) journal += DavinciJournalLine(paymentAccounts.getValue(refund.first), creditMinor = refund)
+            if (refundAmount > 0L) journal += DavinciJournalLine(paymentAccounts.getValue(refundMethod.first), creditMinor = refundAmount)
             if (receivableReduction > 0L) journal += DavinciJournalLine("acc-ar", creditMinor = receivableReduction)
             if (restoredCost > 0L) {
                 journal += DavinciJournalLine("acc-inventory", debitMinor = restoredCost)
@@ -292,7 +292,7 @@ class DavinciReturnRepository(context: Context) {
                 .put("saleId", saleId).put("totalMinor", total).put("refundMinor", refund)
                 .put("restoredCost", restoredCost).toString())
             db.setTransactionSuccessful()
-            return DavinciReturnResult(id, returnNumber, saleId, total, tax, refund, receivableReduction, restoredCost, false)
+            return DavinciReturnResult(id, returnNumber, saleId, total, tax, refundAmount, receivableReduction, restoredCost, false)
         } finally {
             db.endTransaction()
         }
@@ -305,7 +305,7 @@ class DavinciReturnRepository(context: Context) {
     ): DavinciReturnResult {
         val id = input.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val now = input.optString("occurredAt").takeIf { it.isNotBlank() } ?: Instant.now().toString()
-        val refund = validateRefund(input.optString("refundMethod", "cash"), input.optString("provider").takeIf { it.isNotBlank() })
+        val refundMethod = validateRefund(input.optString("refundMethod", "cash"), input.optString("provider").takeIf { it.isNotBlank() })
         val entries = input.optJSONArray("lines") ?: throw IllegalArgumentException("Select at least one item to return.")
         require(entries.length() > 0) { "Select at least one item to return." }
         val reason = input.optString("reason", "Supplier return")
@@ -402,7 +402,7 @@ class DavinciReturnRepository(context: Context) {
                 putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
                 putNullable("provider", refund.second); put("occurred_at", now); put("direction", "in")
             })
-            val payableReduction = total - refundAmount
+            val payableReduction = total - refundAmountAmount
             val journal = mutableListOf<DavinciJournalLine>()
             if (payableReduction > 0L) journal += DavinciJournalLine("acc-ap", debitMinor = payableReduction)
             if (refundAmount > 0L) journal += DavinciJournalLine(paymentAccounts.getValue(refund.first), debitMinor = refundAmount)
@@ -500,7 +500,7 @@ class DavinciReturnRepository(context: Context) {
         sale: Boolean
     ): SourceHeader {
         val sql = if (sale) {
-            "SELECT id,receipt_number,branch_id,customer_id,total_minor,status,occurred_at FROM sales WHERE id=?"
+            "SELECT id,receipt_number,branch_id,customer_id,total_minor,tax_minor,status,occurred_at FROM sales WHERE id=?"
         } else {
             "SELECT id,invoice_number,branch_id,supplier_id,total_minor,status,occurred_at FROM purchases WHERE id=?"
         }
