@@ -52,9 +52,9 @@ class DavinciCurrencyRepository(context: android.content.Context) {
         val safeLimit = limit.coerceIn(1, 200)
         return helper.readableDatabase.rawQuery(
             """
-            SELECT id,from_currency,to_currency,rate,effective_at,created_by
-            FROM exchange_rates
-            ORDER BY effective_at DESC,created_at DESC LIMIT ?
+            SELECT er.id,er.from_currency,er.to_currency,er.rate,er.effective_at,u.display_name
+            FROM exchange_rates er LEFT JOIN users u ON u.id=er.created_by
+            ORDER BY er.effective_at DESC,er.created_at DESC LIMIT ?
             """.trimIndent(),
             arrayOf(safeLimit.toString())
         ).use { cursor ->
