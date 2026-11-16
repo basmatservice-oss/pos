@@ -289,7 +289,7 @@ class DavinciReturnRepository(context: Context) {
                 put("status", if (remainingLines == 0) "returned" else "partially_returned")
             }, "id=?", arrayOf(saleId))
             audit(db, userId, "sales.return", id, JSONObject()
-                .put("saleId", saleId).put("totalMinor", total).put("refundMinor", refund)
+                .put("saleId", saleId).put("totalMinor", total).put("refundMinor", refundAmount)
                 .put("restoredCost", restoredCost).toString())
             db.setTransactionSuccessful()
             return DavinciReturnResult(id, returnNumber, saleId, total, tax, refundAmount, receivableReduction, restoredCost, false)
@@ -375,7 +375,7 @@ class DavinciReturnRepository(context: Context) {
                 put("id", id); put("purchase_id", purchaseId); put("return_number", returnNumber)
                 putNullable("branch_id", purchase.branchId); put("total_minor", total)
                 put("tax_minor", tax); put("refund_minor", refundAmount)
-                putNullable("refund_method", if (refundAmount > 0L) refund.first else null)
+                putNullable("refund_method", if (refundAmount > 0L) refundMethod.first else null)
                 putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
                 put("reason", reason); putNullable("created_by", userId)
                 put("occurred_at", now); put("created_at", Instant.now().toString())
@@ -398,14 +398,14 @@ class DavinciReturnRepository(context: Context) {
             }
             if (refundAmount > 0L) db.insertOrThrow("purchase_payments", null, ContentValues().apply {
                 put("id", UUID.randomUUID().toString()); put("purchase_id", purchaseId)
-                put("method", refund.first); put("amount_minor", refundAmount)
+                put("method", refundMethod.first); put("amount_minor", refundAmount)
                 putNullable("reference", input.optString("reference").takeIf { it.isNotBlank() })
-                putNullable("provider", refund.second); put("occurred_at", now); put("direction", "in")
+                putNullable("provider", refundMethod.second); put("occurred_at", now); put("direction", "in")
             })
-            val payableReduction = total - refundAmountAmount
+            val payableReduction = total - refundAmount
             val journal = mutableListOf<DavinciJournalLine>()
             if (payableReduction > 0L) journal += DavinciJournalLine("acc-ap", debitMinor = payableReduction)
-            if (refundAmount > 0L) journal += DavinciJournalLine(paymentAccounts.getValue(refund.first), debitMinor = refundAmount)
+            if (refundAmount > 0L) journal += DavinciJournalLine(paymentAccounts.getValue(refundMethod.first), debitMinor = refundAmount)
             if (removedCost > 0L) journal += DavinciJournalLine("acc-inventory", creditMinor = removedCost)
             if (purchase.taxTreatment == "recoverable" && tax > 0L) {
                 journal += DavinciJournalLine("acc-tax-input", creditMinor = tax)
