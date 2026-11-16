@@ -42,6 +42,19 @@ data class DavinciProduct(
     val isActive: Boolean
 )
 
+data class DavinciBarcodeLookup(
+    val productId: String,
+    val name: String,
+    val barcode: String?,
+    val salePriceMinor: Long,
+    val unitId: String?,
+    val unitName: String?,
+    val unitSymbol: String?,
+    val baseQuantity: Double,
+    val productUnitId: String?,
+    val lineType: String
+)
+
 data class DavinciProductUnit(
     val id: String,
     val productId: String,
@@ -109,6 +122,57 @@ class DavinciCatalogRepository(context: android.content.Context) {
                 while (cursor.moveToNext()) add(cursor.toDavinciProduct())
             }
         }
+
+    fun lookupBarcode(code: String): DavinciBarcodeLookup {
+        val value = requiredText(code, "barcode", 100)
+        val product = helper.readableDatabase.rawQuery(
+            """
+            SELECT p.id,p.name,p.barcode,p.sale_price_minor,p.base_unit_id,
+                   u.name,u.symbol,1 AS base_quantity,NULL AS product_unit_id,'product' AS line_type
+            FROM products p JOIN units u ON u.id=p.base_unit_id
+            WHERE p.barcode=? AND p.is_active=1
+            UNION ALL
+            SELECT p.id,p.name,pu.barcode,COALESCE(pu.sale_price_minor,p.sale_price_minor),
+                   pu.unit_id,u.name,u.symbol,pu.base_quantity,pu.id,'product'
+            FROM product_units pu JOIN products p ON p.id=pu.product_id
+            JOIN units u ON u.id=pu.unit_id
+            WHERE pu.barcode=? AND p.is_active=1
+            LIMIT 1
+            """.trimIndent(), arrayOf(value, value)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) null else DavinciBarcodeLookup(
+                productId = cursor.getString(0),
+                name = cursor.getString(1),
+                barcode = cursor.nullableString(2),
+                salePriceMinor = cursor.getLong(3),
+                unitId = cursor.nullableString(4),
+                unitName = cursor.nullableString(5),
+                unitSymbol = cursor.nullableString(6),
+                baseQuantity = cursor.getDouble(7),
+                productUnitId = cursor.nullableString(8),
+                lineType = cursor.getString(9)
+            )
+        }
+        if (product != null) return product
+        val service = helper.readableDatabase.rawQuery(
+            "SELECT id,name,code,price_minor FROM services WHERE code=? AND is_active=1",
+            arrayOf(value)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) null else DavinciBarcodeLookup(
+                productId = cursor.getString(0),
+                name = cursor.getString(1),
+                barcode = cursor.nullableString(2),
+                salePriceMinor = cursor.getLong(3),
+                unitId = null,
+                unitName = null,
+                unitSymbol = null,
+                baseQuantity = 1.0,
+                productUnitId = null,
+                lineType = "service"
+            )
+        }
+        return service ?: throw IllegalArgumentException("لم يتم العثور على صنف أو خدمة بهذا الباركود.")
+    }
 
     fun createUnit(name: String, symbol: String, precision: Int = 0, id: String = UUID.randomUUID().toString()): String {
         val cleanName = requiredText(name, "unit name", 160)
