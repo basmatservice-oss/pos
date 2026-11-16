@@ -52,7 +52,11 @@ class DavinciSalesRepositoryIntegrationTest {
             payments = listOf(DavinciSalePayment("cash", 2_000)),
             occurredAt = "2026-11-16T09:00:00.000Z"
         )
-        val quote = sales.quoteSale(input)
+        val quote = try {
+            sales.quoteSale(input)
+        } catch (error: IllegalArgumentException) {
+            throw AssertionError("Quote failed: ${error.message}", error)
+        }
         assertEquals(2_000L, quote.totalMinor)
         assertEquals(2_000L, quote.subtotalMinor)
         assertEquals(0L, quote.taxMinor)
