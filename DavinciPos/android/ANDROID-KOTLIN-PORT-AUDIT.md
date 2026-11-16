@@ -155,3 +155,12 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Sales and purchase invoice history lists now read directly from the Android SQLite database through Kotlin; invoice return actions and full purchase/sale workflows remain separate route work.
 
 - Purchase quote and receipt now have Kotlin implementations: product/unit validation, tax-profile and purchase-tax treatment, recoverable/non-recoverable tax handling, split/partial payments, inventory layer receipt, purchase variance, AP, input-tax and payment-account journals. The local Android UI routes for purchase quoting and receiving are bridged to Kotlin.
+
+
+## Kotlin-native return workflows added from ERPNext return-document model
+
+- Added `DavinciReturnRepository.kt` with source-linked sales and supplier purchase return options and posting routes. Returns reference original invoice lines, calculate remaining eligible quantities from prior return documents, reject duplicate/over-returns, and post the return header, detail rows, inventory movement, refund/payment record, journal entry and audit row in one transaction.
+- Sales returns restore the exact consumed FIFO source layers using `sale_line_cost_layers` and `inventory_layer_id`; when no layer allocation exists (weighted-cost sale), they restore stock at the original sale line unit cost. Customer refund is capped at collected payments; the remainder reduces receivables.
+- Purchase returns issue stock using the configured inventory valuation method, cap supplier refunds at net cash paid, reduce payables for the balance, reverse recoverable input tax, and reconcile the difference between purchase value and removed inventory value through purchase variance.
+- Wired `GET/POST /api/returns/sales/:id[/options]` and `GET/POST /api/returns/purchases/:id[/options]` into the authenticated Kotlin WebView bridge with `sales.return` and `purchases.return` permissions. Response shapes match the existing returns screen.
+- This is a first Kotlin port of the current Node return workflow. It does not yet implement a separate physical return receipt vs credit-note-only mode, serial/batch traceability, return cancellation, or full source-document status/statement/report reconciliation; those remain explicit parity gaps.
