@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private String bootstrapToken = "";
     private String remoteServerUrl = "";
     private boolean remoteMode = false;
+    private boolean remoteOnlyMode = false;
 
     private native int startNodeWithArguments(String[] arguments, String workingDirectory);
 
@@ -52,6 +53,13 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         remoteServerUrl = getPreferences(0).getString("remote_server_url", "");
         showStartingScreen();
+        // A saved LAN server is a complete operating mode. Do not load or start
+        // the embedded Node/JNI runtime before opening the remote server.
+        if (!remoteServerUrl.isEmpty()) {
+            remoteOnlyMode = true;
+            showApplication();
+            return;
+        }
         try {
             // Load native libraries after rendering the startup screen so linker
             // failures are shown as diagnostics instead of an immediate silent exit.
@@ -195,8 +203,12 @@ public class MainActivity extends Activity {
                 if (request.isForMainFrame() && remoteMode) {
                     remoteMode = false;
                     view.post(() -> {
-                        view.loadUrl(BASE_URL + "/mobile");
-                        Toast.makeText(MainActivity.this, "تعذر فتح خادم المتجر؛ تم فتح قاعدة الهاتف المحلية المستقلة.", Toast.LENGTH_LONG).show();
+                        if (remoteOnlyMode) {
+                            showFatal("تعذر الاتصال بخادم المتجر عبر LAN. تحقق من تشغيل خادم الكمبيوتر وعنوان IP والمنفذ وشهادة HTTPS، ثم أعد فتح التطبيق.");
+                        } else {
+                            view.loadUrl(BASE_URL + "/mobile");
+                            Toast.makeText(MainActivity.this, "تعذر فتح خادم المتجر؛ تم فتح قاعدة الهاتف المحلية المستقلة.", Toast.LENGTH_LONG).show();
+                        }
                     });
                 }
             }
@@ -290,7 +302,9 @@ public class MainActivity extends Activity {
                 remoteServerUrl = "";
                 getPreferences(0).edit().remove("remote_server_url").apply();
                 remoteMode = false;
-                if (webView != null) webView.loadUrl(BASE_URL + "/mobile");
+                if (remoteOnlyMode) {
+                    showFatal("تم مسح عنوان خادم LAN. أعد تشغيل التطبيق لبدء الوضع المحلي.");
+                } else if (webView != null) webView.loadUrl(BASE_URL + "/mobile");
             })
             .setPositiveButton("اتصال", (dialog, which) -> {
                 String value = input.getText().toString().trim();
@@ -307,7 +321,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && remoteMode) {
+        if (webView != null && remoteOnlyMode) {
+            showRemoteServerDialog();
+        } else if (webView != null && remoteMode) {
             remoteMode = false;
             webView.loadUrl(BASE_URL + "/mobile");
         } else if (webView != null) showRemoteServerDialog();
