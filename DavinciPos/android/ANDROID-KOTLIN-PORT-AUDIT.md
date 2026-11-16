@@ -52,9 +52,9 @@ Status meanings:
 | PATCH /api/services/:id | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/services/:id/components | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | PUT /api/services/:id/components | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
-| GET /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify date selection/response parity |
-| POST /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify rounding and historical-rate behavior |
-| PUT /api/products/:id/currency | DavinciCurrencyRepository | Foundation only; verify price recalculation parity |
+| GET /api/currency/rates | DavinciCurrencyRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/currency/rates | DavinciCurrencyRepository + local facade/bridge | Kotlin local route wired |
+| PUT /api/products/:id/currency | DavinciCurrencyRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/categories | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | POST /api/categories | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/customers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
@@ -143,3 +143,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Customer and supplier directory read/create routes are now also wired through the authenticated Kotlin bridge; people screens can create records and use the native settlement routes without these operations falling back to Node.
 
 - Product catalogue read/create, categories, units, product-unit conversions and barcode lookup are now dispatched to Kotlin in local Android mode. Product PATCH, product-currency updates and the remaining catalog edge cases are still unported.
+
+- USD/SDG exchange-rate history, current-rate lookup, optional automatic recalculation of linked USD product prices, and product currency configuration are now exposed through the authenticated local Kotlin bridge.
