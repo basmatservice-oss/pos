@@ -95,8 +95,8 @@ class DavinciPeopleRepository(context: android.content.Context) {
         val values = ContentValues().apply {
             put("id", id)
             put("name", requiredText(name, "supplier name", 160))
-            putOptional("phone", phone, 40)
-            putOptional("email", email, 254)
+            putOptional("phone", phone)
+            putOptional("email", email)
             putOptional("address", address)
             put("created_at", now)
             put("updated_at", now)
