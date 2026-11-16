@@ -28,6 +28,7 @@ const manifest = {
   name: 'davincipos-win7-x64',
   version: '0.1.0',
   private: true,
+  type: 'module',
   description: 'DavinciPos legacy Windows 7 x64 build',
   main: 'desktop-shell/main.cjs',
   dependencies: {
