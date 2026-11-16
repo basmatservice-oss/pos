@@ -45,7 +45,7 @@ internal object DavinciAccountingDateFilter {
             throw IllegalArgumentException("Invalid trial balance date.")
         }
         require(date.toString() == value) { "Invalid trial balance date." }
-        return (if (endExclusive) date.plusDays(1) else date).toString() + "T00:00:00"
+        return (if (endExclusive) date.plusDays(1) else date).toString() + "T00:00:00.000Z"
     }
 }
 
