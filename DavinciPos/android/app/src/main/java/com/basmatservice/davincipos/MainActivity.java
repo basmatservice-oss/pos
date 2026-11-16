@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
             waitForServer(0);
         } catch (Throwable error) {
             localStartupStarted = false;
-            if (!nodeStarted) nodeStarted = false;
+            nodeStarted = false;
             Log.e("DavinciPos", "Application startup failed", error);
             showFatal("تعذر بدء التطبيق: " + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
@@ -296,6 +296,7 @@ public class MainActivity extends Activity {
             remoteServerUrl = "";
             remoteMode = false;
             remoteOnlyMode = false;
+            localStartupStarted = false;
             getPreferences(0).edit().remove("remote_server_url").apply();
             webView = null;
             showStartingScreen();
