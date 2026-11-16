@@ -19,6 +19,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val settings = DavinciSettingsRepository(context)
     private val settlements = DavinciSettlementRepository(context)
     private val people = DavinciPeopleRepository(context)
+    private val catalog = DavinciCatalogRepository(context)
 
     fun dispatch(
         method: String,
@@ -71,6 +72,46 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/products" ->
+                    success(JSONArray().apply { catalog.listProducts().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/products" -> {
+                    val id = catalog.createProduct(body.toNewProduct())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
+                }
+
+                method == "GET" && path == "/api/categories" ->
+                    success(JSONArray().apply { catalog.listCategories().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/categories" -> {
+                    val id = catalog.createCategory(body.optString("name"), body.optString("color", "#64748b"), body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
+                }
+
+                method == "GET" && path == "/api/units" ->
+                    success(JSONArray().apply { catalog.listUnits().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/units" -> {
+                    val id = catalog.createUnit(body.optString("name"), body.optString("symbol"), body.optInt("precision", 0), body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
+                }
+
+                method == "GET" && path.matches(Regex("^/api/products/[^/]+/units$")) -> {
+                    val id = path.split("/")[3]
+                    success(JSONArray().apply { catalog.listProductUnits(id).forEach { put(it.toJson()) } })
+                }
+
+                method == "POST" && path.matches(Regex("^/api/products/[^/]+/units$")) -> {
+                    val id = path.split("/")[3]
+                    val saved = catalog.saveProductUnit(id, body.optString("unitId"), body.optDouble("baseQuantity", Double.NaN), body.optString("barcode").takeIf { it.isNotEmpty() }, if (body.has("salePriceMinor") && !body.isNull("salePriceMinor")) body.optLong("salePriceMinor") else null, body.optBoolean("isDefaultSale", false), body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", saved)))
+                }
+
+                method == "GET" && path.startsWith("/api/barcode/") -> {
+                    val code = path.substringAfter("/api/barcode/")
+                    success(catalog.lookupBarcode(code).toJson())
+                }
 
                 method == "GET" && path == "/api/customers" ->
                     success(JSONArray().apply { people.listCustomers().forEach { put(it.toJson()) } })
@@ -144,6 +185,27 @@ class DavinciLocalApiFacade(context: Context) {
     private fun data(value: Any) = JSONObject().put("data", value)
 
 
+    private fun DavinciUnit.toJson() = JSONObject().put("id", id).put("name", name).put("symbol", symbol).put("precision", precision)
+    private fun DavinciCategory.toJson() = JSONObject().put("id", id).put("name", name).put("color", color)
+    private fun DavinciProduct.toJson() = JSONObject()
+        .put("id", id).put("sku", sku ?: JSONObject.NULL).put("barcode", barcode ?: JSONObject.NULL)
+        .put("name", name).put("categoryId", categoryId ?: JSONObject.NULL).put("categoryName", categoryName ?: JSONObject.NULL)
+        .put("baseUnitId", baseUnitId).put("baseUnitSymbol", baseUnitSymbol ?: JSONObject.NULL)
+        .put("costMinor", costMinor).put("salePriceMinor", salePriceMinor).put("taxRateBps", taxRateBps)
+        .put("taxExempt", taxExempt).put("trackStock", trackStock).put("minStock", minStock)
+        .put("stockOnHand", stockOnHand).put("inventoryValueMinor", inventoryValueMinor)
+        .put("priceCurrency", priceCurrency).put("foreignCostMinor", foreignCostMinor ?: JSONObject.NULL)
+        .put("foreignSalePriceMinor", foreignSalePriceMinor ?: JSONObject.NULL).put("autoRateUpdate", autoRateUpdate).put("isActive", isActive)
+    private fun DavinciProductUnit.toJson() = JSONObject()
+        .put("id", id).put("productId", productId).put("unitId", unitId).put("name", unitName).put("symbol", unitSymbol)
+        .put("baseQuantity", baseQuantity).put("barcode", barcode ?: JSONObject.NULL)
+        .put("salePriceMinor", salePriceMinor ?: JSONObject.NULL).put("isDefaultSale", isDefaultSale)
+    private fun DavinciBarcodeLookup.toJson() = JSONObject()
+        .put("productId", productId).put("name", name).put("barcode", barcode ?: JSONObject.NULL)
+        .put("salePriceMinor", salePriceMinor).put("unitId", unitId ?: JSONObject.NULL)
+        .put("unitName", unitName ?: JSONObject.NULL).put("unitSymbol", unitSymbol ?: JSONObject.NULL)
+        .put("baseQuantity", baseQuantity).put("productUnitId", productUnitId ?: JSONObject.NULL).put("lineType", lineType)
+
     private fun DavinciCustomer.toJson() = JSONObject()
         .put("id", id).put("name", name).put("phone", phone ?: JSONObject.NULL)
         .put("email", email ?: JSONObject.NULL)
@@ -201,6 +263,15 @@ class DavinciLocalApiFacade(context: Context) {
     private fun Map<String, Any?>.toJson() = JSONObject().apply {
         forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
     }
+
+    private fun JSONObject.toNewProduct() = DavinciCatalogRepository.NewProduct(
+        id = optString("id").takeIf { it.isNotEmpty() }, name = optString("name"),
+        baseUnitId = optString("baseUnitId"), sku = optString("sku").takeIf { it.isNotEmpty() },
+        barcode = optString("barcode").takeIf { it.isNotEmpty() }, categoryId = optString("categoryId").takeIf { it.isNotEmpty() },
+        costMinor = optLong("costMinor", 0), salePriceMinor = optLong("salePriceMinor", 0),
+        taxRateBps = optInt("taxRateBps", 0), taxExempt = optBoolean("taxExempt", false),
+        trackStock = optBoolean("trackStock", true), minStock = optDouble("minStock", 0.0)
+    )
 
     private fun JSONObject.toServiceInput(id: String? = null) =
         DavinciServiceRepository.SaveServiceInput(
