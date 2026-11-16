@@ -2,7 +2,6 @@ package com.basmatservice.davincipos
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
-import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.util.UUID
@@ -161,12 +160,26 @@ class DavinciSyncOutboxRepository(context: android.content.Context) {
         }
     }
 
-    fun recordFailure(operationId: String, error: String): Boolean =
-        helper.writableDatabase.update("sync_outbox", ContentValues().apply {
-            put("status", "failed")
-            put("attempts", "(attempts + 1)")
-            put("last_error", error.take(1000))
-        }, "operation_id=?", arrayOf(operationId)) == 1
+    fun recordFailure(operationId: String, error: String): Boolean {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val changed = db.update("sync_outbox", ContentValues().apply {
+                put("status", "failed")
+                put("last_error", error.take(1000))
+            }, "operation_id=?", arrayOf(operationId))
+            if (changed == 1) {
+                db.execSQL(
+                    "UPDATE sync_outbox SET attempts=attempts+1 WHERE operation_id=?",
+                    arrayOf(operationId)
+                )
+            }
+            db.setTransactionSuccessful()
+            return changed == 1
+        } finally {
+            db.endTransaction()
+        }
+    }
 
     fun holdConflict(operationId: String, reason: String): Boolean =
         recordServerDecision(operationId, reason, "pending")
