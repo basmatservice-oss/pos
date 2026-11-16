@@ -350,7 +350,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void probeRemoteServer(String serverUrl, boolean fallbackToLocal) {
+    private void probeRemoteServer(String serverUrl) {
         new Thread(() -> {
             boolean reachable = false;
             HttpURLConnection connection = null;
@@ -377,10 +377,6 @@ public class MainActivity extends Activity {
                     remoteOnlyMode = true;
                     if (webView == null) showApplication();
                     else webView.loadUrl(serverUrl);
-                } else if (fallbackToLocal && webView != null) {
-                    remoteMode = false;
-                    webView.loadUrl(BASE_URL + "/mobile");
-                    Toast.makeText(this, "خادم المتجر غير متاح؛ تم فتح قاعدة الهاتف المستقلة. بياناتها لا تندمج تلقائياً مع قاعدة الكمبيوتر.", Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(this, "تعذر الاتصال. لم يُحفظ العنوان. تحقق من عنوان الخادم وشبكة LAN وشهادة الأمان.", Toast.LENGTH_LONG).show();
                 }
@@ -417,7 +413,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 // Persist the address only after the HTTPS health check succeeds.
-                probeRemoteServer(value, false);
+                probeRemoteServer(value);
             })
             .show();
     }
