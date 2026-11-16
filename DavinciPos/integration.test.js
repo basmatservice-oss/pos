@@ -83,7 +83,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(purchase.totalMinor,10000);
   assert.equal(listSupplierBalances().find(x=>x.id===supplierId).balanceMinor,7000);
 
-  const supplierInstallment=recordSupplierPayment(purchase.id,{amountMinor:2000,method:'bank'});
+  const supplierInstallment=recordSupplierPayment(purchase.id,{amountMinor:2000,method:'bank',occurredAt:'2026-11-15T08:30:00.000Z'});
   assert.equal(supplierInstallment.remainingMinor,5000);
 
   const purchaseLine=getPurchaseReturnOptions(purchase.id).lines[0];
