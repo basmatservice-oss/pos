@@ -54,6 +54,6 @@ class DavinciSqlScriptSplitterTest {
 
         assertEquals(2, statements.size)
         assertTrue(statements[0].contains("-- heading; comment"))
-        assertTrue(statements[0].contains("/* inline; comment */"))
+        assertTrue(statements[1].contains("/* inline; comment */"))
     }
 }
