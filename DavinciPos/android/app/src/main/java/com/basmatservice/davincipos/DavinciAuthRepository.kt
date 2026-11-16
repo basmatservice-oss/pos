@@ -43,7 +43,9 @@ class DavinciAuthRepository(context: android.content.Context) {
         val normalized = username.trim().lowercase()
         require(normalized.matches(Regex("^[a-zA-Z0-9._-]{3,48}$"))) { "Invalid username." }
         require(password.size in 12..256) { "Password must contain at least 12 characters." }
-        val cleanDisplayName = requiredText(displayName, "display name", 160)
+        val cleanDisplayName = displayName.trim().also {
+            require(it.isNotEmpty() && it.length <= 160) { "Invalid display name." }
+        }
         require(role in ROLES) { "Invalid role." }
         if (role == "owner") {
             require(actorUserId != null && getUserRole(actorUserId) == "owner") {
