@@ -20,6 +20,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val settlements = DavinciSettlementRepository(context)
     private val people = DavinciPeopleRepository(context)
     private val catalog = DavinciCatalogRepository(context)
+    private val currency = DavinciCurrencyRepository(context)
 
     fun dispatch(
         method: String,
@@ -72,6 +73,38 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/currency/rates" -> {
+                    val current = currency.getCurrentExchangeRate()
+                    success(JSONObject().put("current", current?.toJson() ?: JSONObject.NULL)
+                        .put("history", JSONArray().apply { currency.listExchangeRates().forEach { put(it.toJson()) } }))
+                }
+
+                method == "POST" && path == "/api/currency/rates" -> {
+                    val result = currency.recordExchangeRate(
+                        rate = body.optDouble("rate", Double.NaN),
+                        effectiveAt = body.optString("effectiveAt").takeIf { it.isNotEmpty() } ?: java.time.Instant.now().toString(),
+                        fromCurrency = body.optString("fromCurrency", "USD"),
+                        toCurrency = body.optString("toCurrency", "SDG"),
+                        actorUserId = actorUserId,
+                        applyAutomatically = body.optBoolean("applyAutomatically", false)
+                    )
+                    DavinciLocalApiResult(201, data(result.first.toJson().put("updatedProducts", result.second)))
+                }
+
+                method == "PUT" && path.matches(Regex("^/api/products/[^/]+/currency$")) -> {
+                    val id = path.split("/")[3]
+                    val result = currency.configureProductCurrency(
+                        productId = id,
+                        currency = body.optString("currency", "SDG"),
+                        foreignCostMinor = body.longOrNull("foreignCostMinor"),
+                        foreignSalePriceMinor = body.longOrNull("foreignSalePriceMinor"),
+                        localCostMinor = body.longOrNull("localCostMinor"),
+                        localSalePriceMinor = body.longOrNull("localSalePriceMinor"),
+                        autoUpdate = body.optBoolean("autoUpdate", false)
+                    )
+                    success(result.toJson())
+                }
 
                 method == "GET" && path == "/api/products" ->
                     success(JSONArray().apply { catalog.listProducts().forEach { put(it.toJson()) } })
@@ -185,6 +218,17 @@ class DavinciLocalApiFacade(context: Context) {
     private fun data(value: Any) = JSONObject().put("data", value)
 
 
+    private fun DavinciExchangeRate.toJson() = JSONObject()
+        .put("id", id).put("fromCurrency", fromCurrency).put("toCurrency", toCurrency)
+        .put("rate", rate).put("effectiveAt", effectiveAt)
+        .put("createdBy", createdBy ?: JSONObject.NULL)
+    private fun DavinciProductCurrency.toJson() = JSONObject()
+        .put("id", productId).put("priceCurrency", currency)
+        .put("foreignCostMinor", foreignCostMinor ?: JSONObject.NULL)
+        .put("foreignSalePriceMinor", foreignSalePriceMinor ?: JSONObject.NULL)
+        .put("autoRateUpdate", autoUpdate).put("costMinor", localCostMinor)
+        .put("salePriceMinor", localSalePriceMinor)
+
     private fun DavinciUnit.toJson() = JSONObject().put("id", id).put("name", name).put("symbol", symbol).put("precision", precision)
     private fun DavinciCategory.toJson() = JSONObject().put("id", id).put("name", name).put("color", color)
     private fun DavinciProduct.toJson() = JSONObject()
@@ -263,6 +307,9 @@ class DavinciLocalApiFacade(context: Context) {
     private fun Map<String, Any?>.toJson() = JSONObject().apply {
         forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
     }
+
+    private fun JSONObject.longOrNull(key: String): Long? =
+        if (!has(key) || isNull(key) || optString(key).isEmpty()) null else optLong(key)
 
     private fun JSONObject.toNewProduct() = DavinciCatalogRepository.NewProduct(
         id = optString("id").takeIf { it.isNotEmpty() }, name = optString("name"),
