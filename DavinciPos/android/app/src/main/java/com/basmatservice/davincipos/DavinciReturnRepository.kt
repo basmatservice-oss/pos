@@ -502,7 +502,7 @@ class DavinciReturnRepository(context: Context) {
         val sql = if (sale) {
             "SELECT id,receipt_number,branch_id,customer_id,total_minor,tax_minor,status,occurred_at FROM sales WHERE id=?"
         } else {
-            "SELECT id,invoice_number,branch_id,supplier_id,total_minor,status,occurred_at FROM purchases WHERE id=?"
+            "SELECT id,invoice_number,branch_id,supplier_id,total_minor,tax_minor,status,occurred_at FROM purchases WHERE id=?"
         }
         return db.rawQuery(sql, arrayOf(id)).use { cursor ->
             if (!cursor.moveToFirst()) throw IllegalArgumentException(
@@ -513,7 +513,7 @@ class DavinciReturnRepository(context: Context) {
                 cursor.getString(0), cursor.getString(1),
                 if (cursor.isNull(2)) null else cursor.getString(2),
                 if (cursor.isNull(3)) null else cursor.getString(3),
-                cursor.getLong(4), cursor.getString(5), cursor.getString(6), 0L
+                cursor.getLong(4), cursor.getString(6), cursor.getString(7), cursor.getLong(5)
             )
         }.also {
             require(if (sale) it.status in setOf("posted", "partially_returned") else it.status == "posted") {
