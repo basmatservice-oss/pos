@@ -85,8 +85,8 @@ Status meanings:
 | POST /api/purchases/receive | purchase receiving + inventory/FIFO service | Not ported |
 | POST /api/accounting/journal-entries/:id/reverse | DavinciAccountingRepository.reverseJournalEntry | Foundation implemented; DB integration tests still required |
 | GET /api/accounting/trial-balance | DavinciAccountingRepository.getTrialBalance | Foundation implemented with inclusive from/exclusive next-day to filters; DB integration/parity tests still required |
-| GET /api/accounting/ledger/:accountId | DavinciAccountingRepository.getAccountLedger | Foundation implemented; DB integration and route response parity still required |\n| GET /api/expenses | expense repository | Not ported |
-| POST /api/expenses | expense + accounting transaction service | Not ported |
+| GET /api/accounting/ledger/:accountId | DavinciAccountingRepository.getAccountLedger | Foundation implemented; DB integration and route response parity still required |\n| GET /api/expenses | DavinciExpenseRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/expenses | DavinciExpenseRepository + accounting + local facade/bridge | Kotlin local route wired |
 | GET /api/reports/simple | reporting repository | Not ported |
 | GET /api/reports/available | reporting repository | Not ported |
 | GET /api/reports/detail | reporting repository | Not ported |
@@ -149,3 +149,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Product PATCH now enforces the Node-side invariants for base-unit changes after stock movements, disabling stock tracking with positive stock, safe monetary values, tax rate bounds and minimum stock; it is exposed through the authenticated Kotlin bridge.
 
 - Android Kotlin now owns inventory adjustment workflows and physical count lifecycle (create, fetch, line entry, atomic posting), including stock layer changes, accounting gains/losses, duplicate adjustment IDs and audit rows. These endpoints are wired in local WebView mode.
+
+- Expense entry and history are now Kotlin-native in local Android mode, including payment-method/provider validation, integer minor-unit accounting, balanced expense-vs-cash/bank/card/wallet postings, and audit trail.
