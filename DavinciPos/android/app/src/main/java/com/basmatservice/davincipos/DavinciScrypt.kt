@@ -28,7 +28,11 @@ internal object DavinciScrypt {
 
     private fun pbkdf2(password: ByteArray, salt: ByteArray, length: Int): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(password, "HmacSHA256"))
+        // SecretKeySpec rejects a zero-length key, although RFC 7914's
+        // empty-password test vector is valid. HMAC pads an empty key with
+        // zero bytes, so a single zero byte is equivalent after block padding.
+        val hmacKey = if (password.isEmpty()) byteArrayOf(0) else password
+        mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
         val output = ByteArray(length)
         val input = ByteArray(salt.size + 4)
         System.arraycopy(salt, 0, input, 0, salt.size)
