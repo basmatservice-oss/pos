@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private String remoteServerUrl = "";
     private boolean remoteMode = false;
     private boolean remoteOnlyMode = false;
+    private boolean localStartupStarted = false;
 
     private native int startNodeWithArguments(String[] arguments, String workingDirectory);
 
@@ -52,17 +53,23 @@ public class MainActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         remoteServerUrl = getPreferences(0).getString("remote_server_url", "");
-        showStartingScreen();
-        // A saved LAN server is a complete operating mode. Do not load or start
-        // the embedded Node/JNI runtime before opening the remote server.
+        // A saved LAN server is a complete operating mode. Never load the
+        // embedded Node/JNI runtime in this mode.
         if (!remoteServerUrl.isEmpty()) {
             remoteOnlyMode = true;
             showApplication();
             return;
         }
+        // First launch is an explicit choice. This screen is independent of
+        // Node/JNI, so a native crash cannot prevent LAN setup.
+        showStartingScreen();
+    }
+
+    private void startLocalRuntime() {
+        if (localStartupStarted || remoteOnlyMode) return;
+        localStartupStarted = true;
+        showStartingScreen();
         try {
-            // Load native libraries after rendering the startup screen so linker
-            // failures are shown as diagnostics instead of an immediate silent exit.
             System.loadLibrary("node");
             System.loadLibrary("davincipos-native");
             File project = new File(getFilesDir(), "nodejs-project-" + BuildConfig.VERSION_NAME);
@@ -77,11 +84,17 @@ public class MainActivity extends Activity {
                             project.getAbsolutePath()
                         );
                         nodeStarted = false;
-                        handler.post(() -> showFatal("توقف محرك Node.js أثناء بدء الخدمة. رمز الخروج: " + exitCode));
+                        handler.post(() -> {
+                            localStartupStarted = false;
+                            showFatal("توقف محرك Node.js أثناء بدء الخدمة. رمز الخروج: " + exitCode);
+                        });
                     } catch (Throwable failure) {
                         nodeStarted = false;
                         Log.e("DavinciPos", "Embedded Node.js failed", failure);
-                        handler.post(() -> showFatal("فشل تشغيل محرك Node.js: " + failure.getClass().getSimpleName() + ": " + failure.getMessage()));
+                        handler.post(() -> {
+                            localStartupStarted = false;
+                            showFatal("فشل تشغيل محرك Node.js: " + failure.getClass().getSimpleName() + ": " + failure.getMessage());
+                        });
                     }
                 }, "DavinciPos-Node");
                 nodeThread.setDaemon(false);
@@ -89,6 +102,7 @@ public class MainActivity extends Activity {
             }
             waitForServer(0);
         } catch (Throwable error) {
+            localStartupStarted = false;
             Log.e("DavinciPos", "Application startup failed", error);
             showFatal("تعذر بدء التطبيق: " + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
@@ -106,28 +120,37 @@ public class MainActivity extends Activity {
         title.setTextColor(Color.rgb(25, 40, 70));
         title.setGravity(Gravity.CENTER);
         layout.addView(title, new LinearLayout.LayoutParams(-1, -2));
-        ProgressBar progress = new ProgressBar(this);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
-        params.topMargin = 28;
-        layout.addView(progress, params);
         TextView status = new TextView(this);
-        status.setText("جاري تشغيل قاعدة البيانات وخدمات النظام محلياً...");
-        status.setTextSize(15);
+        status.setText("اختر طريقة تشغيل التطبيق");
+        status.setTextSize(16);
         status.setTextColor(Color.DKGRAY);
         status.setGravity(Gravity.CENTER);
-        status.setPadding(0, 20, 0, 0);
+        status.setPadding(0, 24, 0, 8);
         layout.addView(status, new LinearLayout.LayoutParams(-1, -2));
+
         TextView lanButton = new TextView(this);
-        lanButton.setText("إعداد الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN");
-        lanButton.setTextSize(15);
+        lanButton.setText("الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN");
+        lanButton.setTextSize(16);
         lanButton.setTextColor(Color.WHITE);
         lanButton.setGravity(Gravity.CENTER);
-        lanButton.setPadding(24, 18, 24, 18);
+        lanButton.setPadding(24, 20, 24, 20);
         lanButton.setBackgroundColor(Color.rgb(75, 91, 190));
         LinearLayout.LayoutParams lanParams = new LinearLayout.LayoutParams(-1, -2);
-        lanParams.topMargin = 28;
+        lanParams.topMargin = 24;
         layout.addView(lanButton, lanParams);
         lanButton.setOnClickListener(view -> showRemoteServerDialog());
+
+        TextView localButton = new TextView(this);
+        localButton.setText("تشغيل محلي على الهاتف");
+        localButton.setTextSize(16);
+        localButton.setTextColor(Color.WHITE);
+        localButton.setGravity(Gravity.CENTER);
+        localButton.setPadding(24, 20, 24, 20);
+        localButton.setBackgroundColor(Color.rgb(45, 125, 85));
+        LinearLayout.LayoutParams localParams = new LinearLayout.LayoutParams(-1, -2);
+        localParams.topMargin = 14;
+        layout.addView(localButton, localParams);
+        localButton.setOnClickListener(view -> startLocalRuntime());
         setContentView(layout);
     }
 
@@ -253,6 +276,17 @@ public class MainActivity extends Activity {
         params.topMargin = 24;
         layout.addView(lanButton, params);
         lanButton.setOnClickListener(button -> showRemoteServerDialog());
+        TextView localButton = new TextView(this);
+        localButton.setText("إعادة محاولة التشغيل المحلي");
+        localButton.setTextSize(15);
+        localButton.setTextColor(Color.WHITE);
+        localButton.setGravity(Gravity.CENTER);
+        localButton.setPadding(24, 18, 24, 18);
+        localButton.setBackgroundColor(Color.rgb(45, 125, 85));
+        LinearLayout.LayoutParams localParams = new LinearLayout.LayoutParams(-1, -2);
+        localParams.topMargin = 12;
+        layout.addView(localButton, localParams);
+        localButton.setOnClickListener(button -> startLocalRuntime());
         setContentView(layout);
     }
 
@@ -332,8 +366,11 @@ public class MainActivity extends Activity {
                 getPreferences(0).edit().remove("remote_server_url").apply();
                 remoteMode = false;
                 if (remoteOnlyMode) {
-                    showFatal("تم مسح عنوان خادم LAN. أعد تشغيل التطبيق لبدء الوضع المحلي.");
+                    remoteOnlyMode = false;
+                    webView = null;
+                    showStartingScreen();
                 } else if (webView != null) webView.loadUrl(BASE_URL + "/mobile");
+                else showStartingScreen();
             })
             .setPositiveButton("اتصال", (dialog, which) -> {
                 String value = input.getText().toString().trim();
