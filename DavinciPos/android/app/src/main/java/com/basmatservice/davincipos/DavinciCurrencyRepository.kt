@@ -111,9 +111,10 @@ class DavinciCurrencyRepository(context: android.content.Context) {
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
                         val values = ContentValues().apply {
-                            if (cursor.isNull(1)) putNull("cost_minor")
-                            else put("cost_minor", (cursor.getLong(1) * currentRate).roundToLong())
-                            put("sale_price_minor", (cursor.getLong(2) * currentRate).roundToLong())
+                            if (!cursor.isNull(1)) {
+                                put("cost_minor", toLocalMinor(cursor.getLong(1), currentRate))
+                            }
+                            put("sale_price_minor", toLocalMinor(cursor.getLong(2), currentRate))
                             put("updated_at", now)
                         }
                         db.update("products", values, "id=?", arrayOf(cursor.getString(0)))
@@ -157,18 +158,15 @@ class DavinciCurrencyRepository(context: android.content.Context) {
             "Product currency must be SDG or USD."
         }
         listOfNotNull(foreignCostMinor, foreignSalePriceMinor, localCostMinor, localSalePriceMinor)
-            .forEach { require(it >= 0) { "Product prices cannot be negative." } }
+            .forEach {
+                require(it in 0..MAX_SAFE_INTEGER) { "Product prices must be safe non-negative integers." }
+            }
 
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
-            val current = db.rawQuery(
-                """
-                SELECT cost_minor,sale_price_minor FROM products WHERE id=?
-                """.trimIndent(), arrayOf(productId)
-            ).use { cursor ->
+            db.rawQuery("SELECT 1 FROM products WHERE id=? LIMIT 1", arrayOf(productId)).use { cursor ->
                 require(cursor.moveToFirst()) { "Product not found." }
-                cursor.getLong(0) to cursor.getLong(1)
             }
             val now = Instant.now().toString()
             val values = ContentValues().apply {
@@ -182,8 +180,8 @@ class DavinciCurrencyRepository(context: android.content.Context) {
                     else put("foreign_cost_minor", foreignCostMinor)
                     put("foreign_sale_price_minor", foreignSalePriceMinor)
                     put("auto_rate_update", if (autoUpdate) 1 else 0)
-                    if (foreignCostMinor != null) put("cost_minor", (foreignCostMinor * exchangeRate).roundToLong())
-                    put("sale_price_minor", (foreignSalePriceMinor * exchangeRate).roundToLong())
+                    if (foreignCostMinor != null) put("cost_minor", toLocalMinor(foreignCostMinor, exchangeRate))
+                    put("sale_price_minor", toLocalMinor(foreignSalePriceMinor, exchangeRate))
                 } else {
                     put("price_currency", "SDG")
                     putNull("foreign_cost_minor")
@@ -221,6 +219,14 @@ class DavinciCurrencyRepository(context: android.content.Context) {
         }
     }
 
+    private fun toLocalMinor(foreignMinor: Long, rate: Double): Long {
+        val converted = foreignMinor.toDouble() * rate
+        require(converted.isFinite() && converted <= MAX_SAFE_INTEGER.toDouble()) {
+            "Converted product price exceeds the supported safe integer range."
+        }
+        return converted.roundToLong()
+    }
+
     private fun getCurrentRateValue(db: SQLiteDatabase, from: String, to: String): Double? =
         db.rawQuery(
             """
@@ -238,4 +244,8 @@ class DavinciCurrencyRepository(context: android.content.Context) {
         effectiveAt = getString(4),
         createdBy = if (isNull(5)) null else getString(5)
     )
+
+    companion object {
+        private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
+    }
 }
