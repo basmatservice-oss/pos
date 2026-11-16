@@ -108,6 +108,7 @@ public class MainActivity extends Activity {
             waitForServer(0);
         } catch (Throwable error) {
             localStartupStarted = false;
+            if (!nodeStarted) nodeStarted = false;
             Log.e("DavinciPos", "Application startup failed", error);
             showFatal("تعذر بدء التطبيق: " + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
@@ -240,14 +241,13 @@ public class MainActivity extends Activity {
             }
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
-                if (request.isForMainFrame() && remoteMode) {
+                if (request.isForMainFrame()) {
                     remoteMode = false;
                     view.post(() -> {
                         if (remoteOnlyMode) {
                             showFatal("تعذر الاتصال بخادم المتجر عبر LAN. تحقق من تشغيل خادم الكمبيوتر وعنوان IP والمنفذ وشهادة HTTPS، ثم أعد فتح التطبيق.");
                         } else {
-                            view.loadUrl(BASE_URL + "/mobile");
-                            Toast.makeText(MainActivity.this, "تعذر فتح خادم المتجر؛ تم فتح قاعدة الهاتف المحلية المستقلة.", Toast.LENGTH_LONG).show();
+                            showFatal("تعذر تحميل واجهة DavinciPos المحلية. أعد المحاولة أو استخدم الاتصال بخادم الكمبيوتر عبر LAN.");
                         }
                     });
                 }
