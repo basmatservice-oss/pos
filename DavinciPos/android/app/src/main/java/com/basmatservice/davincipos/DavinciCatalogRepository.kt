@@ -317,6 +317,115 @@ class DavinciCatalogRepository(context: android.content.Context) {
         }
     }
 
+    /**
+     * Partial product update matching catalog.js. Base units and stock tracking
+     * cannot be changed in ways that would invalidate existing stock movements.
+     */
+    fun updateProduct(id: String, patch: Map<String, Any?>): Boolean {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val current = db.rawQuery(
+                "SELECT base_unit_id,track_stock FROM products WHERE id=?",
+                arrayOf(id)
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) null else cursor.getString(0) to (cursor.getInt(1) == 1)
+            } ?: throw IllegalArgumentException("Product not found.")
+
+            val values = ContentValues()
+            if (patch.containsKey("sku")) values.put(
+                "sku", optionalText(patch["sku"], "SKU", 80)
+            )
+            if (patch.containsKey("barcode")) values.put(
+                "barcode", optionalText(patch["barcode"], "barcode", 100)
+            )
+            if (patch.containsKey("name")) values.put(
+                "name", requiredText(patch["name"] as? String ?: "", "product name", 160)
+            )
+            if (patch.containsKey("categoryId")) {
+                val categoryId = optionalText(patch["categoryId"], "category", 100)
+                if (categoryId != null) requireExists(db, "categories", categoryId, "Category not found.")
+                if (categoryId == null) values.putNull("category_id") else values.put("category_id", categoryId)
+            }
+            if (patch.containsKey("baseUnitId")) {
+                val unitId = requiredText(patch["baseUnitId"] as? String ?: "", "base unit", 100)
+                if (unitId != current.first) {
+                    val hasMovements = db.rawQuery(
+                        "SELECT 1 FROM stock_movements WHERE product_id=? LIMIT 1", arrayOf(id)
+                    ).use { it.moveToFirst() }
+                    require(!hasMovements) { "Base unit cannot be changed after stock movements exist." }
+                }
+                requireExists(db, "units", unitId, "Base unit not found.")
+                values.put("base_unit_id", unitId)
+            }
+            if (patch.containsKey("costMinor")) values.put(
+                "cost_minor", safeMoney(patch["costMinor"], "cost")
+            )
+            if (patch.containsKey("salePriceMinor")) values.put(
+                "sale_price_minor", safeMoney(patch["salePriceMinor"], "sale price")
+            )
+            if (patch.containsKey("taxRateBps")) {
+                val rate = safeInteger(patch["taxRateBps"], "tax rate")
+                require(rate in 0..10_000) { "Invalid product tax rate or minimum stock." }
+                values.put("tax_rate_bps", rate.toInt())
+            }
+            if (patch.containsKey("taxExempt")) values.put(
+                "tax_exempt", if (patch["taxExempt"] == true) 1 else 0
+            )
+            if (patch.containsKey("trackStock")) {
+                val track = patch["trackStock"] == true
+                if (!track && current.second) {
+                    val onHand = db.rawQuery(
+                        "SELECT COALESCE(SUM(quantity_delta),0) FROM stock_movements WHERE product_id=?",
+                        arrayOf(id)
+                    ).use { it.moveToFirst(); it.getDouble(0) }
+                    require(onHand <= 0.0) { "A product with stock on hand cannot stop tracking stock." }
+                }
+                values.put("track_stock", if (track) 1 else 0)
+            }
+            if (patch.containsKey("minStock")) {
+                val minimum = (patch["minStock"] as? Number)?.toDouble()
+                    ?: throw IllegalArgumentException("Invalid product tax rate or minimum stock.")
+                require(minimum.isFinite() && minimum >= 0.0) {
+                    "Invalid product tax rate or minimum stock."
+                }
+                values.put("min_stock", minimum)
+            }
+            if (patch.containsKey("isActive")) values.put(
+                "is_active", if (patch["isActive"] == false) 0 else 1
+            )
+            values.put("updated_at", now())
+            require(db.update("products", values, "id=?", arrayOf(id)) == 1) {
+                "Product not found."
+            }
+            db.setTransactionSuccessful()
+            return true
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun optionalText(value: Any?, label: String, max: Int): String? {
+        if (value == null || value == "") return null
+        return requiredText(value as? String ?: "", label, max)
+    }
+
+    private fun safeMoney(value: Any?, label: String): Long {
+        val amount = safeInteger(value, label)
+        require(amount >= 0L) { "Invalid $label." }
+        return amount
+    }
+
+    private fun safeInteger(value: Any?, label: String): Long {
+        val number = value as? Number ?: throw IllegalArgumentException("Invalid $label.")
+        val doubleValue = number.toDouble()
+        require(doubleValue.isFinite() && doubleValue >= 0.0 &&
+            doubleValue <= 9_007_199_254_740_991.0 && doubleValue % 1.0 == 0.0) {
+            "Invalid $label."
+        }
+        return number.toLong()
+    }
+
     private fun requireExists(db: SQLiteDatabase, table: String, id: String, message: String) {
         // Table names are selected only by this class, never supplied by WebView input.
         db.rawQuery("SELECT 1 FROM $table WHERE id=? LIMIT 1", arrayOf(id)).use {
