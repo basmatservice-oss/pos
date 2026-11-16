@@ -1,32 +1,42 @@
 import React, { useEffect } from 'react';
-import { Cloud, CloudOff, RefreshCw, Server, ServerOff, Wifi, WifiOff } from 'lucide-react';
+import { RefreshCw, Server, ServerOff } from 'lucide-react';
 import { useSyncStore } from '../store/syncStore';
 import { syncService } from '../services/syncService';
+import { apiService } from '../services/apiService';
 
 export default function SyncIndicator() {
   const { isOnline, isSyncing, lastSynced, pendingItemsCount, setOnlineStatus } = useSyncStore();
 
   useEffect(() => {
+    let active = true;
+
+    const probeAndSync = async () => {
+      const reachable = await apiService.checkServerReachability(2000);
+      if (!active) return;
+      setOnlineStatus(reachable);
+      if (reachable) {
+        syncService.syncAll().catch(() => {});
+      } else {
+        syncService.updatePendingCount().catch(() => {});
+      }
+    };
+
     const handleOnline = () => {
-      setOnlineStatus(true);
-      syncService.syncAll().catch(console.error);
+      probeAndSync();
     };
     const handleOffline = () => setOnlineStatus(false);
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Initial sync check
-    syncService.updatePendingCount();
-
-    // Periodic sync every 30 seconds if online
+    // Initial check & periodic LAN health probe every 15 seconds
+    probeAndSync();
     const interval = setInterval(() => {
-      if (navigator.onLine) {
-        syncService.syncAll().catch(console.error);
-      }
-    }, 30000);
+      probeAndSync();
+    }, 15000);
 
     return () => {
+      active = false;
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       clearInterval(interval);
@@ -35,25 +45,29 @@ export default function SyncIndicator() {
 
   return (
     <div className="flex items-center gap-3 text-sm">
-      {/* Pending Items Badge */}
       {pendingItemsCount > 0 && (
-        <div className="flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
-          </span>
-          {pendingItemsCount} بانتظار المزامنة
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-bold whitespace-nowrap tabular-nums">
+          <span>{pendingItemsCount}</span>
+          <span>بانتظار المزامنة</span>
         </div>
       )}
 
-      {/* Sync Status Icon */}
-      <div className="flex items-center gap-2 text-gray-600" title={lastSynced ? `آخر مزامنة: ${lastSynced.toLocaleTimeString()}` : 'لم تتم المزامنة بعد'}>
+      <div
+        className="flex items-center gap-2 text-gray-600"
+        title={
+          lastSynced
+            ? `آخر مزامنة: ${lastSynced.toLocaleTimeString('ar-SA')}`
+            : isOnline
+            ? 'متصل بسيرفر الشبكة المحلية'
+            : 'سيرفر الشبكة المحلية غير متاح (وضع أوفلاين)'
+        }
+      >
         {isSyncing ? (
           <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
         ) : isOnline ? (
-          <Server className="w-5 h-5 text-green-500" />
+          <Server className="w-5 h-5 text-emerald-500" />
         ) : (
-          <ServerOff className="w-5 h-5 text-red-500" />
+          <ServerOff className="w-5 h-5 text-rose-500" />
         )}
       </div>
     </div>

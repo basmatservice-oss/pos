@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, Supplier } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
-import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine } from 'lucide-react';
+import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
@@ -10,6 +10,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
+import { dispatchOperation } from '../services/operationService';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,6 +40,25 @@ export default function Inventory() {
     name: '',
     color: 'bg-indigo-500'
   });
+
+  // Confirmation modal state
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'primary' | 'danger';
+    action: (() => Promise<void> | void) | null;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmLabel: 'تأكيد',
+    variant: 'primary',
+    action: null,
+  });
+
+  const makeTempNumericId = () => Date.now() * 1000 + Math.floor(Math.random() * 900);
   
   // Data State using Dexie Live Queries
   const { 
@@ -289,14 +310,20 @@ export default function Inventory() {
         setSearchQuery('');
       }
     } else if (/^\d+$/.test(barcode) && barcode.length >= 4) {
-      // If it looks like a barcode scan but doesn't exist, offer to add it
-      if (confirm(`الباركود (${barcode}) غير مسجل. هل تريد إضافة منتج جديد بهذا الرمز؟`)) {
-        handleOpenModal(undefined, barcode);
-        if (mainSearchInputRef.current) {
-          mainSearchInputRef.current.value = '';
-          setSearchQuery('');
-        }
-      }
+      setConfirmState({
+        isOpen: true,
+        title: 'منتج غير مسجل',
+        message: `الباركود (${barcode}) غير مسجل في المخزون. هل تريد إضافة منتج جديد بهذا الرمز؟`,
+        confirmLabel: 'إضافة منتج',
+        variant: 'primary',
+        action: () => {
+          handleOpenModal(undefined, barcode);
+          if (mainSearchInputRef.current) {
+            mainSearchInputRef.current.value = '';
+            setSearchQuery('');
+          }
+        },
+      });
     }
   };
 
@@ -325,18 +352,38 @@ export default function Inventory() {
   const handleCategorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const categoryData = {
-        name: categoryFormData.name,
-        color: categoryFormData.color,
-        syncStatus: 'pending' as const
-      };
-
+      const now = new Date().toISOString();
       if (editingCategory && editingCategory.id) {
-        await db.categories.update(editingCategory.id, categoryData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'categories',
+            record: {
+              ...editingCategory,
+              name: categoryFormData.name,
+              color: categoryFormData.color,
+              updatedAt: now,
+            },
+          },
+          user?.branchId
+        );
         await logAction(user?.name || 'Unknown', 'تحديث تصنيف', 'category', `تم تحديث التصنيف: ${categoryFormData.name}`, 0, 0);
         toast.success('تم تحديث التصنيف بنجاح');
       } else {
-        await db.categories.add(categoryData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'categories',
+            record: {
+              id: makeTempNumericId(),
+              name: categoryFormData.name,
+              color: categoryFormData.color,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+          user?.branchId
+        );
         await logAction(user?.name || 'Unknown', 'إضافة تصنيف', 'category', `تمت إضافة التصنيف: ${categoryFormData.name}`, 0, 0);
         toast.success('تمت إضافة التصنيف بنجاح');
       }
@@ -347,24 +394,31 @@ export default function Inventory() {
     }
   };
 
-  const handleDeleteCategory = async (id: number) => {
-    if (confirm('هل أنت متأكد من حذف هذا التصنيف؟ سيتم حذف جميع المنتجات المرتبطة به!')) {
-      try {
-        const category = await db.categories.get(id);
-        await db.transaction('rw', [db.categories, db.products], async () => {
-          await db.categories.delete(id);
+  const handleDeleteCategory = (id: number) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'حذف التصنيف',
+      message: 'هل أنت متأكد من حذف هذا التصنيف؟ سيتم حذف جميع المنتجات المرتبطة به!',
+      confirmLabel: 'حذف نهائي',
+      variant: 'danger',
+      action: async () => {
+        try {
+          const category = await db.categories.get(id);
           const productsToDelete = await db.products.where('categoryId').equals(id).toArray();
           for (const p of productsToDelete) {
-            if (p.id) await db.products.delete(p.id);
+            if (p.id !== undefined) {
+              await dispatchOperation('entity_delete', { table: 'products', id: p.id }, user?.branchId);
+            }
           }
-        });
-        await logAction(user?.name || 'Unknown', 'حذف تصنيف', 'category', `تم حذف التصنيف: ${category?.name || id}`, 0, 0);
-        toast.success('تم حذف التصنيف بنجاح');
-      } catch (error) {
-        console.error(error);
-        toast.error('حدث خطأ أثناء حذف التصنيف');
-      }
-    }
+          await dispatchOperation('entity_delete', { table: 'categories', id }, user?.branchId);
+          await logAction(user?.name || 'Unknown', 'حذف تصنيف', 'category', `تم حذف التصنيف: ${category?.name || id}`, 0, 0);
+          toast.success('تم حذف التصنيف بنجاح');
+        } catch (error) {
+          console.error(error);
+          toast.error('حدث خطأ أثناء حذف التصنيف');
+        }
+      },
+    });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -380,8 +434,9 @@ export default function Inventory() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     try {
+      const now = new Date().toISOString();
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
@@ -398,17 +453,38 @@ export default function Inventory() {
         batchNumber: formData.batchNumber || undefined,
         unit: formData.unit || 'piece',
         conversionFactor: Number(formData.conversionFactor) || 1,
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'pending'
+        branchId: editingProduct?.branchId ?? user?.branchId,
+        updatedAt: now,
       };
 
       if (editingProduct && editingProduct.id) {
-        await db.products.update(editingProduct.id, productData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'products',
+            record: {
+              ...editingProduct,
+              ...productData,
+              id: editingProduct.id,
+            },
+          },
+          user?.branchId
+        );
         await logAction(user?.name || 'Unknown', 'تحديث منتج', 'product', `تم تحديث المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
         toast.success('تم تحديث المنتج بنجاح');
       } else {
-        productData.createdAt = new Date().toISOString();
-        await db.products.add(productData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'products',
+            record: {
+              ...productData,
+              id: makeTempNumericId(),
+              createdAt: now,
+            },
+          },
+          user?.branchId
+        );
         await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
         toast.success('تمت إضافة المنتج بنجاح');
       }
@@ -419,58 +495,71 @@ export default function Inventory() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-      try {
-        const product = await db.products.get(id);
-        await db.products.delete(id);
-        await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
-        toast.success('تم حذف المنتج بنجاح');
-      } catch (error) {
-        console.error(error);
-        toast.error('حدث خطأ أثناء حذف المنتج');
-      }
-    }
+  const handleDelete = (id: number) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'حذف المنتج',
+      message: 'هل أنت متأكد من حذف هذا المنتج؟',
+      confirmLabel: 'حذف المنتج',
+      variant: 'danger',
+      action: async () => {
+        try {
+          const product = await db.products.get(id);
+          await dispatchOperation('entity_delete', { table: 'products', id }, user?.branchId);
+          await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
+          toast.success('تم حذف المنتج بنجاح');
+        } catch (error) {
+          console.error(error);
+          toast.error('حدث خطأ أثناء حذف المنتج');
+        }
+      },
+    });
   };
 
-  const handleUpdatePricesFromExchangeRate = async () => {
+  const handleUpdatePricesFromExchangeRate = () => {
     if (!storeSettings.exchangeRate || storeSettings.exchangeRate <= 0) {
       toast.error('يرجى تعيين سعر صرف صحيح في الإعدادات أولاً');
       return;
     }
 
-    if (!confirm(`هل أنت متأكد من تحديث جميع الأسعار بناءً على سعر الصرف الحالي (${storeSettings.exchangeRate})؟ سيتم تحديث المنتجات التي لها سعر بالدولار فقط.`)) {
+    const productsToUpdate = allProducts.filter(p => p.priceInUSD || p.costInUSD);
+    if (productsToUpdate.length === 0) {
+      toast('لا توجد منتجات مسعرة بالدولار لتحديثها', { icon: 'ℹ️' });
       return;
     }
 
-    try {
-      const productsToUpdate = allProducts.filter(p => p.priceInUSD || p.costInUSD);
-      
-      if (productsToUpdate.length === 0) {
-        toast('لا توجد منتجات مسعرة بالدولار لتحديثها', { icon: 'ℹ️' });
-        return;
-      }
+    setConfirmState({
+      isOpen: true,
+      title: 'تحديث الأسعار حسب سعر الصرف',
+      message: `هل أنت متأكد من تحديث أسعار ${productsToUpdate.length} منتج مسعّر بالدولار بناءً على سعر الصرف الحالي (${storeSettings.exchangeRate})؟`,
+      confirmLabel: 'تحديث الأسعار',
+      variant: 'primary',
+      action: async () => {
+        try {
+          const now = new Date().toISOString();
+          for (const p of productsToUpdate) {
+            const updatedProduct: any = { ...p, updatedAt: now };
+            if (p.priceInUSD) {
+              updatedProduct.sellingPrice = Number((p.priceInUSD * storeSettings.exchangeRate).toFixed(2));
+            }
+            if (p.costInUSD) {
+              updatedProduct.costPrice = Number((p.costInUSD * storeSettings.exchangeRate).toFixed(2));
+            }
+            await dispatchOperation(
+              'entity_upsert',
+              { table: 'products', record: updatedProduct },
+              user?.branchId
+            );
+          }
 
-      const updates = productsToUpdate.map(p => {
-        const updatedProduct = { ...p };
-        if (p.priceInUSD) {
-          updatedProduct.sellingPrice = Number((p.priceInUSD * storeSettings.exchangeRate).toFixed(2));
+          await logAction(user?.name || 'Unknown', 'تحديث أسعار', 'product', `تم تحديث أسعار ${productsToUpdate.length} منتج بناءً على سعر الصرف`, 0, 0);
+          toast.success(`تم تحديث أسعار ${productsToUpdate.length} منتج بنجاح`);
+        } catch (error) {
+          console.error(error);
+          toast.error('حدث خطأ أثناء تحديث الأسعار');
         }
-        if (p.costInUSD) {
-          updatedProduct.costPrice = Number((p.costInUSD * storeSettings.exchangeRate).toFixed(2));
-        }
-        updatedProduct.updatedAt = new Date().toISOString();
-        updatedProduct.syncStatus = 'pending';
-        return updatedProduct;
-      });
-
-      await db.products.bulkPut(updates);
-      await logAction(user?.name || 'Unknown', 'تحديث أسعار', 'product', `تم تحديث أسعار ${updates.length} منتج بناءً على سعر الصرف`, 0, 0);
-      toast.success(`تم تحديث أسعار ${updates.length} منتج بنجاح`);
-    } catch (error) {
-      console.error(error);
-      toast.error('حدث خطأ أثناء تحديث الأسعار');
-    }
+      },
+    });
   };
 
   const handleExportCSV = () => {
@@ -562,7 +651,26 @@ export default function Inventory() {
         }
 
         if (newProducts.length > 0) {
-          await db.products.bulkAdd(newProducts);
+          const baseTs = Date.now() * 1000;
+          for (let idx = 0; idx < newProducts.length; idx++) {
+            const np = newProducts[idx];
+            await dispatchOperation(
+              'entity_upsert',
+              {
+                table: 'products',
+                record: {
+                  ...np,
+                  id: baseTs + idx,
+                  minStockLevel: 5,
+                  unit: 'piece',
+                  conversionFactor: 1,
+                  branchId: user?.branchId,
+                  createdAt: np.updatedAt,
+                },
+              },
+              user?.branchId
+            );
+          }
           toast.success(`تم استيراد ${newProducts.length} منتج بنجاح`);
         } else {
           toast.error('لم يتم العثور على منتجات جديدة صالحة للاستيراد');
@@ -771,30 +879,30 @@ export default function Inventory() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
                     {product.barcode}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 tabular-nums">
                     {product.costPrice.toFixed(2)} {storeSettings.currency}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600 tabular-nums">
                     {product.sellingPrice.toFixed(2)} {storeSettings.currency}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 tabular-nums">
                     {product.priceInUSD ? `$${product.priceInUSD.toFixed(2)}` : '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold tabular-nums">
                     {(product.sellingPrice - product.costPrice).toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${
-                      product.stockQuantity > (product.minStockLevel || 5) ? 'bg-emerald-100 text-emerald-800' : 
-                      product.stockQuantity > 0 ? 'bg-orange-100 text-orange-800' : 
-                      'bg-rose-100 text-rose-800'
+                    <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg border tabular-nums ${
+                      product.stockQuantity > (product.minStockLevel || 5) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                      product.stockQuantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                      'bg-rose-50 text-rose-700 border-rose-200'
                     }`}>
                       {product.stockQuantity} {product.unit === 'box' ? 'صندوق' : 'حبة'}
                       {product.unit === 'box' && ` (${product.conversionFactor} حبة)`}
                     </span>
                   </td>
                   {storeSettings.businessType === 'pharmacy' && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 tabular-nums">
                       {product.expiryDate ? (
                         <span className={new Date(product.expiryDate) < new Date() ? 'text-rose-600 font-bold' : ''}>
                           {new Date(product.expiryDate).toLocaleDateString('ar-SA')}
@@ -802,11 +910,11 @@ export default function Inventory() {
                       ) : '-'}
                     </td>
                   )}
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-xs font-bold">
                     {product.syncStatus === 'synced' ? (
-                      <span className="text-emerald-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> متزامن</span>
+                      <span className="inline-flex px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">متزامن</span>
                     ) : (
-                      <span className="text-amber-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> محلي</span>
+                      <span className="inline-flex px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">قيد المزامنة</span>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
@@ -1321,6 +1429,20 @@ export default function Inventory() {
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        variant={confirmState.variant}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false, action: null }))}
+        onConfirm={async () => {
+          const act = confirmState.action;
+          setConfirmState(prev => ({ ...prev, isOpen: false, action: null }));
+          if (act) await act();
+        }}
+      />
     </div>
   );
 }

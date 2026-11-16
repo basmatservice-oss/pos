@@ -29,7 +29,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useSettings } from './hooks/useSettings';
-import { db } from './db/db';
+import { db, ensureDatabaseReady } from './db/db';
 import { useInventoryStore } from './store/useInventoryStore';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -107,12 +107,10 @@ function AppContent() {
       root.style.setProperty('--base-font-size', settings.fontSize || '14px');
       root.style.setProperty('--border-radius', settings.borderRadius || '12px');
       
-      if (settings.fontFamily === 'Cairo') {
-        root.style.fontFamily = '"Cairo", sans-serif';
-      } else if (settings.fontFamily === 'Tajawal') {
-        root.style.fontFamily = '"Tajawal", sans-serif';
+      if (settings.fontFamily === 'Tajawal') {
+        root.style.fontFamily = '"Tajawal", "Cairo", sans-serif';
       } else {
-        root.style.fontFamily = '"Inter", sans-serif';
+        root.style.fontFamily = '"Cairo", "Tajawal", sans-serif';
       }
     }
   }, [
@@ -128,41 +126,61 @@ function AppContent() {
   ]);
 
   useEffect(() => {
-    // Both client and server UI need to listen for real-time updates
+    let activeSocket: any = null;
+    let isMounted = true;
+
     const initSocket = async () => {
       let serverUrl = window.location.origin;
-      
+
       if (deviceRole === 'client') {
         const urlSetting = await db.settings.where('key').equals('serverUrl').first();
         if (urlSetting && urlSetting.value) {
-          serverUrl = urlSetting.value;
+          const raw = String(urlSetting.value).trim().replace(/\/+$/, '');
+          serverUrl = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
         }
       }
-      
-      const newSocket = io(serverUrl);
-      
+
+      if (!isMounted) return;
+      const newSocket = io(serverUrl, {
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+      });
+      activeSocket = newSocket;
+
       newSocket.on('connect', () => {
         console.log(`Connected to server via socket.io (${deviceRole})`);
+        syncService.syncAll().catch(() => {});
       });
-      
-      newSocket.on('data-updated', (data) => {
-        console.log('Data updated from another client/server:', data);
-        syncService.pullAll();
+
+      newSocket.on('connect_error', () => {
+        // Offline / LAN server temporarily unreachable
       });
-      
+
+      newSocket.on('data-updated', () => {
+        syncService.pullAll().catch(() => {});
+      });
+
+      newSocket.on('operation:applied', () => {
+        syncService.pullAll().catch(() => {});
+      });
+
       setSocket(newSocket);
     };
-    
+
+    syncService.initAutoSync();
+
     initSocket();
-    
+
     return () => {
-      if (socket) socket.disconnect();
+      isMounted = false;
+      if (activeSocket) activeSocket.disconnect();
     };
   }, [deviceRole]);
 
   useEffect(() => {
     const fetchInitialSetup = async () => {
       try {
+        await ensureDatabaseReady();
         // First check local Dexie DB for role and business type
         const roleSetting = await db.settings.where('key').equals('deviceRole').first();
         const typeSetting = await db.settings.where('key').equals('businessType').first();
@@ -222,21 +240,11 @@ function AppContent() {
 
   if (isLoading || isAuthLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] font-sans rtl">
-        <div className="relative">
-          <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl rotate-45 animate-pulse"></div>
-          </div>
-        </div>
-        <div className="mt-8 text-center">
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">Smart POS Studio</h1>
-          <p className="text-gray-500 mt-2 font-medium animate-pulse">جاري تحسين وتهيئة النظام...</p>
-        </div>
-        <div className="mt-12 flex gap-1">
-          <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-          <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-          <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] font-sans" dir="rtl">
+        <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="mt-6 text-center">
+          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">POS System v3</h1>
+          <p className="text-sm text-slate-500 mt-1 font-medium">جاري تهيئة النظام...</p>
         </div>
       </div>
     );

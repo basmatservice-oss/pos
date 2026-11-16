@@ -10,9 +10,9 @@ export const DatabaseStatusIndicator = () => {
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full" title="حالة قاعدة بيانات السيرفر (SQLite)">
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg whitespace-nowrap" title="حالة قاعدة بيانات السيرفر (SQLite)">
       <Database className={`w-4 h-4 ${colors[status]}`} />
-      <span className="text-xs font-bold">
+      <span className="text-xs font-bold text-slate-700">
         السيرفر: {status === 'connected' ? 'متصل' : status === 'disconnected' ? 'غير متصل' : 'جاري الفحص'}
       </span>
     </div>

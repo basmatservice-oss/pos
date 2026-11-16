@@ -26,9 +26,10 @@ import {
 import { toast } from 'react-hot-toast';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useSettings } from '../hooks/useSettings';
-import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
+import { dispatchOperation } from '../services/operationService';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 export default function Stocktaking() {
   const { user } = useAuth();
@@ -41,6 +42,21 @@ export default function Stocktaking() {
   const lastScannedTimeRef = useRef<Record<string, number>>({});
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [newSessionItems, setNewSessionItems] = useState<any[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'primary' | 'danger';
+    action: (() => Promise<void> | void) | null;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmLabel: 'تأكيد',
+    variant: 'primary',
+    action: null,
+  });
   
   const { 
     products: allProducts, 
@@ -64,55 +80,39 @@ export default function Stocktaking() {
   ) || [];
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  const handleApproveSession = async (session: StocktakingSession) => {
-    if (!confirm('هل أنت متأكد من اعتماد نتائج هذا الجرد؟ سيتم تحديث الكميات في المخزون.')) return;
-
-    setIsProcessing(true);
-    try {
-      const entries = await db.stocktakingEntries.where('sessionId').equals(session.id!).toArray();
-      
-      await db.transaction('rw', [db.products, db.stocktakingSessions, db.auditLogs], async () => {
-        for (const entry of entries) {
-          const diff = entry.actualQuantity - entry.systemQuantity;
-          if (diff !== 0) {
-            await db.products.update(entry.productId, {
-              stockQuantity: entry.actualQuantity,
-              updatedAt: new Date().toISOString(),
-              syncStatus: 'pending'
-            });
-
-            await logAction(
-              user?.name || 'Unknown',
-              'جرد مخزني (معتمد)',
-              'inventory',
-              `تعديل كمية المنتج ${entry.productName} من ${entry.systemQuantity} إلى ${entry.actualQuantity} (الفرق: ${diff})`,
-              diff,
-              0,
-              entry.productName
-            );
-          }
+  const handleApproveSession = (session: StocktakingSession) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'اعتماد نتائج الجرد',
+      message: 'هل أنت متأكد من اعتماد نتائج هذا الجرد؟ سيتم تحديث الكميات في المخزون وتسوية القيود المحاسبية.',
+      confirmLabel: 'اعتماد الجرد',
+      variant: 'primary',
+      action: async () => {
+        setIsProcessing(true);
+        try {
+          await dispatchOperation('stocktake_approve', { sessionId: session.id! }, user?.branchId);
+          toast.success('تم اعتماد الجرد وتحديث المخزون بنجاح');
+          setView('sessions');
+          setSelectedSession(null);
+        } catch (error: any) {
+          console.error(error);
+          toast.error(error?.message || 'حدث خطأ أثناء اعتماد الجرد');
+        } finally {
+          setIsProcessing(false);
         }
-
-        await db.stocktakingSessions.update(session.id!, {
-          status: 'approved',
-          syncStatus: 'pending'
-        });
-      });
-
-      toast.success('تم اعتماد الجرد وتحديث المخزون بنجاح');
-      setView('sessions');
-      setSelectedSession(null);
-    } catch (error) {
-      console.error(error);
-      toast.error('حدث خطأ أثناء اعتماد الجرد');
-    } finally {
-      setIsProcessing(false);
-    }
+      },
+    });
   };
 
   const handleUpdateSessionStatus = async (id: string, status: 'open' | 'closed' | 'suspended' | 'approved') => {
     try {
-      await db.stocktakingSessions.update(id, { status, syncStatus: 'pending' });
+      const existing = sessions.find((s) => s.id === id);
+      if (existing) {
+        await dispatchOperation('entity_upsert', {
+          table: 'stocktakingSessions',
+          record: { ...existing, status },
+        });
+      }
       toast.success('تم تحديث حالة الجلسة بنجاح');
       if (selectedSession?.id === id) {
         setSelectedSession({ ...selectedSession, status });
@@ -123,20 +123,31 @@ export default function Stocktaking() {
     }
   };
 
-  const handleDeleteSession = async (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذه الجلسة؟ سيتم حذف جميع البيانات المرتبطة بها.')) return;
-    try {
-      await db.transaction('rw', [db.stocktakingSessions, db.stocktakingEntries], async () => {
-        await db.stocktakingEntries.where('sessionId').equals(id).delete();
-        await db.stocktakingSessions.delete(id);
-      });
-      toast.success('تم حذف الجلسة بنجاح');
-      setView('sessions');
-      setSelectedSession(null);
-    } catch (error) {
-      console.error(error);
-      toast.error('حدث خطأ أثناء حذف الجلسة');
-    }
+  const handleDeleteSession = (id: string) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'حذف جلسة الجرد',
+      message: 'هل أنت متأكد من حذف هذه الجلسة؟ سيتم حذف جميع البيانات المرتبطة بها.',
+      confirmLabel: 'حذف الجلسة',
+      variant: 'danger',
+      action: async () => {
+        try {
+          const entries = await db.stocktakingEntries.where('sessionId').equals(id).toArray();
+          for (const entry of entries) {
+            if (entry.id !== undefined) {
+              await dispatchOperation('entity_delete', { table: 'stocktakingEntries', id: entry.id });
+            }
+          }
+          await dispatchOperation('entity_delete', { table: 'stocktakingSessions', id });
+          toast.success('تم حذف الجلسة بنجاح');
+          setView('sessions');
+          setSelectedSession(null);
+        } catch (error) {
+          console.error(error);
+          toast.error('حدث خطأ أثناء حذف الجلسة');
+        }
+      },
+    });
   };
 
   const handleStartMobileSession = async () => {
@@ -148,10 +159,14 @@ export default function Stocktaking() {
         status: 'open',
         createdAt: new Date().toISOString(),
         createdBy: user?.name || 'System',
-        syncStatus: 'pending'
+        branchId: user?.branchId,
+        syncStatus: 'pending',
       };
 
-      await db.stocktakingSessions.add(session);
+      await dispatchOperation('entity_upsert', {
+        table: 'stocktakingSessions',
+        record: session,
+      });
       toast.success('تم فتح جلسة جرد للمناديب بنجاح');
       setView('sessions');
     } catch (error) {
@@ -164,34 +179,45 @@ export default function Stocktaking() {
 
   const handleCreateNewSession = async () => {
     if (newSessionItems.length === 0) return toast.error('القائمة فارغة');
-    
+
     setIsProcessing(true);
     try {
       const sessionId = uuidv4();
+      const now = new Date().toISOString();
       const session: StocktakingSession = {
         id: sessionId,
         status: 'open',
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         createdBy: user?.name || 'System',
-        syncStatus: 'pending'
+        branchId: user?.branchId,
+        syncStatus: 'pending',
       };
 
-      const entries: StocktakingEntry[] = newSessionItems.map(item => ({
-        sessionId,
-        productId: item.productId,
-        productName: item.name,
-        barcode: item.barcode,
-        systemQuantity: item.systemQuantity,
-        actualQuantity: item.actualQuantity,
-        scannedBy: user?.name || 'System',
-        scannedAt: new Date().toISOString(),
-        syncStatus: 'pending'
-      }));
-
-      await db.transaction('rw', [db.stocktakingSessions, db.stocktakingEntries], async () => {
-        await db.stocktakingSessions.add(session);
-        await db.stocktakingEntries.bulkAdd(entries);
+      await dispatchOperation('entity_upsert', {
+        table: 'stocktakingSessions',
+        record: session,
       });
+
+      for (let i = 0; i < newSessionItems.length; i++) {
+        const item = newSessionItems[i];
+        const entryId = Date.now() * 1000 + i;
+        const entry: StocktakingEntry = {
+          id: entryId,
+          sessionId,
+          productId: item.productId,
+          productName: item.name,
+          barcode: item.barcode,
+          systemQuantity: item.systemQuantity,
+          actualQuantity: item.actualQuantity,
+          scannedBy: user?.name || 'System',
+          scannedAt: now,
+          syncStatus: 'pending',
+        };
+        await dispatchOperation('entity_upsert', {
+          table: 'stocktakingEntries',
+          record: entry,
+        });
+      }
 
       toast.success('تم إنشاء جلسة الجرد بنجاح');
       setNewSessionItems([]);
@@ -292,9 +318,9 @@ export default function Stocktaking() {
                 {session.status === 'approved' ? <CheckCircle className="w-6 h-6" /> : 
                  session.status === 'closed' ? <X className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
               </div>
-              <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                session.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 
-                session.status === 'closed' ? 'bg-gray-100 text-gray-700' : 'bg-amber-100 text-amber-700'
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                session.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                session.status === 'closed' ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'
               }`}>
                 {session.status === 'approved' ? 'معتمد' : session.status === 'closed' ? 'مغلق' : 'قيد المراجعة'}
               </span>
@@ -402,9 +428,9 @@ export default function Stocktaking() {
                   <p className="font-bold text-gray-900">{entry.productName}</p>
                   <p className="text-xs text-gray-500">{entry.barcode}</p>
                 </td>
-                <td className="px-6 py-4 text-center font-bold text-gray-600">{entry.systemQuantity}</td>
-                <td className="px-6 py-4 text-center font-bold text-indigo-600">{entry.actualQuantity}</td>
-                <td className="px-6 py-4 text-center">
+                <td className="px-6 py-4 text-center font-bold text-gray-600 tabular-nums">{entry.systemQuantity}</td>
+                <td className="px-6 py-4 text-center font-bold text-indigo-600 tabular-nums">{entry.actualQuantity}</td>
+                <td className="px-6 py-4 text-center tabular-nums">
                   <span className={`font-bold ${
                     entry.actualQuantity - entry.systemQuantity > 0 ? 'text-emerald-600' : 
                     entry.actualQuantity - entry.systemQuantity < 0 ? 'text-rose-600' : 'text-gray-400'
@@ -539,6 +565,20 @@ export default function Stocktaking() {
       {view === 'sessions' && renderSessionsList()}
       {view === 'details' && renderSessionDetails()}
       {view === 'new' && renderNewSession()}
+
+      <ConfirmationModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        variant={confirmState.variant}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false, action: null }))}
+        onConfirm={async () => {
+          const act = confirmState.action;
+          setConfirmState(prev => ({ ...prev, isOpen: false, action: null }));
+          if (act) await act();
+        }}
+      />
     </div>
   );
 }

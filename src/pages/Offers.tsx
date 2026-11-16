@@ -21,14 +21,20 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { dispatchOperation } from '../services/operationService';
+import { useAuth } from '../context/AuthContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const Offers: React.FC = () => {
+  const { user } = useAuth();
   const offers = useLiveQuery(() => db.offers.toArray());
   const isLoading = offers === undefined;
   const products = useLiveQuery(() => db.products.toArray()) || [];
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'expired'>('all');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -75,20 +81,40 @@ const Offers: React.FC = () => {
     e.preventDefault();
     try {
       const now = new Date().toISOString();
-      const offerData = {
+      const offerData: any = {
         ...formData,
         startDate: new Date(formData.startDate).toISOString(),
         endDate: new Date(formData.endDate).toISOString(),
-        createdAt: now,
         updatedAt: now,
-        syncStatus: 'pending' as const
       };
 
       if (editingOffer && editingOffer.id) {
-        await db.offers.update(editingOffer.id, offerData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'offers',
+            record: {
+              ...editingOffer,
+              ...offerData,
+              id: editingOffer.id,
+            },
+          },
+          user?.branchId
+        );
         toast.success('تم تحديث العرض بنجاح');
       } else {
-        await db.offers.add(offerData);
+        await dispatchOperation(
+          'entity_upsert',
+          {
+            table: 'offers',
+            record: {
+              ...offerData,
+              id: Date.now() * 1000 + Math.floor(Math.random() * 900),
+              createdAt: now,
+            },
+          },
+          user?.branchId
+        );
         toast.success('تمت إضافة العرض بنجاح');
       }
       setIsModalOpen(false);
@@ -98,24 +124,33 @@ const Offers: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm('هل أنت متأكد من حذف هذا العرض؟')) {
-      try {
-        await db.offers.delete(id);
-        toast.success('تم حذف العرض بنجاح');
-      } catch (error) {
-        console.error(error);
-        toast.error('حدث خطأ أثناء حذف العرض');
-      }
+  const confirmDeleteOffer = async () => {
+    if (confirmDeleteId === null) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    try {
+      await dispatchOperation('entity_delete', { table: 'offers', id }, user?.branchId);
+      toast.success('تم حذف العرض بنجاح');
+    } catch (error) {
+      console.error(error);
+      toast.error('حدث خطأ أثناء حذف العرض');
     }
   };
 
-  const filteredOffers = (offers || []).filter(offer => 
-    (offer.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const nowTs = Date.now();
+  const filteredOffers = (offers || []).filter((offer) => {
+    const matchesSearch = (offer.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+    const isExpired = new Date(offer.endDate).getTime() < nowTs;
+    const isActive = (offer as any).isActive !== false && (offer as any).isActive !== 0;
+    if (statusFilter === 'active') return isActive && !isExpired;
+    if (statusFilter === 'inactive') return !isActive;
+    if (statusFilter === 'expired') return isExpired;
+    return true;
+  });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">العروض والترقيات</h1>
@@ -123,7 +158,7 @@ const Offers: React.FC = () => {
         </div>
         <button 
           onClick={() => handleOpenModal()}
-          className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+          className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm whitespace-nowrap shrink-0"
         >
           <Plus className="w-5 h-5" />
           <span>إضافة عرض جديد</span>
@@ -138,16 +173,20 @@ const Offers: React.FC = () => {
             placeholder="البحث عن عرض..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-white border border-gray-200 rounded-2xl py-3 pr-12 pl-4 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+            className="w-full bg-white border border-gray-200 rounded-xl py-3 pr-12 pl-4 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
           />
         </div>
         <div className="relative">
           <Filter className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <select className="w-full bg-white border border-gray-200 rounded-2xl py-3 pr-12 pl-4 appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
-            <option>الكل</option>
-            <option>نشط</option>
-            <option>غير نشط</option>
-            <option>منتهي</option>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            className="w-full bg-white border border-gray-200 rounded-xl py-3 pr-12 pl-4 appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+          >
+            <option value="all">الكل</option>
+            <option value="active">نشط</option>
+            <option value="inactive">غير نشط</option>
+            <option value="expired">منتهي</option>
           </select>
         </div>
       </div>
@@ -187,7 +226,7 @@ const Offers: React.FC = () => {
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleDelete(offer.id!)}
+                      onClick={() => setConfirmDeleteId(offer.id!)}
                       className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -204,12 +243,12 @@ const Offers: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     {(offer as any).isActive ? (
-                      <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                      <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
                         <CheckCircle2 className="w-4 h-4" />
                         نشط حالياً
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-gray-400 bg-gray-50 px-2 py-1 rounded-lg">
+                      <span className="flex items-center gap-1 text-gray-500 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200">
                         <XCircle className="w-4 h-4" />
                         متوقف
                       </span>
@@ -219,7 +258,7 @@ const Offers: React.FC = () => {
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
                   <span className="text-sm text-gray-500">قيمة العرض</span>
-                  <span className="text-xl font-black text-indigo-600">
+                  <span className="text-xl font-black text-indigo-600 tabular-nums">
                     {offer.type === 'discount' ? `${(offer as any).value}%` : 
                      offer.type === 'bogo' ? '1+1 مجاناً' : 
                      `خصم ثابت`}
@@ -234,7 +273,7 @@ const Offers: React.FC = () => {
       {/* Offer Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-2xl overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingOffer ? 'تعديل العرض' : 'إضافة عرض جديد'}
@@ -357,6 +396,15 @@ const Offers: React.FC = () => {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmDeleteId !== null}
+        title="حذف العرض الترويجي"
+        message="هل أنت متأكد من حذف هذا العرض؟"
+        confirmLabel="حذف العرض"
+        variant="danger"
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={confirmDeleteOffer}
+      />
     </div>
   );
 };

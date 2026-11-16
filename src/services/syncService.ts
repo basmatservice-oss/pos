@@ -1,5 +1,5 @@
 import { db } from '../db/db';
-import { apiService } from './apiService';
+import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 
 export const syncService = {
@@ -12,35 +12,75 @@ export const syncService = {
     return this.cachedRole;
   },
 
+  clearCachedRole() {
+    this.cachedRole = null;
+  },
+
   async updatePendingCount() {
-    const tables: any[] = [
-      'categories', 'products', 'customers', 'suppliers', 
-      'employees', 'expenses', 'shifts', 'orders', 'orderItems',
-      'purchases', 'purchaseItems', 'attendance', 'branches', 'payroll', 'offers',
-      'loyaltyTransactions', 'settings', 'auditLogs', 'stocktakingSessions', 'stocktakingEntries'
-    ];
-    let totalPending = 0;
-    for (const table of tables) {
-      if ((db as any)[table]) {
-        const count = await (db as any)[table].where('syncStatus').equals('pending').count();
-        totalPending += count;
+    try {
+      const pendingOps = await db.syncOperations
+        .where('status')
+        .anyOf(['pending', 'error'])
+        .count();
+
+      const tables: string[] = [
+        'categories',
+        'products',
+        'customers',
+        'customerPayments',
+        'suppliers',
+        'supplierPayments',
+        'employees',
+        'expenses',
+        'shifts',
+        'shiftMovements',
+        'orders',
+        'orderItems',
+        'returns',
+        'returnItems',
+        'purchases',
+        'purchaseItems',
+        'purchaseReturns',
+        'purchaseReturnItems',
+        'attendance',
+        'branches',
+        'payroll',
+        'offers',
+        'loyaltyTransactions',
+        'settings',
+        'auditLogs',
+        'stocktakingSessions',
+        'stocktakingEntries',
+        'inventoryBatches',
+      ];
+      let pendingRecords = 0;
+      for (const table of tables) {
+        if ((db as any)[table]) {
+          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error']).count();
+          pendingRecords += c;
+        }
       }
+
+      useSyncStore.getState().setPendingItemsCount(pendingOps + pendingRecords);
+    } catch (e) {
+      console.error('Failed to count pending items:', e);
     }
-    useSyncStore.getState().setPendingItemsCount(totalPending);
   },
 
   async syncAll() {
-    const deviceRole = await this.getDeviceRole();
-    console.log(`Starting syncAll. DeviceRole: ${deviceRole}`);
+    const token = getAuthToken();
+    if (!token) return false;
 
-    if (!navigator.onLine) {
-      throw new Error('لا يوجد اتصال بالإنترنت');
+    const reachable = await apiService.checkServerReachability(2500);
+    useSyncStore.getState().setOnlineStatus(reachable);
+    if (!reachable) {
+      return false;
     }
 
     useSyncStore.getState().setSyncing(true);
 
     try {
-      // Sync with local server
+      await this.pushOperationsQueue();
       await this.pushAll();
       await this.pullAll();
 
@@ -55,12 +95,75 @@ export const syncService = {
     }
   },
 
+  async pushOperationsQueue() {
+    const now = Date.now();
+    const queued = await db.syncOperations
+      .where('status')
+      .anyOf(['pending', 'error'])
+      .toArray();
+
+    const readyOps = queued
+      .filter((op) => !op.nextRetryAt || new Date(op.nextRetryAt).getTime() <= now)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    if (readyOps.length === 0) return;
+
+    for (let i = 0; i < readyOps.length; i += 20) {
+      const batch = readyOps.slice(i, i + 20);
+      const response = await apiService.executeOperationsBatch(
+        batch.map((op) => ({
+          id: op.id,
+          type: op.type,
+          payload: op.payload,
+          deviceId: op.deviceId,
+          branchId: op.branchId,
+        }))
+      );
+
+      const results = response?.results || [];
+      for (const res of results) {
+        const op = batch.find((b) => b.id === res.operationId);
+        if (!op) continue;
+
+        if (res.status === 'ok' || res.status === 'duplicate') {
+          await db.syncOperations.update(op.id, {
+            status: 'synced',
+            lastError: undefined,
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          const retryCount = (op.retryCount || 0) + 1;
+          const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+          await db.syncOperations.update(op.id, {
+            status: retryCount >= 8 ? 'conflict' : 'error',
+            retryCount,
+            lastError: res.error || 'Unknown sync error',
+            nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  },
+
   async pushAll() {
-    const tables: any[] = [
-      'categories', 'products', 'customers', 'suppliers', 
-      'employees', 'expenses', 'shifts', 'orders', 'orderItems',
-      'purchases', 'purchaseItems', 'attendance', 'branches', 'payroll', 'offers',
-      'loyaltyTransactions', 'settings', 'auditLogs', 'stocktakingSessions', 'stocktakingEntries'
+    const tables: string[] = [
+      'categories',
+      'products',
+      'customers',
+      'suppliers',
+      'employees',
+      'expenses',
+      'shifts',
+      'attendance',
+      'branches',
+      'payroll',
+      'offers',
+      'loyaltyTransactions',
+      'settings',
+      'auditLogs',
+      'stocktakingSessions',
+      'stocktakingEntries',
     ];
 
     for (const table of tables) {
@@ -69,107 +172,104 @@ export const syncService = {
   },
 
   async pushRecord(tableName: string, record: any) {
-    if (navigator.onLine) {
+    if (!getAuthToken()) return false;
+    const reachable = await apiService.checkServerReachability(1800);
+    if (reachable) {
       try {
-        // محاولة الإرسال المباشر
-        await this.sendRecordToServer(tableName, record);
-        // إذا نجح، حفظ الحالة كـ synced
-        await (db as any)[tableName].update(record.id || record.key, { syncStatus: 'synced' });
+        const serverRes = await this.sendRecordToServer(tableName, record);
+        await this.reconcilePushedRecord(tableName, record, serverRes);
         return true;
       } catch (err) {
         console.error(`Failed to push ${tableName} record directly:`, err);
-        // إذا فشل (بسبب انقطاع الشبكة)، حفظ الحالة كـ pending
         await (db as any)[tableName].update(record.id || record.key, { syncStatus: 'pending' });
         return false;
       }
     } else {
-      // في وضع عدم الاتصال، حفظ الحالة كـ pending
       await (db as any)[tableName].update(record.id || record.key, { syncStatus: 'pending' });
       return false;
     }
   },
 
-  async sendRecordToServer(tableName: string, record: any) {
-    switch (tableName) {
-      case 'categories':
-        if (record.id && record.id > 1000000) await apiService.createCategory(record);
-        else await apiService.updateCategory(record.id, record);
-        break;
-      case 'products':
-        if (record.id && record.id > 1000000) await apiService.createProduct(record);
-        else await apiService.updateProduct(record.id, record);
-        break;
-      case 'customers':
-        if (record.id && record.id > 1000000) await apiService.createCustomer(record);
-        else await apiService.updateCustomer(record.id, record);
-        break;
-      case 'suppliers':
-        if (record.id && record.id > 1000000) await apiService.createSupplier(record);
-        else await apiService.updateSupplier(record.id, record);
-        break;
-      case 'orders':
-        await apiService.createOrder(record);
-        break;
-      case 'orderItems':
-        await apiService.createOrderItem(record);
-        break;
-      case 'loyaltyTransactions':
-        await apiService.createLoyaltyTransaction(record);
-        break;
-      case 'expenses':
-        await apiService.createExpense(record);
-        break;
-      case 'shifts':
-        if (record.status === 'closed') await apiService.updateShift(record.id, record);
-        else await apiService.createShift(record);
-        break;
-      case 'attendance':
-        if (record.checkOut) await apiService.updateAttendance(record.id, record);
-        else await apiService.recordAttendance(record);
-        break;
-      case 'purchases':
-        await apiService.createPurchase({ purchase: record, purchaseItems: [], productsToUpdate: [], supplierToUpdate: null });
-        break;
-      case 'purchaseItems':
-        await apiService.createPurchaseItem(record);
-        break;
-      case 'payroll':
-        await apiService.createPayroll(record);
-        break;
-      case 'employees':
-        if (record.id && record.id > 1000000) await apiService.createEmployee(record);
-        else await apiService.updateEmployee(record.id, record);
-        break;
-      case 'branches':
-        if (record.id && record.id > 1000000) await apiService.createBranch(record);
-        else await apiService.updateBranch(record.id, record);
-        break;
-      case 'offers':
-        if (record.id && record.id > 1000000) await apiService.createOffer(record);
-        else await apiService.updateOffer(record.id, record);
-        break;
-      case 'settings':
-        await apiService.updateSetting(record.key, record);
-        break;
-      case 'auditLogs':
-        await apiService.createAuditLog(record);
-        break;
-      case 'stocktakingSessions':
-        if (record.status === 'closed') await apiService.updateStocktakingSession(record.id, record);
-        else await apiService.createStocktakingSession(record);
-        break;
-      case 'stocktakingEntries':
-        await apiService.createStocktakingEntry(record);
-        break;
+  async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
+    const table = (db as any)[tableName];
+    if (!table) return;
+    if (tableName === 'settings') {
+      if (localRecord.id) {
+        await table.update(localRecord.id, { syncStatus: 'synced' });
+      }
+      return;
+    }
+    if (serverRes && typeof serverRes === 'object' && serverRes.id !== undefined) {
+      if (localRecord.id !== undefined && localRecord.id !== serverRes.id) {
+        await table.delete(localRecord.id).catch(() => {});
+      }
+      await table.put({ ...localRecord, ...serverRes, syncStatus: 'synced' });
+    } else if (localRecord.id !== undefined) {
+      await table.update(localRecord.id, { syncStatus: 'synced' });
     }
   },
 
+  async sendRecordToServer(tableName: string, record: any): Promise<any> {
+    switch (tableName) {
+      case 'categories':
+        if (record.id && record.id > 1000000) return await apiService.createCategory(record);
+        return await apiService.updateCategory(record.id, record);
+      case 'products':
+        if (record.id && record.id > 1000000) return await apiService.createProduct(record);
+        return await apiService.updateProduct(record.id, record);
+      case 'customers':
+        if (record.id && record.id > 1000000) return await apiService.createCustomer(record);
+        return await apiService.updateCustomer(record.id, record);
+      case 'suppliers':
+        if (record.id && record.id > 1000000) return await apiService.createSupplier(record);
+        return await apiService.updateSupplier(record.id, record);
+      case 'expenses':
+        return await apiService.createExpense(record);
+      case 'shifts':
+        if (record.status === 'closed') return await apiService.updateShift(record.id, record);
+        return await apiService.createShift(record);
+      case 'attendance':
+        if (record.checkOut) return await apiService.updateAttendance(record.id, record);
+        return await apiService.recordAttendance(record);
+      case 'payroll':
+        return await apiService.createPayroll(record);
+      case 'employees':
+        if (record.id && record.id > 1000000) return await apiService.createEmployee(record);
+        return await apiService.updateEmployee(record.id, record);
+      case 'branches':
+        if (record.id && record.id > 1000000) return await apiService.createBranch(record);
+        return await apiService.updateBranch(record.id, record);
+      case 'offers':
+        if (record.id && record.id > 1000000) return await apiService.createOffer(record);
+        return await apiService.updateOffer(record.id, record);
+      case 'settings':
+        if (record.key === 'deviceRole' || record.key === 'serverUrl') return null;
+        return await apiService.updateSetting(record.key, record);
+      case 'auditLogs':
+        return await apiService.createAuditLog(record);
+      case 'stocktakingSessions':
+        if (record.status === 'closed' || record.status === 'approved')
+          return await apiService.updateStocktakingSession(record.id, record);
+        return await apiService.createStocktakingSession(record);
+      case 'stocktakingEntries':
+        return await apiService.createStocktakingEntry(record);
+      case 'loyaltyTransactions':
+        return await apiService.createLoyaltyTransaction(record);
+    }
+    return null;
+  },
+
   async pushTable(tableName: string) {
-    const pendingRecords = await (db as any)[tableName].where('syncStatus').equals('pending').toArray();
+    if (!(db as any)[tableName]) return;
+    const pendingRecords = await (db as any)[tableName]
+      .where('syncStatus')
+      .anyOf(['pending', 'error'])
+      .toArray();
+
     for (const record of pendingRecords) {
       try {
-        await this.sendRecordToServer(tableName, record);
-        await (db as any)[tableName].update(record.id || record.key, { syncStatus: 'synced' });
+        const serverRes = await this.sendRecordToServer(tableName, record);
+        await this.reconcilePushedRecord(tableName, record, serverRes);
       } catch (err: any) {
         console.error(`Failed to push ${tableName} record:`, record, err);
         if (err.response && err.response.status === 409) {
@@ -182,23 +282,48 @@ export const syncService = {
   },
 
   async pullAll() {
+    if (!getAuthToken()) return;
     try {
-      const pullTasks = [
+      const pendingOpsCount = await db.syncOperations
+        .where('status')
+        .anyOf(['pending', 'error', 'syncing'])
+        .count();
+
+      const pullTasks: Array<{
+        table: any;
+        api: () => Promise<any>;
+        preserveLocalAuth?: boolean;
+        excludeKeys?: string[];
+        noSyncStatus?: boolean;
+        authoritativeReplaceSynced?: boolean;
+      }> = [
         { table: db.products, api: () => apiService.getProducts() },
         { table: db.categories, api: () => apiService.getCategories() },
         { table: db.customers, api: () => apiService.getCustomers() },
+        { table: db.customerPayments, api: () => apiService.getCustomerPayments(), authoritativeReplaceSynced: true },
         { table: db.suppliers, api: () => apiService.getSuppliers() },
-        { table: db.employees, api: () => apiService.getEmployees() },
-        { table: db.settings, api: () => apiService.getSettings() },
+        { table: db.supplierPayments, api: () => apiService.getSupplierPayments(), authoritativeReplaceSynced: true },
+        { table: db.employees, api: () => apiService.getEmployees(), preserveLocalAuth: true },
+        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl'] },
         { table: db.branches, api: () => apiService.getBranches() },
         { table: db.offers, api: () => apiService.getOffers() },
         { table: db.shifts, api: () => apiService.getShifts() },
+        { table: db.shiftMovements, api: () => apiService.getShiftMovements(), authoritativeReplaceSynced: true },
         { table: db.expenses, api: () => apiService.getExpenses() },
         { table: db.orders, api: () => apiService.getOrders() },
-        { table: db.orderItems, api: () => apiService.getOrderItems() },
+        { table: db.orderItems, api: () => apiService.getOrderItems(), authoritativeReplaceSynced: true },
+        { table: db.returns, api: () => apiService.getReturns() },
+        { table: db.returnItems, api: () => apiService.getReturnItems(), authoritativeReplaceSynced: true },
+        { table: db.accounts, api: () => apiService.getAccounts(), noSyncStatus: true },
+        { table: db.journalEntries, api: () => apiService.getJournalEntries(), authoritativeReplaceSynced: true },
+        { table: db.transactions, api: () => apiService.getTransactions(), authoritativeReplaceSynced: true },
+        { table: db.inventoryBatches, api: () => apiService.getInventoryBatches(), authoritativeReplaceSynced: true },
+        { table: db.inventoryAlerts, api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
         { table: db.loyaltyTransactions, api: () => apiService.getLoyaltyTransactions() },
         { table: db.purchases, api: () => apiService.getPurchases() },
-        { table: db.purchaseItems, api: () => apiService.getPurchaseItems() },
+        { table: db.purchaseItems, api: () => apiService.getPurchaseItems(), authoritativeReplaceSynced: true },
+        { table: db.purchaseReturns, api: () => apiService.getPurchaseReturns() },
+        { table: db.purchaseReturnItems, api: () => apiService.getPurchaseReturnItems(), authoritativeReplaceSynced: true },
         { table: db.attendance, api: () => apiService.getAttendance() },
         { table: db.payroll, api: () => apiService.getPayroll() },
         { table: db.auditLogs, api: () => apiService.getAuditLogs() },
@@ -206,27 +331,69 @@ export const syncService = {
         { table: db.stocktakingEntries, api: () => apiService.getStocktakingEntries() },
       ];
 
-      for (const task of pullTasks) {
-        try {
-          const data = await task.api();
-          if (data && Array.isArray(data) && data.length > 0) {
-            // Get all local pending records for this table
-            const pendingLocalRecords = await (task.table as any).where('syncStatus').equals('pending').toArray();
-            const pendingIds = new Set(pendingLocalRecords.map((r: any) => r.id || r.key));
+      (globalThis as any).__posApplyingOperation = true;
+      try {
+        for (const task of pullTasks) {
+          try {
+            const data = await task.api();
+            if (!Array.isArray(data)) continue;
 
-            // Only update records that are NOT pending locally
-            const recordsToUpdate = data
-              .filter((item: any) => !pendingIds.has(item.id || item.key))
-              .map((item: any) => ({ ...item, syncStatus: 'synced' }));
-
-            if (recordsToUpdate.length > 0) {
-              await (task.table as any).bulkPut(recordsToUpdate);
+            if (task.noSyncStatus) {
+              await task.table.bulkPut(data);
+              continue;
             }
+
+            const existingAll = await task.table.toArray();
+            const existingById = new Map(existingAll.map((r: any) => [r.id || r.key, r]));
+
+            const pendingLocal = await task.table
+              .where('syncStatus')
+              .anyOf(['pending', 'error'])
+              .toArray();
+            const pendingIds = new Set(pendingLocal.map((r: any) => r.id || r.key));
+
+            if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
+              const serverIds = new Set(data.map((d: any) => d.id));
+              const staleIds = existingAll
+                .filter((r: any) => r.syncStatus === 'synced' && !serverIds.has(r.id))
+                .map((r: any) => r.id)
+                .filter((id: any) => id !== undefined);
+              if (staleIds.length > 0) {
+                await task.table.bulkDelete(staleIds);
+              }
+            }
+
+            let filtered = data.filter((item: any) => !pendingIds.has(item.id || item.key));
+            if (task.excludeKeys) {
+              const excl = new Set(task.excludeKeys);
+              filtered = filtered.filter((item: any) => !excl.has(item.key));
+            }
+
+            const recordsToPut = filtered.map((item: any) => {
+              const normalized = { ...item };
+              if (task.preserveLocalAuth) {
+                const prev = existingById.get(item.id);
+                if (prev) {
+                  if (!normalized.password && (prev as any).password) {
+                    normalized.password = (prev as any).password;
+                  }
+                  if (!normalized.pinCode && (prev as any).pinCode) {
+                    normalized.pinCode = (prev as any).pinCode;
+                  }
+                }
+              }
+              return { ...normalized, syncStatus: 'synced' };
+            });
+
+            if (recordsToPut.length > 0) {
+              await task.table.bulkPut(recordsToPut);
+            }
+          } catch (err) {
+            console.error('Failed to pull data for table:', err);
           }
-        } catch (err) {
-          console.error(`Failed to pull data for table:`, err);
-          // Continue with other tasks
         }
+      } finally {
+        (globalThis as any).__posApplyingOperation = false;
       }
     } catch (err) {
       console.error(`Pull sync failed. API_BASE: ${apiService.API_BASE}`, err);
@@ -235,36 +402,40 @@ export const syncService = {
   },
 
   initAutoSync() {
-    // If device is server, we want to push changes immediately to the local API
-    // so it feels like a direct connection to the database.
-    db.tables.forEach(table => {
-      table.hook('creating', function (primKey, obj, transaction) {
-        transaction.on('complete', async () => {
-          const role = await syncService.getDeviceRole();
-          if (role !== 'server') {
-            syncService.pushRecord(table.name, obj);
-          }
+    const entityTables = new Set([
+      'products',
+      'categories',
+      'customers',
+      'suppliers',
+      'employees',
+      'expenses',
+      'shifts',
+      'attendance',
+      'branches',
+      'payroll',
+      'offers',
+      'settings',
+      'auditLogs',
+      'stocktakingSessions',
+      'stocktakingEntries',
+    ]);
+
+    db.tables.forEach((table) => {
+      if (!entityTables.has(table.name)) return;
+
+      table.hook('creating', function (_primKey, obj, transaction) {
+        if ((obj as any)?.syncStatus === 'synced' || (globalThis as any).__posApplyingOperation) return;
+        transaction.on('complete', () => {
+          syncService.pushRecord(table.name, obj).catch(() => {});
         });
       });
-      table.hook('updating', function (modifications, primKey, obj, transaction) {
-        transaction.on('complete', async () => {
-          const role = await syncService.getDeviceRole();
-          if (role !== 'server') {
-            syncService.pushRecord(table.name, { ...obj, ...modifications, id: primKey });
-          }
-        });
-      });
-      table.hook('deleting', function (primKey, obj, transaction) {
-        transaction.on('complete', async () => {
-          const role = await syncService.getDeviceRole();
-          if (role !== 'server') {
-            // Logic for delete sync if needed
-          }
+
+      table.hook('updating', function (modifications: any, _primKey, obj, transaction) {
+        if (modifications?.syncStatus === 'synced' || (globalThis as any).__posApplyingOperation) return;
+        transaction.on('complete', () => {
+          syncService.pushRecord(table.name, { ...obj, ...modifications }).catch(() => {});
         });
       });
     });
-  }
+  },
 };
-
-// Initialize auto-sync hooks
-syncService.initAutoSync();

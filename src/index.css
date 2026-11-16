@@ -69,6 +69,7 @@
 body {
   background-color: var(--app-bg);
   color: var(--text-main);
+  font-family: "Cairo", "Tajawal", sans-serif;
   font-size: var(--base-font-size);
   transition: background-color var(--transition-speed) var(--transition-timing), color var(--transition-speed) var(--transition-timing);
 }

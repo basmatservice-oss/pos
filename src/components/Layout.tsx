@@ -19,23 +19,34 @@ export default function Layout() {
   const navigate = useNavigate();
 
   const [deviceRole, setDeviceRole] = useState<'server' | 'client'>('server');
+  const [oversellAlertCount, setOversellAlertCount] = useState(0);
 
   useEffect(() => {
-    // Initialize Inventory RAM Cache
     useInventoryStore.getState().initialize();
-    
-    // مستشعر عودة الاتصال
+
+    const loadRoleAndInitialSync = async () => {
+      try {
+        const roleSetting = await db.settings.where('key').equals('deviceRole').first();
+        if (roleSetting?.value === 'client' || roleSetting?.value === 'server') {
+          setDeviceRole(roleSetting.value);
+        }
+        await loadSettings();
+        await checkLowStock();
+        await syncService.syncAll().catch(() => {});
+      } catch (e) {
+        console.error('Layout init error:', e);
+      }
+    };
+
+    loadRoleAndInitialSync();
+
     const handleOnline = () => {
-      console.log('تم استعادة الاتصال، جاري مزامنة البيانات المعلقة...');
-      syncService.pushAll();
+      syncService.syncAll().catch(() => {});
     };
     window.addEventListener('online', handleOnline);
 
-    // Periodic sync every 30 seconds
     const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        handleSync();
-      }
+      handleSync();
     }, 30000);
 
     return () => {
@@ -45,12 +56,14 @@ export default function Layout() {
   }, []);
 
   const handleSync = async () => {
-    if (isSyncing || !navigator.onLine) return;
-    
+    if (isSyncing) return;
+
     try {
-      await syncService.syncAll();
-      await loadSettings();
-      await checkLowStock();
+      const synced = await syncService.syncAll();
+      if (synced) {
+        await loadSettings();
+        await checkLowStock();
+      }
     } catch (error) {
       console.error('Sync error:', error);
     }
@@ -59,9 +72,11 @@ export default function Layout() {
   const checkLowStock = async () => {
     try {
       const products = await db.products.toArray();
-      // Assume a default minimum stock level of 5 if not defined
       const lowStock = products.filter(p => p.stockQuantity <= (p.minStockLevel || 5));
       setLowStockCount(lowStock.length);
+
+      const alerts = await db.inventoryAlerts.toArray();
+      setOversellAlertCount(alerts.filter(a => !a.resolved).length);
     } catch (error) {
       console.error('Error checking low stock:', error);
     }
@@ -116,12 +131,10 @@ export default function Layout() {
         if (theme.borderRadius) root.style.setProperty('--border-radius', theme.borderRadius);
         
         // Apply font family
-        if (theme.fontFamily === 'Cairo') {
-          root.style.fontFamily = '"Cairo", sans-serif';
-        } else if (theme.fontFamily === 'Tajawal') {
-          root.style.fontFamily = '"Tajawal", sans-serif';
+        if (theme.fontFamily === 'Tajawal') {
+          root.style.fontFamily = '"Tajawal", "Cairo", sans-serif';
         } else {
-          root.style.fontFamily = '"Inter", sans-serif';
+          root.style.fontFamily = '"Cairo", "Tajawal", sans-serif';
         }
 
         const currentThemeName = theme.themeName || 'modern';
@@ -170,8 +183,8 @@ export default function Layout() {
   const filteredNavItems = navItems.filter(item => {
     if (!user) return false;
     
-    // Hide sync status if device is server
-    if (item.to === '/sync-status' && deviceRole === 'server') return false;
+    // Hide sync status on server only when there are no unresolved oversell/sync alerts
+    if (item.to === '/sync-status' && deviceRole === 'server' && oversellAlertCount === 0) return false;
     
     // Admin always has access
     if (user.role === 'admin') return true;
@@ -266,15 +279,15 @@ export default function Layout() {
             <DatabaseStatusIndicator />
             {deviceRole === 'client' && <SyncIndicator />}
             <div className="h-6 w-px bg-gray-300"></div>
-            {lowStockCount > 0 && (
+            {(lowStockCount > 0 || oversellAlertCount > 0) && (
               <button 
-                onClick={() => navigate('/inventory')}
+                onClick={() => navigate(oversellAlertCount > 0 ? '/sync-status' : '/inventory')}
                 className="relative p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
-                title="تنبيهات المخزون"
+                title={oversellAlertCount > 0 ? 'تنبيهات بيع أوفلاين وعجز مخزون' : 'تنبيهات المخزون'}
               >
                 <Bell className="w-6 h-6" />
                 <span className="absolute top-0 right-0 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white">
-                  {lowStockCount}
+                  {lowStockCount + oversellAlertCount}
                 </span>
               </button>
             )}
@@ -287,6 +300,20 @@ export default function Layout() {
             </div>
           </div>
         </header>
+
+        {user?.mustChangePassword && (
+          <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0">
+            <span className="font-bold">
+              تنبيه أمني: ما زلت تستخدم كلمة المرور أو رمز PIN الافتراضي. يرجى تغييرهما لحماية النظام.
+            </span>
+            <button
+              onClick={() => navigate('/settings')}
+              className="px-3 py-1.5 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 transition-colors whitespace-nowrap shrink-0"
+            >
+              تغيير الآن
+            </button>
+          </div>
+        )}
 
         {/* Page Content */}
         <div className="flex-1 overflow-hidden relative">

@@ -15,13 +15,15 @@ import {
 import { db, Branch } from '../db/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import toast from 'react-hot-toast';
-import { v4 as uuidv4 } from 'uuid';
+import { dispatchOperation } from '../services/operationService';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const Branches: React.FC = () => {
   const branches = useLiveQuery(() => db.branches.toArray());
   const isLoading = branches === undefined;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -57,17 +59,27 @@ const Branches: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const now = new Date().toISOString();
       if (editingBranch && editingBranch.id) {
-        await db.branches.update(editingBranch.id, {
-          ...formData,
-          syncStatus: 'pending'
+        await dispatchOperation('entity_upsert', {
+          table: 'branches',
+          record: {
+            ...editingBranch,
+            ...formData,
+            id: editingBranch.id,
+            updatedAt: now,
+          },
         });
         toast.success('تم تحديث الفرع بنجاح');
       } else {
-        await db.branches.add({
-          ...formData,
-          createdAt: new Date().toISOString(),
-          syncStatus: 'pending'
+        await dispatchOperation('entity_upsert', {
+          table: 'branches',
+          record: {
+            ...formData,
+            id: Date.now() * 1000 + Math.floor(Math.random() * 900),
+            createdAt: now,
+            updatedAt: now,
+          },
         });
         toast.success('تمت إضافة الفرع بنجاح');
       }
@@ -78,20 +90,21 @@ const Branches: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm('هل أنت متأكد من حذف هذا الفرع؟')) {
-      try {
-        await db.branches.delete(id);
-        toast.success('تم حذف الفرع بنجاح');
-      } catch (error) {
-        console.error(error);
-        toast.error('حدث خطأ أثناء حذف الفرع');
-      }
+  const confirmDeleteBranch = async () => {
+    if (confirmDeleteId === null) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    try {
+      await dispatchOperation('entity_delete', { table: 'branches', id });
+      toast.success('تم حذف الفرع بنجاح');
+    } catch (error) {
+      console.error(error);
+      toast.error('حدث خطأ أثناء حذف الفرع');
     }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">إدارة الفروع</h1>
@@ -99,7 +112,7 @@ const Branches: React.FC = () => {
         </div>
         <button 
           onClick={() => handleOpenModal()}
-          className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+          className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm whitespace-nowrap shrink-0"
         >
           <Plus className="w-5 h-5" />
           <span>إضافة فرع جديد</span>
@@ -135,7 +148,7 @@ const Branches: React.FC = () => {
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleDelete(branch.id!)}
+                      onClick={() => setConfirmDeleteId(branch.id!)}
                       className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -151,7 +164,7 @@ const Branches: React.FC = () => {
                     <span>{branch.address}</span>
                   </div>
                   {branch.phone && (
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="flex items-center gap-2 text-sm text-gray-500 tabular-nums">
                       <Phone className="w-4 h-4 shrink-0" />
                       <span>{branch.phone}</span>
                     </div>
@@ -165,8 +178,8 @@ const Branches: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                  <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${
-                    (branch as any).isActive ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 bg-gray-50'
+                  <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border ${
+                    (branch as any).isActive ? 'text-emerald-600 bg-emerald-50 border-emerald-200' : 'text-gray-500 bg-gray-50 border-gray-200'
                   }`}>
                     {(branch as any).isActive ? <CheckCircle2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     {(branch as any).isActive ? 'نشط' : 'غير نشط'}
@@ -181,7 +194,7 @@ const Branches: React.FC = () => {
       {/* Branch Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingBranch ? 'تعديل الفرع' : 'إضافة فرع جديد'}
@@ -269,6 +282,15 @@ const Branches: React.FC = () => {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmDeleteId !== null}
+        title="حذف الفرع"
+        message="هل أنت متأكد من حذف هذا الفرع؟"
+        confirmLabel="حذف الفرع"
+        variant="danger"
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={confirmDeleteBranch}
+      />
     </div>
   );
 };

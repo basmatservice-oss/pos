@@ -89,28 +89,35 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         </table>
 
         {/* Totals */}
-        <div className="border-b-2 border-black border-dashed mb-6 pb-4 space-y-1">
+        <div className="border-b-2 border-black border-dashed mb-6 pb-4 space-y-1 tabular-nums">
           <div className="flex justify-between text-gray-600">
-            <span>المجموع (بدون ضريبة):</span>
-            <span className="font-mono">{(order.totalAmount - order.taxAmount).toFixed(2)}</span>
+            <span>الصافي قبل الضريبة:</span>
+            <span className="font-mono">{Math.max(0, order.netAmount - order.taxAmount).toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-gray-600">
-            <span>الخصم:</span>
-            <span className="font-mono">{order.discountAmount.toFixed(2)}</span>
-          </div>
+          {order.discountAmount > 0 && (
+            <div className="flex justify-between text-gray-600">
+              <span>الخصم:</span>
+              <span className="font-mono">-{order.discountAmount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-gray-600">
             <span>ضريبة القيمة المضافة ({settings.taxRate}%):</span>
             <span className="font-mono">{order.taxAmount.toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-xl mt-3 pt-3 border-t border-gray-300">
-            <span>الإجمالي:</span>
+            <span>الإجمالي شامل الضريبة:</span>
             <span className="font-mono">{order.netAmount.toFixed(2)} {settings.currency}</span>
           </div>
-          <div className="flex justify-between text-sm text-gray-500 mt-1">
+          <div className="flex justify-between text-sm text-gray-600 mt-1">
             <span>طريقة الدفع:</span>
             <span>
-              {order.paymentMethod === 'cash' ? 'نقدي' : 
-               order.paymentMethod === 'card' ? 'شبكة (بطاقة)' : 'آجل (ذمم)'}
+              {order.paymentMethod === 'cash'
+                ? 'نقدي'
+                : order.paymentMethod === 'card'
+                ? 'شبكة (بطاقة)'
+                : order.paymentMethod === 'mixed'
+                ? `مختلط (نقد: ${Number(order.cashAmount || 0).toFixed(2)} | شبكة: ${Number(order.cardAmount || 0).toFixed(2)})`
+                : 'آجل (ذمم)'}
             </span>
           </div>
         </div>

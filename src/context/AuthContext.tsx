@@ -2,45 +2,109 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/db';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { API_BASE, setAuthToken, getAuthToken } from '../services/apiService';
 
 export type Role = 'admin' | 'manager' | 'cashier' | 'sales_rep';
 
+export interface AuthUser {
+  id: number;
+  name: string;
+  username?: string;
+  role: Role;
+  deviceType: 'desktop' | 'mobile';
+  permissions?: string[];
+  branchId?: number;
+  mustChangePassword?: boolean;
+}
+
+interface OfflineVerifier {
+  user: AuthUser;
+  passwordHash?: string;
+  pinHash?: string;
+}
+
+const OFFLINE_VERIFIERS_KEY = 'pos_offline_verifiers';
+
+function loadOfflineVerifiers(): OfflineVerifier[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_VERIFIERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflineVerifier(user: AuthUser, password?: string, pinCode?: string) {
+  try {
+    const list = loadOfflineVerifiers().filter((v) => v.user.id !== user.id);
+    const existing = loadOfflineVerifiers().find((v) => v.user.id === user.id);
+    list.push({
+      user,
+      passwordHash: password ? bcrypt.hashSync(password, 8) : existing?.passwordHash,
+      pinHash: pinCode ? bcrypt.hashSync(pinCode, 8) : existing?.pinHash,
+    });
+    localStorage.setItem(OFFLINE_VERIFIERS_KEY, JSON.stringify(list));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function matchSecret(plain: string, stored?: string): boolean {
+  if (!plain || !stored) return false;
+  if (stored.startsWith('$2')) {
+    return bcrypt.compareSync(plain, stored);
+  }
+  return stored === plain;
+}
+
+class ServerAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ServerAuthError';
+  }
+}
+
 interface AuthContextType {
-  user: { id: number; name: string; role: Role; deviceType: 'desktop' | 'mobile'; permissions?: string[]; branchId?: number } | null;
+  user: AuthUser | null;
   login: (username?: string, password?: string, pinCode?: string) => Promise<void>;
   logout: () => void;
+  updateCurrentUser: (patch: Partial<AuthUser>) => void;
   isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<{ id: number; name: string; role: Role; deviceType: 'desktop' | 'mobile'; permissions?: string[]; branchId?: number } | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Keep user data up to date with the database
   const dbUser = useLiveQuery(
-    () => user?.id ? db.employees.get(user.id) : undefined,
+    () => (user?.id ? db.employees.get(user.id) : undefined),
     [user?.id]
   );
 
   useEffect(() => {
     if (dbUser && user) {
-      // Update user state if permissions or role changed in DB
-      const updatedUser = {
+      const updatedUser: AuthUser = {
         ...user,
+        name: dbUser.name || user.name,
         role: dbUser.role as Role,
         permissions: dbUser.permissions || [],
         deviceType: dbUser.deviceType || 'desktop',
-        branchId: dbUser.branchId
+        branchId: dbUser.branchId,
+        mustChangePassword:
+          typeof dbUser.mustChangePassword === 'boolean'
+            ? dbUser.mustChangePassword
+            : user.mustChangePassword,
       };
-      
-      // Only update if something actually changed to avoid infinite loops
+
       if (
-        user.role !== updatedUser.role || 
+        user.role !== updatedUser.role ||
+        user.name !== updatedUser.name ||
         JSON.stringify(user.permissions) !== JSON.stringify(updatedUser.permissions) ||
         user.deviceType !== updatedUser.deviceType ||
-        user.branchId !== updatedUser.branchId
+        user.branchId !== updatedUser.branchId ||
+        user.mustChangePassword !== updatedUser.mustChangePassword
       ) {
         setUser(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -50,97 +114,175 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    const token = getAuthToken();
+    if (storedUser && token) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem('user');
+      }
+    } else if (storedUser && !token) {
+      // Only restore without JWT if explicitly created during offline LAN outage;
+      // otherwise clear stale legacy session so user obtains a fresh JWT token on login.
+      try {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.isOfflineSession) {
+          setUser(parsed);
+        } else {
+          localStorage.removeItem('user');
+        }
+      } catch {
+        localStorage.removeItem('user');
+      }
     }
     setIsLoading(false);
   }, []);
 
+  const updateCurrentUser = (patch: Partial<AuthUser>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      localStorage.setItem('user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   const login = async (username?: string, password?: string, pinCode?: string) => {
-    // Check local database first
+    const cleanUsername = username?.trim();
+    let baseUrl = API_BASE;
+    const serverUrlSetting = await db.settings.where('key').equals('serverUrl').first();
+    const roleSetting = await db.settings.where('key').equals('deviceRole').first();
+    if (roleSetting?.value === 'client' && serverUrlSetting?.value) {
+      const raw = serverUrlSetting.value.trim();
+      const formatted = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`;
+      baseUrl = formatted.endsWith('/') ? `${formatted}api` : `${formatted}/api`;
+    }
+
+    const loginUrl = `${baseUrl}/login`;
+
+    // 1. Try online/LAN server authentication first (issues signed Bearer JWT & checks rate limits)
+    let networkFailed = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUsername, password, pinCode }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        const serverUser: AuthUser = data.user || data;
+        if (data.token) {
+          setAuthToken(data.token);
+        }
+        saveOfflineVerifier(serverUser, password, pinCode);
+        setUser(serverUser);
+        localStorage.setItem('user', JSON.stringify(serverUser));
+
+        // Trigger initial pull in background so client gets synced data right after login
+        import('../services/syncService')
+          .then(({ syncService }) => syncService.syncAll().catch(() => {}))
+          .catch(() => {});
+        return;
+      }
+
+      const errBody = await response.json().catch(() => ({}));
+      if (response.status >= 400 && response.status < 500) {
+        throw new ServerAuthError(errBody.message || errBody.error || 'بيانات الدخول غير صحيحة');
+      }
+      throw new Error(errBody.message || errBody.error || 'Server error');
+    } catch (err: any) {
+      if (err instanceof ServerAuthError) {
+        throw err;
+      }
+      networkFailed = true;
+    }
+
+    if (!networkFailed) {
+      throw new Error('بيانات الدخول غير صحيحة');
+    }
+
+    // 2. Offline LAN fallback: check locally cached bcrypt verifiers first
+    const verifiers = loadOfflineVerifiers();
     if (pinCode) {
-      const employees = await db.employees.toArray();
-      const employee = employees.find(e => e.pinCode === pinCode);
+      const matched = verifiers.find((v) => matchSecret(pinCode, v.pinHash));
+      if (matched) {
+        const offlineUser = { ...matched.user, isOfflineSession: true };
+        setUser(offlineUser);
+        localStorage.setItem('user', JSON.stringify(offlineUser));
+        return;
+      }
+    } else if (cleanUsername && password) {
+      const matched = verifiers.find(
+        (v) =>
+          v.user.username?.toLowerCase() === cleanUsername.toLowerCase() &&
+          matchSecret(password, v.passwordHash)
+      );
+      if (matched) {
+        const offlineUser = { ...matched.user, isOfflineSession: true };
+        setUser(offlineUser);
+        localStorage.setItem('user', JSON.stringify(offlineUser));
+        return;
+      }
+    }
+
+    // 3. Fallback to local Dexie employees (e.g., seeded desktop server before network is up)
+    const employees = await db.employees.toArray();
+    if (pinCode) {
+      const employee = employees.find((e) => e.status === 'active' && matchSecret(pinCode, e.pinCode));
       if (employee) {
-        const userData = {
+        const userData: AuthUser & { isOfflineSession?: boolean } = {
           id: employee.id!,
           name: employee.name,
+          username: employee.username,
           role: employee.role,
           deviceType: employee.deviceType,
           permissions: employee.permissions || [],
-          branchId: employee.branchId
+          branchId: employee.branchId,
+          mustChangePassword: Boolean(employee.mustChangePassword),
+          isOfflineSession: true,
         };
         setUser(userData);
         localStorage.setItem('user', JSON.stringify(userData));
         return;
       }
-    } else if (username && password) {
-      const employees = await db.employees.toArray();
-      const employee = employees.find(e => e.username?.toLowerCase() === username.toLowerCase());
-      
-      if (employee) {
-        const isHashed = employee.password?.startsWith('$2');
-        const isValid = isHashed 
-          ? bcrypt.compareSync(password, employee.password)
-          : employee.password === password;
-          
-        if (isValid) {
-          const userData = {
-            id: employee.id!,
-            name: employee.name,
-            role: employee.role,
-            deviceType: employee.deviceType,
-            permissions: employee.permissions || [],
-            branchId: employee.branchId
-          };
-          setUser(userData);
-          localStorage.setItem('user', JSON.stringify(userData));
-          return;
-        }
+    } else if (cleanUsername && password) {
+      const employee = employees.find(
+        (e) => e.status === 'active' && e.username?.toLowerCase() === cleanUsername.toLowerCase()
+      );
+      if (employee && matchSecret(password, employee.password)) {
+        const userData: AuthUser & { isOfflineSession?: boolean } = {
+          id: employee.id!,
+          name: employee.name,
+          username: employee.username,
+          role: employee.role,
+          deviceType: employee.deviceType,
+          permissions: employee.permissions || [],
+          branchId: employee.branchId,
+          mustChangePassword: Boolean(employee.mustChangePassword),
+          isOfflineSession: true,
+        };
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        return;
       }
     }
 
-    // Fallback to server if not found locally
-    const serverUrlSetting = await db.settings.where('key').equals('serverUrl').first();
-    let baseUrl = serverUrlSetting?.value || '';
-    
-    // If baseUrl is localhost but we are not on localhost, ignore it to use relative path
-    if (baseUrl.includes('localhost') && !window.location.hostname.includes('localhost')) {
-      baseUrl = '';
-    }
-
-    const loginUrl = baseUrl 
-      ? (baseUrl.endsWith('/') ? `${baseUrl}api/login` : `${baseUrl}/api/login`)
-      : '/api/login';
-
-    try {
-      const response = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, pinCode }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'بيانات الدخول غير صحيحة' }));
-        throw new Error(errorData.message || 'بيانات الدخول غير صحيحة');
-      }
-      
-      const userData = await response.json();
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
-    } catch (error) {
-      console.error('Login error:', error);
-      throw new Error('بيانات الدخول غير صحيحة');
-    }
+    throw new Error('تعذر الاتصال بالسيرفر، وبيانات الدخول غير متطابقة محلياً');
   };
 
   const logout = () => {
     setUser(null);
+    setAuthToken(null);
     localStorage.removeItem('user');
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, updateCurrentUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

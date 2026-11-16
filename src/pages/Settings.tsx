@@ -36,10 +36,23 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../db/db';
 import { updateApiBase, apiService } from '../services/apiService';
+import { dispatchOperation } from '../services/operationService';
+import { useAuth } from '../context/AuthContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 import toast from 'react-hot-toast';
 
+const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp']);
+
 const Settings: React.FC = () => {
+  const { updateCurrentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('general');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPinCode, setNewPinCode] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
+  const [backupsList, setBackupsList] = useState<{ filename: string; size: number; createdAt: string }[]>([]);
+  const [verifyingFile, setVerifyingFile] = useState<string | null>(null);
+  const [clearModalMode, setClearModalMode] = useState<'none' | 'data' | 'system'>('none');
   const [settings, setSettings] = useState<any>({
     businessName: 'متجري الذكي',
     businessAddress: '',
@@ -54,7 +67,7 @@ const Settings: React.FC = () => {
     textColor: '#1e293b',
     accentColor: '#6366f1',
     borderRadius: '12px',
-    fontFamily: 'Inter',
+    fontFamily: 'Cairo',
     fontSize: '14px',
     shadowIntensity: 'medium',
     currency: 'ر.س',
@@ -129,22 +142,51 @@ const Settings: React.FC = () => {
 
   const handleSave = async () => {
     try {
+      const now = new Date().toISOString();
+      const existingRows = await db.settings.toArray();
+      const existingByKey = new Map(existingRows.map((row) => [row.key, row]));
+
       for (const [key, value] of Object.entries(settings)) {
-        const existing = await db.settings.where('key').equals(key).first();
-        if (existing) {
-          await db.settings.update(existing.id!, { value: String(value), syncStatus: 'pending', updatedAt: new Date().toISOString() });
-        } else {
-          await db.settings.add({ key, value: String(value), syncStatus: 'pending', updatedAt: new Date().toISOString() } as any);
+        if (key === 'authSecret') continue;
+        const stringVal = String(value ?? '');
+        const existing = existingByKey.get(key);
+
+        if (DEVICE_LOCAL_SETTING_KEYS.has(key)) {
+          if (existing) {
+            await db.settings.update(existing.id!, {
+              value: stringVal,
+              syncStatus: 'synced',
+              updatedAt: now,
+            });
+          } else {
+            await db.settings.add({
+              key,
+              value: stringVal,
+              syncStatus: 'synced',
+              updatedAt: now,
+            } as any);
+          }
+          continue;
+        }
+
+        if (!existing || existing.value !== stringVal) {
+          await dispatchOperation('entity_upsert', {
+            table: 'settings',
+            record: {
+              ...(existing || {}),
+              key,
+              value: stringVal,
+              updatedAt: now,
+            },
+          });
         }
       }
+
       toast.success('تم حفظ الإعدادات بنجاح');
-      
-      // Apply theme changes immediately
       applyTheme(settings);
-      
-      // Update API Base URL
       await updateApiBase(settings.serverUrl);
     } catch (error) {
+      console.error('Save settings error:', error);
       toast.error('خطأ في حفظ الإعدادات');
     }
   };
@@ -191,12 +233,10 @@ const Settings: React.FC = () => {
     root.style.setProperty('--border-radius', theme.borderRadius);
     
     // Apply font family
-    if (theme.fontFamily === 'Cairo') {
-      root.style.fontFamily = '"Cairo", sans-serif';
-    } else if (theme.fontFamily === 'Tajawal') {
-      root.style.fontFamily = '"Tajawal", sans-serif';
+    if (theme.fontFamily === 'Tajawal') {
+      root.style.fontFamily = '"Tajawal", "Cairo", sans-serif';
     } else {
-      root.style.fontFamily = '"Inter", sans-serif';
+      root.style.fontFamily = '"Cairo", "Tajawal", sans-serif';
     }
 
     // Apply shadow intensity
@@ -293,7 +333,7 @@ const Settings: React.FC = () => {
       backgroundColor: '#f8fafc',
       textColor: '#1e293b',
       borderRadius: '12px',
-      fontFamily: 'Inter',
+      fontFamily: 'Cairo',
       shadowIntensity: 'medium',
       fontSize: '14px',
       themeName: 'modern'
@@ -371,35 +411,19 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleClearSystemData = async () => {
-    if (window.confirm('هل أنت متأكد من مسح جميع بيانات النظام (بما في ذلك الإعدادات)؟ لا يمكن التراجع عن هذا الإجراء!')) {
-      try {
+  const executeConfirmedClear = async () => {
+    const mode = clearModalMode;
+    setClearModalMode('none');
+    if (mode === 'none') return;
+
+    try {
+      if (mode === 'system') {
         await db.transaction('rw', db.tables, async () => {
           for (const table of db.tables) {
             await table.clear();
           }
         });
-        
-        // Clear remote SQLite
-        try {
-          await apiService.clearData();
-        } catch (e) {
-          console.warn('Failed to clear remote data, but local data is cleared:', e);
-        }
-
-        toast.success('تم مسح جميع بيانات النظام بنجاح');
-        setTimeout(() => window.location.reload(), 1500);
-      } catch (error) {
-        console.error('Clear system data error:', error);
-        toast.error('فشل مسح بيانات النظام');
-      }
-    }
-  };
-
-  const handleClearData = async () => {
-    if (window.confirm('هل أنت متأكد من مسح جميع البيانات؟ لا يمكن التراجع عن هذا الإجراء!')) {
-      try {
-        // Clear local Dexie
+      } else {
         await db.transaction('rw', db.tables, async () => {
           for (const table of db.tables) {
             if (table.name !== 'settings') {
@@ -407,20 +431,77 @@ const Settings: React.FC = () => {
             }
           }
         });
-        
-        // Clear remote SQLite
-        try {
-          await apiService.clearData();
-        } catch (e) {
-          console.warn('Failed to clear remote data, but local data is cleared:', e);
-        }
-
-        toast.success('تم مسح البيانات بنجاح');
-        setTimeout(() => window.location.reload(), 1500);
-      } catch (error) {
-        console.error('Clear data error:', error);
-        toast.error('فشل مسح البيانات');
       }
+
+      try {
+        await apiService.clearData();
+      } catch (e) {
+        console.warn('Failed to clear remote data, but local data is cleared:', e);
+      }
+
+      toast.success(mode === 'system' ? 'تم مسح جميع بيانات النظام بنجاح' : 'تم مسح البيانات بنجاح');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error) {
+      console.error('Clear data error:', error);
+      toast.error('فشل مسح البيانات');
+    }
+  };
+
+  const handleClearSystemData = () => {
+    setClearModalMode('system');
+  };
+
+  const handleClearData = () => {
+    setClearModalMode('data');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword && !newPinCode) {
+      toast.error('يرجى إدخال كلمة مرور جديدة أو رمز PIN جديد');
+      return;
+    }
+    setIsChangingPass(true);
+    try {
+      await apiService.changePassword({
+        currentPassword: currentPassword || undefined,
+        newPassword: newPassword || undefined,
+        newPinCode: newPinCode || undefined,
+      });
+      updateCurrentUser({ mustChangePassword: false });
+      setCurrentPassword('');
+      setNewPassword('');
+      setNewPinCode('');
+      toast.success('تم تحديث بيانات الدخول بأمان');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'تعذر تغيير كلمة المرور');
+    } finally {
+      setIsChangingPass(false);
+    }
+  };
+
+  const handleLoadBackups = async () => {
+    try {
+      const list = await apiService.listBackups();
+      setBackupsList(Array.isArray(list) ? list : []);
+    } catch {
+      toast.error('تعذر جلب قائمة النسخ الاحتياطية');
+    }
+  };
+
+  const handleVerifyBackup = async (filename: string) => {
+    setVerifyingFile(filename);
+    try {
+      const res = await apiService.verifyBackup(filename);
+      if (res.valid) {
+        toast.success(`النسخة ${filename} سليمة 100% (integrity_check: ok)`);
+      } else {
+        toast.error(`النسخة ${filename} تالفة: ${res.integrity || 'unknown'}`);
+      }
+    } catch {
+      toast.error('فشل فحص سلامة النسخة الاحتياطية');
+    } finally {
+      setVerifyingFile(null);
     }
   };
 
@@ -698,13 +779,12 @@ const Settings: React.FC = () => {
                       <div className="space-y-3">
                         <label className="text-sm font-bold text-gray-700">نوع الخط (Font Family)</label>
                         <select 
-                          value={settings.fontFamily}
+                          value={settings.fontFamily === 'Tajawal' ? 'Tajawal' : 'Cairo'}
                           onChange={(e) => setSettings({ ...settings, fontFamily: e.target.value })}
                           className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         >
-                          <option value="Inter">Inter (عصري)</option>
-                          <option value="Cairo">Cairo (كلاسيكي عربي)</option>
-                          <option value="Tajawal">Tajawal (ناعم)</option>
+                          <option value="Cairo">Cairo (قياسي عربي واضح)</option>
+                          <option value="Tajawal">Tajawal (ناعم وحديث)</option>
                         </select>
                       </div>
                       <div className="space-y-3">
@@ -1013,6 +1093,49 @@ const Settings: React.FC = () => {
                           </button>
                         </div>
                       </div>
+
+                      <form onSubmit={handleChangePassword} className="space-y-4 p-6 bg-gray-50 rounded-3xl border border-gray-100">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-emerald-100 rounded-xl">
+                            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-gray-800">تحديث كلمة المرور ورمز PIN</h3>
+                            <p className="text-xs text-gray-500">يتم تشفير كلمات المرور ورموز الدخول باستخدام bcrypt</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <input
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            placeholder="كلمة المرور الحالية"
+                            className="px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            type="password"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            placeholder="كلمة المرور الجديدة"
+                            className="px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={newPinCode}
+                            onChange={(e) => setNewPinCode(e.target.value)}
+                            placeholder="رمز PIN جديد (4 أرقام)"
+                            className="px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isChangingPass}
+                          className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {isChangingPass ? 'جاري التحديث...' : 'حفظ كلمة المرور الجديدة'}
+                        </button>
+                      </form>
                     </div>
                   </div>
                 )}
@@ -1324,10 +1447,43 @@ const Settings: React.FC = () => {
                             </select>
                           </div>
                           <p className="text-xs text-gray-500 mt-2">
-                            سيتم حفظ النسخ الاحتياطية تلقائياً في مجلد `backups` بجوار قاعدة البيانات.
+                            سيتم حفظ النسخ الاحتياطية تلقائياً في مجلد `backups` بجوار قاعدة البيانات باستخدام SQLite Online Backup الآمن مع وضع WAL.
                           </p>
                         </div>
                       )}
+
+                      <div className="pt-4 border-t border-gray-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-bold text-gray-800">فحص سلامة النسخ المحفوظة على السيرفر</h4>
+                          <button
+                            type="button"
+                            onClick={handleLoadBackups}
+                            className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100"
+                          >
+                            عرض النسخ المحفوظة
+                          </button>
+                        </div>
+                        {backupsList.length > 0 && (
+                          <div className="space-y-2">
+                            {backupsList.map((b) => (
+                              <div key={b.filename} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200 text-sm">
+                                <div>
+                                  <span className="font-mono font-bold text-gray-800">{b.filename}</span>
+                                  <span className="text-xs text-gray-400 mr-3">{(b.size / 1024).toFixed(1)} KB</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleVerifyBackup(b.filename)}
+                                  disabled={verifyingFile === b.filename}
+                                  className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                  {verifyingFile === b.filename ? 'جاري الفحص...' : 'فحص السلامة'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1336,6 +1492,20 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={clearModalMode !== 'none'}
+        title={clearModalMode === 'system' ? 'مسح كافة بيانات النظام والإعدادات' : 'مسح جميع البيانات'}
+        message={
+          clearModalMode === 'system'
+            ? 'هل أنت متأكد من مسح جميع بيانات النظام (بما في ذلك الإعدادات)؟ لا يمكن التراجع عن هذا الإجراء!'
+            : 'هل أنت متأكد من مسح جميع البيانات التجارية والفواتير؟ لا يمكن التراجع عن هذا الإجراء!'
+        }
+        confirmLabel="تأكيد المسح النهائي"
+        variant="danger"
+        onCancel={() => setClearModalMode('none')}
+        onConfirm={executeConfirmedClear}
+      />
     </div>
   );
 };

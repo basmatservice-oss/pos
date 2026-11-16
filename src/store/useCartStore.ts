@@ -1,23 +1,25 @@
 import { create } from 'zustand';
 import { generateUUID } from '../utils/uuid';
 import { Product } from '../db/db';
+import { calculateVatInclusiveOrder, ComputedOrderTaxSummary } from '../utils/tax';
 
 export interface CartItem extends Product {
-  cartItemId: string; // Unique ID for the cart item (in case of same product added differently)
+  cartItemId: string;
   cartQuantity: number;
-  discount: number; // Percentage or fixed
+  discount: number;
   discountType: 'percentage' | 'fixed';
-  costPriceAtTimeOfSale: number; // Added for accurate COGS
-  selectedUnit: 'piece' | 'box'; // The unit selected for this cart item
+  costPriceAtTimeOfSale: number;
+  selectedUnit: 'piece' | 'box';
 }
 
 interface CartState {
   items: CartItem[];
   globalDiscount: number;
   globalDiscountType: 'percentage' | 'fixed';
-  offerDiscount: number; // Automatically calculated from active offers
-  taxRate: number; // Global tax rate from settings
-  
+  offerDiscount: number;
+  loyaltyDiscount: number;
+  taxRate: number;
+
   // Actions
   addItem: (product: Product, unit?: 'piece' | 'box') => void;
   removeItem: (cartItemId: string) => void;
@@ -25,15 +27,22 @@ interface CartState {
   updateItemUnit: (cartItemId: string, unit: 'piece' | 'box') => void;
   updateItemDiscount: (cartItemId: string, discount: number, type: 'percentage' | 'fixed') => void;
   clearCart: () => void;
+  loadCartState: (state: {
+    items: CartItem[];
+    globalDiscount?: number;
+    globalDiscountType?: 'percentage' | 'fixed';
+  }) => void;
   setGlobalDiscount: (discount: number, type: 'percentage' | 'fixed') => void;
   setOfferDiscount: (discount: number) => void;
+  setLoyaltyDiscount: (discount: number) => void;
   setTaxRate: (rate: number) => void;
-  
-  // Computed (Getters)
-  getSubTotal: () => number;
-  getTaxTotal: () => number;
-  getDiscountTotal: () => number;
-  getGrandTotal: () => number;
+
+  // Computed (Getters) - VAT-Inclusive Model
+  getTaxSummary: (loyaltyOverrideGross?: number) => ComputedOrderTaxSummary;
+  getSubTotal: () => number; // Gross subtotal before discounts (VAT-inclusive)
+  getTaxTotal: () => number; // Extracted VAT after discounts
+  getDiscountTotal: () => number; // Gross discount total
+  getGrandTotal: () => number; // Final gross total payable
 }
 
 export const getItemPrice = (item: CartItem) => {
@@ -49,11 +58,14 @@ export const useCartStore = create<CartState>((set, get) => ({
   globalDiscount: 0,
   globalDiscountType: 'percentage',
   offerDiscount: 0,
+  loyaltyDiscount: 0,
   taxRate: 15,
 
   addItem: (product, unit = 'piece') => {
     set((state) => {
-      const existingItem = state.items.find((item) => item.id === product.id && item.selectedUnit === unit);
+      const existingItem = state.items.find(
+        (item) => item.id === product.id && item.selectedUnit === unit
+      );
       if (existingItem) {
         return {
           items: state.items.map((item) =>
@@ -73,8 +85,8 @@ export const useCartStore = create<CartState>((set, get) => ({
             discount: 0,
             discountType: 'percentage',
             costPriceAtTimeOfSale: product.costPrice,
-            vatRate: state.taxRate, // Use global tax rate
-            selectedUnit: unit
+            vatRate: state.taxRate,
+            selectedUnit: unit,
           },
         ],
       };
@@ -112,7 +124,24 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   clearCart: () => {
-    set({ items: [], globalDiscount: 0, globalDiscountType: 'percentage', offerDiscount: 0 });
+    set({
+      items: [],
+      globalDiscount: 0,
+      globalDiscountType: 'percentage',
+      offerDiscount: 0,
+      loyaltyDiscount: 0,
+    });
+  },
+
+  loadCartState: ({ items, globalDiscount = 0, globalDiscountType = 'percentage' }) => {
+    const rate = get().taxRate;
+    set({
+      items: items.map((i) => ({ ...i, vatRate: rate })),
+      globalDiscount,
+      globalDiscountType,
+      offerDiscount: 0,
+      loyaltyDiscount: 0,
+    });
   },
 
   setGlobalDiscount: (discount, type) => {
@@ -124,88 +153,43 @@ export const useCartStore = create<CartState>((set, get) => ({
     set({ offerDiscount: discount });
   },
 
+  setLoyaltyDiscount: (discount) => {
+    if (get().loyaltyDiscount === discount) return;
+    set({ loyaltyDiscount: discount });
+  },
+
   setTaxRate: (rate) => {
-    set((state) => ({ 
+    set((state) => ({
       taxRate: rate,
-      items: state.items.map(item => ({ ...item, vatRate: rate }))
+      items: state.items.map((item) => ({ ...item, vatRate: rate })),
     }));
   },
 
-  getSubTotal: () => {
-    const { items } = get();
-    return items.reduce((total, item) => {
-      const price = getItemPrice(item);
-      const qty = Number(item.cartQuantity) || 0;
-      return total + price * qty;
-    }, 0);
+  getTaxSummary: (loyaltyOverrideGross) => {
+    const { items, globalDiscount, globalDiscountType, offerDiscount, loyaltyDiscount, taxRate } =
+      get();
+    return calculateVatInclusiveOrder({
+      items: items.map((item) => ({
+        quantity: Number(item.cartQuantity) || 0,
+        unitPrice: getItemPrice(item),
+        discount: Number(item.discount) || 0,
+        discountType: item.discountType,
+        vatRate: taxRate !== undefined ? taxRate : Number(item.vatRate) || 0,
+      })),
+      globalDiscount,
+      globalDiscountType,
+      offerDiscountGross: offerDiscount,
+      loyaltyDiscountGross:
+        loyaltyOverrideGross !== undefined ? loyaltyOverrideGross : loyaltyDiscount,
+      defaultTaxRate: taxRate,
+    });
   },
 
-  getTaxTotal: () => {
-    const { items, globalDiscount, globalDiscountType, offerDiscount, taxRate } = get();
-    
-    // First calculate total discount on items
-    const itemsDiscountTotal = items.reduce((total, item) => {
-      const itemTotal = getItemPrice(item) * (Number(item.cartQuantity) || 0);
-      const discount = Number(item.discount) || 0;
-      return total + (item.discountType === 'percentage' ? itemTotal * (discount / 100) : discount);
-    }, 0);
+  getSubTotal: () => get().getTaxSummary().grossSubtotal,
 
-    const subTotal = get().getSubTotal();
-    const subTotalAfterItemsDiscount = Math.max(0, subTotal - itemsDiscountTotal);
-    
-    const gDiscount = Number(globalDiscount) || 0;
-    const oDiscount = Number(offerDiscount) || 0;
+  getTaxTotal: () => get().getTaxSummary().taxAmount,
 
-    const orderDiscount = globalDiscountType === 'percentage' 
-      ? subTotalAfterItemsDiscount * (gDiscount / 100)
-      : gDiscount;
+  getDiscountTotal: () => get().getTaxSummary().grossDiscountTotal,
 
-    const totalOrderDiscount = orderDiscount + oDiscount;
-
-    // Distribute order discount proportionally to calculate tax correctly
-    return items.reduce((total, item) => {
-      const itemTotal = getItemPrice(item) * (Number(item.cartQuantity) || 0);
-      const discount = Number(item.discount) || 0;
-      const itemDiscount = item.discountType === 'percentage' 
-        ? itemTotal * (discount / 100) 
-        : discount;
-      
-      let afterDiscount = itemTotal - itemDiscount;
-      
-      // Apply proportional global discount
-      if (subTotalAfterItemsDiscount > 0) {
-        const proportion = afterDiscount / subTotalAfterItemsDiscount;
-        afterDiscount -= (totalOrderDiscount * proportion);
-      }
-
-      // Use global tax rate if provided, otherwise fallback to item's rate
-      const vat = taxRate !== undefined ? taxRate : (Number(item.vatRate) || 0);
-      return total + (Math.max(0, afterDiscount) * (vat / 100));
-    }, 0);
-  },
-
-  getDiscountTotal: () => {
-    const { items, globalDiscount, globalDiscountType, offerDiscount } = get();
-    const itemsDiscount = items.reduce((total, item) => {
-      const itemTotal = getItemPrice(item) * (Number(item.cartQuantity) || 0);
-      const discount = Number(item.discount) || 0;
-      return total + (item.discountType === 'percentage' ? itemTotal * (discount / 100) : discount);
-    }, 0);
-
-    const subTotal = get().getSubTotal();
-    const subTotalAfterItemsDiscount = Math.max(0, subTotal - itemsDiscount);
-    const gDiscount = Number(globalDiscount) || 0;
-    const oDiscount = Number(offerDiscount) || 0;
-
-    const orderDiscount = globalDiscountType === 'percentage' 
-      ? subTotalAfterItemsDiscount * (gDiscount / 100)
-      : gDiscount;
-
-    return itemsDiscount + orderDiscount + oDiscount;
-  },
-
-  getGrandTotal: () => {
-    const { getSubTotal, getTaxTotal, getDiscountTotal } = get();
-    return getSubTotal() - getDiscountTotal() + getTaxTotal();
-  },
+  getGrandTotal: () => get().getTaxSummary().netAmount,
 }));

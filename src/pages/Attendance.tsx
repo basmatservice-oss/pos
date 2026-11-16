@@ -6,12 +6,15 @@ import {
   Users, Search, Filter, CheckCircle2, 
   XCircle, AlertCircle, UserCheck
 } from 'lucide-react';
-import { format, differenceInMinutes, startOfDay, endOfDay } from 'date-fns';
+import { format, differenceInMinutes } from 'date-fns';
 import { toast } from 'react-hot-toast';
+import { dispatchOperation } from '../services/operationService';
+import { generateUUID } from '../utils/uuid';
+import { useAuth } from '../context/AuthContext';
 
 export default function AttendancePage() {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEmployee, setSelectedEmployee] = useState<number | ''>('');
   
   const employees = useLiveQuery(() => db.employees.where('status').equals('active').toArray()) || [];
   const attendanceRecords = useLiveQuery(() => db.attendance.orderBy('date').reverse().toArray()) || [];
@@ -28,16 +31,20 @@ export default function AttendancePage() {
 
     try {
       const now = new Date();
-      const record: Attendance = {
+      const isoNow = now.toISOString();
+      const record: any = {
+        id: generateUUID(),
         employeeId: employee.id!,
         employeeName: employee.name,
         date: today,
-        checkIn: now.toISOString(),
+        checkIn: isoNow,
         status: 'present',
-        syncStatus: 'pending'
+        branchId: employee.branchId ?? user?.branchId,
+        createdAt: isoNow,
+        updatedAt: isoNow,
       };
 
-      await db.attendance.add(record);
+      await dispatchOperation('entity_upsert', { table: 'attendance', record }, user?.branchId);
       toast.success(`تم تسجيل حضور ${employee.name}`);
     } catch (error) {
       console.error(error);
@@ -54,14 +61,16 @@ export default function AttendancePage() {
     try {
       const now = new Date();
       const checkInTime = new Date(record.checkIn);
-      const diffMinutes = differenceInMinutes(now, checkInTime);
+      const diffMinutes = Math.max(0, differenceInMinutes(now, checkInTime));
       const hours = parseFloat((diffMinutes / 60).toFixed(2));
-
-      await db.attendance.update(record.id!, {
+      const updatedRecord: any = {
+        ...record,
         checkOut: now.toISOString(),
         totalHours: hours,
-        syncStatus: 'pending'
-      });
+        updatedAt: now.toISOString(),
+      };
+
+      await dispatchOperation('entity_upsert', { table: 'attendance', record: updatedRecord }, user?.branchId);
       toast.success(`تم تسجيل انصراف ${record.employeeName}`);
     } catch (error) {
       console.error(error);

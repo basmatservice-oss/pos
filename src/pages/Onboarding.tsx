@@ -63,17 +63,20 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         if (!selectedType) return;
         
         // Save locally first
-        await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'pending', updatedAt: new Date().toISOString() });
+        await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'synced', updatedAt: new Date().toISOString() });
         await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'pending', updatedAt: new Date().toISOString() });
 
-        // Try to save to server
+        // Try to save initial setup to server (works unauthenticated once on fresh DB)
         try {
-          await fetch('/api/settings', {
+          const res = await fetch('/api/settings/initial-setup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'businessType', value: selectedType })
+            body: JSON.stringify({ businessType: selectedType })
           });
-        } catch (e) {
+          if (res.ok) {
+            await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+          }
+        } catch {
           console.log('Server not reachable yet, saved locally');
         }
         
@@ -86,26 +89,46 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           return;
         }
 
+        let cleanUrl = serverUrl.trim();
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+          cleanUrl = `http://${cleanUrl}`;
+        }
+        if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+
         // Test connection
         try {
-          const res = await fetch(`${serverUrl}/api/health`);
+          const res = await fetch(`${cleanUrl}/api/health`);
           if (!res.ok) throw new Error('Cannot connect');
           
-          updateApiBase(serverUrl);
+          await updateApiBase(cleanUrl);
           
-          await db.settings.put({ key: 'deviceRole', value: 'client', syncStatus: 'pending', updatedAt: new Date().toISOString() });
-          await db.settings.put({ key: 'serverUrl', value: serverUrl, syncStatus: 'pending', updatedAt: new Date().toISOString() });
+          await db.settings.put({ key: 'deviceRole', value: 'client', syncStatus: 'synced', updatedAt: new Date().toISOString() });
+          await db.settings.put({ key: 'serverUrl', value: cleanUrl, syncStatus: 'synced', updatedAt: new Date().toISOString() });
           
-          // Fetch business type from server
-          const typeRes = await fetch(`${serverUrl}/api/settings/businessType`);
+          // Fetch public config & business type from server
+          const [typeRes, publicRes] = await Promise.all([
+            fetch(`${cleanUrl}/api/settings/businessType`),
+            fetch(`${cleanUrl}/api/public-config`),
+          ]);
           const typeData = await typeRes.json();
           const fetchedType = typeData?.value || 'supermarket';
+
+          if (publicRes.ok) {
+            const pubSettings = await publicRes.json();
+            if (Array.isArray(pubSettings) && pubSettings.length > 0) {
+              await db.settings.bulkPut(
+                pubSettings
+                  .filter((s: any) => s.key !== 'deviceRole' && s.key !== 'serverUrl')
+                  .map((s: any) => ({ ...s, syncStatus: 'synced' }))
+              );
+            }
+          }
           
-          await db.settings.put({ key: 'businessType', value: fetchedType, syncStatus: 'pending', updatedAt: new Date().toISOString() });
+          await db.settings.put({ key: 'businessType', value: fetchedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
 
           toast.success('تم الاتصال بالسيرفر بنجاح!');
           onComplete(fetchedType, 'client');
-        } catch (error) {
+        } catch {
           toast.error('فشل الاتصال بالسيرفر. تأكد من الرابط وأن السيرفر يعمل.');
           setIsSaving(false);
           return;

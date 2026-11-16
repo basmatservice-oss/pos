@@ -1,19 +1,39 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { generateUUID } from '../utils/uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Clock, Play, Square, DollarSign, AlertCircle, FileText, Printer } from 'lucide-react';
+import {
+  Clock,
+  Play,
+  Square,
+  DollarSign,
+  AlertCircle,
+  FileText,
+  Printer,
+  ArrowDownLeft,
+  ArrowUpRight,
+  X,
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { arSA } from 'date-fns/locale';
 import { useReactToPrint } from 'react-to-print';
-import { db, Shift, Order } from '../db/db';
+import { db } from '../db/db';
 import { useSettings } from '../hooks/useSettings';
+import { dispatchOperation } from '../services/operationService';
+import { useAuth } from '../context/AuthContext';
 
 export default function Shifts() {
+  const { user } = useAuth();
   const [openingCash, setOpeningCash] = useState<string>('');
   const [actualCash, setActualCash] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const shiftReportRef = useRef<HTMLDivElement>(null);
+
+  // Cash Movement Modal
+  const [movementModalType, setMovementModalType] = useState<'deposit' | 'withdrawal' | null>(null);
+  const [movementAmount, setMovementAmount] = useState('');
+  const [movementReason, setMovementReason] = useState('');
+  const [isSavingMovement, setIsSavingMovement] = useState(false);
 
   const storeSettings = useSettings();
 
@@ -23,41 +43,185 @@ export default function Shifts() {
   });
 
   // Get current open shift
-  const currentShift = useLiveQuery(
-    () => db.shifts.where('status').equals('open').first()
-  );
+  const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
-  // Get orders during the current shift to calculate expected cash
-  const shiftOrders = useLiveQuery(
-    async () => {
+  // Shift-scoped queries filtered strictly by shiftId (with time-window fallback for tables without shiftId)
+  const shiftOrders =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.orders.where('shiftId').equals(currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftReturns =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.returns.filter((r) => r.shiftId === currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftExpenses =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.expenses.where('shiftId').equals(currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftMovements =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      const list = await db.shiftMovements.where('shiftId').equals(currentShift.id).toArray();
+      return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }, [currentShift?.id]) || [];
+
+  const shiftCustomerPayments =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.customerPayments.where('shiftId').equals(currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftSupplierPayments =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.supplierPayments.where('shiftId').equals(currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftPurchaseReturns =
+    useLiveQuery(async () => {
+      if (!currentShift?.id) return [];
+      return db.purchaseReturns.filter((r) => r.shiftId === currentShift.id).toArray();
+    }, [currentShift?.id]) || [];
+
+  const shiftCashPurchases =
+    useLiveQuery(async () => {
       if (!currentShift) return [];
-      return db.orders
-        .where('createdAt')
-        .aboveOrEqual(currentShift.startTime)
+      return db.purchases
+        .filter(
+          (p) =>
+            p.createdAt >= currentShift.startTime &&
+            p.paymentMethod !== 'card' &&
+            Number(p.paidAmount || 0) > 0
+        )
         .toArray();
-    },
-    [currentShift]
-  );
+    }, [currentShift?.id, currentShift?.startTime]) || [];
 
-  // Get expenses during the current shift
-  const shiftExpenses = useLiveQuery(
-    async () => {
+  const shiftCashPayrolls =
+    useLiveQuery(async () => {
       if (!currentShift) return [];
-      return db.expenses
-        .where('date')
-        .aboveOrEqual(currentShift.startTime)
+      return db.payroll
+        .filter(
+          (p) =>
+            p.paymentDate >= currentShift.startTime &&
+            p.paymentMethod !== 'card' &&
+            p.status === 'paid'
+        )
         .toArray();
-    },
-    [currentShift]
-  );
+    }, [currentShift?.id, currentShift?.startTime]) || [];
 
-  // Get all past shifts for history
-  const pastShifts = useLiveQuery(
-    async () => {
-      const shifts = await db.shifts.where('status').equals('closed').toArray();
-      return shifts.sort((a, b) => b.startTime.localeCompare(a.startTime));
-    }
-  ) || [];
+  // Past shifts
+  const pastShifts =
+    useLiveQuery(async () => {
+      const list = await db.shifts.where('status').equals('closed').toArray();
+      return list.sort((a, b) => b.startTime.localeCompare(a.startTime));
+    }) || [];
+
+  // Exact shift cash math
+  const metrics = useMemo(() => {
+    const validOrders = shiftOrders.filter((o) => o.status !== 'void');
+
+    const cashSales = validOrders.reduce((sum, o) => {
+      if (o.paymentMethod === 'cash') return sum + Number(o.netAmount || 0);
+      if (o.paymentMethod === 'mixed') return sum + Number(o.cashAmount || 0);
+      return sum;
+    }, 0);
+
+    const cardSales = validOrders.reduce((sum, o) => {
+      if (o.paymentMethod === 'card') return sum + Number(o.netAmount || 0);
+      if (o.paymentMethod === 'mixed') return sum + Number(o.cardAmount || 0);
+      return sum;
+    }, 0);
+
+    const creditSales = validOrders
+      .filter((o) => o.paymentMethod === 'credit')
+      .reduce((sum, o) => sum + Number(o.netAmount || 0), 0);
+
+    const totalSales = validOrders.reduce((sum, o) => sum + Number(o.netAmount || 0), 0);
+
+    const cashCustomerPayments = shiftCustomerPayments
+      .filter((p) => p.paymentMethod !== 'card')
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const cashDeposits = shiftMovements
+      .filter((m) => m.type === 'deposit')
+      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+
+    const cashPurchaseReturns = shiftPurchaseReturns
+      .filter((r) => r.refundMethod === 'cash')
+      .reduce((sum, r) => sum + Number(r.totalReturn || 0), 0);
+
+    const cashReturns = shiftReturns
+      .filter((r) => r.refundMethod === 'cash')
+      .reduce((sum, r) => sum + Number(r.totalRefund || 0), 0);
+
+    const cashExpenses = shiftExpenses
+      .filter((e) => e.paymentMethod !== 'card')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+    const cashSupplierPayments = shiftSupplierPayments
+      .filter((p) => p.paymentMethod !== 'card')
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const cashPurchasesOut = shiftCashPurchases.reduce(
+      (sum, p) => sum + Number(p.paidAmount || 0),
+      0
+    );
+
+    const cashPayrollsOut = shiftCashPayrolls.reduce(
+      (sum, p) => sum + Number(p.netSalary || 0),
+      0
+    );
+
+    const cashWithdrawals = shiftMovements
+      .filter((m) => m.type === 'withdrawal')
+      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+
+    const opening = currentShift ? Number(currentShift.openingCash || 0) : 0;
+    const totalInflows = cashSales + cashCustomerPayments + cashDeposits + cashPurchaseReturns;
+    const totalOutflows =
+      cashReturns +
+      cashExpenses +
+      cashSupplierPayments +
+      cashPurchasesOut +
+      cashPayrollsOut +
+      cashWithdrawals;
+
+    const expectedCash = Math.round((opening + totalInflows - totalOutflows) * 100) / 100;
+
+    return {
+      validOrdersCount: validOrders.length,
+      cashSales,
+      cardSales,
+      creditSales,
+      totalSales,
+      cashCustomerPayments,
+      cashDeposits,
+      cashPurchaseReturns,
+      cashReturns,
+      cashExpenses,
+      cashSupplierPayments: cashSupplierPayments + cashPurchasesOut,
+      cashPayrollsOut,
+      cashWithdrawals,
+      expectedCash,
+    };
+  }, [
+    currentShift,
+    shiftOrders,
+    shiftReturns,
+    shiftExpenses,
+    shiftMovements,
+    shiftCustomerPayments,
+    shiftSupplierPayments,
+    shiftPurchaseReturns,
+    shiftCashPurchases,
+    shiftCashPayrolls,
+  ]);
 
   const handleOpenShift = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,19 +238,22 @@ export default function Shifts() {
 
     setIsProcessing(true);
     try {
-      const newShift: Shift = {
-        id: generateUUID(),
-        startTime: new Date().toISOString(),
-        openingCash: cash,
-        status: 'open',
-        syncStatus: 'pending'
-      };
-      await db.shifts.add(newShift);
+      await dispatchOperation(
+        'shift_open',
+        {
+          id: generateUUID(),
+          startTime: new Date().toISOString(),
+          openingCash: cash,
+          status: 'open',
+          branchId: user?.branchId,
+        },
+        user?.branchId
+      );
       toast.success('تم فتح الوردية بنجاح');
       setOpeningCash('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error opening shift:', error);
-      toast.error('حدث خطأ أثناء فتح الوردية');
+      toast.error(error?.message || 'حدث خطأ أثناء فتح الوردية');
     } finally {
       setIsProcessing(false);
     }
@@ -104,87 +271,170 @@ export default function Shifts() {
 
     setIsProcessing(true);
     try {
-      // Calculate expected cash
-      const cashSales = shiftOrders?.filter(o => o.paymentMethod === 'cash').reduce((sum, o) => sum + o.netAmount, 0) || 0;
-      const totalExpenses = shiftExpenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
-      const expectedCash = currentShift.openingCash + cashSales - totalExpenses;
-
-      await db.shifts.update(currentShift.id!, {
-        endTime: new Date().toISOString(),
-        expectedCash,
-        actualCash: cash,
-        status: 'closed',
-        syncStatus: 'pending'
-      });
+      await dispatchOperation(
+        'shift_close',
+        {
+          id: currentShift.id!,
+          endTime: new Date().toISOString(),
+          expectedCash: metrics.expectedCash,
+          actualCash: cash,
+        },
+        user?.branchId
+      );
 
       toast.success('تم إغلاق الوردية بنجاح');
       setActualCash('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error closing shift:', error);
-      toast.error('حدث خطأ أثناء إغلاق الوردية');
+      toast.error(error?.message || 'حدث خطأ أثناء إغلاق الوردية');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Calculations for current shift
-  const cashSales = shiftOrders?.filter(o => o.paymentMethod === 'cash').reduce((sum, o) => sum + o.netAmount, 0) || 0;
-  const cardSales = shiftOrders?.filter(o => o.paymentMethod === 'card').reduce((sum, o) => sum + o.netAmount, 0) || 0;
-  const creditSales = shiftOrders?.filter(o => o.paymentMethod === 'credit').reduce((sum, o) => sum + o.netAmount, 0) || 0;
-  const totalSales = (shiftOrders?.reduce((sum, o) => sum + o.netAmount, 0) || 0);
-  const totalExpenses = shiftExpenses?.reduce((sum, e) => sum + e.amount, 0) || 0;
-  const expectedCash = currentShift ? currentShift.openingCash + cashSales - totalExpenses : 0;
+  const handleSaveMovement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentShift?.id || !movementModalType) return;
+
+    const amt = parseFloat(movementAmount);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error('الرجاء إدخال مبلغ صحيح أكبر من الصفر');
+      return;
+    }
+    if (!movementReason.trim()) {
+      toast.error('الرجاء إدخال سبب الحركة النقدية');
+      return;
+    }
+
+    setIsSavingMovement(true);
+    try {
+      await dispatchOperation(
+        'shift_movement',
+        {
+          id: generateUUID(),
+          shiftId: currentShift.id,
+          type: movementModalType,
+          amount: amt,
+          reason: movementReason.trim(),
+          createdBy: user?.name || 'System',
+          branchId: user?.branchId ?? currentShift.branchId,
+        },
+        user?.branchId
+      );
+      toast.success(
+        movementModalType === 'deposit'
+          ? 'تم تسجيل الإيداع النقدي بالوردية'
+          : 'تم تسجيل السحب النقدي من الوردية'
+      );
+      setMovementModalType(null);
+      setMovementAmount('');
+      setMovementReason('');
+    } catch (err: any) {
+      toast.error(err?.message || 'حدث خطأ أثناء تسجيل الحركة النقدية');
+    } finally {
+      setIsSavingMovement(false);
+    }
+  };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar">
+    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
       <div className="mb-6 shrink-0">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة الورديات</h2>
-        <p className="text-gray-500 text-sm mt-1">فتح وإغلاق الورديات ومتابعة النقدية</p>
+        <h2 className="text-2xl font-bold text-slate-900">إدارة الورديات وحركة الصندوق</h2>
+        <p className="text-slate-500 text-sm mt-1">
+          فتح وإغلاق الورديات ومتابعة الإيداعات والسحوبات والمطابقة النقدية
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Current Shift Status */}
         <div className="lg:col-span-1">
           {currentShift ? (
-            <div className="bg-white rounded-2xl p-6 border border-emerald-100 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-2 h-full bg-emerald-500"></div>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Clock className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">الوردية الحالية مفتوحة</h3>
-                  <p className="text-xs text-gray-500">
-                    بدأت في: {format(new Date(currentShift.startTime), 'hh:mm a - yyyy/MM/dd', { locale: arSA })}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-6">
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
-                  <span className="text-sm text-gray-600">العهدة الافتتاحية</span>
-                  <span className="font-bold text-gray-900">{currentShift.openingCash.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
-                  <span className="text-sm text-gray-600">المبيعات النقدية</span>
-                  <span className="font-bold text-emerald-600">+{cashSales.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
-                  <span className="text-sm text-gray-600">المصروفات</span>
-                  <span className="font-bold text-rose-600">-{totalExpenses.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                  <span className="text-sm font-bold text-indigo-900">النقد المتوقع بالدرج</span>
-                  <span className="font-black text-indigo-700">{expectedCash.toFixed(2)} {storeSettings.currency}</span>
+            <div className="bg-white rounded-2xl p-6 border border-emerald-200">
+              <div className="flex items-center justify-between gap-3 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">الوردية الحالية مفتوحة</h3>
+                    <p className="text-xs text-slate-500 tabular-nums">
+                      {format(new Date(currentShift.startTime), 'hh:mm a - yyyy/MM/dd', {
+                        locale: arSA,
+                      })}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <form onSubmit={handleCloseShift} className="space-y-4 border-t border-gray-100 pt-6">
+              <div className="space-y-2.5 mb-5 text-sm tabular-nums">
+                <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-slate-600">العهدة الافتتاحية</span>
+                  <span className="font-bold text-slate-900">
+                    {currentShift.openingCash.toFixed(2)} {storeSettings.currency}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-slate-600">المبيعات النقدية + التحصيل</span>
+                  <span className="font-bold text-emerald-600">
+                    +{(metrics.cashSales + metrics.cashCustomerPayments).toFixed(2)}{' '}
+                    {storeSettings.currency}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-slate-600">إيداعات / سحوبات الدرج</span>
+                  <span className="font-bold text-slate-800">
+                    +{metrics.cashDeposits.toFixed(2)} / -{metrics.cashWithdrawals.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-slate-600">المرتجعات والمصروفات والرواتب النقدية</span>
+                  <span className="font-bold text-rose-600">
+                    -
+                    {(
+                      metrics.cashReturns +
+                      metrics.cashExpenses +
+                      metrics.cashSupplierPayments +
+                      metrics.cashPayrollsOut
+                    ).toFixed(2)}{' '}
+                    {storeSettings.currency}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                  <span className="font-bold text-indigo-900">النقد المتوقع بالدرج</span>
+                  <span className="font-black text-indigo-700 text-base">
+                    {metrics.expectedCash.toFixed(2)} {storeSettings.currency}
+                  </span>
+                </div>
+              </div>
+
+              {/* Drawer Movements Quick Actions */}
+              <div className="grid grid-cols-2 gap-2.5 mb-5">
+                <button
+                  type="button"
+                  onClick={() => setMovementModalType('deposit')}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-xs font-bold transition-colors whitespace-nowrap"
+                >
+                  <ArrowDownLeft className="w-4 h-4" />
+                  إيداع نقدي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMovementModalType('withdrawal')}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 text-xs font-bold transition-colors whitespace-nowrap"
+                >
+                  <ArrowUpRight className="w-4 h-4" />
+                  سحب نقدي
+                </button>
+              </div>
+
+              <form onSubmit={handleCloseShift} className="space-y-3 border-t border-slate-200 pt-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">النقد الفعلي بالدرج</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    الجرد الفعلي للنقد بالدرج
+                  </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                      <DollarSign className="h-5 w-5 text-gray-400" />
+                      <DollarSign className="h-4 w-4 text-slate-400" />
                     </div>
                     <input
                       type="number"
@@ -193,7 +443,7 @@ export default function Shifts() {
                       required
                       value={actualCash}
                       onChange={(e) => setActualCash(e.target.value)}
-                      className="block w-full pl-3 pr-10 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+                      className="block w-full pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl text-sm tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
                       placeholder="0.00"
                     />
                   </div>
@@ -201,31 +451,33 @@ export default function Shifts() {
                 <button
                   type="submit"
                   disabled={isProcessing || !actualCash}
-                  className="w-full flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
                 >
-                  <Square className="w-5 h-5" />
+                  <Square className="w-4 h-4" />
                   إغلاق الوردية
                 </button>
               </form>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+            <div className="bg-white rounded-2xl p-6 border border-slate-200">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500">
-                  <Square className="w-6 h-6" />
+                <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500">
+                  <Square className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">لا توجد وردية مفتوحة</h3>
-                  <p className="text-xs text-gray-500">يجب فتح وردية للبدء في البيع</p>
+                  <h3 className="text-base font-bold text-slate-900">لا توجد وردية مفتوحة</h3>
+                  <p className="text-xs text-slate-500">يجب فتح وردية للبدء في البيع وحركات الصندوق</p>
                 </div>
               </div>
 
               <form onSubmit={handleOpenShift} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">العهدة الافتتاحية (النقد بالدرج)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    العهدة الافتتاحية (النقد بالدرج)
+                  </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                      <DollarSign className="h-5 w-5 text-gray-400" />
+                      <DollarSign className="h-4 w-4 text-slate-400" />
                     </div>
                     <input
                       type="number"
@@ -234,7 +486,7 @@ export default function Shifts() {
                       required
                       value={openingCash}
                       onChange={(e) => setOpeningCash(e.target.value)}
-                      className="block w-full pl-3 pr-10 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+                      className="block w-full pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl text-sm tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
                       placeholder="0.00"
                     />
                   </div>
@@ -242,9 +494,9 @@ export default function Shifts() {
                 <button
                   type="submit"
                   disabled={isProcessing || !openingCash}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
                 >
-                  <Play className="w-5 h-5" />
+                  <Play className="w-4 h-4" />
                   فتح وردية جديدة
                 </button>
               </form>
@@ -252,79 +504,142 @@ export default function Shifts() {
           )}
         </div>
 
-        {/* Current Shift Summary */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+        {/* Current Shift Summary & Drawer Movements */}
+        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 flex flex-col">
+          <div className="flex justify-between items-center mb-5">
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <FileText className="w-5 h-5 text-indigo-600" />
               ملخص الوردية الحالية
             </h3>
             {currentShift && (
-              <button 
-                onClick={handlePrintShift}
-                className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold transition-colors"
+              <button
+                onClick={() => handlePrintShift()}
+                className="text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold transition-colors whitespace-nowrap shrink-0"
               >
                 <Printer className="w-4 h-4" />
                 طباعة الملخص
               </button>
             )}
           </div>
-          
+
           {currentShift ? (
-            <div className="flex-1 flex flex-col">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p className="text-xs text-gray-500 mb-1">إجمالي المبيعات</p>
-                <p className="text-xl font-black text-gray-900">{totalSales.toFixed(2)}</p>
+            <div className="flex-1 flex flex-col gap-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 tabular-nums">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">إجمالي المبيعات</p>
+                  <p className="text-lg font-black text-slate-900">{metrics.totalSales.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">مبيعات نقدية</p>
+                  <p className="text-lg font-black text-emerald-600">{metrics.cashSales.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">مبيعات شبكة</p>
+                  <p className="text-lg font-black text-blue-600">{metrics.cardSales.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">مبيعات آجل</p>
+                  <p className="text-lg font-black text-amber-600">{metrics.creditSales.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">الفواتير السليمة</p>
+                  <p className="text-lg font-black text-slate-900">{metrics.validOrdersCount}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">مرتجعات نقدية</p>
+                  <p className="text-lg font-black text-rose-600">{metrics.cashReturns.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">تحصيل عملاء نقدي</p>
+                  <p className="text-lg font-black text-emerald-700">
+                    {metrics.cashCustomerPayments.toFixed(2)}
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 mb-1">مصروفات نقدية</p>
+                  <p className="text-lg font-black text-rose-600">{metrics.cashExpenses.toFixed(2)}</p>
+                </div>
               </div>
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p className="text-xs text-gray-500 mb-1">مبيعات نقدية</p>
-                <p className="text-xl font-black text-emerald-600">{cashSales.toFixed(2)}</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p className="text-xs text-gray-500 mb-1">مبيعات شبكة</p>
-                <p className="text-xl font-black text-blue-600">{cardSales.toFixed(2)}</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p className="text-xs text-gray-500 mb-1">مبيعات آجل</p>
-                <p className="text-xl font-black text-amber-600">{creditSales.toFixed(2)}</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 md:col-span-2">
-                <p className="text-xs text-gray-500 mb-1">عدد الفواتير</p>
-                <p className="text-xl font-black text-gray-900">{shiftOrders?.length || 0}</p>
-              </div>
+
+              {/* Shift Cash Movements Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden flex-1">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-700">
+                    حركات السحب والإيداع النقدي خلال الوردية ({shiftMovements.length})
+                  </span>
+                </div>
+                {shiftMovements.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    لا توجد حركات إيداع أو سحب مسجلة لهذه الوردية
+                  </div>
+                ) : (
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50/70 text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2.5">النوع</th>
+                        <th className="px-4 py-2.5">المبلغ</th>
+                        <th className="px-4 py-2.5">البيان / السبب</th>
+                        <th className="px-4 py-2.5">الوقت</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 tabular-nums">
+                      {shiftMovements.map((m) => (
+                        <tr key={m.id}>
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={`px-2 py-0.5 rounded-md border text-[11px] font-bold ${
+                                m.type === 'deposit'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}
+                            >
+                              {m.type === 'deposit' ? 'إيداع' : 'سحب'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 font-bold text-slate-900">
+                            {m.amount.toFixed(2)} {storeSettings.currency}
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-700">{m.reason}</td>
+                          <td className="px-4 py-2.5 text-slate-500">
+                            {format(new Date(m.createdAt), 'HH:mm')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-              <AlertCircle className="w-12 h-12 mb-2 opacity-50" />
-              <p>لا توجد بيانات لعرضها. افتح وردية للبدء.</p>
+            <div className="flex flex-col items-center justify-center h-48 text-slate-400">
+              <AlertCircle className="w-10 h-10 mb-2 opacity-50" />
+              <p className="text-sm">لا توجد بيانات لعرضها. افتح وردية للبدء.</p>
             </div>
           )}
         </div>
       </div>
 
       {/* Shift History */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex-1">
-        <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900">سجل الورديات السابقة</h3>
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex-1">
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70">
+          <h3 className="text-base font-bold text-slate-900">سجل الورديات السابقة</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right">
-            <thead className="bg-gray-50 text-gray-500 text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs font-bold border-b border-slate-200">
               <tr>
-                <th className="px-6 py-4 font-medium">وقت البدء</th>
-                <th className="px-6 py-4 font-medium">وقت الإغلاق</th>
-                <th className="px-6 py-4 font-medium">العهدة</th>
-                <th className="px-6 py-4 font-medium">المتوقع</th>
-                <th className="px-6 py-4 font-medium">الفعلي</th>
-                <th className="px-6 py-4 font-medium">العجز/الزيادة</th>
+                <th className="px-6 py-3.5">وقت البدء</th>
+                <th className="px-6 py-3.5">وقت الإغلاق</th>
+                <th className="px-6 py-3.5">العهدة</th>
+                <th className="px-6 py-3.5">المتوقع</th>
+                <th className="px-6 py-3.5">الفعلي</th>
+                <th className="px-6 py-3.5">العجز/الزيادة</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-100 text-sm tabular-nums">
               {pastShifts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
                     لا يوجد سجل للورديات السابقة
                   </td>
                 </tr>
@@ -332,19 +647,25 @@ export default function Shifts() {
                 pastShifts.map((shift) => {
                   const diff = (shift.actualCash || 0) - (shift.expectedCash || 0);
                   return (
-                    <tr key={shift.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-sm text-gray-900">
+                    <tr key={shift.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-3.5 text-slate-900">
                         {format(new Date(shift.startTime), 'yyyy/MM/dd hh:mm a', { locale: arSA })}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {shift.endTime ? format(new Date(shift.endTime), 'yyyy/MM/dd hh:mm a', { locale: arSA }) : '-'}
+                      <td className="px-6 py-3.5 text-slate-900">
+                        {shift.endTime
+                          ? format(new Date(shift.endTime), 'yyyy/MM/dd hh:mm a', { locale: arSA })
+                          : '-'}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{shift.openingCash.toFixed(2)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{shift.expectedCash?.toFixed(2) || '-'}</td>
-                      <td className="px-6 py-4 text-sm font-bold text-gray-900">{shift.actualCash?.toFixed(2) || '-'}</td>
-                      <td className="px-6 py-4 text-sm font-bold">
-                        {diff === 0 ? (
-                          <span className="text-gray-500">مطابق</span>
+                      <td className="px-6 py-3.5 text-slate-600">{shift.openingCash.toFixed(2)}</td>
+                      <td className="px-6 py-3.5 text-slate-600">
+                        {shift.expectedCash?.toFixed(2) || '-'}
+                      </td>
+                      <td className="px-6 py-3.5 font-bold text-slate-900">
+                        {shift.actualCash?.toFixed(2) || '-'}
+                      </td>
+                      <td className="px-6 py-3.5 font-bold">
+                        {Math.abs(diff) < 0.01 ? (
+                          <span className="text-slate-500">مطابق</span>
                         ) : diff > 0 ? (
                           <span className="text-emerald-600">+{diff.toFixed(2)}</span>
                         ) : (
@@ -360,55 +681,159 @@ export default function Shifts() {
         </div>
       </div>
 
+      {/* Shift Movement Modal */}
+      {movementModalType && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-base font-bold text-slate-900">
+                {movementModalType === 'deposit'
+                  ? 'إيداع نقدي إلى صندوق الوردية'
+                  : 'سحب نقدي من صندوق الوردية'}
+              </h3>
+              <button
+                onClick={() => setMovementModalType(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveMovement} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  المبلغ ({storeSettings.currency}) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  autoFocus
+                  value={movementAmount}
+                  onChange={(e) => setMovementAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">البيان / السبب *</label>
+                <input
+                  type="text"
+                  required
+                  value={movementReason}
+                  onChange={(e) => setMovementReason(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder={
+                    movementModalType === 'deposit'
+                      ? 'مثال: تعزيز عهدة الصندوق بفكة'
+                      : 'مثال: ترحيل نقدية للخزينة الرئيسية'
+                  }
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setMovementModalType(null)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingMovement}
+                  className={`px-5 py-2 rounded-xl text-white text-sm font-bold disabled:opacity-50 ${
+                    movementModalType === 'deposit'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
+                >
+                  {isSavingMovement ? 'جاري الحفظ...' : 'حفظ الحركة'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Hidden Printable Shift Report */}
       <div className="hidden">
-        <div ref={shiftReportRef} className="p-8 bg-white" dir="rtl">
-          <div className="text-center mb-8 border-b pb-6">
-            <h2 className="text-2xl font-bold mb-2">تقرير الوردية</h2>
-            <p className="text-gray-500">
-              {currentShift ? format(new Date(currentShift.startTime), 'dd MMMM yyyy - hh:mm a', { locale: arSA }) : ''}
+        <div ref={shiftReportRef} className="p-8 bg-white tabular-nums" dir="rtl">
+          <div className="text-center mb-6 border-b pb-4">
+            <h2 className="text-2xl font-bold mb-1">{storeSettings.businessName}</h2>
+            <p className="text-base font-bold text-slate-700">تقرير مطابقة الوردية</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {currentShift
+                ? format(new Date(currentShift.startTime), 'dd MMMM yyyy - hh:mm a', {
+                    locale: arSA,
+                  })
+                : ''}
             </p>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-5 text-sm">
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500 mb-1">العهدة الافتتاحية</p>
-                <p className="text-xl font-bold">{currentShift?.openingCash.toFixed(2)} {storeSettings.currency}</p>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <p className="text-xs text-slate-500 mb-1">العهدة الافتتاحية</p>
+                <p className="text-lg font-bold">
+                  {currentShift?.openingCash.toFixed(2)} {storeSettings.currency}
+                </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500 mb-1">النقد المتوقع</p>
-                <p className="text-xl font-bold">{expectedCash.toFixed(2)} {storeSettings.currency}</p>
-              </div>
-            </div>
-
-            <div className="border-t pt-6">
-              <h3 className="font-bold text-lg mb-4">ملخص المبيعات</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">إجمالي المبيعات</span>
-                  <span className="font-bold">{totalSales.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">مبيعات نقدية</span>
-                  <span className="font-bold text-emerald-600">{cashSales.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">مبيعات شبكة</span>
-                  <span className="font-bold text-blue-600">{cardSales.toFixed(2)} {storeSettings.currency}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">مبيعات آجل</span>
-                  <span className="font-bold text-amber-600">{creditSales.toFixed(2)} {storeSettings.currency}</span>
-                </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <p className="text-xs text-slate-500 mb-1">النقد المتوقع بالدرج</p>
+                <p className="text-lg font-bold">
+                  {metrics.expectedCash.toFixed(2)} {storeSettings.currency}
+                </p>
               </div>
             </div>
 
-            <div className="border-t pt-6">
-              <h3 className="font-bold text-lg mb-4">المصروفات</h3>
+            <div className="border-t pt-4 space-y-2">
+              <h3 className="font-bold text-base mb-2">ملخص المبيعات والتحصيلات</h3>
               <div className="flex justify-between">
-                <span className="text-gray-600">إجمالي المصروفات</span>
-                <span className="font-bold text-rose-600">{totalExpenses.toFixed(2)} {storeSettings.currency}</span>
+                <span>إجمالي المبيعات (شامل الضريبة):</span>
+                <span className="font-bold">{metrics.totalSales.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>مبيعات نقدية (شاملة الجزء النقدي للمختلط):</span>
+                <span className="font-bold">{metrics.cashSales.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>مبيعات شبكة:</span>
+                <span className="font-bold">{metrics.cardSales.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>مبيعات آجل:</span>
+                <span className="font-bold">{metrics.creditSales.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>تحصيل عملاء نقدي:</span>
+                <span className="font-bold">{metrics.cashCustomerPayments.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 space-y-2">
+              <h3 className="font-bold text-base mb-2">حركات الصندوق والمصروفات</h3>
+              <div className="flex justify-between">
+                <span>إيداعات نقدية للدرج:</span>
+                <span className="font-bold">+{metrics.cashDeposits.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>سحوبات نقدية من الدرج:</span>
+                <span className="font-bold">-{metrics.cashWithdrawals.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>مرتجعات مبيعات نقدية:</span>
+                <span className="font-bold">-{metrics.cashReturns.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>مصروفات ومشتريات ورواتب نقدية:</span>
+                <span className="font-bold">
+                  -
+                  {(
+                    metrics.cashExpenses +
+                    metrics.cashSupplierPayments +
+                    metrics.cashPayrollsOut
+                  ).toFixed(2)}
+                </span>
               </div>
             </div>
           </div>

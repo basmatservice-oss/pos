@@ -7,6 +7,10 @@ import fs from 'fs';
 
 // Determine the best path for the database
 export const getDbPath = () => {
+  if (process.env.POS_DB_PATH) {
+    return process.env.POS_DB_PATH;
+  }
+
   // In AI Studio or Linux, always use the project root for simplicity
   if (process.platform !== 'win32') {
     return path.join(process.cwd(), 'dev.db');

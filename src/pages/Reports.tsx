@@ -1,14 +1,39 @@
 import { useState, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Purchase, PurchaseItem } from '../db/db';
-import SalesReport from '../components/SalesReport';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, AreaChart, Area } from 'recharts';
-import { 
-  TrendingUp, ShoppingBag, CreditCard, Banknote, Receipt, 
-  Printer, X, Users, RotateCcw, Calendar, Package, 
-  AlertTriangle, ArrowUpRight, ArrowDownRight, Download, 
-  Filter, DollarSign, PieChart as PieChartIcon, Activity
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+} from 'recharts';
+import {
+  TrendingUp,
+  ShoppingBag,
+  CreditCard,
+  Banknote,
+  Receipt,
+  Printer,
+  X,
+  Users,
+  RotateCcw,
+  Calendar,
+  Package,
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Download,
+  DollarSign,
+  PieChart as PieChartIcon,
+  Activity,
+  Ban,
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { arSA } from 'date-fns/locale';
@@ -18,33 +43,51 @@ import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
 import { useInventoryStore } from '../store/useInventoryStore';
+import { dispatchOperation } from '../services/operationService';
+import { generateUUID } from '../utils/uuid';
+import { useAuth } from '../context/AuthContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 export default function Reports() {
+  const { user } = useAuth();
   const [activeMainTab, setActiveMainTab] = useState<'overview' | 'financial'>('overview');
   const orders = useLiveQuery(() => db.orders.toArray()) || [];
   const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
+  const returns = useLiveQuery(() => db.returns.toArray()) || [];
+  const inventoryBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
   const products = useLiveQuery(() => db.products.toArray()) || [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) || [];
+  const payrolls = useLiveQuery(() => db.payroll.toArray()) || [];
+  const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
+  const transactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   const purchases = useLiveQuery(() => db.purchases.toArray()) || [];
   const loyaltyTransactions = useLiveQuery(() => db.loyaltyTransactions.toArray()) || [];
-  
-  // Date Filter State
+
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom'>('today');
   const [customStartDate, setCustomStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [customEndDate, setCustomEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const storeSettings = useSettings();
 
-  // Receipt Modal State
-  const [selectedOrder, setSelectedOrder] = useState<{order: Order, items: OrderItem[]} | null>(null);
-  const [selectedPurchase, setSelectedPurchase] = useState<{purchase: Purchase, items: PurchaseItem[]} | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[] } | null>(null);
+  const [selectedPurchase, setSelectedPurchase] = useState<{ purchase: Purchase; items: PurchaseItem[] } | null>(null);
+  const [returnTarget, setReturnTarget] = useState<{ order: Order; items: OrderItem[] } | null>(null);
+  const [voidTarget, setVoidTarget] = useState<Order | null>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  const hasPermission = (permission: string) => {
+    return user?.role === 'admin' || user?.permissions?.includes(permission);
+  };
 
   const handlePrint = useReactToPrint({
     contentRef: receiptRef,
-    documentTitle: selectedOrder ? `Receipt-${selectedOrder.order.receiptNumber}` : (selectedPurchase ? `Purchase-${selectedPurchase.purchase.id}` : 'Receipt'),
+    documentTitle: selectedOrder
+      ? `Receipt-${selectedOrder.order.receiptNumber}`
+      : selectedPurchase
+      ? `Purchase-${selectedPurchase.purchase.id}`
+      : 'Receipt',
   });
 
   const handleViewReceipt = async (order: Order) => {
@@ -57,73 +100,91 @@ export default function Reports() {
     setSelectedPurchase({ purchase, items });
   };
 
-  const handleReturnOrder = async (order: Order, items: OrderItem[]) => {
-    if (order.netAmount < 0) {
-      toast.error('هذه الفاتورة هي فاتورة مرتجع بالفعل');
+  const handleReturnOrderClick = (order: Order, items: OrderItem[]) => {
+    if (order.status === 'void') {
+      toast.error('الفاتورة ملغاة بالكامل ولا يمكن إرجاعها');
+      return;
+    }
+    if (order.netAmount < 0 || order.status === 'returned') {
+      toast.error('تم إرجاع هذه الفاتورة بالكامل مسبقاً');
       return;
     }
 
-    if (!confirm('هل أنت متأكد من إرجاع هذه الفاتورة؟ سيتم إعادة المنتجات للمخزون وخصم المبلغ من المبيعات.')) {
+    const returnableItems = items.filter((item) => Math.max(0, Number(item.quantity) - Number(item.returnedQuantity || 0)) > 0);
+    if (returnableItems.length === 0) {
+      toast.error('لا توجد كميات متبقية قابلة للإرجاع في هذه الفاتورة');
       return;
     }
+    setReturnTarget({ order, items });
+  };
+
+  const confirmReturnOrder = async () => {
+    if (!returnTarget) return;
+    const { order, items } = returnTarget;
+    const returnableItems = items
+      .map((item) => ({
+        item,
+        remainingQty: Math.max(0, Number(item.quantity) - Number(item.returnedQuantity || 0)),
+      }))
+      .filter((entry) => entry.remainingQty > 0);
 
     try {
-      // Create a return order (negative values)
-      const returnOrder: Order = {
-        ...order,
-        id: undefined, // New ID will be generated
-        receiptNumber: `RET-${Date.now()}`,
-        totalAmount: -order.totalAmount,
-        taxAmount: -order.taxAmount,
-        discountAmount: -order.discountAmount,
-        netAmount: -order.netAmount,
-        createdAt: new Date().toISOString(),
-        syncStatus: 'pending'
-      };
+      const returnId = generateUUID();
+      const returnNumber = `RET-${Date.now()}`;
+      const currentShift = await db.shifts.where('status').equals('open').first();
 
-      const returnOrderId = await db.orders.add(returnOrder);
+      await dispatchOperation(
+        'return',
+        {
+          id: returnId,
+          returnNumber,
+          originalOrderId: order.id!,
+          refundMethod: order.paymentMethod === 'credit' ? 'credit_adjustment' : order.paymentMethod === 'card' ? 'card' : 'cash',
+          reason: 'إرجاع كامل من شاشة التقارير',
+          branchId: user?.branchId,
+          shiftId: currentShift?.id,
+          createdBy: user?.name || 'مستخدم',
+          items: returnableItems.map(({ item, remainingQty }) => ({
+            orderItemId: item.id,
+            productId: item.productId,
+            quantity: remainingQty,
+          })),
+        },
+        user?.branchId
+      );
 
-      // Create return items and update stock
-      for (const item of items) {
-        const returnItem: OrderItem = {
-          ...item,
-          id: undefined,
-          orderId: returnOrderId as string,
-          quantity: -item.quantity,
-          total: -item.total,
-          taxAmount: -item.taxAmount,
-          subTotal: -item.subTotal
-        };
-        await db.orderItems.add(returnItem);
-
-        // Update product stock (add back)
-        const product = await db.products.get(item.productId);
-        if (product) {
-          await db.products.update(product.id!, {
-            stockQuantity: product.stockQuantity + item.quantity,
-            updatedAt: new Date().toISOString(),
-            syncStatus: 'pending'
-          });
-        }
-      }
-
-      // If it was a credit sale, update customer balance
-      if (order.paymentMethod === 'credit' && order.customerId) {
-        const customer = await db.customers.get(order.customerId);
-        if (customer) {
-          await db.customers.update(customer.id!, {
-            balance: customer.balance - order.netAmount,
-            updatedAt: new Date().toISOString(),
-            syncStatus: 'pending'
-          });
-        }
-      }
-
-      toast.success('تم إرجاع الفاتورة بنجاح');
+      toast.success(`تم إصدار مستند المرتجع بنجاح: ${returnNumber}`);
       setSelectedOrder(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error returning order:', error);
-      toast.error('حدث خطأ أثناء إرجاع الفاتورة');
+      toast.error(error?.message || 'حدث خطأ أثناء إرجاع الفاتورة');
+    } finally {
+      setReturnTarget(null);
+    }
+  };
+
+  const confirmVoidOrder = async (reason?: string) => {
+    if (!voidTarget) return;
+    try {
+      const currentShift = await db.shifts.where('status').equals('open').first();
+      await dispatchOperation(
+        'order_void',
+        {
+          orderId: voidTarget.id!,
+          reason: reason || 'إلغاء فاتورة من شاشة التقارير',
+          shiftId: currentShift?.id,
+          branchId: user?.branchId,
+          createdBy: user?.name || 'مستخدم',
+        },
+        user?.branchId
+      );
+      toast.success(`تم إلغاء الفاتورة ${voidTarget.receiptNumber} وعكس القيود والمخزون`);
+      setSelectedOrder(null);
+    } catch (error: any) {
+      console.error('Error voiding order:', error);
+      toast.error(error?.message || 'تعذر إلغاء الفاتورة');
+    } finally {
+      setVoidTarget(null);
     }
   };
 
@@ -134,13 +195,14 @@ export default function Reports() {
     let endDate = endOfDay(today);
 
     switch (dateFilter) {
-      case 'yesterday':
+      case 'yesterday': {
         const yesterday = subDays(today, 1);
         startDate = startOfDay(yesterday);
         endDate = endOfDay(yesterday);
         break;
+      }
       case 'thisWeek':
-        startDate = startOfWeek(today, { weekStartsOn: 6 }); // Saturday as first day of week
+        startDate = startOfWeek(today, { weekStartsOn: 6 });
         endDate = endOfWeek(today, { weekStartsOn: 6 });
         break;
       case 'thisMonth':
@@ -158,121 +220,190 @@ export default function Reports() {
         break;
     }
 
-    // Filter orders based on selected date range
-    const filteredOrders = orders.filter(o => {
+    const filteredOrders = orders.filter((o) => {
+      if (o.status === 'void') return false;
       const d = new Date(o.createdAt);
       return d >= startDate && d <= endDate;
     });
 
-    // Filter expenses
-    const filteredExpenses = expenses.filter(e => {
+    const filteredReturns = returns.filter((r) => {
+      const d = new Date(r.createdAt);
+      return d >= startDate && d <= endDate;
+    });
+
+    const filteredExpenses = expenses.filter((e) => {
       const d = new Date(e.date);
       return d >= startDate && d <= endDate;
     });
 
-    const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.netAmount, 0);
-    const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
-    const cashRevenue = filteredOrders.filter(o => o.paymentMethod === 'cash').reduce((sum, o) => sum + o.netAmount, 0);
-    const cardRevenue = filteredOrders.filter(o => o.paymentMethod === 'card').reduce((sum, o) => sum + o.netAmount, 0);
-    const creditRevenue = filteredOrders.filter(o => o.paymentMethod === 'credit').reduce((sum, o) => sum + o.netAmount, 0);
-
-    // Calculate Cost of Goods Sold (COGS) for filtered orders
-    const filteredOrderIds = new Set(filteredOrders.map(o => o.id));
-    const filteredOrderItems = orderItems.filter(item => filteredOrderIds.has(item.orderId));
-    
-    let totalCost = 0;
-    filteredOrderItems.forEach(item => {
-      const product = productIdMap.get(item.productId);
-      if (product) {
-        totalCost += (product.costPrice || 0) * item.quantity;
-      }
+    const filteredPayrolls = payrolls.filter((p) => {
+      const d = new Date(p.paymentDate);
+      return d >= startDate && d <= endDate;
     });
 
-    const grossProfit = totalRevenue - totalCost;
-    const netProfit = grossProfit - totalExpenses;
+    const stocktakeJournalIds = new Set(
+      journalEntries
+        .filter((je) => {
+          if (je.referenceType !== 'stocktake') return false;
+          const d = new Date(je.date);
+          return d >= startDate && d <= endDate;
+        })
+        .map((je) => je.id)
+    );
+    const stocktakeAdjustments = transactions
+      .filter((t) => t.accountId === '5400' && stocktakeJournalIds.has(t.journalEntryId))
+      .reduce((s, t) => s + Number(t.debit || 0) - Number(t.credit || 0), 0);
 
-    // Generate chart data for the last 7 days
+    // VAT-Inclusive separation: netRevenueExclTax excludes VAT payable (Account 2200)
+    const grossSalesInclVat = filteredOrders.reduce((sum, o) => sum + Number(o.netAmount || 0), 0);
+    const salesVat = filteredOrders.reduce((sum, o) => sum + Number(o.taxAmount || 0), 0);
+    const totalReturnsInclVat = filteredReturns.reduce((sum, r) => sum + Number(r.totalRefund || 0), 0);
+    const returnsVat = filteredReturns.reduce((sum, r) => sum + Number(r.taxAmount || 0), 0);
+
+    const netCollectedInclVat = grossSalesInclVat - totalReturnsInclVat;
+    const netVatPayable = salesVat - returnsVat;
+    const totalRevenueExclVat = netCollectedInclVat - netVatPayable;
+
+    const totalExpenses = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const totalPayrolls = filteredPayrolls.reduce((sum, p) => sum + Number(p.netSalary || 0), 0);
+
+    const cashReturns = filteredReturns.filter((r) => r.refundMethod === 'cash').reduce((sum, r) => sum + Number(r.totalRefund || 0), 0);
+    const cardReturns = filteredReturns.filter((r) => r.refundMethod === 'card').reduce((sum, r) => sum + Number(r.totalRefund || 0), 0);
+    const creditReturns = filteredReturns
+      .filter((r) => r.refundMethod === 'credit_adjustment')
+      .reduce((sum, r) => sum + Number(r.totalRefund || 0), 0);
+
+    const cashRevenue =
+      filteredOrders.reduce((sum, o) => {
+        if (o.paymentMethod === 'cash') return sum + Number(o.netAmount || 0);
+        if (o.paymentMethod === 'mixed') return sum + Number(o.cashAmount || 0);
+        return sum;
+      }, 0) - cashReturns;
+
+    const cardRevenue =
+      filteredOrders.reduce((sum, o) => {
+        if (o.paymentMethod === 'card') return sum + Number(o.netAmount || 0);
+        if (o.paymentMethod === 'mixed') return sum + Number(o.cardAmount || 0);
+        return sum;
+      }, 0) - cardReturns;
+
+    const creditRevenue =
+      filteredOrders
+        .filter((o) => o.paymentMethod === 'credit')
+        .reduce((sum, o) => sum + Number(o.netAmount || 0), 0) - creditReturns;
+
+    const filteredOrderIds = new Set(filteredOrders.map((o) => o.id));
+    const filteredOrderItems = orderItems.filter((item) => filteredOrderIds.has(item.orderId));
+
+    let grossCost = 0;
+    filteredOrderItems.forEach((item) => {
+      const unitCost =
+        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
+          ? Number(item.costPriceAtTimeOfSale)
+          : Number(productIdMap.get(item.productId)?.costPrice || 0);
+      grossCost += unitCost * Number(item.quantity || 0);
+    });
+
+    const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
+    const totalCost = Math.max(0, grossCost - returnedCost);
+
+    const grossProfit = totalRevenueExclVat - totalCost;
+    const netProfit = grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
+
+    // Last 7 days chart excluding voided orders & separating VAT
     const chartData = Array.from({ length: 7 }).map((_, i) => {
       const date = subDays(today, 6 - i);
       const dayStart = startOfDay(date);
       const dayEnd = endOfDay(date);
-      
-      const dayOrders = orders.filter(o => {
+
+      const dayOrders = orders.filter((o) => {
+        if (o.status === 'void') return false;
         const d = new Date(o.createdAt);
         return d >= dayStart && d <= dayEnd;
       });
-      
-      const dayExpenses = expenses.filter(e => {
+      const dayReturns = returns.filter((r) => {
+        const d = new Date(r.createdAt);
+        return d >= dayStart && d <= dayEnd;
+      });
+      const dayExpenses = expenses.filter((e) => {
         const d = new Date(e.date);
         return d >= dayStart && d <= dayEnd;
       });
-      
+
+      const dayNetSales =
+        dayOrders.reduce((s, o) => s + (Number(o.netAmount || 0) - Number(o.taxAmount || 0)), 0) -
+        dayReturns.reduce((s, r) => s + (Number(r.totalRefund || 0) - Number(r.taxAmount || 0)), 0);
+
       return {
         name: format(date, 'EEEE', { locale: arSA }),
-        total: dayOrders.reduce((sum, o) => sum + o.netAmount, 0),
-        expenses: dayExpenses.reduce((sum, e) => sum + e.amount, 0)
+        total: Math.round(dayNetSales * 100) / 100,
+        expenses: Math.round(dayExpenses.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100,
       };
     });
 
-    // Top Selling Products
-    const productSales: Record<string, { name: string, quantity: number, revenue: number }> = {};
-    filteredOrderItems.forEach(item => {
+    const productSales: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    filteredOrderItems.forEach((item) => {
       if (!productSales[item.productId]) {
         productSales[item.productId] = { name: item.productName, quantity: 0, revenue: 0 };
       }
-      productSales[item.productId].quantity += item.quantity;
-      productSales[item.productId].revenue += item.total;
+      productSales[item.productId].quantity += Number(item.quantity || 0);
+      productSales[item.productId].revenue += Number(item.total || 0) - Number(item.taxAmount || 0);
     });
 
     const topProducts = Object.values(productSales)
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
 
-    // Expense Categories Distribution
     const expenseCategories: Record<string, number> = {};
-    filteredExpenses.forEach(e => {
-      expenseCategories[e.category] = (expenseCategories[e.category] || 0) + e.amount;
+    filteredExpenses.forEach((e) => {
+      expenseCategories[e.category] = (expenseCategories[e.category] || 0) + Number(e.amount || 0);
     });
 
     const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
     const expenseData = Object.entries(expenseCategories).map(([name, value], index) => ({
       name,
       value,
-      color: COLORS[index % COLORS.length]
+      color: COLORS[index % COLORS.length],
     }));
 
-    // Payment Method Distribution for Pie Chart
-    const paymentData = [
-      { name: 'نقدي', value: cashRevenue, color: '#10b981' },
-      { name: 'شبكة', value: cardRevenue, color: '#3b82f6' },
-      { name: 'آجل', value: creditRevenue, color: '#f59e0b' }
-    ].filter(d => d.value > 0);
-
-    // Inventory Stats
-    const totalInventoryValue = products.reduce((sum, p) => sum + (p.stockQuantity * p.costPrice), 0);
-    const totalRetailValue = products.reduce((sum, p) => sum + (p.stockQuantity * p.sellingPrice), 0);
-    const totalReceivables = customers.reduce((sum, c) => sum + c.balance, 0);
-    const totalPayables = suppliers.reduce((sum, s) => sum + s.balance, 0);
-    const lowStockItems = products.filter(p => p.stockQuantity <= (p.minStockLevel || 10));
+    const batchValue = inventoryBatches.reduce(
+      (sum, b) => sum + Math.max(0, Number(b.remainingQuantity || 0)) * Number(b.costPrice || 0),
+      0
+    );
+    const productsFallbackValue = products.reduce(
+      (sum, p) => sum + Math.max(0, Number(p.stockQuantity || 0)) * Number(p.costPrice || 0),
+      0
+    );
+    const totalInventoryValue = inventoryBatches.length > 0 ? batchValue : productsFallbackValue;
+    const totalRetailValue = products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity) * p.sellingPrice, 0);
+    const totalReceivables = customers.reduce((sum, c) => sum + Number(c.balance || 0), 0);
+    const totalPayables = suppliers.reduce((sum, s) => sum + Number(s.balance || 0), 0);
+    const lowStockItems = products.filter((p) => p.stockQuantity <= (p.minStockLevel || 10));
 
     const totalPurchases = purchases
-      .filter(p => isWithinInterval(new Date(p.date), { start: startDate, end: endDate }))
-      .reduce((sum, p) => sum + p.totalAmount, 0);
+      .filter((p) => isWithinInterval(new Date(p.date), { start: startDate, end: endDate }))
+      .reduce((sum, p) => sum + Number(p.totalAmount || 0), 0);
 
-    const filteredLoyalty = loyaltyTransactions.filter(t => {
+    const filteredLoyalty = loyaltyTransactions.filter((t) => {
       const d = new Date(t.date);
       return d >= startDate && d <= endDate;
     });
 
-    const totalPointsEarned = filteredLoyalty.filter(t => t.type === 'earn').reduce((sum, t) => sum + t.points, 0);
-    const totalPointsRedeemed = filteredLoyalty.filter(t => t.type === 'redeem').reduce((sum, t) => sum + Math.abs(t.points), 0);
+    const totalPointsEarned = filteredLoyalty.filter((t) => t.type === 'earn').reduce((sum, t) => sum + t.points, 0);
+    const totalPointsRedeemed = filteredLoyalty.filter((t) => t.type === 'redeem').reduce((sum, t) => sum + Math.abs(t.points), 0);
     const pointsValueRedeemed = totalPointsRedeemed * 0.1;
 
-    const recentOrders = filteredOrders.slice(0, 10);
+    const recentOrders = [...filteredOrders]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
 
-    return { 
-      totalRevenue, 
+    return {
+      totalRevenueExclVat,
+      netCollectedInclVat,
+      netVatPayable,
       totalExpenses,
+      totalPayrolls,
+      stocktakeAdjustments,
       totalCost,
       totalPurchases,
       totalPointsEarned,
@@ -280,13 +411,12 @@ export default function Reports() {
       pointsValueRedeemed,
       grossProfit,
       netProfit,
-      totalOrders: filteredOrders.length, 
-      cashRevenue, 
-      cardRevenue, 
+      totalOrders: filteredOrders.length,
+      cashRevenue,
+      cardRevenue,
       creditRevenue,
-      chartData, 
+      chartData,
       topProducts,
-      paymentData,
       expenseData,
       totalInventoryValue,
       totalRetailValue,
@@ -294,27 +424,42 @@ export default function Reports() {
       totalPayables,
       lowStockItems,
       recentOrders,
-      filteredOrders: filteredOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+      filteredOrders: [...filteredOrders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
       startDate,
-      endDate
+      endDate,
     };
-  }, [orders, orderItems, products, expenses, customers, suppliers, purchases, dateFilter, customStartDate, customEndDate]);
+  }, [
+    orders,
+    orderItems,
+    returns,
+    inventoryBatches,
+    products,
+    expenses,
+    payrolls,
+    journalEntries,
+    transactions,
+    customers,
+    suppliers,
+    purchases,
+    loyaltyTransactions,
+    dateFilter,
+    customStartDate,
+    customEndDate,
+  ]);
 
   const handleExportCSV = () => {
-    const headers = ['Receipt Number', 'Date', 'Amount', 'Payment Method', 'Status'];
-    const rows = stats.filteredOrders.map(order => [
+    const headers = ['رقم الفاتورة', 'التاريخ', 'الصافي بدون ضريبة', 'الضريبة', 'الإجمالي شامل الضريبة', 'طريقة الدفع', 'الحالة'];
+    const rows = stats.filteredOrders.map((order) => [
       order.receiptNumber,
       format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm'),
-      order.netAmount.toFixed(2),
+      (Number(order.netAmount || 0) - Number(order.taxAmount || 0)).toFixed(2),
+      Number(order.taxAmount || 0).toFixed(2),
+      Number(order.netAmount || 0).toFixed(2),
       order.paymentMethod,
-      order.status
+      order.status,
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -327,616 +472,465 @@ export default function Reports() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar">
+    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Activity className="w-6 h-6 text-indigo-600" />
-            التقارير والمبيعات
+            <span>التقارير والمبيعات</span>
           </h2>
-          <p className="text-gray-500 text-sm mt-1">نظرة عامة على أداء المبيعات والتقارير المالية</p>
-          <div className="mt-4 flex bg-gray-200/50 p-1 rounded-xl w-fit">
+          <p className="text-slate-500 text-sm mt-1">
+            تحليل صافي الإيرادات (بعد فصل ضريبة القيمة المضافة) والتكاليف والقوائم المالية
+          </p>
+          <div className="mt-4 flex bg-slate-200/70 p-1 rounded-xl w-fit border border-slate-200">
             <button
               onClick={() => setActiveMainTab('overview')}
-              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeMainTab === 'overview' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
+                activeMainTab === 'overview' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
+              }`}
             >
               نظرة عامة
             </button>
             <button
               onClick={() => setActiveMainTab('financial')}
-              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeMainTab === 'financial' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
+                activeMainTab === 'financial' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
+              }`}
             >
               التقرير المالي الشامل
             </button>
           </div>
         </div>
-        
+
         {activeMainTab === 'overview' && (
-          <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
-          <button
-            onClick={() => setDateFilter('today')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateFilter === 'today' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            اليوم
-          </button>
-          <button
-            onClick={() => setDateFilter('yesterday')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateFilter === 'yesterday' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            الأمس
-          </button>
-          <button
-            onClick={() => setDateFilter('thisWeek')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateFilter === 'thisWeek' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            هذا الأسبوع
-          </button>
-          <button
-            onClick={() => setDateFilter('thisMonth')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateFilter === 'thisMonth' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            هذا الشهر
-          </button>
-          <button
-            onClick={() => setDateFilter('custom')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateFilter === 'custom' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            مخصص
-          </button>
-          
-          <div className="h-6 w-px bg-gray-200 mx-1"></div>
-          
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            تصدير CSV
-          </button>
-        </div>
+          <div className="flex flex-wrap items-center gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200">
+            {(['today', 'yesterday', 'thisWeek', 'thisMonth', 'custom'] as const).map((period) => (
+              <button
+                key={period}
+                onClick={() => setDateFilter(period)}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+                  dateFilter === period ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {period === 'today'
+                  ? 'اليوم'
+                  : period === 'yesterday'
+                  ? 'الأمس'
+                  : period === 'thisWeek'
+                  ? 'هذا الأسبوع'
+                  : period === 'thisMonth'
+                  ? 'هذا الشهر'
+                  : 'مخصص'}
+              </button>
+            ))}
+
+            <div className="h-6 w-px bg-slate-200 mx-1" />
+
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold text-indigo-600 hover:bg-indigo-50 transition-colors whitespace-nowrap"
+            >
+              <Download className="w-4 h-4" />
+              <span>تصدير CSV</span>
+            </button>
+          </div>
         )}
       </div>
 
       {activeMainTab === 'overview' && (
         <>
           {dateFilter === 'custom' && (
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-6 flex flex-wrap items-center gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-500">من:</label>
-            <input 
-              type="date" 
-              value={customStartDate}
-              onChange={(e) => setCustomStartDate(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 mb-6 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500">من:</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500">إلى:</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* KPI Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 shrink-0 tabular-nums">
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 mb-1">صافي المبيعات (بدون ضريبة)</p>
+                <h3 className="text-xl font-black text-slate-900">
+                  {stats.totalRevenueExclVat.toFixed(2)}{' '}
+                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
+                </h3>
+                <div className="flex items-center gap-1 mt-1 text-emerald-600">
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  <span className="text-xs font-bold">صافي الربح: {stats.netProfit.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 mb-1">صافي ضريبة القيمة المضافة (2200)</p>
+                <h3 className="text-xl font-black text-slate-900">
+                  {stats.netVatPayable.toFixed(2)}{' '}
+                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {stats.netCollectedInclVat.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                <ArrowDownRight className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 mb-1">المصروفات والرواتب</p>
+                <h3 className="text-xl font-black text-slate-900">
+                  {(stats.totalExpenses + stats.totalPayrolls).toFixed(2)}{' '}
+                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  تشغيلية: {stats.totalExpenses.toFixed(2)} | رواتب: {stats.totalPayrolls.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+                <Package className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 mb-1">قيمة المخزون (تكلفة FIFO)</p>
+                <h3 className="text-xl font-black text-slate-900">
+                  {stats.totalInventoryValue.toFixed(2)}{' '}
+                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {stats.totalRetailValue.toFixed(2)}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-500">إلى:</label>
-            <input 
-              type="date" 
-              value={customEndDate}
-              onChange={(e) => setCustomEndDate(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
+
+          {/* Payment Distribution Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 shrink-0 tabular-nums">
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                <Banknote className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-slate-500 mb-1">التحصيل النقدي (شامل الضريبة)</p>
+                <div className="flex items-end justify-between">
+                  <h3 className="text-xl font-black text-slate-900">
+                    {stats.cashRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                  </h3>
+                  <span className="text-xs font-bold text-slate-500">
+                    {stats.netCollectedInclVat > 0 ? ((stats.cashRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الشبكة (شامل الضريبة)</p>
+                <div className="flex items-end justify-between">
+                  <h3 className="text-xl font-black text-slate-900">
+                    {stats.cardRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                  </h3>
+                  <span className="text-xs font-bold text-slate-500">
+                    {stats.netCollectedInclVat > 0 ? ((stats.cardRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <Users className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الآجل (ذمم)</p>
+                <div className="flex items-end justify-between">
+                  <h3 className="text-xl font-black text-slate-900">
+                    {stats.creditRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                  </h3>
+                  <span className="text-xs font-bold text-slate-500">
+                    {stats.netCollectedInclVat > 0 ? ((stats.creditRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+
+          {/* Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col min-h-[360px]">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-base font-bold text-slate-900">تحليل صافي المبيعات والمصروفات (آخر 7 أيام)</h3>
+              </div>
+              <div className="flex-1 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2.5} fill="#4f46e5" fillOpacity={0.08} name="صافي المبيعات" />
+                    <Area type="monotone" dataKey="expenses" stroke="#f43f5e" strokeWidth={2.5} fill="#f43f5e" fillOpacity={0.08} name="المصروفات" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col min-h-[360px]">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-base font-bold text-slate-900">توزيع المصروفات حسب الفئة</h3>
+                <PieChartIcon className="w-5 h-5 text-slate-400" />
+              </div>
+              <div className="flex-1 flex flex-col md:flex-row items-center justify-center gap-6">
+                <div className="w-full h-60 md:w-1/2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={stats.expenseData.length > 0 ? stats.expenseData : [{ name: 'لا يوجد', value: 1, color: '#f1f5f9' }]}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={78}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {stats.expenseData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                        {stats.expenseData.length === 0 && <Cell fill="#f1f5f9" />}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full md:w-1/2 space-y-2.5">
+                  {stats.expenseData.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: item.color }} />
+                        <span className="text-slate-600">{item.name}</span>
+                      </div>
+                      <span className="font-bold text-slate-900 tabular-nums">{item.value.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {stats.expenseData.length === 0 && (
+                    <p className="text-sm text-slate-400 text-center">لا توجد مصروفات في هذه الفترة</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Financial Statement Summary Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden mb-6">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">ملخص قائمة الدخل والمركز المالي</h3>
+                <p className="text-xs text-slate-500 mt-0.5">فصل ضريبة القيمة المضافة عن صافي الإيرادات والأرباح المحاسبية</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-500 tabular-nums">
+                <Calendar className="w-4 h-4" />
+                <span>
+                  {format(stats.startDate, 'yyyy/MM/dd')} - {format(stats.endDate, 'yyyy/MM/dd')}
+                </span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse tabular-nums">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
+                    <th className="px-6 py-3 font-bold">البند المحاسبي</th>
+                    <th className="px-6 py-3 font-bold">التفاصيل</th>
+                    <th className="px-6 py-3 font-bold text-left">المبلغ ({storeSettings.currency})</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-slate-100">
+                  <tr className="bg-indigo-50/40">
+                    <td className="px-6 py-3.5 font-black text-indigo-950" colSpan={2}>
+                      صافي إيرادات المبيعات (بدون ضريبة القيمة المضافة)
+                    </td>
+                    <td className="px-6 py-3.5 font-black text-indigo-950 text-left">
+                      {stats.totalRevenueExclVat.toFixed(2)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-3 text-slate-500 pr-10">ضريبة القيمة المضافة المستحقة للهيئة (حساب 2200)</td>
+                    <td className="px-6 py-3 text-slate-500">صافي الضريبة المحصلة بعد المرتجعات</td>
+                    <td className="px-6 py-3 text-amber-700 font-bold text-left">{stats.netVatPayable.toFixed(2)}</td>
+                  </tr>
+                  <tr className="bg-rose-50/30">
+                    <td className="px-6 py-3.5 font-black text-rose-900" colSpan={2}>
+                      تكلفة البضاعة المباعة (COGS التاريخية FIFO)
+                    </td>
+                    <td className="px-6 py-3.5 font-black text-rose-900 text-left">({stats.totalCost.toFixed(2)})</td>
+                  </tr>
+                  <tr className="bg-emerald-50/40">
+                    <td className="px-6 py-3.5 font-black text-emerald-900" colSpan={2}>
+                      مجمل الربح (Gross Profit)
+                    </td>
+                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{stats.grossProfit.toFixed(2)}</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-3 text-slate-600 pr-10">المصروفات التشغيلية</td>
+                    <td className="px-6 py-3 text-slate-500">مصروفات الفترة</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({stats.totalExpenses.toFixed(2)})</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-3 text-slate-600 pr-10">الرواتب والأجور</td>
+                    <td className="px-6 py-3 text-slate-500">مسير الرواتب المنصرف</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({stats.totalPayrolls.toFixed(2)})</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-3 text-slate-600 pr-10">فروقات وتسويات الجرد (5400)</td>
+                    <td className="px-6 py-3 text-slate-500">عجز / فائض المخزون المعتمد</td>
+                    <td className="px-6 py-3 text-slate-900 font-bold text-left">
+                      {stats.stocktakeAdjustments >= 0
+                        ? `(${stats.stocktakeAdjustments.toFixed(2)})`
+                        : `+${Math.abs(stats.stocktakeAdjustments).toFixed(2)}`}
+                    </td>
+                  </tr>
+                  <tr className="bg-emerald-600 text-white">
+                    <td className="px-6 py-4 font-black text-base" colSpan={2}>
+                      صافي الربح المحاسبي النهائي (Net Profit)
+                    </td>
+                    <td className="px-6 py-4 font-black text-lg text-left">{stats.netProfit.toFixed(2)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Bottom Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col min-h-[340px]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-slate-900">الأكثر مبيعاً</h3>
+                <ShoppingBag className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
+                {stats.topProducts.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-sm">لا توجد بيانات</div>
+                ) : (
+                  stats.topProducts.map((product, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-bold text-sm text-indigo-600 tabular-nums">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{product.name}</p>
+                          <p className="text-xs text-slate-500 tabular-nums">{product.quantity} وحدة مباعة</p>
+                        </div>
+                      </div>
+                      <p className="text-sm font-black text-emerald-600 tabular-nums">
+                        {product.revenue.toFixed(2)} {storeSettings.currency}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col min-h-[340px]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-slate-900">تنبيهات المخزون</h3>
+                <AlertTriangle className="w-5 h-5 text-rose-500" />
+              </div>
+              <div className="flex-1 space-y-2.5 overflow-y-auto custom-scrollbar">
+                {stats.lowStockItems.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-emerald-600 text-sm font-bold">
+                    المخزون متوفر بكميات كافية
+                  </div>
+                ) : (
+                  stats.lowStockItems.map((product, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-3 rounded-xl border border-rose-200 bg-rose-50/40"
+                    >
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{product.name}</p>
+                        <p className="text-xs text-rose-600 font-bold tabular-nums">
+                          المتبقي: {product.stockQuantity} {product.unit || 'حبة'}
+                        </p>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-xs font-bold whitespace-nowrap">
+                        منخفض
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col min-h-[340px]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-slate-900">أحدث الفواتير</h3>
+                <Receipt className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="flex-1 space-y-2.5 overflow-y-auto custom-scrollbar">
+                {stats.recentOrders.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-sm">لا توجد مبيعات</div>
+                ) : (
+                  stats.recentOrders.map((order) => (
+                    <button
+                      key={order.id}
+                      onClick={() => handleViewReceipt(order)}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors text-right"
+                    >
+                      <div>
+                        <p className="text-sm font-bold font-mono text-slate-900">{order.receiptNumber}</p>
+                        <p className="text-xs text-slate-400 tabular-nums">
+                          {format(new Date(order.createdAt), 'yyyy/MM/dd HH:mm')}
+                        </p>
+                      </div>
+                      <div className="text-left tabular-nums">
+                        <p className="text-sm font-black text-indigo-600">{order.netAmount.toFixed(2)}</p>
+                        <p className="text-xs font-bold text-slate-500">
+                          {order.paymentMethod === 'cash'
+                            ? 'نقدي'
+                            : order.paymentMethod === 'card'
+                            ? 'شبكة'
+                            : order.paymentMethod === 'mixed'
+                            ? 'مختلط'
+                            : 'آجل'}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 shrink-0">
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-            <TrendingUp className="w-7 h-7" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">إجمالي المبيعات</p>
-            <h3 className="text-2xl font-black text-gray-900">{stats.totalRevenue.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-            <div className="flex items-center gap-1 mt-1 text-emerald-600">
-              <ArrowUpRight className="w-4 h-4" />
-              <span className="text-xs font-bold">صافي الربح: {stats.netProfit.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
-            <Users className="w-7 h-7" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">نقاط الولاء</p>
-            <h3 className="text-2xl font-black text-gray-900">{stats.totalPointsEarned} <span className="text-sm font-medium text-gray-500">نقطة</span></h3>
-            <div className="flex items-center gap-1 mt-1 text-purple-600">
-              <span className="text-xs font-bold">تم استبدال: {stats.totalPointsRedeemed}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600">
-            <DollarSign className="w-7 h-7" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">إجمالي المصروفات</p>
-            <h3 className="text-2xl font-black text-gray-900">{stats.totalExpenses.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-            <div className="flex items-center gap-1 mt-1 text-rose-600">
-              <ArrowDownRight className="w-4 h-4" />
-              <span className="text-xs font-bold">تحت السيطرة</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-            <Banknote className="w-7 h-7" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">إجمالي الربح (COGS)</p>
-            <h3 className="text-2xl font-black text-gray-900">{stats.grossProfit.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-            <div className="flex items-center gap-1 mt-1 text-emerald-600">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs font-bold">نمو جيد</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
-            <Package className="w-7 h-7" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">قيمة المخزون (تكلفة)</p>
-            <h3 className="text-2xl font-black text-gray-900">{stats.totalInventoryValue.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-            <p className="text-[10px] text-gray-400 mt-1">القيمة البيعية: {stats.totalRetailValue.toFixed(2)}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 shrink-0">
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-            <Banknote className="w-7 h-7" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-500 mb-1">المبيعات النقدية</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-black text-gray-900">{stats.cashRevenue.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-              <span className="text-xs font-bold text-gray-400">{stats.totalRevenue > 0 ? ((stats.cashRevenue / stats.totalRevenue) * 100).toFixed(0) : 0}%</span>
-            </div>
-            <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2">
-              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${stats.totalRevenue > 0 ? (stats.cashRevenue / stats.totalRevenue) * 100 : 0}%` }}></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-            <CreditCard className="w-7 h-7" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-500 mb-1">مبيعات الشبكة</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-black text-gray-900">{stats.cardRevenue.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-              <span className="text-xs font-bold text-gray-400">{stats.totalRevenue > 0 ? ((stats.cardRevenue / stats.totalRevenue) * 100).toFixed(0) : 0}%</span>
-            </div>
-            <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2">
-              <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${stats.totalRevenue > 0 ? (stats.cardRevenue / stats.totalRevenue) * 100 : 0}%` }}></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-            <Users className="w-7 h-7" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-500 mb-1">مبيعات الآجل</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-black text-gray-900">{stats.creditRevenue.toFixed(2)} <span className="text-sm font-medium text-gray-500">{storeSettings.currency}</span></h3>
-              <span className="text-xs font-bold text-gray-400">{stats.totalRevenue > 0 ? ((stats.creditRevenue / stats.totalRevenue) * 100).toFixed(0) : 0}%</span>
-            </div>
-            <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2">
-              <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${stats.totalRevenue > 0 ? (stats.creditRevenue / stats.totalRevenue) * 100 : 0}%` }}></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Main Sales vs Expenses Chart */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-gray-900">تحليل المبيعات والمصروفات</h3>
-            <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-indigo-500"></div>
-                <span>المبيعات</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-rose-500"></div>
-                <span>المصروفات</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }}
-                  dy={10}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }}
-                />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="total" 
-                  stroke="#4f46e5" 
-                  strokeWidth={3}
-                  fillOpacity={1} 
-                  fill="url(#colorTotal)" 
-                  name="المبيعات"
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="expenses" 
-                  stroke="#f43f5e" 
-                  strokeWidth={3}
-                  fillOpacity={1} 
-                  fill="url(#colorExpenses)" 
-                  name="المصروفات"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Expense Categories Distribution */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-gray-900">توزيع المصروفات حسب الفئة</h3>
-            <PieChartIcon className="w-5 h-5 text-gray-400" />
-          </div>
-          <div className="flex-1 flex flex-col md:flex-row items-center justify-center gap-8">
-            <div className="w-full h-64 md:w-1/2">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={stats.expenseData.length > 0 ? stats.expenseData : [{ name: 'لا يوجد', value: 1, color: '#f3f4f6' }]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {stats.expenseData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                    {stats.expenseData.length === 0 && <Cell fill="#f3f4f6" />}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="w-full md:w-1/2 space-y-3">
-              {stats.expenseData.map((item, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                    <span className="text-sm text-gray-600">{item.name}</span>
-                  </div>
-                  <span className="text-sm font-bold text-gray-900">{item.value.toFixed(2)}</span>
-                </div>
-              ))}
-              {stats.expenseData.length === 0 && (
-                <p className="text-sm text-gray-400 text-center">لا توجد مصروفات في هذه الفترة</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Detailed Financial Statement Table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-          <div>
-            <h3 className="text-lg font-bold text-gray-900">القوائم المالية التفصيلية</h3>
-            <p className="text-xs text-gray-500 mt-1">تحليل محاسبي دقيق للمبيعات والمشتريات والأرباح</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
-            <Calendar className="w-4 h-4" />
-            <span>الفترة: {format(stats.startDate, 'yyyy/MM/dd')} - {format(stats.endDate, 'yyyy/MM/dd')}</span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-bold border-b border-gray-100">البند المحاسبي</th>
-                <th className="px-6 py-4 font-bold border-b border-gray-100">التفاصيل</th>
-                <th className="px-6 py-4 font-bold border-b border-gray-100 text-left">المبلغ ({storeSettings.currency})</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-gray-100">
-              {/* Revenue Section */}
-              <tr className="bg-indigo-50/30">
-                <td className="px-6 py-4 font-black text-indigo-900" colSpan={2}>إجمالي الإيرادات (المبيعات)</td>
-                <td className="px-6 py-4 font-black text-indigo-900 text-left">{stats.totalRevenue.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-400 pr-12">└ مبيعات نقدية</td>
-                <td className="px-6 py-3 text-gray-500 italic">المحصل فعلياً في الصندوق</td>
-                <td className="px-6 py-3 text-gray-900 text-left">{stats.cashRevenue.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-400 pr-12">└ مبيعات الشبكة</td>
-                <td className="px-6 py-3 text-gray-500 italic">مدفوعات البطاقات والتحويلات</td>
-                <td className="px-6 py-3 text-gray-900 text-left">{stats.cardRevenue.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-400 pr-12">└ مبيعات الآجل</td>
-                <td className="px-6 py-3 text-gray-500 italic">ديون مستحقة على العملاء</td>
-                <td className="px-6 py-3 text-gray-900 text-left">{stats.creditRevenue.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-400 pr-12">└ خصومات نقاط الولاء</td>
-                <td className="px-6 py-3 text-gray-500 italic">قيمة النقاط المستبدلة كخصم</td>
-                <td className="px-6 py-3 text-rose-500 text-left">({stats.pointsValueRedeemed.toFixed(2)})</td>
-              </tr>
-
-              {/* COGS Section */}
-              <tr className="bg-rose-50/30">
-                <td className="px-6 py-4 font-black text-rose-900" colSpan={2}>تكلفة المبيعات (المشتريات المباعة)</td>
-                <td className="px-6 py-4 font-black text-rose-900 text-left">({stats.totalCost.toFixed(2)})</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-400 pr-12">└ تكلفة البضاعة</td>
-                <td className="px-6 py-3 text-gray-500 italic">سعر شراء المنتجات التي تم بيعها</td>
-                <td className="px-6 py-3 text-gray-900 text-left">{stats.totalCost.toFixed(2)}</td>
-              </tr>
-
-              {/* Purchases Section */}
-              <tr className="bg-blue-50/30">
-                <td className="px-6 py-4 font-black text-blue-900" colSpan={2}>إجمالي المشتريات (خلال الفترة)</td>
-                <td className="px-6 py-4 font-black text-blue-900 text-left">{stats.totalPurchases.toFixed(2)}</td>
-              </tr>
-
-              {/* Gross Profit */}
-              <tr className="bg-emerald-50/50">
-                <td className="px-6 py-4 font-black text-emerald-900" colSpan={2}>إجمالي الربح (Gross Profit)</td>
-                <td className="px-6 py-4 font-black text-emerald-900 text-left">{stats.grossProfit.toFixed(2)}</td>
-              </tr>
-
-              {/* Expenses Section */}
-              <tr className="bg-amber-50/30">
-                <td className="px-6 py-4 font-black text-amber-900" colSpan={2}>المصروفات التشغيلية</td>
-                <td className="px-6 py-4 font-black text-amber-900 text-left">({stats.totalExpenses.toFixed(2)})</td>
-              </tr>
-              {stats.expenseData.map((exp, idx) => (
-                <tr key={idx}>
-                  <td className="px-6 py-3 text-gray-400 pr-12">└ {exp.name}</td>
-                  <td className="px-6 py-3 text-gray-500 italic">مصروفات تشغيلية</td>
-                  <td className="px-6 py-3 text-gray-900 text-left">{exp.value.toFixed(2)}</td>
-                </tr>
-              ))}
-
-              {/* Net Profit */}
-              <tr className="bg-emerald-600 text-white">
-                <td className="px-6 py-5 font-black text-lg" colSpan={2}>صافي الربح النهائي (Net Profit)</td>
-                <td className="px-6 py-5 font-black text-lg text-left">{stats.netProfit.toFixed(2)}</td>
-              </tr>
-
-              {/* Financial Position Section */}
-              <tr className="bg-gray-100">
-                <td className="px-6 py-4 font-black text-gray-900" colSpan={3}>الموقف المالي الحالي (Balance Sheet Items)</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-600 font-bold pr-12">إجمالي الديون المستحقة (العملاء)</td>
-                <td className="px-6 py-3 text-gray-500 italic">أرصدة العملاء الحالية (الذمم المدينة)</td>
-                <td className="px-6 py-3 text-blue-600 font-black text-left">{stats.totalReceivables.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-600 font-bold pr-12">إجمالي مستحقات الموردين</td>
-                <td className="px-6 py-3 text-gray-500 italic">الديون المستحقة للموردين (الذمم الدائنة)</td>
-                <td className="px-6 py-3 text-rose-600 font-black text-left">{stats.totalPayables.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-600 font-bold pr-12">قيمة المخزون الحالية</td>
-                <td className="px-6 py-3 text-gray-500 italic">بسعر التكلفة (الأصول المتداولة)</td>
-                <td className="px-6 py-3 text-gray-900 font-black text-left">{stats.totalInventoryValue.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-3 text-gray-600 font-bold pr-12">القيمة السوقية للمخزون</td>
-                <td className="px-6 py-3 text-gray-500 italic">بسعر البيع المتوقع</td>
-                <td className="px-6 py-3 text-gray-900 font-black text-left">{stats.totalRetailValue.toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div className="p-4 bg-gray-50 border-t border-gray-100 text-[10px] text-gray-400 text-center italic">
-          * تم حساب هذه البيانات بناءً على العمليات المسجلة في النظام للفترة المحددة. يرجى مراجعة الجرد الفعلي للمطابقة.
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Profitability Summary */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">ملخص الربحية</h3>
-            <TrendingUp className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div className="flex-1 space-y-6">
-            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-              <p className="text-sm font-medium text-emerald-800 mb-1">صافي الربح</p>
-              <h4 className="text-3xl font-black text-emerald-900">{stats.netProfit.toFixed(2)} <span className="text-sm font-medium">{storeSettings.currency}</span></h4>
-              <p className="text-xs text-emerald-600 mt-2 font-bold">
-                هامش الربح: {stats.totalRevenue > 0 ? ((stats.netProfit / stats.totalRevenue) * 100).toFixed(1) : 0}%
-              </p>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-500">إجمالي المبيعات</span>
-                <span className="text-sm font-bold text-gray-900">{stats.totalRevenue.toFixed(2)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-500">تكلفة البضاعة</span>
-                <span className="text-sm font-bold text-rose-600">-{stats.totalCost.toFixed(2)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-500">إجمالي المصروفات</span>
-                <span className="text-sm font-bold text-rose-600">-{stats.totalExpenses.toFixed(2)}</span>
-              </div>
-              <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-base font-bold text-gray-900">الربح الإجمالي</span>
-                <span className="text-base font-black text-emerald-600">{stats.grossProfit.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Top Products */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">الأكثر مبيعاً</h3>
-            <ShoppingBag className="w-5 h-5 text-indigo-600" />
-          </div>
-          <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
-            {stats.topProducts.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <p>لا توجد بيانات</p>
-              </div>
-            ) : (
-              stats.topProducts.map((product, index) => (
-                <div key={index} className="flex items-center justify-between p-4 rounded-xl border border-gray-50 bg-gray-50/50 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg ${
-                      index === 0 ? 'bg-amber-100 text-amber-600' : 
-                      index === 1 ? 'bg-slate-100 text-slate-600' : 
-                      index === 2 ? 'bg-orange-100 text-orange-600' : 
-                      'bg-gray-100 text-gray-400'
-                    }`}>
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{product.name}</p>
-                      <p className="text-xs text-gray-500">{product.quantity} حبة مباعة</p>
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-black text-emerald-600">{product.revenue.toFixed(2)} {storeSettings.currency}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Low Stock Alerts */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">تنبيهات المخزون</h3>
-            <AlertTriangle className="w-5 h-5 text-rose-500" />
-          </div>
-          <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
-            {stats.lowStockItems.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-emerald-500">
-                <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
-                  <Package className="w-8 h-8" />
-                </div>
-                <p className="font-bold">المخزون ممتاز</p>
-                <p className="text-xs text-gray-400">جميع المنتجات متوفرة بكميات كافية</p>
-              </div>
-            ) : (
-              stats.lowStockItems.map((product, index) => (
-                <div key={index} className="flex items-center justify-between p-4 rounded-xl border border-rose-50 bg-rose-50/30">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
-                      <Package className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{product.name}</p>
-                      <p className="text-xs text-rose-600 font-bold">المتبقي: {product.stockQuantity} {product.unit || 'حبة'}</p>
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <span className="px-2 py-1 rounded-lg bg-rose-100 text-rose-700 text-[10px] font-black uppercase">منخفض جداً</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Recent Orders List */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">أحدث الفواتير</h3>
-            <Receipt className="w-5 h-5 text-indigo-600" />
-          </div>
-          <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-2">
-            {stats.recentOrders.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <p>لا توجد مبيعات</p>
-              </div>
-            ) : (
-              stats.recentOrders.map(order => (
-                <button 
-                  key={order.id} 
-                  onClick={() => handleViewReceipt(order)}
-                  className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-50 hover:bg-gray-50 transition-colors text-right"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      order.paymentMethod === 'cash' ? 'bg-emerald-100 text-emerald-600' : 
-                      order.paymentMethod === 'card' ? 'bg-blue-100 text-blue-600' : 
-                      'bg-amber-100 text-amber-600'
-                    }`}>
-                      {order.paymentMethod === 'cash' ? <Banknote className="w-5 h-5" /> : 
-                       order.paymentMethod === 'card' ? <CreditCard className="w-5 h-5" /> : 
-                       <Users className="w-5 h-5" />}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{order.receiptNumber}</p>
-                      <p className="text-[10px] text-gray-400">{format(new Date(order.createdAt), 'yyyy/MM/dd hh:mm a')}</p>
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-black text-indigo-600">{order.netAmount.toFixed(2)}</p>
-                    <p className="text-[10px] font-medium text-gray-400">
-                      {order.paymentMethod === 'cash' ? 'نقدي' : 
-                       order.paymentMethod === 'card' ? 'شبكة' : 'آجل'}
-                    </p>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      </>
-      )}
-      
       {activeMainTab === 'financial' && (
         <div className="flex-1 overflow-hidden">
           <FinancialReport onViewReceipt={handleViewReceipt} onViewPurchase={handleViewPurchase} />
@@ -945,53 +939,63 @@ export default function Reports() {
 
       {/* Receipt Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
-              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-indigo-600" />
-                تفاصيل الفاتورة
+                <span>تفاصيل الفاتورة {selectedOrder.order.status === 'void' ? '(ملغاة)' : ''}</span>
               </h3>
-              <button 
-                onClick={() => setSelectedOrder(null)} 
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-6 h-6" />
+              <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
               </button>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-100 flex justify-center custom-scrollbar">
-              <div className="bg-white shadow-sm border border-gray-200">
-                <ReceiptComponent 
-                  ref={receiptRef} 
-                  order={selectedOrder.order} 
-                  items={selectedOrder.items} 
+
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-100 flex justify-center custom-scrollbar">
+              <div className="bg-white border border-slate-200">
+                <ReceiptComponent
+                  ref={receiptRef}
+                  order={selectedOrder.order}
+                  items={selectedOrder.items}
                   settings={storeSettings}
                 />
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 bg-white grid grid-cols-3 gap-3">
-              <button 
+            <div className="p-4 border-t border-slate-200 bg-white flex flex-wrap gap-2">
+              <button
                 onClick={() => setSelectedOrder(null)}
-                className="py-3 rounded-xl font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm text-slate-700 bg-slate-100 hover:bg-slate-200 whitespace-nowrap"
               >
                 إغلاق
               </button>
-              <button 
-                onClick={() => handleReturnOrder(selectedOrder.order, selectedOrder.items)}
-                disabled={selectedOrder.order.netAmount < 0}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm disabled:opacity-50"
+              {hasPermission('void_items') &&
+                selectedOrder.order.status === 'completed' &&
+                Number(selectedOrder.order.returnedAmount || 0) === 0 && (
+                  <button
+                    onClick={() => setVoidTarget(selectedOrder.order)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 whitespace-nowrap"
+                  >
+                    <Ban className="w-4 h-4" />
+                    <span>إلغاء</span>
+                  </button>
+                )}
+              {hasPermission('process_returns') && selectedOrder.order.status !== 'void' && (
+                <button
+                  onClick={() => handleReturnOrderClick(selectedOrder.order, selectedOrder.items)}
+                  disabled={selectedOrder.order.netAmount < 0 || selectedOrder.order.status === 'returned'}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 disabled:opacity-50 whitespace-nowrap"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>إرجاع</span>
+                </button>
+              )}
+              <button
+                onClick={() => handlePrint()}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-700 whitespace-nowrap"
               >
-                <RotateCcw className="w-5 h-5" />
-                إرجاع
-              </button>
-              <button 
-                onClick={handlePrint}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                <Printer className="w-5 h-5" />
-                طباعة
+                <Printer className="w-4 h-4" />
+                <span>طباعة</span>
               </button>
             </div>
           </div>
@@ -1000,50 +1004,72 @@ export default function Reports() {
 
       {/* Purchase Receipt Modal */}
       {selectedPurchase && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
-              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-blue-600" />
-                تفاصيل فاتورة الشراء
+                <span>تفاصيل فاتورة الشراء</span>
               </h3>
-              <button 
-                onClick={() => setSelectedPurchase(null)} 
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-6 h-6" />
+              <button onClick={() => setSelectedPurchase(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
               </button>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-100 flex justify-center custom-scrollbar">
-              <div className="bg-white shadow-sm border border-gray-200">
-                <PurchaseReceipt 
-                  ref={receiptRef} 
-                  purchase={selectedPurchase.purchase} 
-                  items={selectedPurchase.items} 
+
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-100 flex justify-center custom-scrollbar">
+              <div className="bg-white border border-slate-200">
+                <PurchaseReceipt
+                  ref={receiptRef}
+                  purchase={selectedPurchase.purchase}
+                  items={selectedPurchase.items}
                   settings={storeSettings}
                 />
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 bg-white flex justify-end gap-3">
-              <button 
+            <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3">
+              <button
                 onClick={() => setSelectedPurchase(null)}
-                className="py-3 px-6 rounded-xl font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                className="py-2.5 px-5 rounded-xl font-bold text-sm text-slate-700 bg-slate-100 hover:bg-slate-200"
               >
                 إغلاق
               </button>
-              <button 
-                onClick={handlePrint}
-                className="flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm"
+              <button
+                onClick={() => handlePrint()}
+                className="flex items-center justify-center gap-2 py-2.5 px-5 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700"
               >
-                <Printer className="w-5 h-5" />
-                طباعة
+                <Printer className="w-4 h-4" />
+                <span>طباعة</span>
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Confirm Order Return */}
+      <ConfirmationModal
+        isOpen={Boolean(returnTarget)}
+        title="تأكيد إرجاع الفاتورة"
+        message={`هل أنت متأكد من إرجاع الكميات المتبقية من الفاتورة "${returnTarget?.order.receiptNumber || ''}"؟ سيتم إصدار مستند مرتجع وإعادة المخزون وعكس القيود المحاسبية.`}
+        confirmLabel="اعتماد المرتجع"
+        variant="danger"
+        onConfirm={confirmReturnOrder}
+        onCancel={() => setReturnTarget(null)}
+      />
+
+      {/* Confirm Order Void */}
+      <ConfirmationModal
+        isOpen={Boolean(voidTarget)}
+        title="إلغاء الفاتورة بالكامل (Void)"
+        message={`هل تريد إلغاء الفاتورة "${voidTarget?.receiptNumber || ''}"؟ سيتم استرجاع المخزون وإلغاء ذمة العميل ونقاط الولاء وعكس القيد المحاسبي.`}
+        confirmLabel="إلغاء الفاتورة"
+        variant="danger"
+        promptLabel="سبب الإلغاء"
+        promptPlaceholder="مثال: خطأ في الإدخال أو إلغاء الطلب قبل التسليم"
+        promptRequired={true}
+        onConfirm={confirmVoidOrder}
+        onCancel={() => setVoidTarget(null)}
+      />
     </div>
   );
 }

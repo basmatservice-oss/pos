@@ -1,10 +1,77 @@
 import { createClient } from '@supabase/supabase-js';
 import { db } from './drizzle/db.js';
-import { eq, gt, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import * as schema from './drizzle/schema.js';
-import { categories, products, customers, suppliers, employees, expenses, shifts, orders, orderItems, purchases, purchaseItems, attendance, branches, payrolls, offers, loyaltyTransactions, settings, auditLogs, journalEntries, transactions, stocktakingSessions, stocktakingEntries, syncQueue } from './drizzle/schema.js';
+import {
+  categories,
+  products,
+  customers,
+  suppliers,
+  employees,
+  expenses,
+  shifts,
+  shiftMovements,
+  orders,
+  orderItems,
+  returns,
+  returnItems,
+  purchases,
+  purchaseItems,
+  purchaseReturns,
+  purchaseReturnItems,
+  customerPayments,
+  supplierPayments,
+  attendance,
+  branches,
+  payrolls,
+  offers,
+  loyaltyTransactions,
+  settings,
+  auditLogs,
+  accounts,
+  journalEntries,
+  transactions,
+  stocktakingSessions,
+  stocktakingEntries,
+  inventoryBatches,
+  syncQueue,
+} from './drizzle/schema.js';
 
 let supabase: any = null;
+
+const SUPABASE_TABLE_MAP: Record<string, { drizzleTable: any; supabaseTable: string }> = {
+  Category: { drizzleTable: categories, supabaseTable: 'categories' },
+  Product: { drizzleTable: products, supabaseTable: 'products' },
+  InventoryBatch: { drizzleTable: inventoryBatches, supabaseTable: 'inventory_batches' },
+  Customer: { drizzleTable: customers, supabaseTable: 'customers' },
+  Supplier: { drizzleTable: suppliers, supabaseTable: 'suppliers' },
+  Employee: { drizzleTable: employees, supabaseTable: 'employees' },
+  Expense: { drizzleTable: expenses, supabaseTable: 'expenses' },
+  Shift: { drizzleTable: shifts, supabaseTable: 'shifts' },
+  ShiftMovement: { drizzleTable: shiftMovements, supabaseTable: 'shift_movements' },
+  Order: { drizzleTable: orders, supabaseTable: 'orders' },
+  OrderItem: { drizzleTable: orderItems, supabaseTable: 'order_items' },
+  Return: { drizzleTable: returns, supabaseTable: 'returns' },
+  ReturnItem: { drizzleTable: returnItems, supabaseTable: 'return_items' },
+  Purchase: { drizzleTable: purchases, supabaseTable: 'purchases' },
+  PurchaseItem: { drizzleTable: purchaseItems, supabaseTable: 'purchase_items' },
+  PurchaseReturn: { drizzleTable: purchaseReturns, supabaseTable: 'purchase_returns' },
+  PurchaseReturnItem: { drizzleTable: purchaseReturnItems, supabaseTable: 'purchase_return_items' },
+  CustomerPayment: { drizzleTable: customerPayments, supabaseTable: 'customer_payments' },
+  SupplierPayment: { drizzleTable: supplierPayments, supabaseTable: 'supplier_payments' },
+  Attendance: { drizzleTable: attendance, supabaseTable: 'attendance' },
+  Branch: { drizzleTable: branches, supabaseTable: 'branches' },
+  Payroll: { drizzleTable: payrolls, supabaseTable: 'payrolls' },
+  Offer: { drizzleTable: offers, supabaseTable: 'offers' },
+  LoyaltyTransaction: { drizzleTable: loyaltyTransactions, supabaseTable: 'loyalty_transactions' },
+  Setting: { drizzleTable: settings, supabaseTable: 'settings' },
+  AuditLog: { drizzleTable: auditLogs, supabaseTable: 'audit_logs' },
+  Account: { drizzleTable: accounts, supabaseTable: 'accounts' },
+  JournalEntry: { drizzleTable: journalEntries, supabaseTable: 'journal_entries' },
+  Transaction: { drizzleTable: transactions, supabaseTable: 'transactions' },
+  StocktakingSession: { drizzleTable: stocktakingSessions, supabaseTable: 'stocktaking_sessions' },
+  StocktakingEntry: { drizzleTable: stocktakingEntries, supabaseTable: 'stocktaking_entries' },
+};
 
 export async function initSupabase() {
   try {
@@ -29,7 +96,7 @@ export async function pullFromSupabase() {
   if (!supabase) return;
 
   const now = Date.now();
-  if (now - lastPullTime < 60000) return; // Only pull every 60 seconds
+  if (now - lastPullTime < 60000) return;
   lastPullTime = now;
 
   try {
@@ -40,21 +107,26 @@ export async function pullFromSupabase() {
     const tables = [
       { model: 'categories', table: 'categories' },
       { model: 'products', table: 'products' },
+      { model: 'inventoryBatches', table: 'inventory_batches' },
       { model: 'customers', table: 'customers' },
       { model: 'suppliers', table: 'suppliers' },
       { model: 'employees', table: 'employees' },
       { model: 'expenses', table: 'expenses' },
       { model: 'shifts', table: 'shifts' },
       { model: 'orders', table: 'orders' },
-      { model: 'orderItems', table: 'orderItems' },
+      { model: 'orderItems', table: 'order_items' },
+      { model: 'returns', table: 'returns' },
+      { model: 'returnItems', table: 'return_items' },
       { model: 'purchases', table: 'purchases' },
-      { model: 'purchaseItems', table: 'purchaseItems' },
+      { model: 'purchaseItems', table: 'purchase_items' },
+      { model: 'purchaseReturns', table: 'purchase_returns' },
+      { model: 'purchaseReturnItems', table: 'purchase_return_items' },
       { model: 'attendance', table: 'attendance' },
       { model: 'branches', table: 'branches' },
       { model: 'payrolls', table: 'payrolls' },
       { model: 'offers', table: 'offers' },
-      { model: 'loyaltyTransactions', table: 'loyaltyTransactions' },
-      { model: 'settings', table: 'settings' }
+      { model: 'loyaltyTransactions', table: 'loyalty_transactions' },
+      { model: 'settings', table: 'settings' },
     ];
 
     for (const { model, table } of tables) {
@@ -68,15 +140,19 @@ export async function pullFromSupabase() {
         if (!data || data.length === 0) continue;
 
         for (const record of data) {
-          const localRecord = await db.select().from((schema as any)[model]).where(eq((schema as any)[model].id, record.id));
-          
+          const drizzleModel = (schema as any)[model];
+          if (!drizzleModel) continue;
+          const localRecord = await db.select().from(drizzleModel).where(eq(drizzleModel.id, record.id));
+
           if (localRecord.length === 0 || new Date(record.updatedAt) > new Date(localRecord[0].updatedAt)) {
-            // Upsert local record
             const { isSynced, ...dataToSave } = record;
-            await db.insert((schema as any)[model]).values({ ...dataToSave, isSynced: 1 }).onConflictDoUpdate({
-              target: (schema as any)[model].id,
-              set: { ...dataToSave, isSynced: 1 }
-            });
+            await db
+              .insert(drizzleModel)
+              .values({ ...dataToSave, isSynced: 1 })
+              .onConflictDoUpdate({
+                target: drizzleModel.id,
+                set: { ...dataToSave, isSynced: 1 },
+              });
           }
         }
       } catch (e) {
@@ -84,11 +160,19 @@ export async function pullFromSupabase() {
       }
     }
 
-    await db.insert(settings).values({ key: 'lastCloudSync', value: newSyncTime.toISOString(), isSynced: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).onConflictDoUpdate({
-      target: settings.key,
-      set: { value: newSyncTime.toISOString(), updatedAt: new Date().toISOString() }
-    });
-
+    await db
+      .insert(settings)
+      .values({
+        key: 'lastCloudSync',
+        value: newSyncTime.toISOString(),
+        isSynced: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: settings.key,
+        set: { value: newSyncTime.toISOString(), updatedAt: new Date().toISOString() },
+      });
   } catch (error) {
     console.error('Error pulling from Supabase:', error);
   }
@@ -97,10 +181,8 @@ export async function pullFromSupabase() {
 export async function processSyncQueue() {
   const isCloudSyncEnabled = await db.select().from(settings).where(eq(settings.key, 'enableCloudSync'));
   const enabled = isCloudSyncEnabled[0]?.value === 'true';
-  
+
   if (!enabled) {
-    // Clear the queue if cloud sync is disabled
-    await db.delete(syncQueue);
     return;
   }
 
@@ -110,10 +192,11 @@ export async function processSyncQueue() {
   if (!supabase) return;
 
   try {
-    // First, pull changes
     await pullFromSupabase();
 
-    const pendingItems = await db.select().from(syncQueue)
+    const pendingItems = await db
+      .select()
+      .from(syncQueue)
       .where(eq(syncQueue.status, 'pending'))
       .limit(50)
       .orderBy(syncQueue.createdAt);
@@ -122,77 +205,35 @@ export async function processSyncQueue() {
 
     for (const item of pendingItems) {
       try {
-        // Mark as processing
-        await db.update(syncQueue)
-          .set({ status: 'processing' })
-          .where(eq(syncQueue.id, item.id));
+        await db.update(syncQueue).set({ status: 'processing' }).where(eq(syncQueue.id, item.id));
 
         const payload = JSON.parse(item.data);
-        
-        // Mapping item.type to Drizzle table object
-        const tableMap: { [key: string]: any } = {
-          'Category': categories,
-          'StocktakingSession': stocktakingSessions,
-          'StocktakingEntry': stocktakingEntries,
-          'AuditLog': auditLogs,
-          'PurchaseItem': purchaseItems,
-          'OrderItem': orderItems,
-          'LoyaltyTransaction': loyaltyTransactions,
-          'JournalEntry': journalEntries,
-          'Attendance': attendance,
-          'Payroll': payrolls,
-          'Expense': expenses,
-          'Branch': branches,
-          'Supplier': suppliers,
-          'Customer': customers,
-          'Employee': employees,
-          'Setting': settings,
-          'Order': orders,
-          'Product': products,
-          'Offer': offers,
-          'Purchase': purchases,
-          'Transaction': transactions,
-          'Shift': shifts
-        };
-
-        const table = tableMap[item.type];
-        if (!table) {
-          throw new Error(`Table not found for type: ${item.type}`);
+        const mapping = SUPABASE_TABLE_MAP[item.type];
+        if (!mapping) {
+          throw new Error(`Table mapping not found for type: ${item.type}`);
         }
+
+        const { drizzleTable, supabaseTable } = mapping;
 
         if (item.action === 'create' || item.action === 'update' || item.action === 'upsert') {
-          // Remove local-only fields if necessary
           const { id, isSynced, ...dataToSync } = payload;
-          
-          // Upsert to Supabase
-          const tableName = item.type.toLowerCase() + 's';
-          const { error } = await supabase.from(tableName).upsert({ id, ...dataToSync });
+          const { error } = await supabase.from(supabaseTable).upsert({ id, ...dataToSync });
           if (error) throw error;
 
-          // Mark as synced locally
-          if (payload.id) {
+          if (payload.id && drizzleTable.id) {
             try {
-              await db.update(table)
-                .set({ isSynced: 1 })
-                .where(eq(table.id, payload.id));
-            } catch (e) {}
+              await db.update(drizzleTable).set({ isSynced: 1 }).where(eq(drizzleTable.id, payload.id));
+            } catch {}
           }
         } else if (item.action === 'delete') {
-          const tableName = item.type.toLowerCase() + 's';
-          const { error } = await supabase.from(tableName).delete().eq('id', payload.id);
+          const { error } = await supabase.from(supabaseTable).delete().eq('id', payload.id);
           if (error) throw error;
         }
 
-        // Mark as completed
-        await db.update(syncQueue)
-          .set({ status: 'completed' })
-          .where(eq(syncQueue.id, item.id));
-
+        await db.update(syncQueue).set({ status: 'completed' }).where(eq(syncQueue.id, item.id));
       } catch (error) {
         console.error(`Failed to sync item ${item.id}:`, error);
-        await db.update(syncQueue)
-          .set({ status: 'failed' })
-          .where(eq(syncQueue.id, item.id));
+        await db.update(syncQueue).set({ status: 'failed' }).where(eq(syncQueue.id, item.id));
       }
     }
   } catch (error) {
@@ -200,7 +241,9 @@ export async function processSyncQueue() {
   }
 }
 
-// Start background sync
+let syncTimer: NodeJS.Timeout | null = null;
+
 export function startSyncEngine() {
-  setInterval(processSyncQueue, 10000); // Run every 10 seconds
+  if (syncTimer) return;
+  syncTimer = setInterval(processSyncQueue, 15000);
 }

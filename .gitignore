@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build & Packaging Outputs
+dist/
+release/
+
+# Local Databases, Backups & Uploads
+dev.db
+dev.db-wal
+dev.db-shm
+backups/
+uploads/
+*.db
+*.db-wal
+*.db-shm
+test-*.db*
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# Logs & OS Files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
