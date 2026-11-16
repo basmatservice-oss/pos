@@ -48,12 +48,45 @@ class DavinciOfflineSyncService(
         limit: Int = 100
     ): DavinciSyncBatchResult {
         require(bearerToken.isNotBlank()) { "Authentication is required before synchronization." }
-        val pending = outbox.listPending(deviceId, limit)
         var accepted = 0
         var conflicts = 0
         var rejected = 0
         var failed = 0
 
+        // A conflict may have been resolved by the cashier/manager on the
+        // computer. Poll its authoritative receipt before deciding to hold it.
+        for (operation in outbox.listHeldConflicts(deviceId, limit)) {
+            try {
+                val path = "/api/sync/offline-sales/${operation.operationId}/status?deviceId=${operation.deviceId}"
+                val response = client.request("GET", path, bearerToken = bearerToken)
+                val result = parseData(response)
+                when (result.optString("status")) {
+                    "accepted" -> {
+                        check(outbox.acknowledge(operation.operationId))
+                        accepted++
+                    }
+                    "rejected" -> {
+                        check(outbox.applyServerConflictDecision(
+                            operation.operationId, "rejected",
+                            result.optString("reason", "Sale rejected during server conflict review.")
+                        ))
+                        rejected++
+                    }
+                    "conflict" -> conflicts++
+                    "pending" -> Unit
+                    else -> {
+                        outbox.recordFailure(operation.operationId, "Unrecognized conflict status response.")
+                        failed++
+                    }
+                }
+            } catch (error: Exception) {
+                outbox.recordFailure(operation.operationId, error.message ?: "Conflict status check failed.")
+                failed++
+                break
+            }
+        }
+
+        val pending = outbox.listPending(deviceId, limit)
         for (operation in pending) {
             try {
                 require(operation.entityType == "sale" && operation.operation == "upsert") {
