@@ -4,7 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.ZoneId
 import java.util.UUID
 
 data class DavinciExpense(
@@ -118,7 +118,7 @@ class DavinciExpenseRepository(context: Context) {
         }
         if (to != null) {
             filters += "e.occurred_at<?"
-            args += dateBoundary(to).let { LocalDate.parse(it.substring(0, 10)).plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC).toString() }
+            args += LocalDate.parse(to).plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
         }
         args += limit.coerceIn(1, 500).toString()
         return helper.readableDatabase.rawQuery(
@@ -148,7 +148,7 @@ class DavinciExpenseRepository(context: Context) {
         val date = try { LocalDate.parse(value) }
         catch (_: Exception) { throw IllegalArgumentException("Invalid expense date filter.") }
         require(date.toString() == value) { "Invalid expense date filter." }
-        return date.atStartOfDay().toInstant(ZoneOffset.UTC).toString()
+        return date.atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
     }
 
     companion object {
