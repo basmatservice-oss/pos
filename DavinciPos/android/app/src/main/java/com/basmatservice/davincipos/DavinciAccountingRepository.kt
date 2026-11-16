@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 data class DavinciJournalLine(
@@ -24,6 +25,29 @@ data class DavinciTrialBalanceRow(
     val creditMinor: Long,
     val netDebitMinor: Long
 )
+
+data class DavinciAccountLedgerRow(
+    val journalEntryId: String,
+    val entryNumber: String,
+    val occurredAt: String,
+    val description: String,
+    val debitMinor: Long,
+    val creditMinor: Long,
+    val memo: String?
+)
+
+internal object DavinciAccountingDateFilter {
+    fun boundary(value: String, endExclusive: Boolean = false): String {
+        require(Regex("\\\\d{4}-\\\\d{2}-\\\\d{2}").matches(value)) {
+            "Invalid trial balance date."
+        }
+        val date = try { LocalDate.parse(value) } catch (_: Exception) {
+            throw IllegalArgumentException("Invalid trial balance date.")
+        }
+        require(date.toString() == value) { "Invalid trial balance date." }
+        return (if (endExclusive) date.plusDays(1) else date).toString() + "T00:00:00"
+    }
+}
 
 /** Exact integer-minor-unit journal validation shared by post and reversal workflows. */
 object DavinciJournalValidator {
@@ -157,7 +181,17 @@ class DavinciAccountingRepository(context: Context) {
         }
     }
 
-    fun getTrialBalance(): List<DavinciTrialBalanceRow> {
+    fun getTrialBalance(from: String? = null, to: String? = null): List<DavinciTrialBalanceRow> {
+        val filters = mutableListOf("je.status IN ('posted','reversed')")
+        val params = mutableListOf<String>()
+        if (from != null) {
+            filters += "je.occurred_at>=?"
+            params += DavinciAccountingDateFilter.boundary(from)
+        }
+        if (to != null) {
+            filters += "je.occurred_at<?"
+            params += DavinciAccountingDateFilter.boundary(to, endExclusive = true)
+        }
         val db = helper.readableDatabase
         return db.rawQuery(
             """
@@ -168,10 +202,10 @@ class DavinciAccountingRepository(context: Context) {
             FROM accounts a
             LEFT JOIN journal_lines jl ON jl.account_id=a.id
             LEFT JOIN journal_entries je ON je.id=jl.journal_entry_id
-                 AND je.status IN ('posted','reversed')
+                 AND ${filters.joinToString(" AND ")}
             WHERE a.is_active=1
             GROUP BY a.id ORDER BY a.code
-            """.trimIndent(), null
+            """.trimIndent(), params.toTypedArray()
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) add(
@@ -179,6 +213,45 @@ class DavinciAccountingRepository(context: Context) {
                         cursor.getString(0), cursor.getString(1), cursor.getString(2),
                         cursor.getString(3), cursor.getLong(4), cursor.getLong(5),
                         cursor.getLong(6)
+                    )
+                )
+            }
+        }
+    }
+
+    fun getAccountLedger(
+        accountId: String,
+        from: String? = null,
+        to: String? = null
+    ): List<DavinciAccountLedgerRow> {
+        require(accountId.isNotBlank()) { "Account ID is required." }
+        val filters = mutableListOf("je.status IN ('posted','reversed')", "jl.account_id=?")
+        val params = mutableListOf(accountId)
+        if (from != null) {
+            filters += "je.occurred_at>=?"
+            params += from
+        }
+        if (to != null) {
+            filters += "je.occurred_at<=?"
+            params += to
+        }
+        val db = helper.readableDatabase
+        return db.rawQuery(
+            """
+            SELECT je.id,je.entry_number,je.occurred_at,je.description,
+                   jl.debit_minor,jl.credit_minor,jl.memo
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id=jl.journal_entry_id
+            WHERE ${filters.joinToString(" AND ")}
+            ORDER BY je.occurred_at,je.entry_number
+            """.trimIndent(), params.toTypedArray()
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(
+                    DavinciAccountLedgerRow(
+                        cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                        cursor.getString(3), cursor.getLong(4), cursor.getLong(5),
+                        if (cursor.isNull(6)) null else cursor.getString(6)
                     )
                 )
             }
