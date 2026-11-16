@@ -223,11 +223,11 @@ export async function renderPeople(root,kind) {
             const method=form.elements.method,provider=form.elements.provider;
             const syncProvider=()=>{provider.hidden=method.value!=='wallet';};method.addEventListener('change',syncProvider);syncProvider();
             form.addEventListener('submit',async event=>{
-              event.preventDefault();const data=new FormData(form),amountMinor=Math.round(Number(data.get('amount'))*100);
+              event.preventDefault();const data=new FormData(form),amountMinor=Math.round(Number(data.get('amount'))*100);form.dataset.idempotencyKey=form.dataset.idempotencyKey||crypto.randomUUID();
               const endpoint=customers?'/api/sales/':'/api/purchases/';
               const message=form.querySelector('[data-payment-message]');
               try{
-                const body={amountMinor,method:data.get('method'),provider:data.get('method')==='wallet'?data.get('provider'):null,reference:data.get('reference')||null};
+                const body={amountMinor,method:data.get('method'),provider:data.get('method')==='wallet'?data.get('provider'):null,reference:data.get('reference')||null,idempotencyKey:form.dataset.idempotencyKey};
                 await api(endpoint+encodeURIComponent(form.dataset.invoicePayment)+'/payments',{method:'POST',body});
                 await renderPeople(root,kind);
               }catch(error){message.textContent=error.message;}
