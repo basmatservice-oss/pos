@@ -286,21 +286,21 @@ class DavinciSettlementRepository(context: Context) {
         require(input.amountMinor in 1..MAX_SAFE_INTEGER) {
             "Payment amount must be a positive integer in minor currency units."
         }
-        val method = input.method.ifBlank { "cash" }
+        val method = input.method.ifEmpty { "cash" }
         require(method in paymentAccounts) { "Unsupported payment method." }
-        val provider = input.provider?.takeIf { it.isNotBlank() }
+        val provider = input.provider?.takeIf { it.isNotEmpty() }
         require(provider == null || provider in walletProviders) { "Unsupported wallet provider." }
         require(method == "wallet" || provider == null) {
             "A wallet provider is only valid for wallet payments."
         }
         require(method != "wallet" || provider != null) { "Select a supported wallet provider." }
-        val key = input.idempotencyKey?.takeIf { it.isNotBlank() }
+        val key = input.idempotencyKey?.takeIf { it.isNotEmpty() }
         require(key == null || (key.length <= 200 && key.trim() == key)) {
             "Invalid idempotency key."
         }
         return NormalizedPayment(
-            input.amountMinor, method, provider, input.reference?.takeIf { it.isNotBlank() },
-            input.occurredAt?.takeIf { it.isNotBlank() } ?: Instant.now().toString(),
+            input.amountMinor, method, provider, input.reference?.takeIf { it.isNotEmpty() },
+            input.occurredAt?.takeIf { it.isNotEmpty() } ?: Instant.now().toString(),
             input.occurredAt?.takeIf { it.isNotBlank() }, key
         )
     }
