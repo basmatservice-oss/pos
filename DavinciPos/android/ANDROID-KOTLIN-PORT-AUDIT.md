@@ -61,12 +61,12 @@ Status meanings:
 | POST /api/customers | DavinciPeopleRepository | Foundation only |
 | GET /api/suppliers | DavinciPeopleRepository | Foundation only |
 | POST /api/suppliers | DavinciPeopleRepository | Foundation only |
-| GET /api/settlements/customers | customer balance/statement repository | Not ported |
-| GET /api/settlements/suppliers | supplier balance/statement repository | Not ported |
-| GET /api/customers/:id/statement | customer balance/statement repository | Not ported |
-| GET /api/suppliers/:id/statement | supplier balance/statement repository | Not ported |
-| POST /api/sales/:id/payments | sales + accounting transaction service | Not ported |
-| POST /api/purchases/:id/payments | purchases + accounting transaction service | Not ported |
+| GET /api/settlements/customers | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/settlements/suppliers | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/customers/:id/statement | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/suppliers/:id/statement | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/sales/:id/payments | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired; idempotency required |
+| POST /api/purchases/:id/payments | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired; idempotency required |
 | GET /api/sales | sales repository | Not ported |
 | GET /api/purchases | purchases repository | Not ported |
 | GET /api/inventory/counts | stocktaking repository | Not ported |
@@ -131,3 +131,11 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Added `DavinciLocalApiFacade.kt`: API-compatible dispatch for service, component, settings and tax-profile routes.
 - Added `DavinciWebViewBridge.kt` and wired it into local-mode `MainActivity`: local WebView fetch calls for these explicitly supported routes are authenticated against the shared SQLite session and checked against role permissions, then dispatched to Kotlin. Unsupported routes continue to use the existing Node server; remote LAN mode continues to use the Windows HTTPS server.
 - These routes are now wired end-to-end for the selected operations, but the Android runtime is **not Node-free**. Bootstrap/login, products, inventory, sales, purchases, returns, settlements, reports and other unsupported operations still depend on Node. Do not remove Node/JNI until the full route matrix and offline/LAN gates are complete.
+
+
+## Kotlin-native settlements slice added
+
+- Added `DavinciSettlementRepository.kt`: customer invoice collections, supplier invoice payments, customer/supplier balances and statements, remaining-balance checks after returns, wallet-provider validation, accounting postings to AR/AP and cash/bank/card/wallet accounts, optional audit records, and idempotent replay using the shared `payment_idempotency` table.
+- Added API facade and authenticated WebView bridge routes for settlement balances, statements, and payment collection/disbursement. The bridge forwards the `Idempotency-Key` header and also accepts the existing UI body key.
+- Fixed the shared people screen: it now generates a stable idempotency key per payment payload and reuses it on retry, rotating it only when payment details change. Previously the UI omitted the key although the server required it, so customer and supplier payment forms could never successfully post.
+- These routes still run against the shared SQLite database in local Android mode; they do not remove Node.js, which remains responsible for all routes not yet migrated.
