@@ -33,6 +33,7 @@ class DavinciWebViewBridge(
             ) -> true
             method == "PUT" && path in setOf("/api/settings") -> true
             method == "GET" && path.startsWith("/api/barcode/") -> true
+            method == "GET" && path in setOf("/api/sales", "/api/purchases") -> true
             method == "GET" && path == "/api/expenses" -> true
             method == "POST" && path == "/api/expenses" -> true
             method == "GET" && path == "/api/inventory/counts" -> true
@@ -100,6 +101,8 @@ class DavinciWebViewBridge(
             path.matches(Regex("^/api/services/[^/]+$")) && method == "PATCH" -> "products.write"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "GET" -> "products.read"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "PUT" -> "products.write"
+            path == "/api/sales" && method == "GET" -> "sales.read"
+            path == "/api/purchases" && method == "GET" -> "purchases.read"
             path == "/api/expenses" && method == "GET" -> "expenses.read"
             path == "/api/expenses" && method == "POST" -> "expenses.create"
             path == "/api/inventory/counts" && method == "GET" -> "inventory.read"
