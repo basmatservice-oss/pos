@@ -67,8 +67,8 @@ Status meanings:
 | GET /api/suppliers/:id/statement | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
 | POST /api/sales/:id/payments | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired; idempotency required |
 | POST /api/purchases/:id/payments | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired; idempotency required |
-| GET /api/sales | sales repository | Not ported |
-| GET /api/purchases | purchases repository | Not ported |
+| GET /api/sales | DavinciDocumentRepository + local facade/bridge | Kotlin local route wired; read-only invoice history |
+| GET /api/purchases | DavinciDocumentRepository + local facade/bridge | Kotlin local route wired; read-only invoice history |
 | GET /api/inventory/counts | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
 | POST /api/inventory/counts | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/inventory/counts/:id | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
@@ -151,3 +151,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Android Kotlin now owns inventory adjustment workflows and physical count lifecycle (create, fetch, line entry, atomic posting), including stock layer changes, accounting gains/losses, duplicate adjustment IDs and audit rows. These endpoints are wired in local WebView mode.
 
 - Expense entry and history are now Kotlin-native in local Android mode, including payment-method/provider validation, integer minor-unit accounting, balanced expense-vs-cash/bank/card/wallet postings, and audit trail.
+
+- Sales and purchase invoice history lists now read directly from the Android SQLite database through Kotlin; invoice return actions and full purchase/sale workflows remain separate route work.
