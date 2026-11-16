@@ -46,7 +46,8 @@ class DavinciWebViewBridge(
         method: String,
         path: String,
         body: String?,
-        bearerToken: String?
+        bearerToken: String?,
+        idempotencyKey: String?
     ) {
         executor.execute {
             val result = try {
@@ -60,7 +61,8 @@ class DavinciWebViewBridge(
                         method = method,
                         rawPath = path,
                         body = body?.takeIf { it.isNotBlank() }?.let { JSONObject(it) } ?: JSONObject(),
-                        actorUserId = user.id
+                        actorUserId = user.id,
+                        idempotencyKey = idempotencyKey
                     )
                 }
             } catch (error: Exception) {
