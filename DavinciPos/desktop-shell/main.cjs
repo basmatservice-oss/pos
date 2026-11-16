@@ -6,12 +6,18 @@ const https=require('node:https');
 const crypto=require('node:crypto');
 const net=require('node:net');
 
-let serverProcess=null,bootstrapToken=null;
+let serverProcess=null,bootstrapToken=null,serverExit=null,startupOutput='';
 const appRoot=app.getAppPath();
-const runtimeRoot=appRoot.endsWith('.asar')?appRoot+'.unpacked':appRoot;
+// Keep application files addressed through Electron's ASAR-aware filesystem.
+// Only native modules explicitly marked asarUnpack belong under app.asar.unpacked.
+const runtimeRoot=appRoot;
 const userData=app.getPath('userData');
 const lanConfigPath=path.join(userData,'lan-host.json');
 
+function appendStartupOutput(source,chunk){
+ const entry='['+source+'] '+String(chunk).replace(/\r/g,'');
+ startupOutput=(startupOutput+entry).slice(-12000);
+}
 function loadLanConfig(){
  try{
   const config=JSON.parse(fs.readFileSync(lanConfigPath,'utf8'));
@@ -45,6 +51,8 @@ function tokenForFirstRun(){
 }
 function startServer(){
  bootstrapToken=tokenForFirstRun();
+ const entry=path.join(runtimeRoot,'server.js');
+ if(!fs.existsSync(entry))throw new Error('Packaged server entry point is missing: '+entry);
  const env={...process.env,ELECTRON_RUN_AS_NODE:'1',HOST,PORT:String(PORT),
   DAVINCIPOS_DB:path.join(userData,'DavinciPos.sqlite'),
   DAVINCIPOS_BOOTSTRAP_TOKEN:bootstrapToken};
@@ -53,20 +61,33 @@ function startServer(){
   env.TLS_KEY_PATH=lanConfig.keyPath;
   env.NODE_EXTRA_CA_CERTS=lanConfig.caPath;
  }
- serverProcess=spawn(process.execPath,[path.join(runtimeRoot,'server.js')],{
-  cwd:runtimeRoot,windowsHide:true,stdio:'ignore',env
+ serverExit=null;startupOutput='';
+ serverProcess=spawn(process.execPath,[entry],{
+  cwd:runtimeRoot,windowsHide:true,stdio:['ignore','pipe','pipe'],env
  });
- serverProcess.on('error',e=>dialog.showErrorBox('DavinciPos server error',e.message));
+ serverProcess.stdout.on('data',chunk=>appendStartupOutput('stdout',chunk));
+ serverProcess.stderr.on('data',chunk=>appendStartupOutput('stderr',chunk));
+ serverProcess.on('error',error=>{
+  serverExit={error:error.message};
+  appendStartupOutput('spawn-error',error.stack||error.message);
+ });
+ serverProcess.on('exit',(code,signal)=>{
+  serverExit={code,signal};
+  appendStartupOutput('exit','code='+code+' signal='+signal);
+ });
 }
 function checkHealth(){
  return new Promise((resolve,reject)=>{
-  const options=lanConfig.enabled?{ca:fs.readFileSync(lanConfig.caPath),rejectUnauthorized:true}:undefined;
+  let options;
+  try{
+   options=lanConfig.enabled?{ca:fs.readFileSync(lanConfig.caPath),rejectUnauthorized:true}:undefined;
+  }catch(error){return reject(new Error('Unable to read configured LAN CA certificate: '+error.message));}
   const request=httpsOrHttpGet(BASE_URL+'/api/health',options,(response)=>{
    let body='';
    response.setEncoding('utf8');
    response.on('data',chunk=>body+=chunk);
    response.on('end',()=>{
-    try{if(response.statusCode!==200)return reject(new Error('Health check HTTP '+response.statusCode));resolve(JSON.parse(body));}
+    try{if(response.statusCode!==200)return reject(new Error('Health check HTTP '+response.statusCode+': '+body.slice(0,1000)));resolve(JSON.parse(body));}
     catch(error){reject(error);}
    });
   });
@@ -80,11 +101,19 @@ function httpsOrHttpGet(url,options,callback){
 }
 async function waitForServer(){
  const until=Date.now()+45000;
+ let lastError=null;
  while(Date.now()<until){
-  try{return await checkHealth();}catch{}
+  if(serverExit){
+   throw new Error('DavinciPos server process exited before health check: '+JSON.stringify(serverExit)+
+    (startupOutput?'\nStartup output:\n'+startupOutput:''));
+  }
+  try{return await checkHealth();}catch(error){lastError=error;}
   await new Promise(resolve=>setTimeout(resolve,350));
  }
- throw new Error('The DavinciPos service did not start within 45 seconds. Check the LAN certificate configuration.');
+ throw new Error('DavinciPos service did not become healthy within 45 seconds.'+
+  (lastError?'\nLast health-check error: '+lastError.message:'')+
+  (serverExit?'\nServer exit: '+JSON.stringify(serverExit):'')+
+  (startupOutput?'\nStartup output:\n'+startupOutput:''));
 }
 async function createWindow(){
  const health=await waitForServer();
@@ -103,6 +132,6 @@ async function createWindow(){
   webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
  await win.loadURL(BASE_URL+'/desktop');
 }
-app.whenReady().then(async()=>{startServer();try{await createWindow();}catch(e){dialog.showErrorBox('DavinciPos could not start',e.message);app.quit();}});
+app.whenReady().then(async()=>{try{startServer();await createWindow();}catch(e){dialog.showErrorBox('DavinciPos could not start',e.message);app.quit();}});
 app.on('before-quit',()=>{if(serverProcess&&!serverProcess.killed)serverProcess.kill();serverProcess=null;});
 app.on('window-all-closed',()=>app.quit());
