@@ -162,6 +162,7 @@ class DavinciSalesRepository(context: Context) {
                             occurredAt = now
                         )
                         lineCost = safeAdd(lineCost, issue.costTotalMinor, "Sale cost")
+                        allocations = allocations + issue.allocations
                     }
                 } else if (line.trackStock) {
                     val issue = inventory.issueStock(
