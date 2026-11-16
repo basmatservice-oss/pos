@@ -284,6 +284,9 @@ export const syncService = {
   async pullAll() {
     if (!getAuthToken()) return;
     try {
+      const reachable = await apiService.checkServerReachability(1200);
+      if (!reachable) return;
+
       const pendingOpsCount = await db.syncOperations
         .where('status')
         .anyOf(['pending', 'error', 'syncing'])
@@ -388,16 +391,18 @@ export const syncService = {
             if (recordsToPut.length > 0) {
               await task.table.bulkPut(recordsToPut);
             }
-          } catch (err) {
-            console.error('Failed to pull data for table:', err);
+          } catch (err: any) {
+            // Silently skip or log clean debug warning instead of noisy console.error stack traces
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('Skipped pulling table data:', err?.message || err);
+            }
           }
         }
       } finally {
         (globalThis as any).__posApplyingOperation = false;
       }
     } catch (err) {
-      console.error(`Pull sync failed. API_BASE: ${apiService.API_BASE}`, err);
-      throw err;
+      // Silently catch pull failures when offline or server unreachable
     }
   },
 
