@@ -38,7 +38,7 @@ data class DavinciAccountLedgerRow(
 
 internal object DavinciAccountingDateFilter {
     fun boundary(value: String, endExclusive: Boolean = false): String {
-        require(Regex("\\\\d{4}-\\\\d{2}-\\\\d{2}").matches(value)) {
+        require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(value)) {
             "Invalid trial balance date."
         }
         val date = try { LocalDate.parse(value) } catch (_: Exception) {
