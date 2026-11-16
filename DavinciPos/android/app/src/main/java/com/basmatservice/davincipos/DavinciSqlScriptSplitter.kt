@@ -59,7 +59,7 @@ internal object DavinciSqlScriptSplitter {
                     continue
                 }
                 if (c == ';' && (!trigger || (triggerDepth == 0 && caseDepth == 0))) {
-                    if (current.isNotBlank()) statements.add(current.toString().trim())
+                    if (hasSqlContent(current.toString())) statements.add(current.toString().trim())
                     current.setLength(0)
                     trigger = false
                     triggerDepth = 0
@@ -70,4 +70,28 @@ internal object DavinciSqlScriptSplitter {
             if (current.isNotBlank()) statements.add(current.toString().trim())
             return statements
         }
+    private fun hasSqlContent(value: String): Boolean {
+        var index = 0
+        while (index < value.length) {
+            val current = value[index]
+            val next = if (index + 1 < value.length) value[index + 1] else '\\u0000'
+            if (current.isWhitespace()) {
+                index++
+                continue
+            }
+            if (current == '-' && next == '-') {
+                index += 2
+                while (index < value.length && value[index] != '\\n') index++
+                continue
+            }
+            if (current == '/' && next == '*') {
+                index += 2
+                while (index + 1 < value.length && !(value[index] == '*' && value[index + 1] == '/')) index++
+                index = (index + 2).coerceAtMost(value.length)
+                continue
+            }
+            return true
+        }
+        return false
+    }
 }
