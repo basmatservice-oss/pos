@@ -7,6 +7,10 @@ def buildTag = System.getenv('GITHUB_SHA') ?: 'local'
 def davinciRoot = rootProject.projectDir.parentFile
 def generatedDavinciAssets = layout.buildDirectory.dir('generated/davinciAssets')
 
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
 android {
     namespace 'com.basmatservice.davincipos'
     compileSdk 35
