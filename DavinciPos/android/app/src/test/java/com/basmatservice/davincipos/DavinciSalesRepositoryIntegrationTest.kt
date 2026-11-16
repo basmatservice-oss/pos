@@ -16,7 +16,7 @@ class DavinciSalesRepositoryIntegrationTest {
     @Test
     fun fifoCheckoutPostsPaymentAndCogsAndRollsBackInsufficientStock() {
         val context = RuntimeEnvironment.getApplication()
-        context.deleteDatabase("DavinciPos.sqlite")
+        DavinciDatabase.resetForTests(context)
         val helper = DavinciDatabase.get(context)
         val db = helper.writableDatabase
         db.execSQL(
