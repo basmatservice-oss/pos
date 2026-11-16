@@ -33,6 +33,11 @@ class DavinciWebViewBridge(
             ) -> true
             method == "PUT" && path in setOf("/api/settings") -> true
             method == "GET" && path.startsWith("/api/barcode/") -> true
+            method == "GET" && path == "/api/inventory/counts" -> true
+            method == "POST" && path in setOf("/api/inventory/counts", "/api/inventory/adjustments") -> true
+            method == "GET" && path.matches(Regex("^/api/inventory/counts/[^/]+$")) -> true
+            method == "PUT" && path.matches(Regex("^/api/inventory/counts/[^/]+/lines/[^/]+$")) -> true
+            method == "POST" && path.matches(Regex("^/api/inventory/counts/[^/]+/post$")) -> true
             method == "POST" && path == "/api/currency/rates" -> true
             method == "PUT" && path.matches(Regex("^/api/products/[^/]+/currency$")) -> true
             (method == "GET" || method == "POST") && path.matches(Regex("^/api/products/[^/]+/units$")) -> true
@@ -93,6 +98,12 @@ class DavinciWebViewBridge(
             path.matches(Regex("^/api/services/[^/]+$")) && method == "PATCH" -> "products.write"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "GET" -> "products.read"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "PUT" -> "products.write"
+            path == "/api/inventory/counts" && method == "GET" -> "inventory.read"
+            path.matches(Regex("^/api/inventory/counts/[^/]+$")) && method == "GET" -> "inventory.read"
+            path == "/api/inventory/counts" && method == "POST" -> "inventory.write"
+            path == "/api/inventory/adjustments" && method == "POST" -> "inventory.write"
+            path.matches(Regex("^/api/inventory/counts/[^/]+/lines/[^/]+$")) -> "inventory.write"
+            path.matches(Regex("^/api/inventory/counts/[^/]+/post$")) -> "inventory.write"
             path == "/api/currency/rates" && method == "GET" -> "settings.read"
             path == "/api/currency/rates" && method == "POST" -> "settings.update"
             path.matches(Regex("^/api/products/[^/]+/currency$")) -> "products.write"
