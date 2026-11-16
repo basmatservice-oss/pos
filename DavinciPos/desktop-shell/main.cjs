@@ -11,6 +11,7 @@ const appRoot=app.getAppPath();
 // Keep application files addressed through Electron's ASAR-aware filesystem.
 // Only native modules explicitly marked asarUnpack belong under app.asar.unpacked.
 const runtimeRoot=appRoot;
+const runtimeCwd=appRoot.endsWith('.asar')?path.dirname(appRoot):appRoot;
 const userData=app.getPath('userData');
 const lanConfigPath=path.join(userData,'lan-host.json');
 
@@ -63,7 +64,7 @@ function startServer(){
  }
  serverExit=null;startupOutput='';
  serverProcess=spawn(process.execPath,[entry],{
-  cwd:runtimeRoot,windowsHide:true,stdio:['ignore','pipe','pipe'],env
+  cwd:runtimeCwd,windowsHide:true,stdio:['ignore','pipe','pipe'],env
  });
  serverProcess.stdout.on('data',chunk=>appendStartupOutput('stdout',chunk));
  serverProcess.stderr.on('data',chunk=>appendStartupOutput('stderr',chunk));
