@@ -26,8 +26,8 @@ Status meanings:
 | POST /api/auth/logout | DavinciAuthRepository | Foundation only; bridge not wired |
 | GET /api/auth/me | DavinciAuthRepository | Foundation only; bridge not wired |
 | POST /api/devices/register | device repository + sync identity | Not ported |
-| GET /api/settings | settings repository | Not ported |
-| PUT /api/settings | settings repository | Not ported |
+| GET /api/settings | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| PUT /api/settings | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/users | user administration repository | Not ported |
 | POST /api/users | DavinciAuthRepository | Foundation only; API validation/response not matched |
 | PATCH /api/users/:id | user administration repository | Not ported |
@@ -37,8 +37,8 @@ Status meanings:
 | GET /api/sync/offline-sales/:operationId/status | LAN sync client + status facade | Foundation only |
 | GET /api/sync/conflicts | sync conflict repository | Foundation only |
 | POST /api/sync/conflicts/:id/resolve | sync conflict repository | Foundation only |
-| GET /api/tax-profiles | tax-profile repository | Not ported |
-| POST /api/tax-profiles | tax-profile repository | Not ported |
+| GET /api/tax-profiles | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| POST /api/tax-profiles | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/products | DavinciCatalogRepository | Foundation only; verify full response/filter parity |
 | POST /api/products | DavinciCatalogRepository | Foundation only; verify validation/audit parity |
 | PATCH /api/products/:id | DavinciCatalogRepository | Foundation only; verify validation/audit parity |
@@ -47,11 +47,11 @@ Status meanings:
 | GET /api/products/:id/units | DavinciCatalogRepository | Foundation only |
 | POST /api/products/:id/units | DavinciCatalogRepository | Foundation only |
 | GET /api/barcode/:code | DavinciCatalogRepository | Foundation only |
-| GET /api/services | service/BOM repository | Not ported |
-| POST /api/services | service/BOM repository | Not ported |
-| PATCH /api/services/:id | service/BOM repository | Not ported |
-| GET /api/services/:id/components | service/BOM repository | Not ported |
-| PUT /api/services/:id/components | service/BOM repository | Not ported |
+| GET /api/services | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| POST /api/services | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| PATCH /api/services/:id | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| GET /api/services/:id/components | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| PUT /api/services/:id/components | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify date selection/response parity |
 | POST /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify rounding and historical-rate behavior |
 | PUT /api/products/:id/currency | DavinciCurrencyRepository | Foundation only; verify price recalculation parity |
@@ -123,3 +123,10 @@ The Node scrypt text-salt compatibility vector was independently recalculated wi
 `fe1559ad60e4066f60b60896ee0fb5d61fe7722a3a6e095dec5022c958d79b4d5faf1e7bc0a42f3fc74306c88bec2460f8fd052cf0ec75de912719a206285c7c`.
 
 This verifies that one critical hash-encoding test vector is correct; it does not establish that the Android authentication repository is fully integrated or that the complete Android port is ready.
+
+## Kotlin-native service/settings slice added
+
+- Added `DavinciServiceRepository.kt`: service create/update/activation, component BOM replacement, stock-tracked component validation, component cost/sale summaries, and atomic service-plus-components save.
+- Added `DavinciSettingsRepository.kt`: settings read/update with the same allowed keys and normalization rules as `settings.js`, inventory-cost-method lock after stock activity, audit rows, tax-profile CRUD/default selection and resolution.
+- Added `DavinciLocalApiFacade.kt`: API-compatible dispatch for the service, component, settings and tax-profile routes. This is a native application facade only; it is **not yet connected to WebView fetch or MainActivity** and does not change the current Node.js startup path.
+- These operations are now classified as Kotlin-facade implemented, not end-to-end complete. Remaining work is transport/bridge wiring, authentication and permission enforcement at the facade boundary, then the other unported workflows in the route matrix.
