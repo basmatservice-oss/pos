@@ -299,8 +299,9 @@ class DavinciSettlementRepository(context: Context) {
             "Invalid idempotency key."
         }
         return NormalizedPayment(
-            input.amountMinor, method, provider, input.reference,
-            input.occurredAt ?: Instant.now().toString(), input.occurredAt, key
+            input.amountMinor, method, provider, input.reference?.takeIf { it.isNotBlank() },
+            input.occurredAt?.takeIf { it.isNotBlank() } ?: Instant.now().toString(),
+            input.occurredAt?.takeIf { it.isNotBlank() }, key
         )
     }
 
@@ -359,7 +360,9 @@ class DavinciSettlementRepository(context: Context) {
             .put("method", payment.method)
             .put("provider", payment.provider ?: JSONObject.NULL)
             .put("reference", payment.reference ?: JSONObject.NULL)
-            .put("occurredAt", payment.requestedOccurredAt ?: JSONObject.NULL)
+            .apply {
+                if (payment.requestedOccurredAt != null) put("occurredAt", payment.requestedOccurredAt)
+            }
             .toString()
         return MessageDigest.getInstance("SHA-256")
             .digest(payload.toByteArray(Charsets.UTF_8))
