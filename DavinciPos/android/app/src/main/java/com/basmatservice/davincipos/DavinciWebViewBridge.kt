@@ -87,6 +87,12 @@ class DavinciWebViewBridge(
             path.matches(Regex("^/api/services/[^/]+$")) && method == "PATCH" -> "products.write"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "GET" -> "products.read"
             path.matches(Regex("^/api/services/[^/]+/components$")) && method == "PUT" -> "products.write"
+            path == "/api/settlements/customers" -> "customers.balance.read"
+            path == "/api/settlements/suppliers" -> "suppliers.balance.read"
+            path.matches(Regex("^/api/customers/[^/]+/statement$")) -> "customers.balance.read"
+            path.matches(Regex("^/api/suppliers/[^/]+/statement$")) -> "suppliers.balance.read"
+            path.matches(Regex("^/api/sales/[^/]+/payments$")) -> "sales.collect"
+            path.matches(Regex("^/api/purchases/[^/]+/payments$")) -> "purchases.pay"
             else -> throw IllegalArgumentException("Unsupported native route.")
         }
     }
