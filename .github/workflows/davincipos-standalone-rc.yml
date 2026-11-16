@@ -179,7 +179,7 @@ jobs:
             grep -Fq 'اختر طريقة تشغيل التطبيق' /tmp/davincipos-window.xml
             grep -Fq 'الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN' /tmp/davincipos-window.xml
             grep -Fq 'تشغيل محلي على الهاتف' /tmp/davincipos-window.xml
-            if adb logcat -d -t 2500 | grep -E 'FATAL EXCEPTION|Fatal signal [0-9]'; then
+            if adb logcat -d -t 2500 --pid="$PID" | grep -E 'FATAL EXCEPTION|Fatal signal [0-9]'; then
               echo "Android reported a fatal crash during launcher startup."
               exit 1
             fi
