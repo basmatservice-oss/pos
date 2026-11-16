@@ -198,7 +198,8 @@ public class MainActivity extends Activity {
                     }
                     showApplication();
                 } else if (attempt >= 60) {
-                    showFatal("لم يبدأ خادم DavinciPos المحلي. أعد تشغيل التطبيق أو أرسل سجل الخطأ.");
+                    localStartupStarted = false;
+                    showFatal("لم يبدأ خادم DavinciPos المحلي. يمكنك إعادة المحاولة أو الاتصال بخادم الكمبيوتر عبر LAN.");
                 } else handler.postDelayed(() -> waitForServer(attempt + 1), 500);
             });
         }, "DavinciPos-Health").start();
