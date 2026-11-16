@@ -114,7 +114,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(getStockOnHand(productId,'branch-main'),4,'A repeated checkout must not issue stock a second time');
   assert.equal(listCustomerBalances().find(x=>x.id===customerId).balanceMinor,8000);
 
-  const customerInstallment=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank'});
+  const customerInstallment=recordCustomerPayment(sale.id,{amountMinor:3000,method:'bank',occurredAt:'2026-11-15T08:00:00.000Z'});
   assert.equal(customerInstallment.remainingMinor,5000);
 
   const saleLine=getSalesReturnOptions(sale.id).lines[0];
