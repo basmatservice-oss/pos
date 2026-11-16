@@ -32,4 +32,16 @@ class DavinciScryptTest {
             actual.joinToString("") { "%02x".format(it) }
         )
     }
+    @Test
+    fun matchesNodeHexTextSaltEncoding() {
+        val actual = DavinciScrypt.derive(
+            password = "CorrectHorseBatteryStaple!".toByteArray(Charsets.UTF_8),
+            salt = "00112233445566778899aabbccddeeff".toByteArray(Charsets.UTF_8)
+        )
+        assertEquals(
+            "fe1559ad60e4066f60b60896ee0fb5d61fe7722a3a6e095dec5022c958d79b4d" +
+                "5faf1e7bc0a42f3fc74306c88bec2460f8fd052cf0ec75de912719a206285c7c",
+            actual.joinToString("") { "%02x".format(it) }
+        )
+    }
 }
