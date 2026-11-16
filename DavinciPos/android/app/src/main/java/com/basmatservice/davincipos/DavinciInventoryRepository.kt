@@ -103,6 +103,81 @@ class DavinciInventoryRepository(context: android.content.Context) {
         }
     }
 
+    fun issueWeightedStock(
+        productId: String,
+        branchId: String? = null,
+        sourceType: String,
+        sourceId: String,
+        quantity: Double,
+        occurredAt: String = Instant.now().toString()
+    ): DavinciStockMovementResult {
+        requireSource(productId, sourceType, sourceId)
+        require(quantity.isFinite() && quantity > 0.0) { "Invalid quantity." }
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val available = stockOnHand(db, productId, branchId)
+            require(available + 1e-9 >= quantity) { "Insufficient stock. Available: $available" }
+            val inventoryValue = db.rawQuery(
+                """
+                SELECT COALESCE(SUM(CASE WHEN quantity_delta>0
+                    THEN cost_total_minor ELSE -cost_total_minor END),0)
+                FROM stock_movements WHERE product_id=? AND branch_id IS ?
+                """.trimIndent(),
+                arrayOf(productId, branchId)
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
+            val layers = db.rawQuery(
+                """
+                SELECT id,remaining_quantity FROM inventory_layers
+                WHERE product_id=? AND branch_id IS ? AND remaining_quantity>0
+                ORDER BY received_at,rowid
+                """.trimIndent(),
+                arrayOf(productId, branchId)
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) add(
+                        DavinciWeightedLayer(cursor.getString(0), cursor.getDouble(1))
+                    )
+                }
+            }
+            val allocation = DavinciWeightedAllocator.allocate(
+                layers, available, inventoryValue, quantity
+            )
+            allocation.remainingByLayer.forEach { (layerId, remaining) ->
+                val original = layers.first { it.id == layerId }.remainingQuantity
+                val take = original - remaining
+                if (take > 0.0) {
+                    val changed = db.update(
+                        "inventory_layers",
+                        ContentValues().apply { put("remaining_quantity", remaining) },
+                        "id=? AND product_id=? AND branch_id IS ? AND remaining_quantity>=?",
+                        arrayOf(layerId, productId, branchId, take.toString())
+                    )
+                    check(changed == 1) { "Inventory layer changed while issuing weighted stock." }
+                }
+            }
+            val movementId = UUID.randomUUID().toString()
+            db.insertOrThrow("stock_movements", null, ContentValues().apply {
+                put("id", movementId)
+                put("product_id", productId)
+                putNullable("branch_id", branchId)
+                put("source_type", sourceType)
+                put("source_id", sourceId)
+                put("quantity_delta", -quantity)
+                put("unit_cost_minor", allocation.unitCostMinor)
+                put("cost_total_minor", allocation.costTotalMinor)
+                put("cost_method", "weighted")
+                put("occurred_at", occurredAt)
+            })
+            db.setTransactionSuccessful()
+            return DavinciStockMovementResult(
+                movementId, quantity, allocation.costTotalMinor, allocation.unitCostMinor
+            )
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun issueFifoStock(
         productId: String,
         branchId: String? = null,
