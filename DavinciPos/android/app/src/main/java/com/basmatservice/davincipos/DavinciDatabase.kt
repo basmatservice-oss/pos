@@ -32,6 +32,7 @@ class DavinciDatabase private constructor(context: Context) :
         splitSqlStatements(sql).forEach { statement ->
             if (statement.isNotBlank()) db.execSQL(statement)
         }
+        ensureCompatibilityColumns(db)
         seedDefaults(db)
         seedRoles(db)
         db.execSQL(
@@ -41,10 +42,64 @@ class DavinciDatabase private constructor(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Never silently drop POS data. Each future schema version must add an
-        // explicit, tested migration before DATABASE_VERSION is increased.
-        throw IllegalStateException("Missing DavinciPos database migration: $oldVersion -> $newVersion")
+        // Version 2 mirrors the additive compatibility migrations used by the
+        // Node.js server. Never drop or recreate existing POS tables.
+        if (oldVersion < 2) ensureCompatibilityColumns(db)
+        if (newVersion > 2) {
+            throw IllegalStateException("Missing DavinciPos database migration: $oldVersion -> $newVersion")
+        }
     }
+
+    private fun ensureCompatibilityColumns(db: SQLiteDatabase) {
+        val additions = listOf(
+            Triple("sale_line_cost_layers", "cost_total_minor", "INTEGER NOT NULL DEFAULT 0 CHECK(cost_total_minor>=0)"),
+            Triple("sale_line_cost_layers", "returned_cost_minor", "INTEGER NOT NULL DEFAULT 0 CHECK(returned_cost_minor>=0 AND returned_cost_minor<=cost_total_minor)"),
+            Triple("sync_receipts", "payload_hash", "TEXT"),
+            Triple("sync_conflicts", "payload_hash", "TEXT"),
+            Triple("products", "tax_exempt", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1))"),
+            Triple("services", "tax_exempt", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_exempt IN (0,1))"),
+            Triple("sales", "tax_enabled", "INTEGER NOT NULL DEFAULT 1 CHECK(tax_enabled IN (0,1))"),
+            Triple("sales", "tax_price_mode", "TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))"),
+            Triple("sale_lines", "tax_rate_bps", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)"),
+            Triple("sale_lines", "tax_profile_id", "TEXT"),
+            Triple("sale_lines", "tax_price_mode", "TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))"),
+            Triple("purchases", "tax_minor", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)"),
+            Triple("purchases", "tax_treatment", "TEXT NOT NULL DEFAULT 'disabled' CHECK(tax_treatment IN ('recoverable','non_recoverable','disabled'))"),
+            Triple("purchases", "tax_price_mode", "TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))"),
+            Triple("devices", "owner_user_id", "TEXT"),
+            Triple("devices", "is_active", "INTEGER NOT NULL DEFAULT 1"),
+            Triple("payments", "provider", "TEXT"),
+            Triple("purchase_payments", "provider", "TEXT"),
+            Triple("purchase_payments", "direction", "TEXT NOT NULL DEFAULT 'out' CHECK(direction IN ('out','in'))"),
+            Triple("purchase_lines", "tax_minor", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_minor>=0)"),
+            Triple("purchase_lines", "tax_rate_bps", "INTEGER NOT NULL DEFAULT 0 CHECK(tax_rate_bps BETWEEN 0 AND 10000)"),
+            Triple("purchase_lines", "tax_profile_id", "TEXT"),
+            Triple("purchase_lines", "tax_price_mode", "TEXT NOT NULL DEFAULT 'exclusive' CHECK(tax_price_mode IN ('inclusive','exclusive'))"),
+            Triple("products", "price_currency", "TEXT NOT NULL DEFAULT 'SDG' CHECK(price_currency IN ('SDG','USD'))"),
+            Triple("products", "foreign_cost_minor", "INTEGER"),
+            Triple("products", "foreign_sale_price_minor", "INTEGER"),
+            Triple("products", "auto_rate_update", "INTEGER NOT NULL DEFAULT 0 CHECK(auto_rate_update IN (0,1))")
+        )
+        additions.forEach { (table, column, definition) ->
+            if (!hasColumn(db, table, column)) {
+                db.execSQL("ALTER TABLE $table ADD COLUMN $column $definition")
+            }
+        }
+        db.execSQL(
+            """UPDATE sale_line_cost_layers
+               SET cost_total_minor=CAST(ROUND(quantity*unit_cost_minor) AS INTEGER)
+               WHERE cost_total_minor=0"""
+        )
+    }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameIndex) == column) return@use true
+            }
+            false
+        }
 
     private fun seedRoles(db: SQLiteDatabase) {
         val rolePermissions = linkedMapOf(
@@ -158,7 +213,7 @@ class DavinciDatabase private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "DavinciPos.sqlite"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
 
         @Volatile private var instance: DavinciDatabase? = null
 
