@@ -12,6 +12,10 @@ if ($parsedIp.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork
     throw "Use an IPv4 address for this DavinciPos RC setup."
 }
 
+if ($Port -lt 1024 -or $Port -gt 65535) {
+    throw "Port must be between 1024 and 65535."
+}
+
 $opensslCommand = Get-Command openssl -ErrorAction SilentlyContinue
 if (-not $opensslCommand) {
     throw "OpenSSL was not found. Install Git for Windows (Git Bash/OpenSSL) or Win64 OpenSSL, then run this script from PowerShell again."
