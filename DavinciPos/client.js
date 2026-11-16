@@ -223,7 +223,7 @@ export async function renderPeople(root,kind) {
             const method=form.elements.method,provider=form.elements.provider;
             const syncProvider=()=>{provider.hidden=method.value!=='wallet';};method.addEventListener('change',syncProvider);syncProvider();
             form.addEventListener('submit',async event=>{
-              event.preventDefault();const data=new FormData(form),amountMinor=Math.round(Number(data.get('amount'))*100),methodValue=data.get('method'),providerValue=methodValue==='wallet'?data.get('provider'):null,referenceValue=data.get('reference')||null;const fingerprint=JSON.stringify({amountMinor,method:methodValue,provider:providerValue,reference:referenceValue});if(form.dataset.paymentFingerprint!==fingerprint){form.dataset.paymentFingerprint=fingerprint;form.dataset.idempotencyKey=crypto.randomUUID();}
+              event.preventDefault();const data=new FormData(form),amountMinor=Math.round(Number(data.get('amount'))*100),methodValue=data.get('method'),providerValue=methodValue==='wallet'?data.get('provider'):null,referenceValue=data.get('reference')||null;const fingerprint=JSON.stringify({amountMinor,method:methodValue,provider:providerValue,reference:referenceValue});if(form.dataset.paymentFingerprint!==fingerprint){form.dataset.paymentFingerprint=fingerprint;form.dataset.idempotencyKey=createSaleId();}
               const endpoint=customers?'/api/sales/':'/api/purchases/';
               const message=form.querySelector('[data-payment-message]');
               try{
