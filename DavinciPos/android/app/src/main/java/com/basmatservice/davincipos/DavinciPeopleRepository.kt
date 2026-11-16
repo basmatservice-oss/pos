@@ -25,7 +25,7 @@ class DavinciPeopleRepository(context: android.content.Context) {
 
     fun listCustomers(): List<DavinciCustomer> =
         helper.readableDatabase.rawQuery(
-            "SELECT id,name,phone,email FROM customers ORDER BY name COLLATE NOCASE,id",
+            "SELECT id,name,phone,email FROM customers ORDER BY name",
             null
         ).use { cursor ->
             buildList {
@@ -50,8 +50,8 @@ class DavinciPeopleRepository(context: android.content.Context) {
         val values = ContentValues().apply {
             put("id", id)
             put("name", requiredText(name, "customer name", 160))
-            putOptional("phone", phone, 40)
-            putOptional("email", email, 254)
+            putOptional("phone", phone)
+            putOptional("email", email)
             put("created_at", now)
             put("updated_at", now)
         }
@@ -68,7 +68,7 @@ class DavinciPeopleRepository(context: android.content.Context) {
 
     fun listSuppliers(): List<DavinciSupplier> =
         helper.readableDatabase.rawQuery(
-            "SELECT id,name,phone,email,address FROM suppliers ORDER BY name COLLATE NOCASE,id",
+            "SELECT id,name,phone,email,address FROM suppliers ORDER BY name",
             null
         ).use { cursor ->
             buildList {
@@ -97,7 +97,7 @@ class DavinciPeopleRepository(context: android.content.Context) {
             put("name", requiredText(name, "supplier name", 160))
             putOptional("phone", phone, 40)
             putOptional("email", email, 254)
-            putOptional("address", address, 500)
+            putOptional("address", address)
             put("created_at", now)
             put("updated_at", now)
         }
@@ -112,13 +112,8 @@ class DavinciPeopleRepository(context: android.content.Context) {
         }
     }
 
-    private fun ContentValues.putOptional(key: String, value: String?, maxLength: Int) {
-        val clean = value?.trim()?.takeIf { it.isNotEmpty() }
-        if (clean == null) putNull(key)
-        else {
-            require(clean.length <= maxLength) { "Invalid $key." }
-            put(key, clean)
-        }
+    private fun ContentValues.putOptional(key: String, value: String?) {
+        if (value.isNullOrEmpty()) putNull(key) else put(key, value)
     }
 
     private fun requiredText(value: String, label: String, maxLength: Int): String {
