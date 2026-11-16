@@ -41,7 +41,7 @@ Status meanings:
 | POST /api/tax-profiles | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/products | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired; response mapped |
 | POST /api/products | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired; update route remains open |
-| PATCH /api/products/:id | DavinciCatalogRepository | Foundation only; verify validation/audit parity |
+| PATCH /api/products/:id | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired; partial update validation ported |
 | GET /api/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | POST /api/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/products/:id/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
@@ -145,3 +145,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Product catalogue read/create, categories, units, product-unit conversions and barcode lookup are now dispatched to Kotlin in local Android mode. Product PATCH, product-currency updates and the remaining catalog edge cases are still unported.
 
 - USD/SDG exchange-rate history, current-rate lookup, optional automatic recalculation of linked USD product prices, and product currency configuration are now exposed through the authenticated local Kotlin bridge.
+
+- Product PATCH now enforces the Node-side invariants for base-unit changes after stock movements, disabling stock tracking with positive stock, safe monetary values, tax rate bounds and minimum stock; it is exposed through the authenticated Kotlin bridge.
