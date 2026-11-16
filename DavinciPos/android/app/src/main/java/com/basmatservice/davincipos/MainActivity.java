@@ -117,6 +117,17 @@ public class MainActivity extends Activity {
         status.setGravity(Gravity.CENTER);
         status.setPadding(0, 20, 0, 0);
         layout.addView(status, new LinearLayout.LayoutParams(-1, -2));
+        TextView lanButton = new TextView(this);
+        lanButton.setText("إعداد الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN");
+        lanButton.setTextSize(15);
+        lanButton.setTextColor(Color.WHITE);
+        lanButton.setGravity(Gravity.CENTER);
+        lanButton.setPadding(24, 18, 24, 18);
+        lanButton.setBackgroundColor(Color.rgb(75, 91, 190));
+        LinearLayout.LayoutParams lanParams = new LinearLayout.LayoutParams(-1, -2);
+        lanParams.topMargin = 28;
+        layout.addView(lanButton, lanParams);
+        lanButton.setOnClickListener(view -> showRemoteServerDialog());
         setContentView(layout);
     }
 
@@ -221,12 +232,28 @@ public class MainActivity extends Activity {
     }
 
     private void showFatal(String message) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_VERTICAL);
+        layout.setPadding(32, 40, 32, 40);
+        layout.setBackgroundColor(Color.rgb(245, 247, 251));
         TextView view = new TextView(this);
         view.setText("DavinciPos\n\n" + message);
         view.setTextSize(16);
         view.setTextColor(Color.DKGRAY);
-        view.setPadding(32, 48, 32, 32);
-        setContentView(view);
+        layout.addView(view, new LinearLayout.LayoutParams(-1, -2));
+        TextView lanButton = new TextView(this);
+        lanButton.setText("إعداد الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN");
+        lanButton.setTextSize(15);
+        lanButton.setTextColor(Color.WHITE);
+        lanButton.setGravity(Gravity.CENTER);
+        lanButton.setPadding(24, 18, 24, 18);
+        lanButton.setBackgroundColor(Color.rgb(75, 91, 190));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = 24;
+        layout.addView(lanButton, params);
+        lanButton.setOnClickListener(button -> showRemoteServerDialog());
+        setContentView(layout);
     }
 
     private void copyAssetFolder(String assetPath, File destination) throws Exception {
@@ -275,7 +302,9 @@ public class MainActivity extends Activity {
             handler.post(() -> {
                 if (connected) {
                     remoteMode = true;
-                    webView.loadUrl(serverUrl);
+                    remoteOnlyMode = true;
+                    if (webView == null) showApplication();
+                    else webView.loadUrl(serverUrl);
                 } else if (fallbackToLocal) {
                     remoteMode = false;
                     webView.loadUrl(BASE_URL + "/mobile");
