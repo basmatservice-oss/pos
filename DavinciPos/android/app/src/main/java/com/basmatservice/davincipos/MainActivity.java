@@ -232,12 +232,26 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setLoadsImagesAutomatically(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        final boolean useLocalNativeBridge = remoteServerUrl.isEmpty();
+        if (useLocalNativeBridge) {
+            webView.addJavascriptInterface(
+                new DavinciWebViewBridge(this, webView),
+                "DavinciNative"
+            );
+        }
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
                 String scheme = request.getUrl().getScheme();
                 return !("https".equals(scheme) || ("http".equals(scheme) && "localhost".equals(request.getUrl().getHost())));
+            }
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (useLocalNativeBridge) {
+                    view.evaluateJavascript(DavinciWebViewBridge.BOOTSTRAP_SCRIPT, null);
+                }
             }
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
