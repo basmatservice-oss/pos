@@ -12,6 +12,7 @@ on:
       - '.github/workflows/davincipos-standalone-rc.yml'
   pull_request:
     branches:
+      - main
       - feature/davincipos-android-standalone
     paths:
       - 'DavinciPos/**'
