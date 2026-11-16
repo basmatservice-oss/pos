@@ -44,10 +44,14 @@ class DavinciDatabase private constructor(context: Context) :
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Version 2 mirrors the additive compatibility migrations used by the
         // Node.js server. Never drop or recreate existing POS tables.
-        if (oldVersion < 2) ensureCompatibilityColumns(db)
         if (newVersion > 2) {
             throw IllegalStateException("Missing DavinciPos database migration: $oldVersion -> $newVersion")
         }
+        if (oldVersion < 2) ensureCompatibilityColumns(db)
+        db.execSQL(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            arrayOf(newVersion, Instant.now().toString())
+        )
     }
 
     private fun ensureCompatibilityColumns(db: SQLiteDatabase) {
