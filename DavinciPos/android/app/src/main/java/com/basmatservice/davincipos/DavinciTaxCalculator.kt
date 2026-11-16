@@ -27,10 +27,13 @@ object DavinciTaxCalculator {
         require(rateBps in 0..10_000) { "Invalid tax calculation input." }
 
         val grossProduct = unitPriceMinor.toDouble() * quantity
-        require(grossProduct.isFinite() && grossProduct <= Long.MAX_VALUE.toDouble()) {
-            "Tax calculation exceeds supported numeric limits."
+        require(grossProduct.isFinite() && grossProduct <= MAX_SAFE_INTEGER.toDouble()) {
+            "Tax calculation exceeds supported safe integer limits."
         }
         val gross = grossProduct.roundToLong() - discountMinor
+        require(gross in -MAX_SAFE_INTEGER..MAX_SAFE_INTEGER) {
+            "Tax calculation exceeds supported safe integer limits."
+        }
 
         if (!enabled) return DavinciLineTax(gross, 0L, gross)
         require(priceMode == "inclusive" || priceMode == "exclusive") {
@@ -43,10 +46,13 @@ object DavinciTaxCalculator {
         } else {
             gross.toDouble() * rateBps / 10_000.0
         }
-        require(taxValue.isFinite() && taxValue <= Long.MAX_VALUE.toDouble()) {
-            "Tax amount exceeds supported numeric limits."
+        require(taxValue.isFinite() && taxValue <= MAX_SAFE_INTEGER.toDouble()) {
+            "Tax amount exceeds supported safe integer limits."
         }
         val tax = taxValue.roundToLong()
+        if (priceMode == "exclusive") require(gross <= MAX_SAFE_INTEGER - tax) {
+            "Tax-inclusive line total exceeds supported safe integer limits."
+        }
         return if (priceMode == "inclusive") {
             DavinciLineTax(gross - tax, tax, gross)
         } else {

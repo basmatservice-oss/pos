@@ -103,6 +103,20 @@ class DavinciInventoryRepository(context: android.content.Context) {
         }
     }
 
+    fun issueStock(
+        productId: String,
+        branchId: String? = null,
+        sourceType: String,
+        sourceId: String,
+        quantity: Double,
+        costMethod: String,
+        occurredAt: String = Instant.now().toString()
+    ): DavinciStockMovementResult = when (costMethod) {
+        "fifo" -> issueFifoStock(productId, branchId, sourceType, sourceId, quantity, occurredAt)
+        "weighted" -> issueWeightedStock(productId, branchId, sourceType, sourceId, quantity, occurredAt)
+        else -> throw IllegalArgumentException("Cost method must be weighted or fifo.")
+    }
+
     fun issueWeightedStock(
         productId: String,
         branchId: String? = null,
