@@ -26,7 +26,7 @@ Status meanings:
 | POST /api/auth/logout | DavinciAuthRepository | Foundation only; bridge not wired |
 | GET /api/auth/me | DavinciAuthRepository | Foundation only; bridge not wired |
 | POST /api/devices/register | device repository + sync identity | Not ported |
-| GET /api/settings | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
+| GET /api/settings | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade + authenticated WebView bridge wired for local mode |
 | PUT /api/settings | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | GET /api/users | user administration repository | Not ported |
 | POST /api/users | DavinciAuthRepository | Foundation only; API validation/response not matched |
@@ -128,5 +128,6 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 
 - Added `DavinciServiceRepository.kt`: service create/update/activation, component BOM replacement, stock-tracked component validation, component cost/sale summaries, and atomic service-plus-components save.
 - Added `DavinciSettingsRepository.kt`: settings read/update with the same allowed keys and normalization rules as `settings.js`, inventory-cost-method lock after stock activity, audit rows, tax-profile CRUD/default selection and resolution.
-- Added `DavinciLocalApiFacade.kt`: API-compatible dispatch for the service, component, settings and tax-profile routes. This is a native application facade only; it is **not yet connected to WebView fetch or MainActivity** and does not change the current Node.js startup path.
-- These operations are now classified as Kotlin-facade implemented, not end-to-end complete. Remaining work is transport/bridge wiring, authentication and permission enforcement at the facade boundary, then the other unported workflows in the route matrix.
+- Added `DavinciLocalApiFacade.kt`: API-compatible dispatch for service, component, settings and tax-profile routes.
+- Added `DavinciWebViewBridge.kt` and wired it into local-mode `MainActivity`: local WebView fetch calls for these explicitly supported routes are authenticated against the shared SQLite session and checked against role permissions, then dispatched to Kotlin. Unsupported routes continue to use the existing Node server; remote LAN mode continues to use the Windows HTTPS server.
+- These routes are now wired end-to-end for the selected operations, but the Android runtime is **not Node-free**. Bootstrap/login, products, inventory, sales, purchases, returns, settlements, reports and other unsupported operations still depend on Node. Do not remove Node/JNI until the full route matrix and offline/LAN gates are complete.
