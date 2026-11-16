@@ -22,6 +22,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val catalog = DavinciCatalogRepository(context)
     private val currency = DavinciCurrencyRepository(context)
     private val inventoryWorkflows = DavinciInventoryWorkflowRepository(context)
+    private val expenses = DavinciExpenseRepository(context)
 
     fun dispatch(
         method: String,
@@ -74,6 +75,23 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/expenses" ->
+                    success(JSONArray().apply { expenses.listExpenses().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/expenses" -> {
+                    val result = expenses.createExpense(
+                        category = body.optString("category"),
+                        amountMinor = body.optLong("amountMinor", -1),
+                        paymentMethod = body.optString("paymentMethod", "cash"),
+                        provider = body.optString("provider").takeIf { it.isNotEmpty() },
+                        reference = body.optString("reference").takeIf { it.isNotEmpty() },
+                        note = body.optString("note").takeIf { it.isNotEmpty() },
+                        occurredAt = body.optString("occurredAt").takeIf { it.isNotEmpty() },
+                        userId = actorUserId
+                    )
+                    DavinciLocalApiResult(201, data(result.toJson()))
+                }
 
                 method == "GET" && path == "/api/inventory/counts" ->
                     success(JSONArray().apply { inventoryWorkflows.listInventoryCounts().forEach { put(it.toJson()) } })
@@ -256,6 +274,12 @@ class DavinciLocalApiFacade(context: Context) {
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
 
+
+    private fun DavinciExpense.toJson() = JSONObject()
+        .put("id", id).put("category", category).put("amountMinor", amountMinor)
+        .put("paymentMethod", paymentMethod).put("provider", provider ?: JSONObject.NULL)
+        .put("reference", reference ?: JSONObject.NULL).put("note", note ?: JSONObject.NULL)
+        .put("occurredAt", occurredAt).put("createdBy", createdBy ?: JSONObject.NULL)
 
     private fun DavinciInventoryCountCreated.toJson() = JSONObject()
         .put("id", id).put("branchId", branchId ?: JSONObject.NULL).put("status", status).put("lineCount", lineCount)
