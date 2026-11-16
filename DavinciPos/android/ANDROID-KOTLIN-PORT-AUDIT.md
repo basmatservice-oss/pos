@@ -57,10 +57,10 @@ Status meanings:
 | PUT /api/products/:id/currency | DavinciCurrencyRepository | Foundation only; verify price recalculation parity |
 | GET /api/categories | DavinciCatalogRepository | Foundation only |
 | POST /api/categories | DavinciCatalogRepository | Foundation only |
-| GET /api/customers | DavinciPeopleRepository | Foundation only |
-| POST /api/customers | DavinciPeopleRepository | Foundation only |
-| GET /api/suppliers | DavinciPeopleRepository | Foundation only |
-| POST /api/suppliers | DavinciPeopleRepository | Foundation only |
+| GET /api/customers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/customers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/suppliers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/suppliers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/settlements/customers | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/settlements/suppliers | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/customers/:id/statement | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired |
@@ -139,3 +139,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Added API facade and authenticated WebView bridge routes for settlement balances, statements, and payment collection/disbursement. The bridge forwards the `Idempotency-Key` header and also accepts the existing UI body key.
 - Fixed the shared people screen: it now generates a stable idempotency key per payment payload and reuses it on retry, rotating it only when payment details change. Previously the UI omitted the key although the server required it, so customer and supplier payment forms could never successfully post.
 - These routes still run against the shared SQLite database in local Android mode; they do not remove Node.js, which remains responsible for all routes not yet migrated.
+
+- Customer and supplier directory read/create routes are now also wired through the authenticated Kotlin bridge; people screens can create records and use the native settlement routes without these operations falling back to Node.
