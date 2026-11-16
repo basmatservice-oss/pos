@@ -57,7 +57,11 @@ class DavinciSalesRepositoryIntegrationTest {
         assertEquals(2_000L, quote.subtotalMinor)
         assertEquals(0L, quote.taxMinor)
 
-        val result = sales.checkoutSale(input)
+        val result = try {
+            sales.checkoutSale(input)
+        } catch (error: IllegalArgumentException) {
+            throw AssertionError("Checkout failed: ${error.message}", error)
+        }
         assertFalse(result.duplicate)
         assertEquals(2_000L, result.totalMinor)
         assertEquals(400L, result.costMinor)
