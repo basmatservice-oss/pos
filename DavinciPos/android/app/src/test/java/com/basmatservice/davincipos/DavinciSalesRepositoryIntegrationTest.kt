@@ -14,6 +14,92 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], manifest = Config.NONE)
 class DavinciSalesRepositoryIntegrationTest {
     @Test
+    fun alternateUnitTaxExemptionAndSplitPaymentsReconcile() {
+        val context = RuntimeEnvironment.getApplication()
+        DavinciDatabase.resetForTests(context)
+        val db = DavinciDatabase.get(context).writableDatabase
+        db.execSQL(
+            """INSERT INTO tax_profiles(id,name,rate_bps,price_mode,is_default,is_active)
+               VALUES('tax-standard','Standard VAT',1500,'exclusive',1,1)"""
+        )
+        val catalog = DavinciCatalogRepository(context)
+        val productId = catalog.createProduct(
+            DavinciCatalogRepository.NewProduct(
+                id = "taxed-case-product",
+                name = "Taxed Case",
+                baseUnitId = "unit-piece",
+                salePriceMinor = 1_000,
+                trackStock = false
+            )
+        )
+        val caseUnitId = catalog.createUnit("Case", "case", id = "unit-case")
+        val productUnitId = catalog.saveProductUnit(
+            productId = productId,
+            unitId = caseUnitId,
+            baseQuantity = 12.0,
+            salePriceMinor = 9_000,
+            id = "taxed-case-conversion"
+        )
+        val exemptProductId = catalog.createProduct(
+            DavinciCatalogRepository.NewProduct(
+                id = "exempt-product",
+                name = "Tax Exempt",
+                baseUnitId = "unit-piece",
+                salePriceMinor = 1_000,
+                taxExempt = true,
+                trackStock = false
+            )
+        )
+        val input = DavinciSaleInput(
+            id = "alternate-unit-tax-sale",
+            lines = listOf(
+                DavinciSaleLineInput(productId, 2.0, productUnitId = productUnitId),
+                DavinciSaleLineInput(exemptProductId, 1.0)
+            ),
+            payments = listOf(
+                DavinciSalePayment("cash", 10_000),
+                DavinciSalePayment("bank", 11_700)
+            ),
+            occurredAt = "2026-11-16T09:00:00.000Z"
+        )
+        val sales = DavinciSalesRepository(context)
+        val quote = sales.quoteSale(input)
+        assertEquals(19_000L, quote.subtotalMinor)
+        assertEquals(2_700L, quote.taxMinor)
+        assertEquals(21_700L, quote.totalMinor)
+
+        val result = sales.checkoutSale(input)
+        assertEquals(21_700L, result.totalMinor)
+        val unitLine = db.rawQuery(
+            "SELECT quantity,base_quantity,unit_price_minor FROM sale_lines WHERE sale_id=? AND item_id=?",
+            arrayOf(result.id, productId)
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            Triple(cursor.getDouble(0), cursor.getDouble(1), cursor.getLong(2))
+        }
+        assertEquals(2.0, unitLine.first, 0.000001)
+        assertEquals(24.0, unitLine.second, 0.000001)
+        assertEquals(9_000L, unitLine.third)
+
+        val paymentTotals = db.rawQuery(
+            "SELECT method,SUM(amount_minor) FROM payments WHERE sale_id=? GROUP BY method ORDER BY method",
+            arrayOf(result.id)
+        ).use { cursor ->
+            buildMap {
+                while (cursor.moveToNext()) put(cursor.getString(0), cursor.getLong(1))
+            }
+        }
+        assertEquals(mapOf("bank" to 11_700L, "cash" to 10_000L), paymentTotals)
+        val taxJournal = db.rawQuery(
+            """SELECT COALESCE(SUM(jl.credit_minor),0)
+               FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+               WHERE je.source_type='sale' AND je.source_id=? AND jl.account_id='acc-tax'""".trimIndent(),
+            arrayOf(result.id)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        assertEquals(2_700L, taxJournal)
+    }
+
+    @Test
     fun fifoServiceSalePersistsComponentLayerAllocations() {
         val context = RuntimeEnvironment.getApplication()
         DavinciDatabase.resetForTests(context)
