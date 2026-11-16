@@ -32,6 +32,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -53,8 +54,12 @@ public class MainActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         remoteServerUrl = getPreferences(0).getString("remote_server_url", "");
-        // A saved LAN server is a complete operating mode. Never load the
-        // embedded Node/JNI runtime in this mode.
+        if (!remoteServerUrl.isEmpty() && !isValidRemoteServerUrl(remoteServerUrl)) {
+            getPreferences(0).edit().remove("remote_server_url").apply();
+            remoteServerUrl = "";
+        }
+        // A previously verified LAN server is a complete operating mode.
+        // Never load the embedded Node/JNI runtime in this mode.
         if (!remoteServerUrl.isEmpty()) {
             remoteOnlyMode = true;
             showApplication();
@@ -278,7 +283,7 @@ public class MainActivity extends Activity {
         layout.addView(lanButton, params);
         lanButton.setOnClickListener(button -> showRemoteServerDialog());
         TextView localButton = new TextView(this);
-        localButton.setText("إعادة محاولة التشغيل المحلي");
+        localButton.setText("العودة إلى اختيار طريقة التشغيل");
         localButton.setTextSize(15);
         localButton.setTextColor(Color.WHITE);
         localButton.setGravity(Gravity.CENTER);
@@ -287,7 +292,14 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams localParams = new LinearLayout.LayoutParams(-1, -2);
         localParams.topMargin = 12;
         layout.addView(localButton, localParams);
-        localButton.setOnClickListener(button -> startLocalRuntime());
+        localButton.setOnClickListener(button -> {
+            remoteServerUrl = "";
+            remoteMode = false;
+            remoteOnlyMode = false;
+            getPreferences(0).edit().remove("remote_server_url").apply();
+            webView = null;
+            showStartingScreen();
+        });
         setContentView(layout);
     }
 
@@ -322,30 +334,54 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isValidRemoteServerUrl(String value) {
+        try {
+            URI uri = new URI(value);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                && uri.getHost() != null
+                && uri.getRawUserInfo() == null
+                && uri.getRawQuery() == null
+                && uri.getRawFragment() == null
+                && "/mobile".equals(uri.getRawPath())
+                && (uri.getPort() == -1 || (uri.getPort() >= 1 && uri.getPort() <= 65535));
+        } catch (Exception invalid) {
+            return false;
+        }
+    }
+
     private void probeRemoteServer(String serverUrl, boolean fallbackToLocal) {
         new Thread(() -> {
             boolean reachable = false;
+            HttpURLConnection connection = null;
             try {
-                String healthUrl = serverUrl.substring(0, serverUrl.length() - "/mobile".length()) + "/api/health";
-                HttpURLConnection connection = (HttpURLConnection) new URL(healthUrl).openConnection();
-                connection.setConnectTimeout(2500);
-                connection.setReadTimeout(2500);
+                URI target = new URI(serverUrl);
+                URI health = new URI("https", null, target.getHost(), target.getPort(), "/api/health", null, null);
+                connection = (HttpURLConnection) health.toURL().openConnection();
+                connection.setRequestMethod("GET");
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(4000);
+                connection.setReadTimeout(4000);
                 reachable = connection.getResponseCode() == 200;
-                connection.disconnect();
-            } catch (Exception ignored) {}
+            } catch (Exception failure) {
+                Log.w("DavinciPos", "LAN health probe failed", failure);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
             final boolean connected = reachable;
             handler.post(() -> {
                 if (connected) {
+                    remoteServerUrl = serverUrl;
+                    getPreferences(0).edit().putString("remote_server_url", remoteServerUrl).apply();
                     remoteMode = true;
                     remoteOnlyMode = true;
                     if (webView == null) showApplication();
                     else webView.loadUrl(serverUrl);
-                } else if (fallbackToLocal) {
+                } else if (fallbackToLocal && webView != null) {
                     remoteMode = false;
                     webView.loadUrl(BASE_URL + "/mobile");
                     Toast.makeText(this, "خادم المتجر غير متاح؛ تم فتح قاعدة الهاتف المستقلة. بياناتها لا تندمج تلقائياً مع قاعدة الكمبيوتر.", Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(this, "تعذر الاتصال. تحقق من عنوان الخادم وشبكة LAN وشهادة الأمان.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "تعذر الاتصال. لم يُحفظ العنوان. تحقق من عنوان الخادم وشبكة LAN وشهادة الأمان.", Toast.LENGTH_LONG).show();
                 }
             });
         }, "DavinciPos-RemoteProbe").start();
@@ -375,13 +411,12 @@ public class MainActivity extends Activity {
             })
             .setPositiveButton("اتصال", (dialog, which) -> {
                 String value = input.getText().toString().trim();
-                if (!value.startsWith("https://") || !value.endsWith("/mobile") || value.contains(" ")) {
-                    Toast.makeText(this, "عنوان الخادم غير صالح؛ استخدم HTTPS وينتهي بـ /mobile", Toast.LENGTH_LONG).show();
+                if (!isValidRemoteServerUrl(value)) {
+                    Toast.makeText(this, "عنوان الخادم غير صالح؛ استخدم https://host:port/mobile دون مسار أو معاملات إضافية", Toast.LENGTH_LONG).show();
                     return;
                 }
-                remoteServerUrl = value;
-                getPreferences(0).edit().putString("remote_server_url", remoteServerUrl).apply();
-                probeRemoteServer(remoteServerUrl, false);
+                // Persist the address only after the HTTPS health check succeeds.
+                probeRemoteServer(value, false);
             })
             .show();
     }
