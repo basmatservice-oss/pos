@@ -39,14 +39,14 @@ Status meanings:
 | POST /api/sync/conflicts/:id/resolve | sync conflict repository | Foundation only |
 | GET /api/tax-profiles | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | POST /api/tax-profiles | DavinciSettingsRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
-| GET /api/products | DavinciCatalogRepository | Foundation only; verify full response/filter parity |
-| POST /api/products | DavinciCatalogRepository | Foundation only; verify validation/audit parity |
+| GET /api/products | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired; response mapped |
+| POST /api/products | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired; update route remains open |
 | PATCH /api/products/:id | DavinciCatalogRepository | Foundation only; verify validation/audit parity |
-| GET /api/units | DavinciCatalogRepository | Foundation only |
-| POST /api/units | DavinciCatalogRepository | Foundation only |
-| GET /api/products/:id/units | DavinciCatalogRepository | Foundation only |
-| POST /api/products/:id/units | DavinciCatalogRepository | Foundation only |
-| GET /api/barcode/:code | DavinciCatalogRepository | Foundation only |
+| GET /api/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/products/:id/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/products/:id/units | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/barcode/:code | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/services | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | POST /api/services | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
 | PATCH /api/services/:id | DavinciServiceRepository + DavinciLocalApiFacade | Kotlin local facade implemented; WebView bridge not wired |
@@ -55,8 +55,8 @@ Status meanings:
 | GET /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify date selection/response parity |
 | POST /api/currency/rates | DavinciCurrencyRepository | Foundation only; verify rounding and historical-rate behavior |
 | PUT /api/products/:id/currency | DavinciCurrencyRepository | Foundation only; verify price recalculation parity |
-| GET /api/categories | DavinciCatalogRepository | Foundation only |
-| POST /api/categories | DavinciCatalogRepository | Foundation only |
+| GET /api/categories | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/categories | DavinciCatalogRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/customers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
 | POST /api/customers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/suppliers | DavinciPeopleRepository + local facade/bridge | Kotlin local route wired |
@@ -141,3 +141,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - These routes still run against the shared SQLite database in local Android mode; they do not remove Node.js, which remains responsible for all routes not yet migrated.
 
 - Customer and supplier directory read/create routes are now also wired through the authenticated Kotlin bridge; people screens can create records and use the native settlement routes without these operations falling back to Node.
+
+- Product catalogue read/create, categories, units, product-unit conversions and barcode lookup are now dispatched to Kotlin in local Android mode. Product PATCH, product-currency updates and the remaining catalog edge cases are still unported.
