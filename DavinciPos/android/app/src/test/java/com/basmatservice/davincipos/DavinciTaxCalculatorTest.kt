@@ -52,6 +52,18 @@ class DavinciTaxCalculatorTest {
     }
 
     @Test
+    fun rejectsAmountsOutsideJavaScriptSafeIntegerRange() {
+        assertThrows(IllegalArgumentException::class.java) {
+            DavinciTaxCalculator.calculateLineTax(
+                unitPriceMinor = 9_007_199_254_740_991L,
+                quantity = 2.0,
+                rateBps = 0,
+                priceMode = "exclusive"
+            )
+        }
+    }
+
+    @Test
     fun rejectsInvalidRateAndQuantity() {
         assertThrows(IllegalArgumentException::class.java) {
             DavinciTaxCalculator.calculateLineTax(

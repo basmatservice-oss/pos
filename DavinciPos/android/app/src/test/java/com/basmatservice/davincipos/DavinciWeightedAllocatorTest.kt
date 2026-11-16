@@ -28,8 +28,9 @@ class DavinciWeightedAllocatorTest {
             inventoryValueMinor = 140,
             quantity = 0.4000000005
         )
+        assertEquals(1, result.allocations.size)
         assertEquals(0.4, result.allocations["first"]!!, 0.0000001)
-        assertEquals(0.0000000005, result.allocations["second"]!!, 0.0000001)
+        assertEquals(1.0, result.remainingByLayer["second"]!!, 0.0000001)
     }
 
     @Test
