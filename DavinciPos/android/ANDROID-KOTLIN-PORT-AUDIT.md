@@ -77,12 +77,12 @@ Status meanings:
 | POST /api/inventory/adjustments | DavinciInventoryWorkflowRepository + accounting + local facade/bridge | Kotlin local route wired |
 | POST /api/sales/quote | sales pricing/tax/FIFO service | Not ported |
 | POST /api/sales/checkout | sales + payments + accounting + FIFO service | Not ported |
-| POST /api/purchases/quote | purchase pricing/tax service | Not ported |
+| POST /api/purchases/quote | DavinciPurchaseRepository + local facade/bridge | Kotlin local route wired |
 | GET /api/returns/sales/:id/options | sales-return repository | Not ported |
 | POST /api/returns/sales/:id | sales-return + FIFO cost reversal + accounting service | Not ported |
 | GET /api/returns/purchases/:id/options | purchase-return repository | Not ported |
 | POST /api/returns/purchases/:id | purchase-return + inventory + accounting service | Not ported |
-| POST /api/purchases/receive | purchase receiving + inventory/FIFO service | Not ported |
+| POST /api/purchases/receive | DavinciPurchaseRepository + inventory + accounting + local facade/bridge | Kotlin local route wired |
 | POST /api/accounting/journal-entries/:id/reverse | DavinciAccountingRepository.reverseJournalEntry | Foundation implemented; DB integration tests still required |
 | GET /api/accounting/trial-balance | DavinciAccountingRepository.getTrialBalance | Foundation implemented with inclusive from/exclusive next-day to filters; DB integration/parity tests still required |
 | GET /api/accounting/ledger/:accountId | DavinciAccountingRepository.getAccountLedger | Foundation implemented; DB integration and route response parity still required |\n| GET /api/expenses | DavinciExpenseRepository + local facade/bridge | Kotlin local route wired |
@@ -153,3 +153,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - Expense entry and history are now Kotlin-native in local Android mode, including payment-method/provider validation, integer minor-unit accounting, balanced expense-vs-cash/bank/card/wallet postings, and audit trail.
 
 - Sales and purchase invoice history lists now read directly from the Android SQLite database through Kotlin; invoice return actions and full purchase/sale workflows remain separate route work.
+
+- Purchase quote and receipt now have Kotlin implementations: product/unit validation, tax-profile and purchase-tax treatment, recoverable/non-recoverable tax handling, split/partial payments, inventory layer receipt, purchase variance, AP, input-tax and payment-account journals. The local Android UI routes for purchase quoting and receiving are bridged to Kotlin.
