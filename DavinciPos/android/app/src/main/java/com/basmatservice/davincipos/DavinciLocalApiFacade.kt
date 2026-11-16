@@ -109,6 +109,12 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/products" ->
                     success(JSONArray().apply { catalog.listProducts().forEach { put(it.toJson()) } })
 
+                method == "PATCH" && path.matches(Regex("^/api/products/[^/]+$")) -> {
+                    val id = path.substringAfterLast("/")
+                    catalog.updateProduct(id, body.toPrimitiveMap())
+                    success(JSONObject().put("updated", true))
+                }
+
                 method == "POST" && path == "/api/products" -> {
                     val id = catalog.createProduct(body.toNewProduct())
                     DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
@@ -310,6 +316,17 @@ class DavinciLocalApiFacade(context: Context) {
 
     private fun JSONObject.longOrNull(key: String): Long? =
         if (!has(key) || isNull(key) || optString(key).isEmpty()) null else optLong(key)
+
+    private fun JSONObject.toPrimitiveMap(): Map<String, Any?> {
+        val result = linkedMapOf<String, Any?>()
+        val iterator = keys()
+        while (iterator.hasNext()) {
+            val key = iterator.next()
+            val value = get(key)
+            result[key] = if (value === JSONObject.NULL) null else value
+        }
+        return result
+    }
 
     private fun JSONObject.toNewProduct() = DavinciCatalogRepository.NewProduct(
         id = optString("id").takeIf { it.isNotEmpty() }, name = optString("name"),
