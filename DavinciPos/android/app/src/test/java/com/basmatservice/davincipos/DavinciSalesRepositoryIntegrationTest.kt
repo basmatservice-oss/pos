@@ -128,8 +128,10 @@ class DavinciSalesRepositoryIntegrationTest {
                 DavinciSaleLineInput(exemptProductId, 1.0)
             ),
             payments = listOf(
-                DavinciSalePayment("cash", 10_000),
-                DavinciSalePayment("bank", 11_700)
+                DavinciSalePayment("cash", 8_000),
+                DavinciSalePayment("bank", 8_000),
+                DavinciSalePayment("card", 4_700),
+                DavinciSalePayment("wallet", 1_000, provider = "bankak")
             ),
             occurredAt = "2026-11-16T09:00:00.000Z"
         )
@@ -160,7 +162,15 @@ class DavinciSalesRepositoryIntegrationTest {
                 while (cursor.moveToNext()) put(cursor.getString(0), cursor.getLong(1))
             }
         }
-        assertEquals(mapOf("bank" to 11_700L, "cash" to 10_000L), paymentTotals)
+        assertEquals(
+            mapOf("bank" to 8_000L, "card" to 4_700L, "cash" to 8_000L, "wallet" to 1_000L),
+            paymentTotals
+        )
+        val walletProvider = db.rawQuery(
+            "SELECT provider FROM payments WHERE sale_id=? AND method='wallet'",
+            arrayOf(result.id)
+        ).use { cursor -> assertTrue(cursor.moveToFirst()); cursor.getString(0) }
+        assertEquals("bankak", walletProvider)
         val taxJournal = db.rawQuery(
             """SELECT COALESCE(SUM(jl.credit_minor),0)
                FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
