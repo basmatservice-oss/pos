@@ -142,8 +142,8 @@ jobs:
           find "$APP/jniLibs" -type f -printf '%p %s bytes\\n'
           echo "SQLite addon libraries:"
           find "$ASSETS/native" -type f -printf '%p %s bytes\\n'
-      - name: Build standalone Android APK
-        run: gradle --no-daemon -p DavinciPos/android assembleDebug
+      - name: Run Android JVM unit tests and build standalone APK
+        run: gradle --no-daemon -p DavinciPos/android testDebugUnitTest assembleDebug
       - name: Verify native ELF 16 KB page compatibility and APK alignment
         shell: bash
         run: |
