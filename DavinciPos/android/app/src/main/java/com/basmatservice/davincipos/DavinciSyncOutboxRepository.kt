@@ -72,7 +72,7 @@ class DavinciSyncOutboxRepository(context: android.content.Context) {
         operationId: String = UUID.randomUUID().toString()
     ): String {
         require(deviceId.length in 8..100) { "A valid registered device ID is required." }
-        require(operationId.isNotBlank() && operationId.length <= 128) { "Invalid offline operation ID." }
+        require(operationId.matches(Regex("[A-Za-z0-9._~-]{1,128}"))) { "Invalid offline operation ID." }
         val lines = sale.optJSONArray("lines")
         require(lines != null && lines.length() > 0) { "Offline sale requires at least one line." }
         for (index in 0 until lines.length()) {
@@ -137,6 +137,85 @@ class DavinciSyncOutboxRepository(context: android.content.Context) {
                     )
                 )
             }
+        }
+    }
+
+    fun listHeldConflicts(deviceId: String, limit: Int = 100): List<DavinciOfflineOperation> {
+        return helper.readableDatabase.rawQuery(
+            """
+            SELECT o.operation_id,o.device_id,o.entity_type,o.entity_id,o.operation,
+                   o.payload,o.status,o.attempts,o.created_at,o.last_error
+            FROM sync_outbox o
+            INNER JOIN sync_conflicts c ON c.operation_id=o.operation_id
+            WHERE o.device_id=? AND c.status='pending'
+            ORDER BY c.created_at,o.rowid
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(deviceId, limit.coerceIn(1, 500).toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(
+                    DavinciOfflineOperation(
+                        operationId = cursor.getString(0),
+                        deviceId = cursor.getString(1),
+                        entityType = cursor.getString(2),
+                        entityId = cursor.getString(3),
+                        operation = cursor.getString(4),
+                        payload = JSONObject(cursor.getString(5)),
+                        status = cursor.getString(6),
+                        attempts = cursor.getInt(7),
+                        createdAt = cursor.getString(8),
+                        lastError = if (cursor.isNull(9)) null else cursor.getString(9)
+                    )
+                )
+            }
+        }
+    }
+
+    fun applyServerConflictDecision(operationId: String, status: String, reason: String?): Boolean {
+        require(status == "pending" || status == "rejected") { "Unsupported server conflict status." }
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val operation = db.rawQuery(
+                "SELECT device_id,entity_type,entity_id,payload FROM sync_outbox WHERE operation_id=?",
+                arrayOf(operationId)
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) null else arrayOf(
+                    cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)
+                )
+            } ?: return false
+            val existingId = db.rawQuery(
+                "SELECT id FROM sync_conflicts WHERE operation_id=?",
+                arrayOf(operationId)
+            ).use { if (it.moveToFirst()) it.getString(0) else null }
+            val now = Instant.now().toString()
+            if (existingId != null) {
+                db.update("sync_conflicts", ContentValues().apply {
+                    put("reason", (reason ?: "Server requires conflict review.").take(1000))
+                    put("status", status)
+                }, "operation_id=?", arrayOf(operationId))
+            } else {
+                db.insertOrThrow("sync_conflicts", null, ContentValues().apply {
+                    put("id", UUID.randomUUID().toString())
+                    put("operation_id", operationId)
+                    put("device_id", operation[0])
+                    put("entity_type", operation[1])
+                    put("entity_id", operation[2])
+                    put("payload", operation[3])
+                    put("reason", (reason ?: "Server requires conflict review.").take(1000))
+                    put("status", status)
+                    put("created_at", now)
+                })
+            }
+            db.update("sync_outbox", ContentValues().apply {
+                put("status", "failed")
+                put("last_error", reason?.take(1000))
+            }, "operation_id=?", arrayOf(operationId))
+            db.setTransactionSuccessful()
+            return true
+        } finally {
+            db.endTransaction()
         }
     }
 
