@@ -40,11 +40,11 @@ class DavinciAuthRepository(context: android.content.Context) {
         actorUserId: String? = null
     ): String {
         require(Looper.myLooper() != Looper.getMainLooper()) { "Password derivation must run on a background thread." }
-        val normalized = username.trim().lowercase()
-        require(normalized.matches(Regex("^[a-zA-Z0-9._-]{3,48}$"))) { "Invalid username." }
+        require(username.matches(Regex("^[a-zA-Z0-9._-]{3,48}$"))) { "Invalid username." }
+        val normalized = username.lowercase()
         require(password.size in 12..256) { "Password must contain at least 12 characters." }
         val cleanDisplayName = displayName.trim().also {
-            require(it.isNotEmpty() && it.length <= 160) { "Invalid display name." }
+            require(it.isNotEmpty()) { "Invalid display name." }
         }
         require(role in ROLES) { "Invalid role." }
         if (role == "owner") {
@@ -70,6 +70,20 @@ class DavinciAuthRepository(context: android.content.Context) {
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
+            // Re-check owner bootstrap inside the write transaction to prevent
+            // two concurrent first-run requests from creating competing owners.
+            if (role == "owner") {
+                val authorized = if (actorUserId == null) {
+                    db.rawQuery("SELECT COUNT(*) FROM users", null).use {
+                        it.moveToFirst() && it.getInt(0) == 0
+                    }
+                } else {
+                    db.rawQuery("SELECT role FROM users WHERE id=?", arrayOf(actorUserId)).use {
+                        it.moveToFirst() && it.getString(0) == "owner"
+                    }
+                }
+                require(authorized) { "Owner creation is not authorized." }
+            }
             db.insertOrThrow("users", null, ContentValues().apply {
                 put("id", id)
                 put("username", normalized)
@@ -98,7 +112,7 @@ class DavinciAuthRepository(context: android.content.Context) {
 
     fun login(username: String, password: CharArray): DavinciLoginSession? {
         require(Looper.myLooper() != Looper.getMainLooper()) { "Password verification must run on a background thread." }
-        val normalized = username.trim().lowercase()
+        val normalized = username.lowercase()
         val row = helper.readableDatabase.rawQuery(
             "SELECT id,username,password_hash,display_name,role FROM users WHERE username=? AND is_active=1",
             arrayOf(normalized)
