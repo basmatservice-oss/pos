@@ -37,6 +37,7 @@ class DavinciWebViewBridge(
             method == "PUT" && path.matches(Regex("^/api/products/[^/]+/currency$")) -> true
             (method == "GET" || method == "POST") && path.matches(Regex("^/api/products/[^/]+/units$")) -> true
             method == "PATCH" && path.matches(Regex("^/api/services/[^/]+$")) -> true
+            method == "PATCH" && path.matches(Regex("^/api/products/[^/]+$")) -> true
             (method == "GET" || method == "PUT") &&
                 path.matches(Regex("^/api/services/[^/]+/components$")) -> true
             method == "GET" && path.matches(Regex("^/api/(customers|suppliers)/[^/]+/statement$")) -> true
@@ -95,6 +96,7 @@ class DavinciWebViewBridge(
             path == "/api/currency/rates" && method == "GET" -> "settings.read"
             path == "/api/currency/rates" && method == "POST" -> "settings.update"
             path.matches(Regex("^/api/products/[^/]+/currency$")) -> "products.write"
+            path.matches(Regex("^/api/products/[^/]+$")) && method == "PATCH" -> "products.write"
             path == "/api/products" && method == "GET" -> "products.read"
             path == "/api/products" && method == "POST" -> "products.write"
             path == "/api/categories" && method == "GET" -> "products.read"
