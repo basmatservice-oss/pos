@@ -23,6 +23,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val currency = DavinciCurrencyRepository(context)
     private val inventoryWorkflows = DavinciInventoryWorkflowRepository(context)
     private val expenses = DavinciExpenseRepository(context)
+    private val documents = DavinciDocumentRepository(context)
 
     fun dispatch(
         method: String,
@@ -75,6 +76,12 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/sales" ->
+                    success(JSONArray().apply { documents.listSales().forEach { put(it.toJson()) } })
+
+                method == "GET" && path == "/api/purchases" ->
+                    success(JSONArray().apply { documents.listPurchases().forEach { put(it.toJson()) } })
 
                 method == "GET" && path == "/api/expenses" ->
                     success(JSONArray().apply { expenses.listExpenses().forEach { put(it.toJson()) } })
@@ -274,6 +281,17 @@ class DavinciLocalApiFacade(context: Context) {
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
 
+
+    private fun DavinciSaleDocument.toJson() = JSONObject()
+        .put("id", id).put("receiptNumber", receiptNumber)
+        .put("customerId", customerId ?: JSONObject.NULL).put("cashierId", cashierId ?: JSONObject.NULL)
+        .put("status", status).put("subtotalMinor", subtotalMinor).put("taxMinor", taxMinor)
+        .put("totalMinor", totalMinor).put("currencyCode", currencyCode).put("occurredAt", occurredAt)
+    private fun DavinciPurchaseDocument.toJson() = JSONObject()
+        .put("id", id).put("invoiceNumber", invoiceNumber).put("supplierId", supplierId ?: JSONObject.NULL)
+        .put("status", status).put("subtotalMinor", subtotalMinor).put("taxMinor", taxMinor)
+        .put("totalMinor", totalMinor).put("taxTreatment", taxTreatment)
+        .put("currencyCode", currencyCode).put("occurredAt", occurredAt)
 
     private fun DavinciExpense.toJson() = JSONObject()
         .put("id", id).put("category", category).put("amountMinor", amountMinor)
