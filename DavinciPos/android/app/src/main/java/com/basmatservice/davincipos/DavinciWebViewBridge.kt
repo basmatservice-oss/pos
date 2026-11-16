@@ -25,7 +25,7 @@ class DavinciWebViewBridge(
         val path = rawPath.substringBefore('?').trimEnd('/')
         return when {
             method == "GET" && path in setOf(
-                "/api/services", "/api/settings", "/api/tax-profiles"
+                "/api/services", "/api/settings", "/api/tax-profiles", "/api/settlements/customers", "/api/settlements/suppliers"
             ) -> true
             method == "POST" && path in setOf(
                 "/api/services", "/api/tax-profiles"
@@ -34,6 +34,8 @@ class DavinciWebViewBridge(
             method == "PATCH" && path.matches(Regex("^/api/services/[^/]+$")) -> true
             (method == "GET" || method == "PUT") &&
                 path.matches(Regex("^/api/services/[^/]+/components$")) -> true
+            method == "GET" && path.matches(Regex("^/api/(customers|suppliers)/[^/]+/statement$")) -> true
+            method == "POST" && path.matches(Regex("^/api/(sales|purchases)/[^/]+/payments$")) -> true
             else -> false
         }
     }
