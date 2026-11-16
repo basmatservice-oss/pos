@@ -326,10 +326,10 @@ class DavinciCatalogRepository(context: android.content.Context) {
         db.beginTransaction()
         try {
             val current = db.rawQuery(
-                "SELECT base_unit_id,track_stock FROM products WHERE id=?",
+                "SELECT base_unit_id FROM products WHERE id=?",
                 arrayOf(id)
             ).use { cursor ->
-                if (!cursor.moveToFirst()) null else cursor.getString(0) to (cursor.getInt(1) == 1)
+                if (!cursor.moveToFirst()) null else cursor.getString(0)
             } ?: throw IllegalArgumentException("Product not found.")
 
             val values = ContentValues()
@@ -349,7 +349,7 @@ class DavinciCatalogRepository(context: android.content.Context) {
             }
             if (patch.containsKey("baseUnitId")) {
                 val unitId = requiredText(patch["baseUnitId"] as? String ?: "", "base unit", 100)
-                if (unitId != current.first) {
+                if (unitId != current) {
                     val hasMovements = db.rawQuery(
                         "SELECT 1 FROM stock_movements WHERE product_id=? LIMIT 1", arrayOf(id)
                     ).use { it.moveToFirst() }
@@ -374,7 +374,7 @@ class DavinciCatalogRepository(context: android.content.Context) {
             )
             if (patch.containsKey("trackStock")) {
                 val track = patch["trackStock"] == true
-                if (!track && current.second) {
+                if (!track) {
                     val onHand = db.rawQuery(
                         "SELECT COALESCE(SUM(quantity_delta),0) FROM stock_movements WHERE product_id=?",
                         arrayOf(id)
