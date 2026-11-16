@@ -18,6 +18,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val services = DavinciServiceRepository(context)
     private val settings = DavinciSettingsRepository(context)
     private val settlements = DavinciSettlementRepository(context)
+    private val people = DavinciPeopleRepository(context)
 
     fun dispatch(
         method: String,
@@ -70,6 +71,22 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "GET" && path == "/api/customers" ->
+                    success(JSONArray().apply { people.listCustomers().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/customers" -> {
+                    val id = people.createCustomer(body.optString("name"), body.optString("phone").takeIf { it.isNotEmpty() }, body.optString("email").takeIf { it.isNotEmpty() }, body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
+                }
+
+                method == "GET" && path == "/api/suppliers" ->
+                    success(JSONArray().apply { people.listSuppliers().forEach { put(it.toJson()) } })
+
+                method == "POST" && path == "/api/suppliers" -> {
+                    val id = people.createSupplier(body.optString("name"), body.optString("phone").takeIf { it.isNotEmpty() }, body.optString("email").takeIf { it.isNotEmpty() }, body.optString("address").takeIf { it.isNotEmpty() }, body.optString("id").takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString())
+                    DavinciLocalApiResult(201, data(JSONObject().put("id", id)))
+                }
 
                 method == "GET" && path == "/api/settlements/customers" ->
                     success(JSONArray().apply { settlements.listCustomerBalances().forEach { put(it.toJson()) } })
@@ -126,6 +143,14 @@ class DavinciLocalApiFacade(context: Context) {
     private fun success(value: Any) = DavinciLocalApiResult(200, data(value))
     private fun data(value: Any) = JSONObject().put("data", value)
 
+
+    private fun DavinciCustomer.toJson() = JSONObject()
+        .put("id", id).put("name", name).put("phone", phone ?: JSONObject.NULL)
+        .put("email", email ?: JSONObject.NULL)
+
+    private fun DavinciSupplier.toJson() = JSONObject()
+        .put("id", id).put("name", name).put("phone", phone ?: JSONObject.NULL)
+        .put("email", email ?: JSONObject.NULL).put("address", address ?: JSONObject.NULL)
 
     private fun DavinciPartyBalance.toJson() = JSONObject()
         .put("id", id).put("name", name).put("phone", phone ?: JSONObject.NULL)
