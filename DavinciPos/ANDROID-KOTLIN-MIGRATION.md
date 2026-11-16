@@ -44,3 +44,23 @@ The current server exposes these routes (dynamic path parameters shown as `:id`,
 Test fresh install/bootstrap, login/permissions, catalog and units, sales and payments, purchases, FIFO/weighted cost, partial/full returns, returned cost layers, expenses, balanced journals, net profit/COGS, currency-rate changes, offline persistence, process death/restart, duplicate sync replay, LAN reconnect and operation with WAN disconnected.
 
 The current Node-based APK is still the reference runtime. This foundation commit does not claim that Android has been migrated or that a new APK is ready.
+
+
+## Implementation update
+
+The first CI build of this branch completed successfully (run 43769172667), including the existing Android packaging/alignment checks and the existing Windows test/package job. This is only a build check: the Android launcher still uses embedded Node.js, so this APK is not the Kotlin runtime.
+
+The Kotlin foundation now includes:
+- a platform `SQLiteOpenHelper` using the canonical packaged `schema.sql`;
+- foreign-key enforcement and WAL configuration;
+- initial branch, units, accounting accounts, settings, and role-permission seeds;
+- a typed catalog repository for listing units/categories/products and transactionally creating categories/products;
+- product stock and inventory value projections matching the current catalog read model.
+
+Still intentionally not implemented:
+- Android authentication/session parity (the current server uses Node scrypt; do not replace it with a weaker hash);
+- the full HTTP API adapter used by the existing Web UI;
+- product update, customer/supplier, purchases, sales, FIFO layers, returns, accounting, reports and sync services;
+- launcher switch and Node/JNI removal.
+
+The repository methods are a foundation only. They are not yet wired to WebView and do not make the Android application functionally independent. CI must compile this code before expanding the service surface.

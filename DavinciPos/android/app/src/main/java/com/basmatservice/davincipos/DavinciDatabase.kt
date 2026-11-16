@@ -33,6 +33,7 @@ class DavinciDatabase private constructor(context: Context) :
             if (statement.isNotBlank()) db.execSQL(statement)
         }
         seedDefaults(db)
+        seedRoles(db)
         db.execSQL(
             "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
             arrayOf(DATABASE_VERSION, Instant.now().toString())
@@ -43,6 +44,58 @@ class DavinciDatabase private constructor(context: Context) :
         // Never silently drop POS data. Each future schema version must add an
         // explicit, tested migration before DATABASE_VERSION is increased.
         throw IllegalStateException("Missing DavinciPos database migration: $oldVersion -> $newVersion")
+    }
+
+    private fun seedRoles(db: SQLiteDatabase) {
+        val rolePermissions = linkedMapOf(
+            "owner" to listOf("*"),
+            "admin" to listOf("*"),
+            "manager" to listOf(
+                "dashboard.read", "products.read", "products.write", "inventory.read", "inventory.write",
+                "sales.read", "sales.create", "sales.credit", "sales.collect", "sales.return", "sales.void",
+                "purchases.read", "purchases.create", "purchases.pay", "purchases.return",
+                "customers.read", "customers.write", "customers.balance.read",
+                "suppliers.read", "suppliers.write", "suppliers.balance.read", "reports.read",
+                "expenses.read", "expenses.create", "accounting.read", "settings.read", "users.read",
+                "sync.conflicts.read", "sync.conflicts.resolve"
+            ),
+            "cashier" to listOf(
+                "dashboard.read", "products.read", "inventory.read", "sales.create",
+                "sales.collect", "customers.read", "customers.balance.read"
+            ),
+            "accountant" to listOf(
+                "dashboard.read", "sales.read", "sales.collect", "purchases.read", "purchases.pay",
+                "customers.balance.read", "suppliers.balance.read", "reports.read", "expenses.read",
+                "accounting.read", "accounting.reverse", "settings.read"
+            ),
+            "sales" to listOf(
+                "dashboard.read", "products.read", "inventory.read", "sales.read", "sales.create",
+                "sales.collect", "customers.read", "customers.write", "customers.balance.read"
+            )
+        )
+        val insertRole = db.compileStatement(
+            "INSERT OR IGNORE INTO roles(name,description,is_system) VALUES(?,?,1)"
+        )
+        val insertPermission = db.compileStatement(
+            "INSERT OR IGNORE INTO role_permissions(role_name,permission) VALUES(?,?)"
+        )
+        val now = Instant.now().toString()
+        rolePermissions.forEach { (role, permissions) ->
+            insertRole.clearBindings()
+            insertRole.bindString(1, role)
+            insertRole.bindString(2, "$role role")
+            insertRole.executeInsert()
+            permissions.forEach { permission ->
+                insertPermission.clearBindings()
+                insertPermission.bindString(1, role)
+                insertPermission.bindString(2, permission)
+                insertPermission.executeInsert()
+            }
+        }
+        db.execSQL(
+            "INSERT OR REPLACE INTO app_settings(key,value,updated_at) VALUES(?,?,?)",
+            arrayOf("security.permissions.version", "5", now)
+        )
     }
 
     private fun seedDefaults(db: SQLiteDatabase) {
