@@ -57,13 +57,13 @@ class DavinciAuthRepository(context: android.content.Context) {
                 "Initial owner can only be created on an empty database; otherwise an owner must authorize it."
             }
         }
-        val salt = ByteArray(16).also(random::nextBytes)
+        val saltText = hex(ByteArray(16).also(random::nextBytes))
         val derived = try {
-            DavinciScrypt.derive(String(password).toByteArray(Charsets.UTF_8), salt.toByteArray(Charsets.UTF_8))
+            DavinciScrypt.derive(String(password).toByteArray(Charsets.UTF_8), saltText.toByteArray(Charsets.UTF_8))
         } finally {
             password.fill('\u0000')
         }
-        val passwordHash = hex(salt) + ":" + hex(derived)
+        val passwordHash = saltText + ":" + hex(derived)
         derived.fill(0)
         val id = UUID.randomUUID().toString()
         val now = Instant.now().toString()
@@ -188,6 +188,15 @@ class DavinciAuthRepository(context: android.content.Context) {
             .use { if (it.moveToFirst()) it.getString(0) else null }
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+
+    private fun unhex(value: String): ByteArray {
+        require(value.length % 2 == 0 && value.matches(Regex("^[0-9a-fA-F]*$"))) {
+            "Invalid password hash."
+        }
+        return ByteArray(value.length / 2) { index ->
+            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    }
 
     companion object {
         private val ROLES = setOf("owner", "admin", "manager", "cashier", "accountant", "sales")
