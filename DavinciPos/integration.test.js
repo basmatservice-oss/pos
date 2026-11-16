@@ -88,7 +88,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
 
   const purchaseLine=getPurchaseReturnOptions(purchase.id).lines[0];
   const firstPurchaseReturn=createPurchaseReturn(purchase.id,{
-    id:'integrated-purchase-return-1',
+    id:'integrated-purchase-return-1',occurredAt:'2026-11-15T09:00:00.000Z',
     lines:[{purchaseLineId:purchaseLine.id,quantity:2}],
     refundMethod:'cash'
   });
@@ -119,7 +119,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
 
   const saleLine=getSalesReturnOptions(sale.id).lines[0];
   const firstSalesReturn=createSalesReturn(sale.id,{
-    id:'integrated-sales-return-1',
+    id:'integrated-sales-return-1',occurredAt:'2026-11-15T10:00:00.000Z',
     lines:[{saleLineId:saleLine.id,quantity:1}],
     refundMethod:'cash'
   });
@@ -129,7 +129,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(listCustomerBalances().find(x=>x.id===customerId).balanceMinor,5000);
 
   const secondSalesReturn=createSalesReturn(sale.id,{
-    id:'integrated-sales-return-2',
+    id:'integrated-sales-return-2',occurredAt:'2026-11-15T11:00:00.000Z',
     lines:[{saleLineId:saleLine.id,quantity:1}],
     refundMethod:'bank'
   });
@@ -139,7 +139,7 @@ test('integrated purchase, supplier installments, purchase returns, sale, custom
   assert.equal(listCustomerBalances().find(x=>x.id===customerId).balanceMinor,5000);
 
   const secondPurchaseReturn=createPurchaseReturn(purchase.id,{
-    id:'integrated-purchase-return-2',
+    id:'integrated-purchase-return-2',occurredAt:'2026-11-15T12:00:00.000Z',
     lines:[{purchaseLineId:purchaseLine.id,quantity:1}],
     refundMethod:'bank'
   });
