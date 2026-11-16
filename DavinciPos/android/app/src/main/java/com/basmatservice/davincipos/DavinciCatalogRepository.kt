@@ -42,6 +42,18 @@ data class DavinciProduct(
     val isActive: Boolean
 )
 
+data class DavinciProductUnit(
+    val id: String,
+    val productId: String,
+    val unitId: String,
+    val unitName: String,
+    val unitSymbol: String,
+    val baseQuantity: Double,
+    val barcode: String?,
+    val salePriceMinor: Long?,
+    val isDefaultSale: Boolean
+)
+
 /**
  * First typed Android repository slice. SQL is private to this class; the WebView
  * must never receive a raw database handle or arbitrary SQL execution capability.
