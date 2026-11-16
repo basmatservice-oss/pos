@@ -6,6 +6,7 @@ on:
       - feature/davincipos-android-standalone
       - fix/davincipos-android-startup-rc2
       - feature/davincipos-android-kotlin-sqlite
+      - develop
     paths:
       - 'DavinciPos/**'
       - '.github/workflows/davincipos-standalone-rc.yml'
@@ -166,24 +167,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: |
-            set -euo pipefail
-            APK="DavinciPos/android/app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK"
-            adb shell am force-stop com.basmatservice.davincipos
-            adb shell am start -W -n com.basmatservice.davincipos/.MainActivity
-            sleep 5
-            PID="$(adb shell pidof com.basmatservice.davincipos | tr -d '\\r')"
-            test -n "$PID"
-            adb shell uiautomator dump /sdcard/davincipos-window.xml
-            adb pull /sdcard/davincipos-window.xml /tmp/davincipos-window.xml
-            grep -Fq 'اختر طريقة تشغيل التطبيق' /tmp/davincipos-window.xml
-            grep -Fq 'الاتصال بخادم الكمبيوتر عبر Wi-Fi / LAN' /tmp/davincipos-window.xml
-            grep -Fq 'تشغيل محلي على الهاتف' /tmp/davincipos-window.xml
-            if adb logcat -d -t 2500 --pid="$PID" | grep -E 'FATAL EXCEPTION|Fatal signal [0-9]'; then
-              echo "Android reported a fatal crash during launcher startup."
-              exit 1
-            fi
-            echo "Android emulator startup chooser smoke test passed; app PID=$PID"
+            bash DavinciPos/scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         with:
           name: DavinciPos-Android-Standalone-RC
