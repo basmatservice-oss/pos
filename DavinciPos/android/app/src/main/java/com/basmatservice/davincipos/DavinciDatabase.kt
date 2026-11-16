@@ -226,73 +226,7 @@ class DavinciDatabase private constructor(context: Context) :
          * Split SQL while preserving quoted strings, comments and trigger bodies.
          * SQLiteOpenHelper.execSQL accepts one statement at a time.
          */
-        internal fun splitSqlStatements(source: String): List<String> {
-            val statements = mutableListOf<String>()
-            val current = StringBuilder()
-            var quote: Char? = null
-            var lineComment = false
-            var blockComment = false
-            var trigger = false
-            var triggerDepth = 0
-            var caseDepth = 0
-            var i = 0
-            while (i < source.length) {
-                val c = source[i]
-                val next = if (i + 1 < source.length) source[i + 1] else '\u0000'
-                if (lineComment) {
-                    current.append(c)
-                    if (c == '\n') lineComment = false
-                    i++
-                    continue
-                }
-                if (blockComment) {
-                    current.append(c)
-                    if (c == '*' && next == '/') {
-                        current.append(next); i += 2; blockComment = false
-                    } else i++
-                    continue
-                }
-                if (quote != null) {
-                    current.append(c)
-                    if (c == quote) {
-                        if (next == quote) { current.append(next); i += 2; continue }
-                        quote = null
-                    } else if (c == '\\' && next != '\u0000') {
-                        current.append(next); i += 2; continue
-                    }
-                    i++
-                    continue
-                }
-                if (c == '-' && next == '-') { current.append(c).append(next); i += 2; lineComment = true; continue }
-                if (c == '/' && next == '*') { current.append(c).append(next); i += 2; blockComment = true; continue }
-                if (c == '\'' || c == '"' || c == '`') { quote = c; current.append(c); i++; continue }
-                if (c.isLetter()) {
-                    val start = i
-                    while (i < source.length && (source[i].isLetterOrDigit() || source[i] == '_')) i++
-                    val word = source.substring(start, i)
-                    val upper = word.uppercase()
-                    if (current.toString().trimStart().uppercase().startsWith("CREATE TRIGGER")) {
-                        trigger = true
-                        if (upper == "BEGIN") triggerDepth++
-                        if (upper == "CASE") caseDepth++
-                        if (upper == "END") {
-                            if (caseDepth > 0) caseDepth-- else if (triggerDepth > 0) triggerDepth--
-                        }
-                    }
-                    current.append(word)
-                    continue
-                }
-                if (c == ';' && (!trigger || (triggerDepth == 0 && caseDepth == 0))) {
-                    if (current.isNotBlank()) statements.add(current.toString().trim())
-                    current.setLength(0)
-                    trigger = false
-                    triggerDepth = 0
-                    caseDepth = 0
-                } else current.append(c)
-                i++
-            }
-            if (current.isNotBlank()) statements.add(current.toString().trim())
-            return statements
-        }
+        internal fun splitSqlStatements(source: String): List<String> = DavinciSqlScriptSplitter.split(source)
+
     }
 }
