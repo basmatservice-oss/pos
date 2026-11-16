@@ -355,15 +355,10 @@ class DavinciSettlementRepository(context: Context) {
     }
 
     private fun payloadHash(payment: NormalizedPayment): String {
-        val payload = JSONObject()
-            .put("amountMinor", payment.amountMinor)
-            .put("method", payment.method)
-            .put("provider", payment.provider ?: JSONObject.NULL)
-            .put("reference", payment.reference ?: JSONObject.NULL)
-            .apply {
-                if (payment.requestedOccurredAt != null) put("occurredAt", payment.requestedOccurredAt)
-            }
-            .toString()
+        val provider = payment.provider?.let { JSONObject.quote(it) } ?: "null"
+        val reference = payment.reference?.let { JSONObject.quote(it) } ?: "null"
+        val occurredAt = payment.requestedOccurredAt?.let { ",\"occurredAt\":${JSONObject.quote(it)}" } ?: ""
+        val payload = "{\"amountMinor\":${payment.amountMinor},\"method\":${JSONObject.quote(payment.method)},\"provider\":$provider,\"reference\":$reference$occurredAt}"
         return MessageDigest.getInstance("SHA-256")
             .digest(payload.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
