@@ -17,7 +17,7 @@ class DavinciAccountingRepositoryIntegrationTest {
     @Test
     fun postsReversesAndReportsJournalAtomicallyInRealSqliteSchema() {
         val context = RuntimeEnvironment.getApplication()
-        context.deleteDatabase("DavinciPos.sqlite")
+        DavinciDatabase.resetForTests(context)
         val repository = DavinciAccountingRepository(context)
         val helper = DavinciDatabase.get(context)
         val occurredAt = "2026-11-16T10:00:00.000Z"
