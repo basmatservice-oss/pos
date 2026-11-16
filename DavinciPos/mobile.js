@@ -1,5 +1,5 @@
 import {api,ensureSession,renderSettings,renderUsers,renderConflicts,renderProducts,renderInventory,renderPeople,renderInvoices,renderReports,renderSaleCheckout,renderPurchaseEntry,renderServices,renderCurrency,renderExpenses,renderReturns,logout} from './client.js';
-const views={dashboard:'الرئيسية',sales:'المبيعات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',returns:'المرتجعات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
+const views={dashboard:'الرئيسية',sales:'المبيعات',purchases:'المشتريات','invoices-sales':'فواتير المبيعات','invoices-purchases':'فواتير المشتريات',products:'المنتجات',inventory:'المخزون',customers:'العملاء',suppliers:'الموردون',reports:'التقارير',services:'الخدمات',currency:'سعر الصرف',expenses:'المصروفات',returns:'المرتجعات',settings:'الإعدادات',users:'المستخدمون',conflicts:'تعارضات المزامنة'};
 const root=document.querySelector('#mobile-view');
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/service-worker.js',{scope:'/'}).catch(()=>{});
 async function refresh(){
@@ -14,6 +14,8 @@ async function show(key){
  if(key==='conflicts'){await renderConflicts(root);return;}
  if(key==='inventory'){await renderInventory(root);return;}
  if(key==='sales'){await renderSaleCheckout(root);return;}
+ if(key==='invoices-sales'){await renderInvoices(root,'sales');return;}
+ if(key==='invoices-purchases'){await renderInvoices(root,'purchases');return;}
  if(key==='purchases'){await renderPurchaseEntry(root);return;}
  if(key==='returns'){await renderReturns(root);return;}
  if(key==='products'){await renderProducts(root);return;}
