@@ -55,6 +55,8 @@ class DavinciSalesRepositoryIntegrationTest {
         val quote = try {
             sales.quoteSale(input)
         } catch (error: IllegalArgumentException) {
+            System.err.println("QUOTE_SALE_FAILURE: ${error.javaClass.name}: ${error.message}")
+            error.printStackTrace(System.err)
             throw AssertionError("Quote failed: ${error.message}", error)
         }
         assertEquals(2_000L, quote.totalMinor)
@@ -64,6 +66,8 @@ class DavinciSalesRepositoryIntegrationTest {
         val result = try {
             sales.checkoutSale(input)
         } catch (error: IllegalArgumentException) {
+            System.err.println("CHECKOUT_SALE_FAILURE: ${error.javaClass.name}: ${error.message}")
+            error.printStackTrace(System.err)
             throw AssertionError("Checkout failed: ${error.message}", error)
         }
         assertFalse(result.duplicate)
