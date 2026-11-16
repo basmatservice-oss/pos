@@ -67,21 +67,21 @@ internal object DavinciSqlScriptSplitter {
                 } else current.append(c)
                 i++
             }
-            if (current.isNotBlank()) statements.add(current.toString().trim())
+            if (hasSqlContent(current.toString())) statements.add(current.toString().trim())
             return statements
         }
     private fun hasSqlContent(value: String): Boolean {
         var index = 0
         while (index < value.length) {
             val current = value[index]
-            val next = if (index + 1 < value.length) value[index + 1] else '\\u0000'
+            val next = if (index + 1 < value.length) value[index + 1] else '\u0000'
             if (current.isWhitespace()) {
                 index++
                 continue
             }
             if (current == '-' && next == '-') {
                 index += 2
-                while (index < value.length && value[index] != '\\n') index++
+                while (index < value.length && value[index] != '\n') index++
                 continue
             }
             if (current == '/' && next == '*') {
