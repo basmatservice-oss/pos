@@ -356,7 +356,7 @@ public class MainActivity extends Activity {
             HttpURLConnection connection = null;
             try {
                 URI target = new URI(serverUrl);
-                URI health = new URI("https", null, target.getHost(), target.getPort(), "/api/health", null, null);
+                URI health = target.resolve("/api/health");
                 connection = (HttpURLConnection) health.toURL().openConnection();
                 connection.setRequestMethod("GET");
                 connection.setInstanceFollowRedirects(false);
