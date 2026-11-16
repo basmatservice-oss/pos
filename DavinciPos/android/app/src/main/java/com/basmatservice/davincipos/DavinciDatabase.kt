@@ -226,6 +226,15 @@ class DavinciDatabase private constructor(context: Context) :
                 instance ?: DavinciDatabase(context).also { instance = it }
             }
 
+        /** Test-only isolation for Robolectric SQLite integration tests. */
+        internal fun resetForTests(context: Context) {
+            synchronized(this) {
+                instance?.close()
+                instance = null
+                context.applicationContext.deleteDatabase(DATABASE_NAME)
+            }
+        }
+
         /**
          * Split SQL while preserving quoted strings, comments and trigger bodies.
          * SQLiteOpenHelper.execSQL accepts one statement at a time.
