@@ -86,3 +86,18 @@ For LAN access, the computer server must bind to a LAN interface (commonly `HOST
 Example phone URL: `https://192.168.1.10:3000/mobile` (only if the computer actually uses that IP and port). No WAN/Internet connection is required when both devices can reach each other over the same LAN/Wi-Fi.
 
 The client is added as a typed transport foundation. It is not yet wired into all WebView operations or offline queue replay; those remain release-gate work. The LAN-mode startup change avoids the current unnecessary dependency on embedded Node at launch, but still requires a real phone-to-computer TLS/login/sync test before release.
+
+
+## Kotlin parity and offline-sync progress (2026-11-16)
+
+The Kotlin foundation has been extended with:
+- currency-aware product fields in the catalog model, including foreign USD cost/sale price and automatic rate-update flag;
+- product-unit conversion CRUD and barcode lookup for products, alternate units and services;
+- additive SQLite schema migration to version 2, with a migration ledger entry written after a successful upgrade; no table drops or destructive rebuilds;
+- a JVM-testable SQL script splitter and unit tests for quoted semicolons, SQL comments and trigger bodies;
+- a durable SQLite outbox for offline sales, persistent device identity, cached POS snapshot, retry state and conflict records;
+- DavinciOfflineSyncService.kt, which registers an Android device against the authenticated Express route and submits queued offline sales to POST /api/sync/offline-sales, preserving operation IDs for server idempotency and handling accepted/conflict/rejected/temporary-failure responses.
+
+The sync service is a native service layer and is not yet connected to the WebView checkout flow or a background reconnect scheduler. The Android database also still needs broader schema-vs-server initialization tests, and the remaining Kotlin service ports (auth/session, purchases, FIFO, returns, accounting and reports) remain incomplete.
+
+Current verification is tracked by GitHub Actions on the branch. A completed CI run is required before treating these latest additions as compile-verified. No real Android handset LAN sync test has been performed yet.
