@@ -138,11 +138,12 @@ class DavinciWebViewBridge(
                 const headers=new Headers((init&&init.headers)||(input instanceof Request?input.headers:undefined));
                 const authorization=headers.get('Authorization')||'';
                 const token=authorization.replace(/^Bearer\\s+/i,'');
+                const idempotencyKey=headers.get('Idempotency-Key')||'';
                 const body=init&&typeof init.body==='string'?init.body:'';
                 return new Promise(resolve=>{
                   const id=String(++sequence);
                   pending.set(id,resolve);
-                  window.DavinciNative.request(id,method,url.pathname+url.search,body,token);
+                  window.DavinciNative.request(id,method,url.pathname+url.search,body,token,idempotencyKey);
                 });
               };
             })();
