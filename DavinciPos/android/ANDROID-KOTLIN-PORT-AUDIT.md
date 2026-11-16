@@ -69,12 +69,12 @@ Status meanings:
 | POST /api/purchases/:id/payments | DavinciSettlementRepository + local facade/bridge | Kotlin local route wired; idempotency required |
 | GET /api/sales | sales repository | Not ported |
 | GET /api/purchases | purchases repository | Not ported |
-| GET /api/inventory/counts | stocktaking repository | Not ported |
-| POST /api/inventory/counts | stocktaking repository | Not ported |
-| GET /api/inventory/counts/:id | stocktaking repository | Not ported |
-| PUT /api/inventory/counts/:id/lines/:productId | stocktaking repository | Not ported |
-| POST /api/inventory/counts/:id/post | stocktaking + accounting transaction service | Not ported |
-| POST /api/inventory/adjustments | inventory + accounting transaction service | Foundation only; low-level stock primitives are not the full workflow |
+| GET /api/inventory/counts | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/inventory/counts | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
+| GET /api/inventory/counts/:id | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
+| PUT /api/inventory/counts/:id/lines/:productId | DavinciInventoryWorkflowRepository + local facade/bridge | Kotlin local route wired |
+| POST /api/inventory/counts/:id/post | DavinciInventoryWorkflowRepository + accounting + local facade/bridge | Kotlin local route wired |
+| POST /api/inventory/adjustments | DavinciInventoryWorkflowRepository + accounting + local facade/bridge | Kotlin local route wired |
 | POST /api/sales/quote | sales pricing/tax/FIFO service | Not ported |
 | POST /api/sales/checkout | sales + payments + accounting + FIFO service | Not ported |
 | POST /api/purchases/quote | purchase pricing/tax service | Not ported |
@@ -147,3 +147,5 @@ This verifies that one critical hash-encoding test vector is correct; it does no
 - USD/SDG exchange-rate history, current-rate lookup, optional automatic recalculation of linked USD product prices, and product currency configuration are now exposed through the authenticated local Kotlin bridge.
 
 - Product PATCH now enforces the Node-side invariants for base-unit changes after stock movements, disabling stock tracking with positive stock, safe monetary values, tax rate bounds and minimum stock; it is exposed through the authenticated Kotlin bridge.
+
+- Android Kotlin now owns inventory adjustment workflows and physical count lifecycle (create, fetch, line entry, atomic posting), including stock layer changes, accounting gains/losses, duplicate adjustment IDs and audit rows. These endpoints are wired in local WebView mode.
