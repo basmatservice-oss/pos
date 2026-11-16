@@ -24,6 +24,7 @@ class DavinciLocalApiFacade(context: Context) {
     private val inventoryWorkflows = DavinciInventoryWorkflowRepository(context)
     private val expenses = DavinciExpenseRepository(context)
     private val documents = DavinciDocumentRepository(context)
+    private val purchases = DavinciPurchaseRepository(context)
 
     fun dispatch(
         method: String,
@@ -76,6 +77,14 @@ class DavinciLocalApiFacade(context: Context) {
                 method == "GET" && path == "/api/tax-profiles" ->
                     success(JSONArray().apply { settings.listTaxProfiles().forEach { put(it.toJson()) } })
 
+
+                method == "POST" && path == "/api/purchases/quote" ->
+                    success(purchases.quotePurchase(body.toPurchaseInput()).toJson())
+
+                method == "POST" && path == "/api/purchases/receive" -> {
+                    val result = purchases.receivePurchase(body.toPurchaseInput())
+                    DavinciLocalApiResult(201, data(result.toJson()))
+                }
 
                 method == "GET" && path == "/api/sales" ->
                     success(JSONArray().apply { documents.listSales().forEach { put(it.toJson()) } })
@@ -282,6 +291,24 @@ class DavinciLocalApiFacade(context: Context) {
     private fun data(value: Any) = JSONObject().put("data", value)
 
 
+    private fun DavinciPurchaseQuote.toJson() = JSONObject()
+        .put("subtotalMinor", subtotalMinor).put("taxMinor", taxMinor).put("totalMinor", totalMinor)
+        .put("currencyCode", currencyCode).put("taxTreatment", taxTreatment)
+        .put("lines", JSONArray().apply { lines.forEach { put(it.toJson()) } })
+    private fun DavinciPurchaseQuoteLine.toJson() = JSONObject()
+        .put("productId", productId).put("quantity", quantity).put("netMinor", netMinor)
+        .put("taxMinor", taxMinor).put("totalMinor", totalMinor)
+        .put("taxRateBps", taxRateBps).put("taxPriceMode", taxPriceMode)
+    private fun DavinciPurchaseReceiveResult.toJson() = JSONObject().apply {
+        put("id", id).put("duplicate", duplicate)
+        invoiceNumber?.let { put("invoiceNumber", it) }
+        subtotalMinor?.let { put("subtotalMinor", it) }
+        taxMinor?.let { put("taxMinor", it) }
+        totalMinor?.let { put("totalMinor", it) }
+        taxTreatment?.let { put("taxTreatment", it) }
+        paidMinor?.let { put("paidMinor", it) }
+    }
+
     private fun DavinciSaleDocument.toJson() = JSONObject()
         .put("id", id).put("receiptNumber", receiptNumber)
         .put("customerId", customerId ?: JSONObject.NULL).put("cashierId", cashierId ?: JSONObject.NULL)
@@ -379,6 +406,36 @@ class DavinciLocalApiFacade(context: Context) {
     private fun DavinciRecordedPayment.toJson(entityKey: String) = JSONObject()
         .put("id", id).put(entityKey, entityId)
         .put("amountMinor", amountMinor).put("remainingMinor", remainingMinor)
+
+    private fun JSONObject.toPurchaseInput(): DavinciPurchaseInput {
+        val lineArray = optJSONArray("lines") ?: throw IllegalArgumentException("Purchase must contain at least one line.")
+        val lines = (0 until lineArray.length()).map { index ->
+            val row = lineArray.optJSONObject(index) ?: throw IllegalArgumentException("Invalid purchase line.")
+            DavinciPurchaseLineInput(
+                productId = row.optString("productId"), quantity = row.optDouble("quantity", Double.NaN),
+                unitCostMinor = row.optLong("unitCostMinor", -1), discountMinor = row.optLong("discountMinor", 0),
+                productUnitId = row.optString("productUnitId").takeIf { it.isNotEmpty() },
+                unitName = row.optString("unitName").takeIf { it.isNotEmpty() }
+            )
+        }
+        val payments = optJSONArray("payments")?.let { array -> (0 until array.length()).map { index ->
+            val row = array.optJSONObject(index) ?: throw IllegalArgumentException("Invalid purchase payment.")
+            DavinciPurchasePaymentInput(
+                method = row.optString("method"), amountMinor = row.optLong("amountMinor", -1),
+                reference = row.optString("reference").takeIf { it.isNotEmpty() },
+                provider = row.optString("provider").takeIf { it.isNotEmpty() }
+            )
+        } } ?: emptyList()
+        return DavinciPurchaseInput(
+            id = optString("id").takeIf { it.isNotEmpty() },
+            invoiceNumber = optString("invoiceNumber").takeIf { it.isNotEmpty() },
+            supplierId = optString("supplierId").takeIf { it.isNotEmpty() },
+            branchId = optString("branchId", DavinciCatalogRepository.MAIN_BRANCH_ID),
+            currencyCode = optString("currencyCode").takeIf { it.isNotEmpty() },
+            occurredAt = optString("occurredAt").takeIf { it.isNotEmpty() },
+            lines = lines, payments = payments
+        )
+    }
 
     private fun JSONObject.toPaymentInput(headerKey: String?) = DavinciPaymentInput(
         amountMinor = optLong("amountMinor", -1),
