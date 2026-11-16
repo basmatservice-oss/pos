@@ -48,13 +48,18 @@ class DavinciAuthRepository(context: android.content.Context) {
         }
         require(role in ROLES) { "Invalid role." }
         if (role == "owner") {
-            require(actorUserId != null && getUserRole(actorUserId) == "owner") {
-                "Only an authenticated owner can create another owner account."
+            val allowed = if (actorUserId == null) {
+                helper.readableDatabase.rawQuery("SELECT COUNT(*) FROM users", null).use {
+                    it.moveToFirst() && it.getInt(0) == 0
+                }
+            } else getUserRole(actorUserId) == "owner"
+            require(allowed) {
+                "Initial owner can only be created on an empty database; otherwise an owner must authorize it."
             }
         }
         val salt = ByteArray(16).also(random::nextBytes)
         val derived = try {
-            DavinciScrypt.derive(String(password).toByteArray(Charsets.UTF_8), salt)
+            DavinciScrypt.derive(String(password).toByteArray(Charsets.UTF_8), salt.toByteArray(Charsets.UTF_8))
         } finally {
             password.fill('\u0000')
         }
@@ -106,7 +111,9 @@ class DavinciAuthRepository(context: android.content.Context) {
 
         val stored = row[2].split(":")
         if (stored.size != 2) { password.fill('\u0000'); return null }
-        val salt = unhex(stored[0])
+        // security.js passes the hexadecimal salt as UTF-8 text to Node scrypt.
+        // Decoding it to raw bytes would produce an incompatible password hash.
+        val salt = stored[0].toByteArray(Charsets.UTF_8)
         val expected = unhex(stored[1])
         val actual = try {
             DavinciScrypt.derive(String(password).toByteArray(Charsets.UTF_8), salt)
@@ -181,13 +188,6 @@ class DavinciAuthRepository(context: android.content.Context) {
             .use { if (it.moveToFirst()) it.getString(0) else null }
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
-
-    private fun unhex(value: String): ByteArray {
-        require(value.length % 2 == 0 && value.matches(Regex("^[0-9a-fA-F]*$"))) { "Invalid password hash." }
-        return ByteArray(value.length / 2) { index ->
-            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-        }
-    }
 
     companion object {
         private val ROLES = setOf("owner", "admin", "manager", "cashier", "accountant", "sales")
