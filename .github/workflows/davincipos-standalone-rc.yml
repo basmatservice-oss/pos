@@ -83,6 +83,7 @@ jobs:
 
   android-standalone:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -158,6 +159,7 @@ jobs:
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -name zipalign -type f | sort -V | tail -1)"
           "$ZIPALIGN" -c -P 16 -v 4 "$APK"
       - name: Launch APK on Android 15 x86_64 emulator and verify startup chooser
+        timeout-minutes: 12
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
