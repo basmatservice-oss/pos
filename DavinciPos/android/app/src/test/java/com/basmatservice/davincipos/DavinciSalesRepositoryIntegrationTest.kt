@@ -14,6 +14,77 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], manifest = Config.NONE)
 class DavinciSalesRepositoryIntegrationTest {
     @Test
+    fun partialAndFullCreditSalesPostReceivablesAtomically() {
+        val context = RuntimeEnvironment.getApplication()
+        DavinciDatabase.resetForTests(context)
+        val db = DavinciDatabase.get(context).writableDatabase
+        val now = "2026-11-16T08:00:00.000Z"
+        db.execSQL(
+            "INSERT INTO customers(id,name,created_at,updated_at) VALUES(?,?,?,?)",
+            arrayOf("credit-customer", "Credit Customer", now, now)
+        )
+        val productId = DavinciCatalogRepository(context).createProduct(
+            DavinciCatalogRepository.NewProduct(
+                id = "credit-sale-product",
+                name = "Credit Item",
+                baseUnitId = "unit-piece",
+                salePriceMinor = 1_000,
+                trackStock = false
+            )
+        )
+        val sales = DavinciSalesRepository(context)
+        val partial = sales.checkoutSale(
+            DavinciSaleInput(
+                id = "partial-credit-sale",
+                customerId = "credit-customer",
+                allowCredit = true,
+                lines = listOf(DavinciSaleLineInput(productId, 1.0)),
+                payments = listOf(DavinciSalePayment("cash", 400)),
+                occurredAt = "2026-11-16T09:00:00.000Z"
+            )
+        )
+        val full = sales.checkoutSale(
+            DavinciSaleInput(
+                id = "full-credit-sale",
+                customerId = "credit-customer",
+                allowCredit = true,
+                lines = listOf(DavinciSaleLineInput(productId, 1.0)),
+                occurredAt = "2026-11-16T09:01:00.000Z"
+            )
+        )
+        assertEquals(1_000L, partial.totalMinor)
+        assertEquals(1_000L, full.totalMinor)
+        val receivable = db.rawQuery(
+            """SELECT SUM(jl.debit_minor)
+               FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+               WHERE je.source_type='sale' AND je.source_id IN (?,?)
+                 AND jl.account_id='acc-ar'""".trimIndent(),
+            arrayOf(partial.id, full.id)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        assertEquals(1_600L, receivable)
+        val paymentCount = db.rawQuery(
+            "SELECT COUNT(*) FROM payments WHERE sale_id IN (?,?)",
+            arrayOf(partial.id, full.id)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+        assertEquals(1, paymentCount)
+
+        val unpaidWithoutPermission = DavinciSaleInput(
+            id = "credit-not-authorized",
+            customerId = "credit-customer",
+            lines = listOf(DavinciSaleLineInput(productId, 1.0)),
+            occurredAt = "2026-11-16T09:02:00.000Z"
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            sales.checkoutSale(unpaidWithoutPermission)
+        }
+        val rejectedCount = db.rawQuery(
+            "SELECT COUNT(*) FROM sales WHERE id='credit-not-authorized'",
+            null
+        ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+        assertEquals(0, rejectedCount)
+    }
+
+    @Test
     fun alternateUnitTaxExemptionAndSplitPaymentsReconcile() {
         val context = RuntimeEnvironment.getApplication()
         DavinciDatabase.resetForTests(context)
