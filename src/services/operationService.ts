@@ -404,6 +404,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
         );
         const product = await db.products.get(oi.productId);
         if (product) {
+          assertLocalBaseUnitMatches(product, oi);
           await db.products.update(product.id!, {
             stockQuantity: product.stockQuantity + baseQty,
             updatedAt: now,
@@ -521,6 +522,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
         const product = await db.products.get(origItem.productId);
         if (product) {
+          assertLocalBaseUnitMatches(product, origItem);
           await db.products.update(product.id!, {
             stockQuantity: product.stockQuantity + baseQty,
             updatedAt: now,
@@ -704,6 +706,7 @@ async function applyPurchaseLocally(
         for (const item of oldItems) {
           const prod = await db.products.get(item.productId);
           if (prod) {
+            assertLocalBaseUnitMatches(prod, item);
             await db.products.update(prod.id!, {
               stockQuantity: prod.stockQuantity - getBaseMovementQuantity(item),
               updatedAt: now,
@@ -864,6 +867,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         }
 
         const prod = await db.products.get(Number(reqItem.productId));
+        if (prod && batch) assertLocalBaseUnitMatches(prod, batch);
         if (!batch && (!prod || Number(prod.stockQuantity || 0) < baseQuantity)) {
           throw new Error('المخزون المتاح لا يكفي لتنفيذ مرتجع المشتريات');
         }
