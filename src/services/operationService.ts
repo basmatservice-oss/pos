@@ -48,7 +48,7 @@ function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 
   return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 }
 
-type LocalBatchAllocation = { batchId: string | null; quantity: number; costPrice: number };
+type LocalBatchAllocation = { batchId: string | number | null; quantity: number; costPrice: number };
 
 function parseLocalBatchAllocations(value: unknown): LocalBatchAllocation[] {
   try {
@@ -57,7 +57,7 @@ function parseLocalBatchAllocations(value: unknown): LocalBatchAllocation[] {
     return parsed
       .filter((row: any) => row && Number(row.quantity) > 0)
       .map((row: any) => ({
-        batchId: row.batchId == null ? null : String(row.batchId),
+        batchId: row.batchId == null ? null : row.batchId,
         quantity: Number(row.quantity),
         costPrice: Number(row.costPrice || 0),
       }));
@@ -93,7 +93,7 @@ async function consumeLocalInventoryFIFO(
       updatedAt: now,
       syncStatus,
     });
-    allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
+    allocations.push({ batchId: batch.id!, quantity: take, costPrice });
     totalCost += take * costPrice;
     remaining -= take;
   }
@@ -165,7 +165,10 @@ async function restoreLocalInventoryFIFO(
     let restoredToOriginal = 0;
 
     if (allocation.batchId) {
-      const batch = await db.inventoryBatches.get(allocation.batchId);
+      const batch = await db.inventoryBatches.get(allocation.batchId) ||
+        (typeof allocation.batchId === 'string' && /^\d+$/.test(allocation.batchId)
+          ? await db.inventoryBatches.get(Number(allocation.batchId))
+          : undefined);
       if (batch) {
         const capacity = Math.max(
           0,
@@ -179,7 +182,7 @@ async function restoreLocalInventoryFIFO(
             syncStatus,
           });
           restoredAllocations.push({
-            batchId: String(batch.id),
+            batchId: batch.id!,
             quantity: restoredToOriginal,
             costPrice,
           });
@@ -254,7 +257,10 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           const baseQty = Number(serverItem.baseQuantity ?? getBaseMovementQuantity(item));
           for (const allocation of parseLocalBatchAllocations(serverItem.batchAllocations)) {
             if (!allocation.batchId) continue;
-            const batch = await db.inventoryBatches.get(allocation.batchId);
+            const batch = await db.inventoryBatches.get(allocation.batchId) ||
+        (typeof allocation.batchId === 'string' && /^\d+$/.test(allocation.batchId)
+          ? await db.inventoryBatches.get(Number(allocation.batchId))
+          : undefined);
             if (!batch) continue;
             const currentRemaining = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
             await db.inventoryBatches.update(batch.id!, {
