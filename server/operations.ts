@@ -78,9 +78,7 @@ function appendInventoryMovement(
     input.sourceId,
     input.sourceLineId == null ? input.productId : String(input.sourceLineId),
   ].join(':');
-  const id = crypto.createHash('sha256')
-    .update(`${ctx.operationId}:${movementKey}`)
-    .digest('hex');
+  const id = `${ctx.operationId}:${movementKey}`;
   const allocations = typeof input.batchAllocations === 'string'
     ? input.batchAllocations
     : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
@@ -795,7 +793,7 @@ function handleReturn(
     const retItem = tx
       .insert(returnItems)
       .values({
-        id: crypto.randomUUID(),
+        id: reqItem.id || crypto.randomUUID(),
         returnId,
         orderItemId: origItem.id,
         productId: Number(origItem.productId),
@@ -1294,7 +1292,7 @@ function handlePurchaseCreate(
       movementType: 'purchase_receipt',
       sourceType: 'purchase',
       sourceId: String(purchase.id),
-      sourceLineId: pItem.id,
+      sourceLineId: item.movementLineId || pItem.id,
       inputQuantity: qty,
       unitCode: unitSnapshot.unitCode,
       baseUnitCode: unitSnapshot.baseUnitCode,
@@ -1639,7 +1637,7 @@ function handlePurchaseReturn(
     const insertedItem = tx
       .insert(purchaseReturnItems)
       .values({
-        id: crypto.randomUUID(),
+        id: reqItem.id || crypto.randomUUID(),
         purchaseReturnId: returnId,
         productId: prodId,
         productName: reqItem.productName || '',
