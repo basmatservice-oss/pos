@@ -1167,8 +1167,8 @@ export function createPosApp() {
         if (existingDefinition.dimension !== dimension && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
           return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
         }
-        if (existingDefinition.decimalPlaces !== decimalPlaces && linkedProducts.length > 0) {
-          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة أساس مستخدمة في أصناف؛ أنشئ وحدة جديدة أو نفّذ ترحيلاً موثقاً' });
+        if (existingDefinition.decimalPlaces !== decimalPlaces && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
+          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة مرتبطة بأصناف؛ أنشئ رمز وحدة جديداً أو نفّذ ترحيلاً موثقاً' });
         }
       }
       const now = new Date().toISOString();
