@@ -165,6 +165,31 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun updateRecordSyncState(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val recordId = call.getString("recordId")?.trim().orEmpty()
+        val state = call.getString("syncState")?.trim().orEmpty()
+        if (entity.isBlank() || recordId.isBlank() ||
+            state !in setOf("local", "pending", "synced", "error")) {
+            call.reject("entity و recordId وحالة مزامنة صحيحة مطلوبة")
+            return
+        }
+        try {
+            val values = ContentValues().apply {
+                put("sync_state", state)
+                put("updated_at", System.currentTimeMillis())
+            }
+            val changed = helper.writableDatabase.update(
+                "pos_records", values, "entity = ? AND record_id = ?",
+                arrayOf(entity, recordId)
+            )
+            call.resolve(JSObject().put("updated", changed > 0).put("rows", changed))
+        } catch (error: Exception) {
+            call.reject("تعذر تحديث حالة مزامنة السجل المحلي", error)
+        }
+    }
+
+    @PluginMethod
     fun enqueueOperation(call: PluginCall) {
         val operationId = call.getString("operationId")?.trim().orEmpty()
         val type = call.getString("type")?.trim().orEmpty()
