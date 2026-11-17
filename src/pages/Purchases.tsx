@@ -392,7 +392,9 @@ export default function Purchases() {
     const batches = await db.inventoryBatches.where('purchaseId').equals(purchase.id!).toArray();
 
     const mapped = items.map((item) => {
-      const matchingBatch = batches.find((b) => b.productId === item.productId);
+      const matchingBatch = batches.find((b) =>
+        b.productId === item.productId && (!item.unitCode || b.unitCode === item.unitCode)
+      );
       const factor = Number(item.conversionToBase ?? matchingBatch?.conversionToBase ?? 1);
       const remainingBaseQty = matchingBatch
         ? Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity)
@@ -938,7 +940,7 @@ export default function Purchases() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 tabular-nums">
                     {returnItemsState.map((item, idx) => (
-                      <tr key={item.productId}>
+                      <tr key={`${item.productId}-${item.unitCode || 'legacy'}-${idx}`}>
                         <td className="px-3 py-2.5 font-medium text-slate-900">{item.productName}</td>
                         <td className="px-3 py-2.5 text-center text-slate-600">{item.purchasedQty}</td>
                         <td className="px-3 py-2.5 text-center font-bold text-indigo-600">
@@ -950,11 +952,12 @@ export default function Purchases() {
                             type="number"
                             min={0}
                             max={item.remainingBatchQty}
+                            step="any"
                             value={item.returnQty}
                             onChange={(e) => {
                               const val = Math.min(
                                 item.remainingBatchQty,
-                                Math.max(0, parseInt(e.target.value, 10) || 0)
+                                Math.max(0, Number(e.target.value) || 0)
                               );
                               setReturnItemsState((prev) =>
                                 prev.map((row, i) => (i === idx ? { ...row, returnQty: val } : row))
