@@ -472,6 +472,22 @@ function handleSale(
       .returning()
       .get();
 
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(item.productId),
+      branchId: order.branchId ?? null,
+      movementType: 'sale',
+      sourceType: 'order',
+      sourceId: String(order.id),
+      sourceLineId: insertedItem.id,
+      inputQuantity: qty,
+      unitCode: unitSnapshot.unitCode,
+      baseUnitCode: unitSnapshot.baseUnitCode,
+      conversionToBase: factor,
+      quantityDeltaBase: -baseQty,
+      unitCost: fifo.averageUnitCost,
+      totalCost: fifo.totalCost,
+      batchAllocations: fifo.allocations,
+    });
     savedItems.push(insertedItem);
   }
 
@@ -800,6 +816,23 @@ function handleReturn(
       .returning()
       .get();
 
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(origItem.productId),
+      branchId: branchId ?? origOrder.branchId ?? null,
+      movementType: 'sale_return',
+      sourceType: 'return',
+      sourceId: String(returnId),
+      sourceLineId: retItem.id,
+      inputQuantity: qtyToReturn,
+      unitCode: origItem.unitCode || null,
+      baseUnitCode: origItem.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+      totalCost: restored.totalCostRestored,
+      batchAllocations: restored.restoredAllocations,
+      reason: reason || null,
+    });
     savedReturnItems.push(retItem);
   }
 
@@ -975,13 +1008,29 @@ function handleOrderVoid(
     const baseCostFallback =
       factor > 0 ? Number(oi.costPriceAtTimeOfSale || 0) / factor : Number(oi.costPriceAtTimeOfSale || 0);
 
-    restoreInventoryFIFO(tx, {
+    const restored = restoreInventoryFIFO(tx, {
       productId: Number(oi.productId),
       quantityInBaseUnits: baseQty,
       allocations,
       fallbackCost: baseCostFallback,
       branchId: origOrder.branchId,
       batchIdPrefix: `void-${targetOrderId}-${oi.id}`,
+    });
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(oi.productId),
+      branchId: origOrder.branchId ?? null,
+      movementType: 'sale_void',
+      sourceType: 'order_void',
+      sourceId: targetOrderId,
+      sourceLineId: oi.id,
+      inputQuantity: Number(oi.quantity || 0),
+      unitCode: oi.unitCode || null,
+      baseUnitCode: oi.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+      totalCost: restored.totalCostRestored,
+      batchAllocations: restored.restoredAllocations,
     });
   }
 
