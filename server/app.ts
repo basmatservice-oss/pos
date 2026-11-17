@@ -45,6 +45,8 @@ import {
   syncQueue,
   currencies,
   exchangeRates,
+  unitDefinitions,
+  productUnits,
 } from '../drizzle/schema.js';
 import {
   signToken,
@@ -1142,6 +1144,108 @@ export function createPosApp() {
       res.json({ message: 'Employee deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete employee' });
+    }
+  });
+
+  // --- Unit catalogue and per-product unit conversions ---
+  app.get('/api/unit-definitions', async (_req, res) => {
+    try {
+      res.json(await db.select().from(unitDefinitions));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch unit definitions' });
+    }
+  });
+
+  app.post('/api/unit-definitions', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const code = String(req.body?.code || '').trim().toLowerCase();
+      const name = String(req.body?.name || '').trim();
+      const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
+      const dimension = String(req.body?.dimension || '').trim().toLowerCase();
+      const decimalPlaces = Number(req.body?.decimalPlaces ?? 0);
+      const allowedDimensions = new Set(['count', 'mass', 'volume', 'length', 'area', 'time', 'service']);
+      if (!/^[a-z][a-z0-9_-]{0,19}$/.test(code) || !name || !allowedDimensions.has(dimension) || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 6) {
+        return res.status(400).json({ error: 'رمز الوحدة والاسم والبُعد ودقة الكمية غير صالحة' });
+      }
+      const now = new Date().toISOString();
+      const [saved] = await db.insert(unitDefinitions).values({
+        code, name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0,
+        isActive: 1, createdAt: now, updatedAt: now,
+      }).onConflictDoUpdate({
+        target: unitDefinitions.code,
+        set: { name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0, updatedAt: now },
+      }).returning();
+      res.status(201).json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to save unit definition' });
+    }
+  });
+
+  app.get('/api/product-units', async (req, res) => {
+    try {
+      const productId = Number(req.query.productId);
+      const rows = await db.select().from(productUnits);
+      res.json(Number.isInteger(productId) && productId > 0 ? rows.filter((row) => row.productId === productId) : rows);
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch product units' });
+    }
+  });
+
+  app.post('/api/product-units', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const productId = Number(req.body?.productId);
+      const unitCode = String(req.body?.unitCode || '').trim().toLowerCase();
+      const conversionToBase = Number(req.body?.conversionToBase);
+      const isBaseUnit = req.body?.isBaseUnit === true || req.body?.isBaseUnit === 1 ? 1 : 0;
+      const sellingPrice = req.body?.sellingPrice == null || req.body.sellingPrice === '' ? null : Number(req.body.sellingPrice);
+      const barcode = req.body?.barcode == null ? null : String(req.body.barcode).trim();
+      if (!Number.isInteger(productId) || productId <= 0 || !unitCode || !Number.isFinite(conversionToBase) || conversionToBase <= 0 || (sellingPrice != null && (!Number.isFinite(sellingPrice) || sellingPrice < 0))) {
+        return res.status(400).json({ error: 'بيانات وحدة الصنف أو معامل التحويل غير صالحة' });
+      }
+      if (isBaseUnit && Math.abs(conversionToBase - 1) > 1e-10) {
+        return res.status(400).json({ error: 'معامل تحويل وحدة الأساس يجب أن يساوي 1' });
+      }
+      const [product] = await db.select().from(products).where(eq(products.id, productId));
+      const [unit] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, unitCode));
+      if (!product || !unit || !unit.isActive) return res.status(404).json({ error: 'الصنف أو تعريف الوحدة غير موجود أو غير نشط' });
+      const existingUnits = await db.select().from(productUnits).where(eq(productUnits.productId, productId));
+      const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
+      if (!isBaseUnit && !existingBase && !product.baseUnitCode) {
+        return res.status(409).json({ error: 'يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل' });
+      }
+      if (isBaseUnit && existingBase && existingBase.unitCode !== unitCode && Number(product.stockQuantity || 0) > 0) {
+        return res.status(409).json({ error: 'لا يمكن تغيير وحدة الأساس بعد وجود مخزون؛ يلزم تحويل مخزني موثق' });
+      }
+      if (existingBase && existingBase.unitCode !== unitCode) {
+        const [baseDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, existingBase.unitCode));
+        if (baseDefinition && baseDefinition.dimension !== unit.dimension) {
+          return res.status(400).json({ error: 'لا يمكن تحويل الصنف بين وحدات ذات أبعاد مختلفة' });
+        }
+      }
+      const now = new Date().toISOString();
+      const existing = existingUnits.find((row) => row.unitCode === unitCode);
+      let saved: any;
+      if (existing) {
+        [saved] = await db.update(productUnits).set({ conversionToBase, isBaseUnit, sellingPrice, barcode, isActive: 1, updatedAt: now })
+          .where(eq(productUnits.id, existing.id)).returning();
+      } else {
+        [saved] = await db.insert(productUnits).values({
+          id: crypto.randomUUID(), productId, unitCode, conversionToBase, isBaseUnit,
+          sellingPrice, barcode, isActive: 1, createdAt: now, updatedAt: now,
+        }).returning();
+      }
+      if (isBaseUnit) {
+        for (const row of existingUnits) {
+          if (row.unitCode !== unitCode && row.isBaseUnit) {
+            await db.update(productUnits).set({ isBaseUnit: 0, updatedAt: now }).where(eq(productUnits.id, row.id));
+          }
+        }
+        await db.update(products).set({ baseUnitCode: unitCode, quantityPrecision: unit.decimalPlaces, updatedAt: now })
+          .where(eq(products.id, productId));
+      }
+      res.status(201).json(saved);
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to save product unit' });
     }
   });
 
