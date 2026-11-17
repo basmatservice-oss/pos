@@ -7,7 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql, asc, gt, or } from 'drizzle-orm';
+import { eq, and, sql, asc, gt, or, inArray } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
@@ -1127,12 +1127,17 @@ export function createPosApp() {
       const productId = Number(req.query.productId);
       const afterCreatedAt = typeof req.query.afterCreatedAt === 'string' ? req.query.afterCreatedAt : '';
       const afterId = typeof req.query.afterId === 'string' ? req.query.afterId : '';
+      const movementKeys = typeof req.query.movementKeys === 'string'
+        ? req.query.movementKeys.split(',').filter(Boolean).slice(0, 200)
+        : [];
       const filters: any[] = [];
 
-      if (Number.isSafeInteger(productId) && productId > 0) {
+      if (movementKeys.length > 0) {
+        filters.push(inArray(inventoryMovements.movementKey, movementKeys));
+      } else if (Number.isSafeInteger(productId) && productId > 0) {
         filters.push(eq(inventoryMovements.productId, productId));
       }
-      if (afterCreatedAt && afterId) {
+      if (movementKeys.length === 0 && afterCreatedAt && afterId) {
         filters.push(or(
           gt(inventoryMovements.createdAt, afterCreatedAt),
           and(
