@@ -138,7 +138,7 @@ export default function Inventory() {
     sellingPrice: '',
     costInUSD: '',
     priceInUSD: '',
-    stockQuantity: '',
+    stockQuantity: '0',
     minStockLevel: '5',
     vatRate: storeSettings.taxRate.toString(),
     imageUrl: '',
@@ -254,7 +254,7 @@ export default function Inventory() {
         sellingPrice: '',
         costInUSD: '',
         priceInUSD: '',
-        stockQuantity: '',
+        stockQuantity: '0',
         minStockLevel: '5',
         vatRate: storeSettings.taxRate.toString(),
         imageUrl: '',
@@ -520,6 +520,10 @@ export default function Inventory() {
 
     try {
       const now = new Date().toISOString();
+      if (!editingProduct && Number(formData.stockQuantity) > 0) {
+        toast.error('أنشئ الصنف أولاً بكمية صفر، ثم حدد وحدة الأساس وأدخل الرصيد الافتتاحي عبر الجرد');
+        return;
+      }
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
@@ -731,6 +735,11 @@ export default function Inventory() {
               }
             }
           }
+        }
+
+        if (newProducts.some((product) => Number(product.stockQuantity || 0) > 0)) {
+          toast.error('ملف الاستيراد يحتوي على أرصدة افتتاحية. استورد الأصناف بكمية صفر، ثم حدد وحدة الأساس وأدخل الكميات عبر الجرد حتى تُنشأ طبقات FIFO بوحدة صحيحة');
+          return;
         }
 
         if (newProducts.length > 0) {
@@ -1230,15 +1239,19 @@ export default function Inventory() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      الكمية ({editingProduct?.baseUnitCode
+                      {editingProduct ? 'الكمية الحالية' : 'الرصيد الافتتاحي'}
+                      ({editingProduct?.baseUnitCode
                         ? unitDefinitions.find((unit) => unit.code === editingProduct.baseUnitCode)?.symbol || editingProduct.baseUnitCode
-                        : 'حبة'}) {editingProduct ? '(تُعدّل عبر الجرد)' : ''}
+                        : 'وحدة غير محددة'})
                     </label>
+                    {!editingProduct && (
+                      <p className="text-xs text-amber-700 mb-1.5">يُنشأ الصنف بكمية صفر. حدد وحدة الأساس أولاً، ثم أدخل الرصيد عبر الجرد.</p>
+                    )}
                     <input 
                       type="number" 
                       required
                       min="0"
-                      disabled={!!editingProduct}
+                      disabled
                       value={formData.stockQuantity}
                       onChange={e => setFormData({...formData, stockQuantity: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
@@ -1256,7 +1269,7 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الوحدة الأساسية</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">وحدة العرض القديمة (للتوافق)</label>
                     <select 
                       required
                       value={formData.unit}
