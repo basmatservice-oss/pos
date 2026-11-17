@@ -438,6 +438,11 @@ export const apiService = {
       axios.get(`${API_BASE}/inventoryMovements`, { params }).then((r) => r.data)
     );
   },
+  async getInventoryMovementReconciliation() {
+    return requestWithRetry(() =>
+      axios.get(`${API_BASE}/inventoryMovements/reconciliation`).then((r) => r.data)
+    );
+  },
   async getInventoryBatches() {
     return requestWithRetry(() => axios.get(`${API_BASE}/inventoryBatches`).then((r) => r.data));
   },
