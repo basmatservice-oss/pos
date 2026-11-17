@@ -14,6 +14,7 @@ import { dispatchOperation } from '../services/operationService';
 import { apiService } from '../services/apiService';
 import ConfirmationModal from '../components/ConfirmationModal';
 import InventoryMovementHistory from '../components/InventoryMovementHistory';
+import InventoryMovementLedger from '../components/InventoryMovementLedger';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,7 +26,7 @@ export default function Inventory() {
   const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'movements'>('products');
   const { user } = useAuth();
   
   const hasPermission = (permission: string) => {
@@ -885,7 +886,7 @@ export default function Inventory() {
                 </>
               )}
             </>
-          ) : (
+          ) : activeTab === 'categories' ? (
             <>
               {hasPermission('manage_categories') && (
                 <button 
@@ -897,7 +898,7 @@ export default function Inventory() {
                 </button>
               )}
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -924,6 +925,17 @@ export default function Inventory() {
         >
           <Tags className="w-5 h-5" />
           التصنيفات
+        </button>
+        <button
+          onClick={() => setActiveTab('movements')}
+          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${
+            activeTab === 'movements'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+          }`}
+        >
+          <RefreshCcw className="w-5 h-5" />
+          حركة المخزون
         </button>
       </div>
 
@@ -1167,6 +1179,10 @@ export default function Inventory() {
             </div>
           </div>
         </div>
+      )}
+
+      {activeTab === 'movements' && (
+        <InventoryMovementLedger currency={storeSettings.currency} />
       )}
 
       {/* Hidden Barcode for Printing */}
