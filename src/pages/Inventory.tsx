@@ -19,6 +19,7 @@ export default function Inventory() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingHasInventoryBatches, setEditingHasInventoryBatches] = useState(false);
   const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
   const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
@@ -218,8 +219,12 @@ export default function Inventory() {
     }
   };
 
-  const handleOpenModal = (product?: Product, initialBarcode?: string) => {
+  const handleOpenModal = async (product?: Product, initialBarcode?: string) => {
     if (product) {
+      const batchCount = product.id
+        ? await db.inventoryBatches.where('productId').equals(product.id).count()
+        : 0;
+      setEditingHasInventoryBatches(batchCount > 0);
       setEditingProduct(product);
       setFormData({
         barcode: product.barcode,
@@ -239,6 +244,7 @@ export default function Inventory() {
         conversionFactor: (product.conversionFactor || 1).toString()
       });
     } else {
+      setEditingHasInventoryBatches(false);
       setEditingProduct(null);
       setFormData({
         barcode: initialBarcode || '',
@@ -1223,11 +1229,12 @@ export default function Inventory() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية {editingProduct ? '(تُعدّل عبر الجرد)' : ''}</label>
                     <input 
                       type="number" 
                       required
                       min="0"
+                      disabled={!!editingProduct}
                       value={formData.stockQuantity}
                       onChange={e => setFormData({...formData, stockQuantity: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
@@ -1313,6 +1320,7 @@ export default function Inventory() {
                       step="0.01"
                       min="0"
                       value={formData.costPrice}
+                      disabled={!!editingProduct && editingHasInventoryBatches}
                       onChange={e => setFormData({...formData, costPrice: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
                     />
