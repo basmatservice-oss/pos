@@ -484,7 +484,7 @@ export default function Purchases() {
                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none text-sm"
                 disabled={Boolean(editingPurchase) || cart.length > 0}
               >
-                <option value="">عملة النظام القديمة</option>
+                {!baseCurrencyCode && <option value="">لم تُحدد عملة أساسية بعد</option>}
                 {currencyRows.filter((item) => item.isActive).map((item) => (
                   <option key={item.code} value={item.code}>{item.code} — {item.name}</option>
                 ))}
