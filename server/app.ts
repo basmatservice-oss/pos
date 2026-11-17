@@ -1160,8 +1160,14 @@ export function createPosApp() {
       const name = String(req.body?.name || '').trim();
       const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
       const decimalPlaces = Number(req.body?.decimalPlaces ?? 2);
-      if (!/^[A-Z]{3}$/.test(code) || !name || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 4) {
-        return res.status(400).json({ error: 'Currency requires a 3-letter code, name, and 0-4 decimal places' });
+      let recognizedCode = false;
+      try {
+        recognizedCode = new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().currency === code;
+      } catch {
+        recognizedCode = false;
+      }
+      if (!/^[A-Z]{3}$/.test(code) || !recognizedCode || !name || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 4) {
+        return res.status(400).json({ error: 'Currency requires a recognized ISO 4217 code, name, and 0-4 decimal places' });
       }
       const now = new Date().toISOString();
       const [saved] = await db.insert(currencies).values({
@@ -1180,6 +1186,10 @@ export function createPosApp() {
     try {
       const code = String(req.params.code || '').trim().toUpperCase();
       const isActive = req.body?.isActive === true || req.body?.isActive === 1 ? 1 : 0;
+      if (!isActive) {
+        const [baseSetting] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
+        if (baseSetting?.value === code) return res.status(409).json({ error: 'The configured base currency cannot be deactivated' });
+      }
       const [saved] = await db.update(currencies).set({ isActive, updatedAt: new Date().toISOString() })
         .where(eq(currencies.code, code)).returning();
       if (!saved) return res.status(404).json({ error: 'Currency not found' });
