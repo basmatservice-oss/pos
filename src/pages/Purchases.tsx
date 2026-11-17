@@ -181,7 +181,10 @@ export default function Purchases() {
         (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
         (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
       );
-    }).sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime());
+    }).sort((a, b) => {
+      const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
+      return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
     const rate = matches[0];
     if (!rate) return null;
     const value = Number(rate.rate);
@@ -195,7 +198,10 @@ export default function Purchases() {
         (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
         (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
       ))
-      .sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime())[0]?.id || null;
+      .sort((a, b) => {
+        const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
+        return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      })[0]?.id || null;
   }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
 
   const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
