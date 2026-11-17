@@ -1283,7 +1283,7 @@ export function createPosApp() {
 
         if (isBaseUnit && !currentBaseCode &&
             (hasMovementHistory || Number(product.stockQuantity || 0) > 0)) {
-          throw new RangeError('يجب تعريف وحدة الأساس قبل إدخال المخزون؛ صفّر المخزون عبر الجرد ثم عرّف الوحدة وأعد إدخاله');
+          throw new RangeError('لا يمكن تعيين وحدة أساس لصنف له مخزون أو حركات سابقة؛ أنشئ الصنف بكمية صفر وحدد وحدة الأساس قبل إدخال المخزون، أو نفّذ ترحيلاً موثقاً');
         }
 
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
