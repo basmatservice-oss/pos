@@ -690,6 +690,7 @@ function handleReturn(
       allocations,
       fallbackCost: baseCostFallback,
       branchId: branchId ?? origOrder.branchId,
+      batchIdPrefix: `return-${id}-${origItem.id}`,
     });
 
     totalSub = roundMoney(totalSub + lineSub);
@@ -914,6 +915,7 @@ function handleOrderVoid(
       allocations,
       fallbackCost: baseCostFallback,
       branchId: origOrder.branchId,
+      batchIdPrefix: `void-${targetOrderId}-${oi.id}`,
     });
   }
 
