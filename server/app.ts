@@ -1140,6 +1140,8 @@ export function createPosApp() {
     try {
       const parsedLimit = Number.parseInt(String(req.query.limit || '500'), 10);
       const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(2000, parsedLimit)) : 500;
+      const parsedOffset = Number.parseInt(String(req.query.offset || '0'), 10);
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.min(500000, parsedOffset)) : 0;
       const productId = Number(req.query.productId);
       const afterCreatedAt = typeof req.query.afterCreatedAt === 'string' ? req.query.afterCreatedAt : '';
       const afterId = typeof req.query.afterId === 'string' ? req.query.afterId : '';
@@ -1180,15 +1182,15 @@ export function createPosApp() {
       if (filters.length === 1) query = query.where(filters[0]);
       else if (filters.length > 1) query = query.where(and(...filters));
 
-      const rows = await query
-        .orderBy(
-          latest && movementKeys.length === 0
-            ? desc(inventoryMovements.createdAt)
-            : asc(inventoryMovements.createdAt),
-          latest && movementKeys.length === 0
-            ? desc(inventoryMovements.id)
-            : asc(inventoryMovements.id)
-        )
+      const orderedQuery = query.orderBy(
+        latest && movementKeys.length === 0
+          ? desc(inventoryMovements.createdAt)
+          : asc(inventoryMovements.createdAt),
+        latest && movementKeys.length === 0
+          ? desc(inventoryMovements.id)
+          : asc(inventoryMovements.id)
+      );
+      const rows = await (latest && movementKeys.length === 0 ? orderedQuery.offset(offset) : orderedQuery)
         .limit(limit + 1);
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, limit) : rows;
@@ -1199,6 +1201,7 @@ export function createPosApp() {
         nextCursor: latest || movementKeys.length > 0 || !last
           ? null
           : { createdAt: last.createdAt, id: last.id },
+        nextOffset: latest && movementKeys.length === 0 && hasMore ? offset + limit : null,
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch inventory movements' });
