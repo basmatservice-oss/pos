@@ -453,7 +453,7 @@ export default function Reports() {
     const rows = stats.filteredOrders.map((order) => [
       order.receiptNumber,
       format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm'),
-      (Number(order.netAmount || 0) - Number(order.taxAmount || 0)).toFixed(2),
+      formatAmount(Number(order.netAmount || 0) - Number(order.taxAmount || 0)),
       formatAmount(Number(order.taxAmount || 0)),
       formatAmount(Number(order.netAmount || 0)),
       order.paymentMethod,
@@ -603,7 +603,7 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">المصروفات والرواتب</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {(stats.totalExpenses + stats.totalPayrolls).toFixed(2)}{' '}
+                  {formatAmount(stats.totalExpenses + stats.totalPayrolls)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
@@ -811,7 +811,7 @@ export default function Reports() {
                     <td className="px-6 py-3 text-slate-900 font-bold text-left">
                       {stats.stocktakeAdjustments >= 0
                         ? `(${formatAmount(stats.stocktakeAdjustments)})`
-                        : `+${Math.abs(stats.stocktakeAdjustments).toFixed(2)}`}
+                        : `+${formatAmount(Math.abs(stats.stocktakeAdjustments))}`}
                     </td>
                   </tr>
                   <tr className="bg-emerald-600 text-white">
