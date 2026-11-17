@@ -2335,7 +2335,31 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
   const autoIncTables = new Set(['products', 'categories', 'customers', 'suppliers', 'expenses']);
   let savedRecord: any;
 
-  if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
+  const existingRecord = clean.id !== undefined && clean.id !== null
+    ? tx.select().from(table).where(eq(table.id, clean.id)).get()
+    : null;
+
+  if (existingRecord) {
+    // A client may create and then edit the same temporary-ID entity while
+    // offline. Update that row instead of attempting a second primary-key insert.
+    const updateData: any = { ...clean };
+    delete updateData.createdAt;
+    if (tableName === 'customers') {
+      // Customer balances and loyalty points are derived from sales/payments.
+      // A stale terminal's entity snapshot must never overwrite them.
+      delete updateData.balance;
+      delete updateData.points;
+    } else if (tableName === 'suppliers') {
+      // Supplier balance is derived from purchases and supplier payments.
+      delete updateData.balance;
+    }
+    savedRecord = tx
+      .update(table)
+      .set({ ...updateData, isSynced: 0, updatedAt: now })
+      .where(eq(table.id, existingRecord.id))
+      .returning()
+      .get();
+  } else if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
     // Keep the client-generated numeric ID so later offline operations can
     // reference the same product/customer/category without remapping.
     savedRecord = tx
