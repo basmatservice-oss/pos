@@ -489,9 +489,18 @@ export default function Inventory() {
         try {
           const category = await db.categories.get(id);
           const productsToDelete = await db.products.where('categoryId').equals(id).toArray();
-          for (const p of productsToDelete) {
-            if (p.id !== undefined) {
-              await dispatchOperation('entity_delete', { table: 'products', id: p.id }, user?.branchId);
+          for (const product of productsToDelete) {
+            if (product.id === undefined) continue;
+            const movementCount = await db.inventoryMovements.where('productId').equals(product.id).count();
+            const batchCount = await db.inventoryBatches.where('productId').equals(product.id).count();
+            if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || movementCount > 0 || batchCount > 0) {
+              toast.error(`لا يمكن حذف التصنيف؛ الصنف "${product.name}" لديه رصيد أو تاريخ مخزون. عطّل الصنف بدلاً من حذفه.`);
+              return;
+            }
+          }
+          for (const product of productsToDelete) {
+            if (product.id !== undefined) {
+              await dispatchOperation('entity_delete', { table: 'products', id: product.id }, user?.branchId);
             }
           }
           await dispatchOperation('entity_delete', { table: 'categories', id }, user?.branchId);
@@ -593,6 +602,16 @@ export default function Inventory() {
       action: async () => {
         try {
           const product = await db.products.get(id);
+          const movementCount = await db.inventoryMovements.where('productId').equals(id).count();
+          const batchCount = await db.inventoryBatches.where('productId').equals(id).count();
+          if (product && (
+            Math.abs(Number(product.stockQuantity || 0)) > 1e-9 ||
+            movementCount > 0 ||
+            batchCount > 0
+          )) {
+            toast.error('لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.');
+            return;
+          }
           await dispatchOperation('entity_delete', { table: 'products', id }, user?.branchId);
           await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
           toast.success('تم حذف المنتج بنجاح');
