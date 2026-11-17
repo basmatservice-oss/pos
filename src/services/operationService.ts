@@ -36,6 +36,12 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+let tempNumericIdSequence = 0;
+function generateTempNumericId(): number {
+  tempNumericIdSequence = (tempNumericIdSequence + 1) % 1000;
+  return Date.now() * 1000 + tempNumericIdSequence;
+}
+
 let isReconcilingServerSnapshot = false;
 let operationDispatchQueue: Promise<void> = Promise.resolve();
 
@@ -321,7 +327,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 
           await db.orderItems.add({
-            id: item.id || generateUUID(),
+            id: Number(item.id) || generateTempNumericId(),
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
@@ -1314,7 +1320,7 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
       ...payload,
       items: payload.items.map((item: any) => ({
         ...item,
-        id: item.id || generateUUID(),
+        id: Number(item.id) || generateTempNumericId(),
       })),
     };
   }
