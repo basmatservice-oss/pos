@@ -1174,22 +1174,61 @@ export function createPosApp() {
   app.post('/api/inventoryBatches', requirePermission('edit_product'), async (req, res) => {
     try {
       const now = new Date().toISOString();
+      const batchId = req.body.id ? String(req.body.id) : crypto.randomUUID();
+      const batchQuantity = Number(req.body.baseQuantity ?? req.body.quantity ?? 0);
+      const factor = Number(req.body.conversionToBase || 1);
       const [batch] = await db
         .insert(inventoryBatches)
         .values({
-          id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
+          id: batchId,
           productId: Number(req.body.productId),
           purchaseId: req.body.purchaseId || null,
-          quantity: Number(req.body.quantity || 0),
-          remainingQuantity: Number(req.body.remainingQuantity ?? req.body.quantity ?? 0),
+          quantity: batchQuantity,
+          remainingQuantity: Number(req.body.remainingQuantity ?? batchQuantity),
           costPrice: Number(req.body.costPrice || 0),
+          originalCostPrice: req.body.originalCostPrice ?? null,
+          currencyCode: req.body.currencyCode ?? null,
+          exchangeRate: req.body.exchangeRate ?? null,
+          exchangeRateId: req.body.exchangeRateId ?? null,
+          unitCode: req.body.unitCode ?? null,
+          baseUnitCode: req.body.baseUnitCode ?? null,
+          conversionToBase: factor,
+          baseQuantity: batchQuantity,
           purchaseDate: req.body.purchaseDate || now,
+          expiryDate: req.body.expiryDate ?? null,
+          batchNumber: req.body.batchNumber ?? null,
           branchId: req.body.branchId || null,
           isSynced: 0,
           createdAt: now,
           updatedAt: now,
         })
         .returning();
+      const movementType = batch.purchaseId ? 'purchase_receipt' : 'opening_balance';
+      const sourceType = batch.purchaseId ? 'purchase' : 'product';
+      const sourceId = batch.purchaseId ? String(batch.purchaseId) : String(batch.productId);
+      const operationId = String(req.body.operationId || `legacy-api:batch:${batch.id}`);
+      const movementKey = `${movementType}:${sourceType}:${sourceId}:${batch.id}`;
+      await appendApiInventoryMovement({
+        operationId,
+        movementKey,
+        productId: batch.productId,
+        branchId: batch.branchId,
+        movementType,
+        sourceType,
+        sourceId,
+        sourceLineId: batch.id,
+        deviceId: req.body.deviceId,
+        createdBy: req.body.createdBy,
+        inputQuantity: factor > 0 ? batchQuantity / factor : batchQuantity,
+        unitCode: batch.unitCode,
+        baseUnitCode: batch.baseUnitCode,
+        conversionToBase: factor,
+        quantityDeltaBase: batchQuantity,
+        unitCost: batch.costPrice,
+        totalCost: batchQuantity * batch.costPrice,
+        batchAllocations: [{ batchId: batch.id, quantity: batchQuantity, costPrice: batch.costPrice }],
+        createdAt: now,
+      });
       res.status(201).json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to create inventory batch' });
@@ -1198,11 +1237,62 @@ export function createPosApp() {
 
   app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), async (req, res) => {
     try {
+      const batchId = String(req.params.id);
+      const [existing] = await db.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.id, batchId)).limit(1);
+      if (!existing) return res.status(404).json({ error: 'Inventory batch not found' });
+
+      const now = new Date().toISOString();
+      const updateData = { ...req.body };
+      delete updateData.id;
+      delete updateData.productId;
+      delete updateData.purchaseId;
+      delete updateData.quantity;
+      delete updateData.baseQuantity;
+      delete updateData.costPrice;
+      delete updateData.unitCode;
+      delete updateData.baseUnitCode;
+      delete updateData.conversionToBase;
+      const nextRemaining = Number(updateData.remainingQuantity ?? existing.remainingQuantity);
+      delete updateData.remainingQuantity;
+      if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
+          nextRemaining > Number(existing.quantity) + 1e-9) {
+        return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
+      }
+
       const [batch] = await db
         .update(inventoryBatches)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(inventoryBatches.id, String(req.params.id)))
+        .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
+        .where(eq(inventoryBatches.id, batchId))
         .returning();
+
+      const delta = nextRemaining - Number(existing.remainingQuantity || 0);
+      if (Math.abs(delta) > 1e-9) {
+        const operationId = String(req.body.operationId || `legacy-api:batch-adjust:${batchId}:${now}`);
+        const movementKey = `legacy_batch_adjustment:inventory_batch:${batchId}:${now}`;
+        await appendApiInventoryMovement({
+          operationId,
+          movementKey,
+          productId: existing.productId,
+          branchId: existing.branchId,
+          movementType: 'legacy_batch_adjustment',
+          sourceType: 'inventory_batch',
+          sourceId: batchId,
+          sourceLineId: batchId,
+          deviceId: req.body.deviceId,
+          createdBy: req.body.createdBy,
+          inputQuantity: Math.abs(delta),
+          unitCode: existing.unitCode,
+          baseUnitCode: existing.baseUnitCode,
+          conversionToBase: Number(existing.conversionToBase || 1),
+          quantityDeltaBase: delta,
+          unitCost: Number(existing.costPrice || 0),
+          totalCost: Math.abs(delta * Number(existing.costPrice || 0)),
+          batchAllocations: [{ batchId, quantity: Math.abs(delta), costPrice: Number(existing.costPrice || 0) }],
+          reason: 'legacy_batch_update',
+          createdAt: now,
+        });
+      }
       res.json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to update inventory batch' });
