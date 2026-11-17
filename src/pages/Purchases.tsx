@@ -196,12 +196,12 @@ export default function Purchases() {
     }
   };
 
-  const updatePurchaseCartUnit = (productId: number, unitCode: string) => {
+  const updatePurchaseCartUnit = (productId: number, currentUnitCode: string | undefined, unitCode: string) => {
     const row = productUnits.find((unit) => unit.productId === productId && unit.unitCode === unitCode && unit.isActive === 1);
     if (!row) return;
     const definition = unitDefinitions.find((unit) => unit.code === unitCode);
     const factor = Number(row.conversionToBase || 1);
-    setCart(cart.map((item) => item.product.id === productId ? {
+    setCart(cart.map((item) => item.product.id === productId && item.unitCode === currentUnitCode ? {
       ...item,
       unitCode,
       baseUnitCode: item.product.baseUnitCode || undefined,
@@ -211,14 +211,16 @@ export default function Purchases() {
     } : item));
   };
 
-  const removeFromCart = (productId: number) => {
-    setCart(cart.filter((item) => item.product.id !== productId));
+  const removeFromCart = (productId: number, unitCode?: string) => {
+    setCart(cart.filter((item) => !(item.product.id === productId && item.unitCode === unitCode)));
   };
 
-  const updateCartItem = (productId: number, field: 'quantity' | 'costPrice', value: number) => {
+  const updateCartItem = (productId: number, unitCode: string | undefined, field: 'quantity' | 'costPrice', value: number) => {
     setCart(
       cart.map((item) =>
-        item.product.id === productId ? { ...item, [field]: Math.max(0, value) } : item
+        item.product.id === productId && item.unitCode === unitCode
+          ? { ...item, [field]: Math.max(0, value) }
+          : item
       )
     );
   };
@@ -607,7 +609,7 @@ export default function Purchases() {
             ) : (
               <div className="space-y-3">
                 {cart.map((item) => (
-                  <div key={item.product.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <div key={`${item.product.id}-${item.unitCode || 'legacy'}`} className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
@@ -616,7 +618,7 @@ export default function Purchases() {
                         {item.unitLabel && <p className="text-[10px] text-slate-500">{item.unitLabel} — التحويل ×{item.conversionToBase}</p>}
                       </div>
                       <button
-                        onClick={() => removeFromCart(item.product.id!)}
+                        onClick={() => removeFromCart(item.product.id!, item.unitCode)}
                         className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -627,7 +629,7 @@ export default function Purchases() {
                         <span className="text-[11px] text-slate-500 block mb-0.5">وحدة الشراء</span>
                         <select
                           value={item.unitCode || ''}
-                          onChange={(e) => updatePurchaseCartUnit(item.product.id!, e.target.value)}
+                          onChange={(e) => updatePurchaseCartUnit(item.product.id!, item.unitCode, e.target.value)}
                           className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs"
                         >
                           {productUnits.filter((unit) => unit.productId === item.product.id && unit.isActive === 1).map((unit) => {
@@ -649,7 +651,7 @@ export default function Purchases() {
                           step="any"
                           value={item.quantity}
                           onChange={(e) =>
-                            updateCartItem(item.product.id!, 'quantity', Number(e.target.value))
+                            updateCartItem(item.product.id!, item.unitCode, 'quantity', Number(e.target.value))
                           }
                           className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-sm tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
                         />
@@ -662,7 +664,7 @@ export default function Purchases() {
                           min="0"
                           value={item.costPrice}
                           onChange={(e) =>
-                            updateCartItem(item.product.id!, 'costPrice', Number(e.target.value))
+                            updateCartItem(item.product.id!, item.unitCode, 'costPrice', Number(e.target.value))
                           }
                           className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-sm tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
                         />
