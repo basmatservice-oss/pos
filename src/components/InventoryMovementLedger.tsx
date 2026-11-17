@@ -354,9 +354,10 @@ export default function InventoryMovementLedger({ currency }: Props) {
               <p className="text-xs text-gray-500 mt-1">فحص تشخيصي للرصيد الحالي مقابل صافي الحركات المسجلة؛ لا يتم تعديل أي رصيد تلقائياً.</p>
             </div>
             {reconciliation.summary && (
-              <div className="flex gap-3 text-xs text-gray-600">
-                <span>الأصناف المفحوصة: <b>{reconciliation.summary.productsChecked}</b></span>
-                <span>الفروقات: <b className={reconciliation.summary.mismatchedProducts > 0 ? 'text-rose-700' : 'text-emerald-700'}>{reconciliation.summary.mismatchedProducts}</b></span>
+              <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+                <span>الأصناف: <b>{reconciliation.summary.productsChecked}</b></span>
+                <span>فروقات الرصيد والدفعات: <b className={reconciliation.summary.productsWithBatchMismatch > 0 ? 'text-rose-700' : 'text-emerald-700'}>{reconciliation.summary.productsWithBatchMismatch}</b></span>
+                <span>فروقات FIFO والدفتر: <b className={reconciliation.summary.productsWithLedgerMismatch > 0 ? 'text-rose-700' : 'text-emerald-700'}>{reconciliation.summary.productsWithLedgerMismatch}</b></span>
               </div>
             )}
           </div>
@@ -364,14 +365,16 @@ export default function InventoryMovementLedger({ currency }: Props) {
             <p className="text-sm text-rose-700">{reconciliation.error}</p>
           ) : reconciliation.items?.length ? (
             <div className="overflow-auto max-h-72 rounded-xl border border-gray-200">
-              <table className="w-full min-w-[680px] text-xs text-right">
+              <table className="w-full min-w-[980px] text-xs text-right">
                 <thead className="sticky top-0 bg-gray-50 text-gray-600">
                   <tr>
                     <th className="p-3">الصنف</th>
                     <th className="p-3">رصيد الصنف</th>
+                    <th className="p-3">متبقي دفعات FIFO</th>
                     <th className="p-3">صافي دفتر الحركة</th>
-                    <th className="p-3">الفرق</th>
-                    <th className="p-3">عدد الحركات</th>
+                    <th className="p-3">فرق الرصيد / FIFO</th>
+                    <th className="p-3">فرق FIFO / الدفتر</th>
+                    <th className="p-3">الدفعات / الحركات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -379,9 +382,11 @@ export default function InventoryMovementLedger({ currency }: Props) {
                     <tr key={item.productId} className="border-t border-gray-100">
                       <td className="p-3 font-semibold">{item.productName}</td>
                       <td className="p-3 tabular-nums">{quantity(item.stockQuantity)} {item.baseUnitCode || ''}</td>
+                      <td className="p-3 tabular-nums">{quantity(item.batchQuantity)} {item.baseUnitCode || ''}</td>
                       <td className="p-3 tabular-nums">{quantity(item.ledgerQuantity)} {item.baseUnitCode || ''}</td>
-                      <td className="p-3 tabular-nums font-bold text-rose-700">{quantity(item.difference)} {item.baseUnitCode || ''}</td>
-                      <td className="p-3 tabular-nums">{item.movementCount}</td>
+                      <td className={`p-3 tabular-nums font-bold ${Math.abs(item.stockVsBatchDifference) > 1e-6 ? 'text-rose-700' : 'text-emerald-700'}`}>{quantity(item.stockVsBatchDifference)} {item.baseUnitCode || ''}</td>
+                      <td className={`p-3 tabular-nums font-bold ${Math.abs(item.batchVsLedgerDifference) > 1e-6 ? 'text-rose-700' : 'text-emerald-700'}`}>{quantity(item.batchVsLedgerDifference)} {item.baseUnitCode || ''}</td>
+                      <td className="p-3 tabular-nums">{item.batchCount} / {item.movementCount}</td>
                     </tr>
                   ))}
                 </tbody>
