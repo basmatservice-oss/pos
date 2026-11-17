@@ -1084,14 +1084,45 @@ async function applyShiftLocally(
 async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries], async () => {
+  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
     for (const entry of entries) {
+      const product = await db.products.get(entry.productId);
+      if (!product) continue;
+      const actualQuantity = Number(entry.actualQuantity);
+      const difference = actualQuantity - Number(product.stockQuantity || 0);
+      if (difference > 1e-9) {
+        await db.inventoryBatches.put({
+          id: `stocktake-${sessionId}-${entry.productId}`,
+          productId: entry.productId,
+          purchaseId: null,
+          quantity: difference,
+          remainingQuantity: difference,
+          costPrice: Number(product.costPrice || 0),
+          unitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: difference,
+          purchaseDate: now,
+          branchId: product.branchId,
+          syncStatus,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else if (difference < -1e-9) {
+        await consumeLocalInventoryFIFO(
+          entry.productId,
+          Math.abs(difference),
+          Number(product.costPrice || 0),
+          syncStatus
+        );
+      }
       await db.products.update(entry.productId, {
-        stockQuantity: entry.actualQuantity,
+        stockQuantity: actualQuantity,
         updatedAt: now,
         syncStatus,
       });
+      await recalculateLocalProductWeightedCost(entry.productId, syncStatus);
     }
     await db.stocktakingSessions.update(sessionId, {
       status: 'approved',
