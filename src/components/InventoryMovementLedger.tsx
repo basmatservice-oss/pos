@@ -1,0 +1,140 @@
+import { useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { Search } from 'lucide-react';
+import { db } from '../db/db';
+
+type Props = { currency: string };
+
+const MOVEMENT_LABELS: Record<string, string> = {
+  opening_balance: 'رصيد افتتاحي',
+  purchase_receipt: 'استلام مشتريات',
+  purchase_reversal: 'عكس مشتريات',
+  sale: 'بيع',
+  sale_return: 'مرتجع مبيعات',
+  sale_void: 'إلغاء بيع',
+  purchase_return: 'مرتجع مشتريات',
+  stocktake_increase: 'زيادة جرد',
+  stocktake_decrease: 'نقص جرد',
+  legacy_batch_adjustment: 'تسوية دفعة قديمة',
+  adjustment: 'تسوية مخزون',
+  service_consumption: 'استهلاك خدمة',
+  assembly_in: 'تجميع',
+  assembly_out: 'تفكيك',
+};
+
+const quantity = (value: number) =>
+  Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+const amount = (value: number) =>
+  Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export default function InventoryMovementLedger({ currency }: Props) {
+  const [search, setSearch] = useState('');
+  const [movementType, setMovementType] = useState('all');
+  const movements = useLiveQuery(
+    () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
+    []
+  ) || [];
+  const products = useLiveQuery(() => db.products.toArray(), []) || [];
+  const units = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
+
+  const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const movementTypes = useMemo(
+    () => [...new Set(movements.map((movement) => movement.movementType))].sort(),
+    [movements]
+  );
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return movements.filter((movement) => {
+      if (movementType !== 'all' && movement.movementType !== movementType) return false;
+      if (!query) return true;
+      const productName = productMap.get(movement.productId)?.name || '';
+      return [
+        productName,
+        movement.sourceId,
+        movement.sourceType,
+        movement.movementType,
+        movement.reason || '',
+      ].some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [movements, movementType, productMap, search]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col min-h-0">
+      <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center gap-3">
+        <div className="flex-1">
+          <h3 className="font-bold text-gray-900">سجل حركة المخزون</h3>
+          <p className="text-xs text-gray-500 mt-1">آخر 500 حركة محفوظة، مع تكلفة الحركة وقت وقوعها</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="بحث بالصنف أو المرجع..."
+              className="w-full sm:w-64 pr-9 pl-3 py-2 border border-gray-200 rounded-xl text-sm"
+            />
+          </div>
+          <select
+            value={movementType}
+            onChange={(event) => setMovementType(event.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white"
+          >
+            <option value="all">كل أنواع الحركات</option>
+            {movementTypes.map((type) => (
+              <option key={type} value={type}>{MOVEMENT_LABELS[type] || type}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="p-12 text-center text-sm text-gray-500">لا توجد حركات مطابقة</div>
+      ) : (
+        <div className="overflow-auto max-h-[68vh]">
+          <table className="w-full min-w-[980px] text-xs text-right">
+            <thead className="sticky top-0 bg-gray-50 text-gray-600 z-10">
+              <tr>
+                <th className="p-3 font-semibold">التاريخ</th>
+                <th className="p-3 font-semibold">الصنف</th>
+                <th className="p-3 font-semibold">نوع الحركة</th>
+                <th className="p-3 font-semibold">المصدر</th>
+                <th className="p-3 font-semibold">الفرع</th>
+                <th className="p-3 font-semibold">الكمية بوحدة الأساس</th>
+                <th className="p-3 font-semibold">تكلفة الوحدة</th>
+                <th className="p-3 font-semibold">قيمة التكلفة</th>
+                <th className="p-3 font-semibold">المزامنة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((movement) => {
+                const delta = Number(movement.quantityDeltaBase || 0);
+                const unit = units.find((row) => row.code === movement.baseUnitCode);
+                return (
+                  <tr key={movement.id} className="border-t border-gray-100 hover:bg-gray-50/70">
+                    <td className="p-3 whitespace-nowrap text-gray-600">{new Date(movement.createdAt).toLocaleString()}</td>
+                    <td className="p-3 font-semibold text-gray-900">{productMap.get(movement.productId)?.name || `#${movement.productId}`}</td>
+                    <td className="p-3">{MOVEMENT_LABELS[movement.movementType] || movement.movementType}</td>
+                    <td className="p-3 text-gray-600">{movement.sourceType} / {movement.sourceId}</td>
+                    <td className="p-3 text-gray-600">{movement.branchId ?? '—'}</td>
+                    <td className={`p-3 font-bold tabular-nums ${delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {delta > 0 ? '+' : ''}{quantity(delta)} {unit?.symbol || movement.baseUnitCode || ''}
+                    </td>
+                    <td className="p-3 tabular-nums">{amount(movement.unitCost)} {currency}</td>
+                    <td className="p-3 tabular-nums">{amount(movement.totalCost)} {currency}</td>
+                    <td className="p-3">
+                      {movement.syncStatus === 'pending' ? 'بانتظار المزامنة'
+                        : movement.syncStatus === 'error' || movement.syncStatus === 'conflict' ? 'تحتاج مراجعة'
+                        : 'متزامنة'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
