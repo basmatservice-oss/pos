@@ -2003,7 +2003,7 @@ function handleStocktakeApprove(
       const unitCost = Number(product.costPrice || 0);
       tx.insert(inventoryBatches)
         .values({
-          id: crypto.randomUUID(),
+          id: `stocktake-${sessionId}-${product.id}`,
           productId: product.id,
           purchaseId: null,
           quantity: diff,
