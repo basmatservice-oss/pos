@@ -122,7 +122,7 @@ export const inventoryMovements = sqliteTable('InventoryMovement', {
   reason: text('reason'),
   createdAt: text('createdAt').notNull(),
 }, (table) => ({
-  operationKeyUnique: uniqueIndex('idx_inventory_movement_operation_key').on(table.operationId, table.movementKey),
+  movementKeyUnique: uniqueIndex('idx_inventory_movement_key').on(table.movementKey),
   productDateIdx: index('idx_inventory_movement_product_date').on(table.productId, table.createdAt),
   branchDateIdx: index('idx_inventory_movement_branch_date').on(table.branchId, table.createdAt),
   sourceIdx: index('idx_inventory_movement_source').on(table.sourceType, table.sourceId),
