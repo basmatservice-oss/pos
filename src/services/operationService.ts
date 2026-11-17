@@ -1339,15 +1339,21 @@ export async function dispatchOperation(
   }
 
   await db.syncOperations.put(opRecord);
-  await applyOperationLocally(type, opRecord.payload, 'pending');
 
   if (token) {
-    const reachable = await apiService.checkServerReachability(2000);
+    let reachable = false;
+    try {
+      reachable = await apiService.checkServerReachability(2000);
+    } catch {
+      reachable = false;
+    }
+
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        // The optimistic local operation was already applied above. Reapplying it
-        // with the server response would decrement/increment stock a second time.
+        const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
+        // Apply exactly once, using the server's authoritative item snapshots.
+        await applyOperationLocally(type, localPayload, 'synced', response.result);
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
@@ -1376,6 +1382,10 @@ export async function dispatchOperation(
     }
   }
 
+  // The server is unavailable (or returned a transient failure): keep the
+  // operation in the durable queue and apply it once to the local database.
+  await applyOperationLocally(type, opRecord.payload, 'pending');
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
+
 }
