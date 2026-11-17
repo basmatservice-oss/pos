@@ -58,7 +58,10 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
             <tbody className="divide-y divide-slate-100">
               {items.map((item, idx) => (
                 <tr key={idx}>
-                  <td className="py-2 font-medium">{item.productName}</td>
+                  <td className="py-2 font-medium">
+                    {item.productName}
+                    {item.unitCode && <div className="text-[10px] text-slate-500">{item.unitCode}</div>}
+                  </td>
                   <td className="text-center py-2 tabular-nums">{item.quantity}</td>
                   <td className="text-left py-2 tabular-nums font-bold">{formatAmount(item.originalTotal ?? item.total)}</td>
                 </tr>
