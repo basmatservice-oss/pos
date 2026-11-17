@@ -922,7 +922,13 @@ export function createPosApp() {
 
   app.delete('/api/categories/:id', requirePermission('manage_categories'), async (req, res) => {
     try {
-      await db.delete(categories).where(eq(categories.id, parseInt(req.params.id)));
+      const categoryId = parseInt(req.params.id);
+      const [linkedProduct] = await db.select().from(products)
+        .where(eq(products.categoryId, categoryId)).limit(1);
+      if (linkedProduct) {
+        return res.status(409).json({ error: 'Category still contains products. Move or delete eligible products first.' });
+      }
+      await db.delete(categories).where(eq(categories.id, categoryId));
       res.json({ message: 'Category deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete category' });
