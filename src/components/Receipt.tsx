@@ -76,6 +76,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
               <tr key={index} className="border-b border-gray-300 border-dashed">
                 <td className="py-2 pr-1">
                   <div>{item.productName}</div>
+                  {(item.unitCode || item.unit) && <div className="text-[10px] text-gray-500">{item.unitCode || item.unit}</div>}
                   {settings.showTaxDetails && (
                     <div className="text-[10px] text-gray-500">
                       شامل الضريبة ({settings.taxRate}%)

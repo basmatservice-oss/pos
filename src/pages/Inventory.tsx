@@ -20,7 +20,7 @@ export default function Inventory() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
-  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '' });
+  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
@@ -160,6 +160,24 @@ export default function Inventory() {
       conversionToBase: '1',
       isBaseUnit: !product.baseUnitCode,
       sellingPrice: '',
+      barcode: '',
+    });
+  };
+
+  const handleSelectProductUnit = async (unitCode: string) => {
+    if (!unitEditorProduct?.id) return;
+    const existing = productUnitRows.find((row) => row.unitCode === unitCode) ||
+      await db.productUnits.where('productId').equals(unitEditorProduct.id)
+        .filter((row) => row.unitCode === unitCode).first();
+    const isBaseUnit = existing
+      ? existing.isBaseUnit === 1
+      : !unitEditorProduct.baseUnitCode || unitEditorProduct.baseUnitCode === unitCode;
+    setUnitDraft({
+      unitCode,
+      conversionToBase: String(existing?.conversionToBase ?? 1),
+      isBaseUnit,
+      sellingPrice: existing?.sellingPrice == null ? '' : String(existing.sellingPrice),
+      barcode: existing?.barcode || '',
     });
   };
 
@@ -179,6 +197,7 @@ export default function Inventory() {
         conversionToBase,
         isBaseUnit: unitDraft.isBaseUnit,
         sellingPrice: unitDraft.sellingPrice === '' ? null : Number(unitDraft.sellingPrice),
+        barcode: unitDraft.barcode.trim() || undefined,
       });
       await db.productUnits.put({ ...saved, syncStatus: 'synced' });
       if (saved.isBaseUnit) {
@@ -191,7 +210,7 @@ export default function Inventory() {
         setUnitEditorProduct((prev) => prev ? { ...prev, baseUnitCode: saved.unitCode, quantityPrecision: definition?.decimalPlaces ?? 0 } : prev);
       }
       toast.success('تم حفظ وحدة الصنف');
-      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '' });
+      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '', barcode: '' });
     } catch (error: any) {
       toast.error(error?.response?.data?.error || error?.message || 'تعذر حفظ وحدة الصنف');
     } finally {
@@ -955,8 +974,12 @@ export default function Inventory() {
                       product.stockQuantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 
                       'bg-rose-50 text-rose-700 border-rose-200'
                     }`}>
-                      {product.stockQuantity} {product.unit === 'box' ? 'صندوق' : 'حبة'}
-                      {product.unit === 'box' && ` (${product.conversionFactor} حبة)`}
+                      {product.stockQuantity} {product.baseUnitCode
+                        ? (unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.symbol ||
+                          unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name ||
+                          product.baseUnitCode)
+                        : 'حبة'}
+                      {!product.baseUnitCode && product.unit === 'box' && ` (البيع بالصندوق ×${product.conversionFactor})`}
                     </span>
                   </td>
                   {storeSettings.businessType === 'pharmacy' && (
@@ -1509,7 +1532,7 @@ export default function Inventory() {
             </div>
             <form onSubmit={handleSaveProductUnit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="text-sm space-y-1">الوحدة
-                <select required value={unitDraft.unitCode} onChange={(e) => setUnitDraft({ ...unitDraft, unitCode: e.target.value })} className="w-full p-3 border rounded-xl">
+                <select required value={unitDraft.unitCode} onChange={(e) => handleSelectProductUnit(e.target.value)} className="w-full p-3 border rounded-xl">
                   <option value="">اختر وحدة</option>
                   {unitDefinitions.map((unit) => <option key={unit.code} value={unit.code}>{unit.name} ({unit.code})</option>)}
                 </select>
@@ -1519,6 +1542,9 @@ export default function Inventory() {
               </label>
               <label className="text-sm space-y-1">سعر البيع لهذه الوحدة (اختياري)
                 <input type="number" min="0" step="0.01" value={unitDraft.sellingPrice} onChange={(e) => setUnitDraft({ ...unitDraft, sellingPrice: e.target.value })} className="w-full p-3 border rounded-xl" />
+              </label>
+              <label className="text-sm space-y-1">باركود هذه الوحدة (اختياري)
+                <input value={unitDraft.barcode} onChange={(e) => setUnitDraft({ ...unitDraft, barcode: e.target.value })} className="w-full p-3 border rounded-xl font-mono" placeholder="امسح باركود العبوة" />
               </label>
               <label className="flex items-center gap-2 text-sm self-end p-3 border rounded-xl">
                 <input type="checkbox" checked={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, isBaseUnit: e.target.checked, conversionToBase: '1' })} />
@@ -1533,13 +1559,14 @@ export default function Inventory() {
               <h4 className="font-bold text-gray-800 mb-3">الوحدات المسجلة</h4>
               <div className="overflow-x-auto border rounded-xl">
                 <table className="w-full text-sm text-right">
-                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th></tr></thead>
+                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th><th className="p-3">الباركود</th></tr></thead>
                   <tbody>{productUnitRows.map((unit) => (
                     <tr key={unit.id} className="border-t">
                       <td className="p-3">{unitDefinitions.find((definition) => definition.code === unit.unitCode)?.name || unit.unitCode}</td>
                       <td className="p-3 tabular-nums">{unit.conversionToBase}</td>
                       <td className="p-3">{unit.isBaseUnit ? 'أساس' : 'بديلة'}</td>
                       <td className="p-3 tabular-nums">{unit.sellingPrice ?? '—'}</td>
+                      <td className="p-3 font-mono">{unit.barcode || '—'}</td>
                     </tr>
                   ))}</tbody>
                 </table>

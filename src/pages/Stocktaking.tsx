@@ -65,6 +65,7 @@ export default function Stocktaking() {
 
   // Sync store with database changes
   const liveProducts = useLiveQuery(() => db.products.toArray());
+  const liveUnitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
@@ -90,7 +91,7 @@ export default function Stocktaking() {
       action: async () => {
         setIsProcessing(true);
         try {
-          await dispatchOperation('stocktake_approve', { sessionId: session.id! }, user?.branchId);
+          await dispatchOperation('stocktake_approve', { sessionId: session.id!, approvedAt: new Date().toISOString() }, user?.branchId);
           toast.success('تم اعتماد الجرد وتحديث المخزون بنجاح');
           setView('sessions');
           setSelectedSession(null);
@@ -209,6 +210,8 @@ export default function Stocktaking() {
           barcode: item.barcode,
           systemQuantity: item.systemQuantity,
           actualQuantity: item.actualQuantity,
+          unitCode: item.baseUnitCode || undefined,
+          baseUnitCode: item.baseUnitCode || undefined,
           scannedBy: user?.name || 'System',
           scannedAt: now,
           syncStatus: 'pending',
@@ -276,6 +279,11 @@ export default function Stocktaking() {
       barcode: product.barcode,
       systemQuantity: product.stockQuantity,
       actualQuantity: product.stockQuantity,
+      baseUnitCode: product.baseUnitCode || undefined,
+      quantityPrecision: product.quantityPrecision ?? 0,
+      unitLabel: product.baseUnitCode
+        ? liveUnitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name || product.baseUnitCode
+        : (product.unit === 'box' ? 'حبة' : product.unit || 'حبة'),
       difference: 0
     }, ...prev]);
   };
@@ -514,7 +522,7 @@ export default function Stocktaking() {
                 <tr>
                   <th className="px-6 py-4 text-sm font-bold text-gray-700">المنتج</th>
                   <th className="px-6 py-4 text-sm font-bold text-gray-700 text-center">كمية النظام</th>
-                  <th className="px-6 py-4 text-sm font-bold text-gray-700 text-center">الكمية الفعلية</th>
+                  <th className="px-6 py-4 text-sm font-bold text-gray-700 text-center">الكمية الفعلية (وحدة الأساس)</th>
                   <th className="px-6 py-4 text-sm font-bold text-gray-700"></th>
                 </tr>
               </thead>
@@ -523,12 +531,14 @@ export default function Stocktaking() {
                   <tr key={item.productId}>
                     <td className="px-6 py-4">
                       <p className="font-bold text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-500">{item.barcode}</p>
+                      <p className="text-xs text-gray-500">{item.barcode} · وحدة الأساس: {item.unitLabel || 'وحدة'}</p>
                     </td>
                     <td className="px-6 py-4 text-center font-bold text-gray-600">{item.systemQuantity}</td>
                     <td className="px-6 py-4 text-center">
                       <input
                         type="number"
+                        min="0"
+                        step="any"
                         value={item.actualQuantity}
                         onChange={(e) => {
                           const val = Number(e.target.value);

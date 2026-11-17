@@ -1167,8 +1167,8 @@ export function createPosApp() {
         if (existingDefinition.dimension !== dimension && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
           return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
         }
-        if (existingDefinition.decimalPlaces !== decimalPlaces && linkedProducts.length > 0) {
-          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة أساس مستخدمة في أصناف؛ أنشئ وحدة جديدة أو نفّذ ترحيلاً موثقاً' });
+        if (existingDefinition.decimalPlaces !== decimalPlaces && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
+          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة مرتبطة بأصناف؛ أنشئ رمز وحدة جديداً أو نفّذ ترحيلاً موثقاً' });
         }
       }
       const now = new Date().toISOString();
@@ -1208,6 +1208,16 @@ export function createPosApp() {
         const existingUnits = await tx.select().from(productUnits).where(eq(productUnits.productId, productId));
         const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
         const existing = existingUnits.find((row) => row.unitCode === unitCode);
+        if (barcode) {
+          const [duplicateUnitBarcode] = await tx.select().from(productUnits).where(eq(productUnits.barcode, barcode));
+          if (duplicateUnitBarcode && duplicateUnitBarcode.id !== existing?.id) {
+            throw new RangeError('هذا الباركود مستخدم بالفعل لوحدة أخرى');
+          }
+          const [duplicateProductBarcode] = await tx.select().from(products).where(eq(products.barcode, barcode));
+          if (duplicateProductBarcode) {
+            throw new RangeError('هذا الباركود مستخدم بالفعل كرمز صنف؛ استخدم باركوداً مختلفاً للوحدة');
+          }
+        }
 
         if (!isBaseUnit && existingBase?.unitCode === unitCode) {
           throw new Error('لا يمكن إلغاء وحدة الأساس دون تعيين وحدة أساس بديلة');
@@ -1216,11 +1226,23 @@ export function createPosApp() {
           throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
         }
         const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        const [orderMovement] = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, productId)).limit(1);
+        const [purchaseMovement] = await tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, productId)).limit(1);
+        const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
+        const hasMovementHistory = Boolean(orderMovement || purchaseMovement || inventoryMovement);
+
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
+          if (hasMovementHistory) {
+            throw new RangeError('لا يمكن تغيير وحدة الأساس بعد وجود حركات مخزون تاريخية');
+          }
           assertBaseUnitChangeAllowed({
             hasStock: Number(product.stockQuantity || 0) > 0,
             hasDependentAlternateUnits: existingUnits.some((row) => row.unitCode !== currentBaseCode),
           });
+          throw new RangeError('لا يمكن استبدال وحدة أساس مثبتة مباشرة؛ أنشئ صنفاً جديداً أو نفّذ ترحيلاً موثقاً حتى لا تتغير معاني المخزون');
+        }
+        if (existing && Math.abs(Number(existing.conversionToBase) - conversionToBase) > 1e-10 && hasMovementHistory) {
+          throw new RangeError('لا يمكن تغيير معامل التحويل بعد وجود حركات مخزون تاريخية؛ أنشئ وحدة جديدة بدلاً من تعديل القديمة');
         }
         if (currentBaseCode && currentBaseCode !== unitCode) {
           const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));

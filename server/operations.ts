@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   products,
   categories,
@@ -31,6 +31,8 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  productUnits,
+  unitDefinitions,
   processedOperations,
 } from '../drizzle/schema.js';
 import {
@@ -46,6 +48,114 @@ import { getBasePerDocumentUnit } from '../src/utils/currencyConversion.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+type MovementUnitSnapshot = {
+  unitCode: string | null;
+  baseUnitCode: string | null;
+  conversionToBase: number;
+  baseQuantity: number;
+  legacyUnit: string;
+};
+
+function resolveMovementUnit(tx: any, productId: number, item: any, quantity: number): MovementUnitSnapshot {
+  const product = tx.select().from(products).where(eq(products.id, productId)).get();
+  if (!product) throw new OperationError(`الصنف رقم ${productId} غير موجود`, 404);
+
+  const unitCode = String(item?.unitCode || '').trim().toLowerCase();
+  if (unitCode) {
+    const selectedUnit = tx.select().from(productUnits)
+      .where(and(
+        eq(productUnits.productId, productId),
+        eq(productUnits.unitCode, unitCode),
+        eq(productUnits.isActive, 1)
+      )).get();
+    if (!selectedUnit) throw new OperationError('وحدة الإدخال غير مرتبطة بهذا الصنف أو أنها غير نشطة', 409);
+
+    const baseUnitCode = String(product.baseUnitCode || '').trim().toLowerCase();
+    const baseUnit = baseUnitCode ? tx.select().from(productUnits)
+      .where(and(
+        eq(productUnits.productId, productId),
+        eq(productUnits.unitCode, baseUnitCode),
+        eq(productUnits.isBaseUnit, 1),
+        eq(productUnits.isActive, 1)
+      )).get() : null;
+    if (!baseUnit) throw new OperationError('يجب ضبط وحدة الأساس للصنف قبل استخدام وحداته البديلة', 409);
+
+    const definition = tx.select().from(unitDefinitions)
+      .where(eq(unitDefinitions.code, unitCode)).get();
+    const baseDefinition = tx.select().from(unitDefinitions)
+      .where(eq(unitDefinitions.code, baseUnitCode)).get();
+    if (!definition || !definition.isActive || !baseDefinition || !baseDefinition.isActive) {
+      throw new OperationError('تعريف وحدة القياس أو وحدة الأساس غير موجود أو غير نشط', 409);
+    }
+    if (definition.dimension !== baseDefinition.dimension) {
+      throw new OperationError('لا يمكن التحويل بين وحدات ذات أبعاد مختلفة', 409);
+    }
+    if (Math.abs(Number(baseUnit.conversionToBase) - 1) > 1e-10 ||
+        (selectedUnit.isBaseUnit === 1 && unitCode !== baseUnitCode)) {
+      throw new OperationError('تعريف وحدة الأساس للصنف غير متسق', 409);
+    }
+
+    // Honor the conversion snapshot captured on the terminal. Offline transactions
+    // must not be reinterpreted if an administrator updates the unit later.
+    const hasSnapshotFactor = item?.conversionToBase !== null && item?.conversionToBase !== undefined;
+    const factor = hasSnapshotFactor ? Number(item.conversionToBase) : Number(selectedUnit.conversionToBase);
+    if (!Number.isFinite(factor) || factor <= 0 || (selectedUnit.isBaseUnit === 1 && Math.abs(factor - 1) > 1e-10)) {
+      throw new OperationError('معامل تحويل وحدة الصنف غير صالح', 409);
+    }
+    if (item?.baseUnitCode && String(item.baseUnitCode).toLowerCase() !== baseUnitCode) {
+      throw new OperationError('تغيرت وحدة الأساس بعد تسجيل الحركة على الجهاز؛ يلزم تسوية الحركة قبل المزامنة', 409);
+    }
+    const suppliedBaseQuantity = item?.baseQuantity;
+    if (suppliedBaseQuantity !== null && suppliedBaseQuantity !== undefined) {
+      const expectedBaseQuantity = quantity * factor;
+      const tolerance = Math.max(1e-7, Math.abs(expectedBaseQuantity) * 1e-9);
+      if (!Number.isFinite(Number(suppliedBaseQuantity)) ||
+          Math.abs(Number(suppliedBaseQuantity) - expectedBaseQuantity) > tolerance) {
+        throw new OperationError('لقطة كمية الأساس لا تتوافق مع الكمية ومعامل التحويل', 409);
+      }
+    }
+
+    const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
+    const scale = 10 ** precision;
+    if (Math.abs(quantity * scale - Math.round(quantity * scale)) > 1e-7) {
+      throw new OperationError(`الكمية لا تتوافق مع دقة وحدة ${definition.name}`, 400);
+    }
+
+    return {
+      unitCode,
+      baseUnitCode,
+      conversionToBase: factor,
+      baseQuantity: quantity * factor,
+      legacyUnit: unitCode,
+    };
+  }
+
+  // Older terminals still send the legacy piece/box fields. Keep their historical semantics.
+  const legacyUnit = String(item?.unit || item?.selectedUnit || 'piece');
+  const factor = legacyUnit === 'box' ? Number(item?.conversionFactor || 1) : 1;
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new OperationError('معامل تحويل الوحدة القديمة غير صالح', 400);
+  }
+  return {
+    unitCode: null,
+    baseUnitCode: product.baseUnitCode || null,
+    conversionToBase: factor,
+    baseQuantity: quantity * factor,
+    legacyUnit,
+  };
+}
+
+function getHistoricalBaseQuantity(item: any, quantity: number): number {
+  const originalQuantity = Number(item?.quantity || 0);
+  const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
+  const storedBaseQuantity = Number(item?.baseQuantity);
+  if (hasStoredBaseQuantity && originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
+    return storedBaseQuantity * (quantity / originalQuantity);
+  }
+  const factor = Number(item?.conversionToBase ?? item?.conversionFactor ?? 1);
+  return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 }
 
 export class OperationError extends Error {
@@ -250,12 +360,13 @@ function handleSale(
   const savedItems: any[] = [];
 
   for (const item of items) {
-    const factor =
-      item.unit === 'box' || item.selectedUnit === 'box' ? Number(item.conversionFactor || 1) : 1;
     const qty = Number(item.quantity || 0);
-    if (qty <= 0) continue;
-
-    const baseQty = qty * factor;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new OperationError('كمية البيع يجب أن تكون رقماً موجباً', 400);
+    }
+    const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
+    const factor = unitSnapshot.conversionToBase;
+    const baseQty = unitSnapshot.baseQuantity;
     const fifo = consumeInventoryFIFO(tx, {
       productId: Number(item.productId),
       quantityInBaseUnits: baseQty,
@@ -276,8 +387,12 @@ function handleSale(
         productName: item.productName,
         quantity: qty,
         returnedQuantity: 0,
-        unit: item.unit || item.selectedUnit || 'piece',
+        unit: unitSnapshot.legacyUnit,
         conversionFactor: factor,
+        unitCode: unitSnapshot.unitCode,
+        baseUnitCode: unitSnapshot.baseUnitCode,
+        conversionToBase: factor,
+        baseQuantity: baseQty,
         unitPrice: Number(item.unitPrice || 0),
         costPriceAtTimeOfSale: unitCostForSale,
         discountAmount: Number(item.discountAmount || 0),
@@ -515,16 +630,32 @@ function handleReturn(
 
   for (const reqItem of items) {
     const qtyToReturn = Number(reqItem.quantity || 0);
-    if (qtyToReturn <= 0) continue;
+    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
+      throw new OperationError('كمية المرتجع يجب أن تكون رقماً موجباً', 400);
+    }
 
-    const origItem = origItems.find(
-      (oi: any) =>
-        (reqItem.orderItemId && oi.id === Number(reqItem.orderItemId)) ||
-        oi.productId === Number(reqItem.productId)
-    );
+    const origItem = reqItem.orderItemId
+      ? origItems.find((oi: any) => oi.id === Number(reqItem.orderItemId))
+      : origItems.find((oi: any) =>
+          oi.productId === Number(reqItem.productId) &&
+          Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qtyToReturn
+        );
 
     if (!origItem) {
       throw new OperationError(`Item ${reqItem.productName || reqItem.productId} not found in original order`, 400);
+    }
+
+    if (origItem.unitCode) {
+      const unitDefinition = tx.select().from(unitDefinitions)
+        .where(eq(unitDefinitions.code, origItem.unitCode)).get();
+      if (!unitDefinition || !unitDefinition.isActive) {
+        throw new OperationError('تعريف وحدة المرتجع الأصلية غير متاح', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
+        throw new OperationError('كمية المرتجع لا تتوافق مع دقة وحدة البيع الأصلية', 400);
+      }
     }
 
     const alreadyReturned = Number(origItem.returnedQuantity || 0);
@@ -543,8 +674,8 @@ function handleReturn(
     const lineTotal = roundMoney(Number(origItem.total) * ratio);
     const lineDisc = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
 
-    const factor = Number(origItem.conversionFactor || 1);
-    const baseQty = qtyToReturn * factor;
+    const factor = Number(origItem.conversionToBase ?? origItem.conversionFactor ?? 1);
+    const baseQty = getHistoricalBaseQuantity(origItem, qtyToReturn);
     let allocations: BatchAllocation[] = [];
     try {
       allocations = origItem.batchAllocations ? JSON.parse(origItem.batchAllocations) : [];
@@ -559,6 +690,7 @@ function handleReturn(
       allocations,
       fallbackCost: baseCostFallback,
       branchId: branchId ?? origOrder.branchId,
+      batchIdPrefix: `return-${id}-${origItem.id}`,
     });
 
     totalSub = roundMoney(totalSub + lineSub);
@@ -570,10 +702,13 @@ function handleReturn(
     tx.update(orderItems)
       .set({
         returnedQuantity: alreadyReturned + qtyToReturn,
+        batchAllocations: JSON.stringify(restored.remainingAllocations),
         isSynced: 0,
       })
       .where(eq(orderItems.id, origItem.id))
       .run();
+    origItem.returnedQuantity = alreadyReturned + qtyToReturn;
+    origItem.batchAllocations = JSON.stringify(restored.remainingAllocations);
 
     const retItem = tx
       .insert(returnItems)
@@ -585,6 +720,10 @@ function handleReturn(
         productName: origItem.productName,
         quantity: qtyToReturn,
         unitPrice: Number(origItem.unitPrice),
+        unitCode: origItem.unitCode || null,
+        baseUnitCode: origItem.baseUnitCode || null,
+        conversionToBase: factor,
+        baseQuantity: baseQty,
         costPrice: Number(origItem.costPriceAtTimeOfSale || 0),
         taxAmount: lineTax,
         total: lineTotal,
@@ -759,8 +898,8 @@ function handleOrderVoid(
     .all();
 
   for (const oi of origItems) {
-    const factor = Number(oi.conversionFactor || 1);
-    const baseQty = Number(oi.quantity || 0) * factor;
+    const factor = Number(oi.conversionToBase ?? oi.conversionFactor ?? 1);
+    const baseQty = getHistoricalBaseQuantity(oi, Number(oi.quantity || 0));
     if (baseQty <= 0) continue;
 
     let allocations: BatchAllocation[] = [];
@@ -776,6 +915,7 @@ function handleOrderVoid(
       allocations,
       fallbackCost: baseCostFallback,
       branchId: origOrder.branchId,
+      batchIdPrefix: `void-${targetOrderId}-${oi.id}`,
     });
   }
 
@@ -969,11 +1109,19 @@ function handlePurchaseCreate(
   for (const item of items) {
     const qty = Number(item.quantity || 0);
     const originalCost = Number(item.costPrice || 0);
-    if (qty <= 0) continue;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new OperationError('كمية الشراء يجب أن تكون رقماً موجباً', 400);
+    }
     if (!Number.isFinite(originalCost) || originalCost < 0) {
       throw new OperationError('تكلفة الصنف في فاتورة الشراء غير صالحة', 400);
     }
+    const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
+    const factor = unitSnapshot.conversionToBase;
+    const baseQty = unitSnapshot.baseQuantity;
     const cost = roundMoney(originalCost * conversionRate);
+    // Keep fractional base-unit cost precision so multiplying by the conversion factor
+    // reproduces the entered purchase-unit cost without rounding loss.
+    const baseUnitCost = factor > 0 ? cost / factor : cost;
 
     const pItem = tx
       .insert(purchaseItems)
@@ -983,6 +1131,10 @@ function handlePurchaseCreate(
         productName: item.productName,
         quantity: qty,
         costPrice: cost,
+        unitCode: unitSnapshot.unitCode,
+        baseUnitCode: unitSnapshot.baseUnitCode,
+        conversionToBase: factor,
+        baseQuantity: baseQty,
         originalCostPrice: currencySnapshot ? originalCost : null,
         originalTotal: currencySnapshot ? roundMoney(qty * originalCost) : null,
         currencyCode: currencySnapshot?.currencyCode || null,
@@ -1001,10 +1153,14 @@ function handlePurchaseCreate(
         id: item.batchId ? String(item.batchId) : crypto.randomUUID(),
         productId: Number(item.productId),
         purchaseId: purchase.id,
-        quantity: qty,
-        remainingQuantity: qty,
-        costPrice: cost,
-        originalCostPrice: currencySnapshot ? originalCost : null,
+        quantity: baseQty,
+        remainingQuantity: baseQty,
+        costPrice: baseUnitCost,
+        originalCostPrice: currencySnapshot ? originalCost / factor : null,
+        unitCode: unitSnapshot.unitCode,
+        baseUnitCode: unitSnapshot.baseUnitCode,
+        conversionToBase: factor,
+        baseQuantity: baseQty,
         currencyCode: currencySnapshot?.currencyCode || null,
         exchangeRate: currencySnapshot?.exchangeRate ?? null,
         exchangeRateId: currencySnapshot?.exchangeRateId || null,
@@ -1018,7 +1174,7 @@ function handlePurchaseCreate(
 
     tx.update(products)
       .set({
-        stockQuantity: sql`${products.stockQuantity} + ${qty}`,
+        stockQuantity: sql`${products.stockQuantity} + ${baseQty}`,
         updatedAt: ctx.now,
         isSynced: 0,
       })
@@ -1132,9 +1288,10 @@ function handlePurchaseDelete(
 
   const oldItems = tx.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId)).all();
   for (const item of oldItems) {
+    const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
     tx.update(products)
       .set({
-        stockQuantity: sql`${products.stockQuantity} - ${item.quantity}`,
+        stockQuantity: sql`${products.stockQuantity} - ${baseQty}`,
         updatedAt: ctx.now,
         isSynced: 0,
       })
@@ -1219,16 +1376,41 @@ function handlePurchaseReturn(
 
   for (const reqItem of items) {
     const qtyToReturn = Number(reqItem.quantity || 0);
-    if (qtyToReturn <= 0) continue;
+    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
+      throw new OperationError('كمية مرتجع المشتريات يجب أن تكون رقماً موجباً', 400);
+    }
     const prodId = Number(reqItem.productId);
 
     const matchingBatch = reqItem.batchId
-      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId))
-      : purchaseBatches.find((b: any) => b.productId === prodId && Number(b.remainingQuantity) >= qtyToReturn) ||
-        purchaseBatches.find((b: any) => b.productId === prodId);
+      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId) && b.productId === prodId)
+      : purchaseBatches.find((b: any) =>
+          b.productId === prodId &&
+          (!reqItem.unitCode || b.unitCode === reqItem.unitCode) &&
+          Number(b.remainingQuantity ?? b.quantity ?? 0) >= qtyToReturn * Number(b.conversionToBase || 1)
+        ) || purchaseBatches.find((b: any) =>
+          b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
+        );
+    if (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode)) {
+      throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
+    }
+    const unitCode = matchingBatch?.unitCode || null;
+    if (unitCode) {
+      const unitDefinition = tx.select().from(unitDefinitions)
+        .where(eq(unitDefinitions.code, unitCode)).get();
+      if (!unitDefinition || !unitDefinition.isActive) {
+        throw new OperationError('تعريف وحدة مرتجع المشتريات غير متاح', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
+        throw new OperationError('كمية مرتجع المشتريات لا تتوافق مع دقة وحدة الشراء الأصلية', 400);
+      }
+    }
+    const factor = Number(matchingBatch?.conversionToBase || 1);
+    const baseQty = qtyToReturn * factor;
 
     if (matchingBatch) {
-      if (Number(matchingBatch.remainingQuantity || 0) < qtyToReturn) {
+      if (Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) < baseQty) {
         throw new OperationError(
           `الكمية المتبقية في دفعة المنتج ${reqItem.productName} (${matchingBatch.remainingQuantity}) أقل من كمية المرتجع (${qtyToReturn})`,
           400
@@ -1236,22 +1418,23 @@ function handlePurchaseReturn(
       }
       tx.update(inventoryBatches)
         .set({
-          remainingQuantity: Number(matchingBatch.remainingQuantity) - qtyToReturn,
+          remainingQuantity: Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty,
           updatedAt: ctx.now,
           isSynced: 0,
         })
         .where(eq(inventoryBatches.id, matchingBatch.id))
         .run();
+      matchingBatch.remainingQuantity = Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty;
     } else {
       const product = tx.select().from(products).where(eq(products.id, prodId)).get();
-      if (!product || Number(product.stockQuantity || 0) < qtyToReturn) {
+      if (!product || Number(product.stockQuantity || 0) < baseQty) {
         throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
       }
     }
 
     tx.update(products)
       .set({
-        stockQuantity: sql`${products.stockQuantity} - ${qtyToReturn}`,
+        stockQuantity: sql`${products.stockQuantity} - ${baseQty}`,
         updatedAt: ctx.now,
         isSynced: 0,
       })
@@ -1260,7 +1443,14 @@ function handlePurchaseReturn(
 
     recalculateProductWeightedCost(tx, prodId);
 
-    const cost = Number(reqItem.costPrice ?? matchingBatch?.costPrice ?? 0);
+    const sourcePurchaseItems = tx.select().from(purchaseItems)
+      .where(eq(purchaseItems.purchaseId, String(originalPurchaseId))).all();
+    const sourceItem = sourcePurchaseItems.find((row: any) =>
+      row.productId === prodId && (!matchingBatch?.unitCode || row.unitCode === matchingBatch.unitCode)
+    );
+    const cost = matchingBatch
+      ? Number(matchingBatch.costPrice || 0) * factor
+      : Number(sourceItem?.costPrice ?? reqItem.costPrice ?? 0);
     const lineTotal = roundMoney(qtyToReturn * cost);
     totalReturn = roundMoney(totalReturn + lineTotal);
 
@@ -1274,6 +1464,10 @@ function handlePurchaseReturn(
         quantity: qtyToReturn,
         costPrice: cost,
         total: lineTotal,
+        unitCode: matchingBatch?.unitCode || null,
+        baseUnitCode: matchingBatch?.baseUnitCode || null,
+        conversionToBase: factor,
+        baseQuantity: baseQty,
         batchId: matchingBatch?.id || null,
         isSynced: 0,
         createdAt: ctx.now,
@@ -1769,6 +1963,10 @@ function handleStocktakeApprove(
   ctx: { operationId: string; deviceId: string; actor: string; now: string }
 ) {
   const { sessionId } = payload;
+  const requestedApprovalTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date(ctx.now);
+  const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
+    ? ctx.now
+    : requestedApprovalTime.toISOString();
   const session = tx
     .select()
     .from(stocktakingSessions)
@@ -1789,28 +1987,50 @@ function handleStocktakeApprove(
     const product = tx.select().from(products).where(eq(products.id, entry.productId)).get();
     if (!product) continue;
 
-    const diff = Number(entry.actualQuantity) - Number(product.stockQuantity);
+    if (entry.unitCode) {
+      const definition = tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, entry.unitCode)).get();
+      if (!definition || !definition.isActive ||
+          (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
+          (entry.baseUnitCode && entry.baseUnitCode !== product.baseUnitCode)) {
+        throw new OperationError('وحدة الجرد لا تطابق وحدة الأساس الحالية للصنف', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(Number(entry.actualQuantity) * scale - Math.round(Number(entry.actualQuantity) * scale)) > 1e-7) {
+        throw new OperationError(`كمية الجرد للصنف ${product.name} لا تتوافق مع دقة وحدة الأساس`, 400);
+      }
+    }
+
+    const actualBaseQuantity = Number(entry.actualQuantity);
+    if (!Number.isFinite(actualBaseQuantity) || actualBaseQuantity < 0) {
+      throw new OperationError(`كمية الجرد للصنف ${product.name} غير صالحة`, 400);
+    }
+    const diff = actualBaseQuantity - Number(product.stockQuantity);
     if (diff === 0) continue;
 
     if (diff > 0) {
       const unitCost = Number(product.costPrice || 0);
       tx.insert(inventoryBatches)
         .values({
-          id: crypto.randomUUID(),
+          id: `stocktake-${sessionId}-${product.id}`,
           productId: product.id,
           purchaseId: null,
           quantity: diff,
           remainingQuantity: diff,
           costPrice: unitCost,
-          purchaseDate: ctx.now,
+          unitCode: entry.unitCode || product.baseUnitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: diff,
+          purchaseDate: approvedAt,
           branchId: session.branchId || null,
           isSynced: 0,
-          createdAt: ctx.now,
-          updatedAt: ctx.now,
+          createdAt: approvedAt,
+          updatedAt: approvedAt,
         })
         .run();
       tx.update(products)
-        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: ctx.now, isSynced: 0 })
+        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: approvedAt, isSynced: 0 })
         .where(eq(products.id, product.id))
         .run();
       netAdjustmentValue = roundMoney(netAdjustmentValue + diff * unitCost);
@@ -1828,14 +2048,14 @@ function handleStocktakeApprove(
   }
 
   tx.update(stocktakingSessions)
-    .set({ status: 'approved', isSynced: 0 })
+    .set({ status: 'approved', updatedAt: approvedAt, isSynced: 0 })
     .where(eq(stocktakingSessions.id, sessionId))
     .run();
 
   if (netAdjustmentValue !== 0) {
     const absVal = Math.abs(netAdjustmentValue);
     postJournalEntry(tx, {
-      date: ctx.now,
+      date: approvedAt,
       referenceId: sessionId,
       referenceType: 'stocktake',
       description: `تسوية جرد مخزون #${sessionId}`,
@@ -1857,7 +2077,7 @@ function handleStocktakeApprove(
   tx.insert(auditLogs)
     .values({
       id: crypto.randomUUID(),
-      date: ctx.now,
+      date: approvedAt,
       type: 'stocktake_approve',
       userName: ctx.actor,
       action: 'اعتماد جرد',

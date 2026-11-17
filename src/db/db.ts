@@ -162,7 +162,7 @@ export interface OrderItem {
   productName: string;
   quantity: number;
   returnedQuantity?: number;
-  unit?: 'piece' | 'box';
+  unit?: string;
   conversionFactor?: number;
   unitCode?: string;
   baseUnitCode?: string;
@@ -505,7 +505,7 @@ export interface PurchaseItem {
   productId: number;
   productName: string;
   quantity: number;
-  costPrice: number; // Base-currency unit cost.
+  costPrice: number; // Base-currency cost per entered purchase unit; inventory batches store base-unit cost.
   originalCostPrice?: number | null;
   originalTotal?: number | null;
   currencyCode?: string | null;
