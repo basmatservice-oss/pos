@@ -2274,10 +2274,11 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
   let savedRecord: any;
 
   if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
-    const { id: _tmp, ...insertValues } = clean;
+    // Keep the client-generated numeric ID so later offline operations can
+    // reference the same product/customer/category without remapping.
     savedRecord = tx
       .insert(table)
-      .values({ ...insertValues, isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
+      .values({ ...clean, id: Number(clean.id), isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
       .returning()
       .get();
   } else {
@@ -2301,16 +2302,20 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
     if (existingBatches.length === 0) {
       tx.insert(inventoryBatches)
         .values({
-          id: crypto.randomUUID(),
+          id: `opening-${savedRecord.id}`,
           productId: savedRecord.id,
           purchaseId: null,
           quantity: Number(savedRecord.stockQuantity),
           remainingQuantity: Number(savedRecord.stockQuantity),
           costPrice: Number(savedRecord.costPrice || 0),
-          purchaseDate: now,
+          unitCode: savedRecord.baseUnitCode || null,
+          baseUnitCode: savedRecord.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(savedRecord.stockQuantity),
+          purchaseDate: savedRecord.createdAt || now,
           branchId: savedRecord.branchId || null,
           isSynced: 0,
-          createdAt: now,
+          createdAt: savedRecord.createdAt || now,
           updatedAt: now,
         })
         .run();
