@@ -91,7 +91,15 @@ export default function Stocktaking() {
       action: async () => {
         setIsProcessing(true);
         try {
-          await dispatchOperation('stocktake_approve', { sessionId: session.id!, approvedAt: new Date().toISOString() }, user?.branchId);
+          const approvedAt = new Date().toISOString();
+    const sessionSnapshot = await db.stocktakingSessions.get(session.id!);
+    const entrySnapshots = await db.stocktakingEntries.where('sessionId').equals(session.id!).toArray();
+    await dispatchOperation('stocktake_approve', {
+      sessionId: session.id!,
+      approvedAt,
+      session: sessionSnapshot,
+      entries: entrySnapshots,
+    }, user?.branchId);
           toast.success('تم اعتماد الجرد وتحديث المخزون بنجاح');
           setView('sessions');
           setSelectedSession(null);
