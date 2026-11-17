@@ -1,4 +1,4 @@
-name: Build POS Multi-Platform Releases (Android & Windows)
+name: Build Smart POS (Windows 7+ EXE and Android APK)
 
 on:
   push:
@@ -12,139 +12,85 @@ on:
         default: 'v1.0.0'
 
 jobs:
-  build-android-1:
-    name: Build Android APK 1 (Main Branch)
+  build-android:
+    name: Android APK (Android 8 to 16)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Install Dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
-      - name: Build Frontend
+      - name: Build web app
         run: npm run build
 
-      - name: Initialize Capacitor for Android 1
+      - name: Create and patch Android project
         run: |
-          npx cap init SmartPOSMain com.smartpos.app1 --web-dir dist || true
-          npx cap add android || true
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
 
-      - name: Build Android APK Release
+      - name: Build APK
+        working-directory: android
         run: |
-          cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK 1 Artifact
-        uses: actions/upload-artifact@v4
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk smart-pos-android.apk
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: smart-pos-branch-1.apk
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: warn
-
-  build-android-2:
-    name: Build Android APK 2 (Secondary Branch)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Frontend
-        run: npm run build
-
-      - name: Initialize Capacitor for Android 2
-        run: |
-          npx cap init SmartPOSBranch2 com.smartpos.app2 --web-dir dist || true
-          npx cap add android || true
-
-      - name: Build Android APK Release
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleRelease
-
-      - name: Upload APK 2 Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: smart-pos-branch-2.apk
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: warn
+          name: smart-pos-android
+          path: smart-pos-android.apk
+          if-no-files-found: error
 
   build-windows:
-    name: Build Windows 64-bit EXE (Win 7 to 11)
+    name: Windows x64 installer (Windows 7 SP1 and later)
     runs-on: windows-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: Install Dependencies
-        run: npm ci
+      - name: Install dependencies (native modules are rebuilt for Electron 22)
+        run: npm install --no-audit --no-fund
 
-      - name: Build Frontend & Server Bundle
+      - name: Build web app and server bundle
         run: |
           npm run build
           npm run build:server
 
-      - name: Build Electron Windows Installer (x64)
+      - name: Build installer
         run: npx electron-builder --win --x64 --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows Setup Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: windows-setup-exe
+          name: smart-pos-windows
           path: release/*.exe
-          if-no-files-found: warn
+          if-no-files-found: error
 
   github-release:
-    name: Aggregate & Publish GitHub Release
-    needs: [build-android-1, build-android-2, build-windows]
+    name: Publish GitHub Release
+    needs: [build-android, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
 
-      - name: Display Downloaded Files
-        run: ls -R
-
-      - name: Determine Tag Name
+      - name: Determine tag
         id: tag
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
@@ -153,20 +99,15 @@ jobs:
             echo "tag_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create GitHub Release & Upload Assets
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag_name }}
-          name: Smart POS Production Release ${{ steps.tag.outputs.tag_name }}
+          name: Smart POS ${{ steps.tag.outputs.tag_name }}
           body: |
-            ### 🚀 الإصدار الإنتاجي لنظام نقاط البيع (Smart POS Studio)
-            تم بناء هذا الإصدار تلقائياً عبر نظام الأتمتة الآمن (`GitHub Actions`):
-            - 🖥️ **Windows x64 Setup (.exe):** متوافق مع Windows 7 SP1 وحتى Windows 10 و 11.
-            - 📱 **Android APK 1:** نسخة العميل للفرع الأول (دعم Android 8.0+).
-            - 📱 **Android APK 2:** نسخة العميل للفرع الثاني (دعم Android 8.0+).
+            - Windows x64 installer (.exe): can run as server or client (Windows 7 SP1 and later).
+            - Android APK: Android 8.0 to 16, works as a client of the Windows server over Wi-Fi/LAN.
           files: |
-            smart-pos-branch-1.apk
-            smart-pos-branch-2.apk
-            windows-setup-exe/*.exe
+            smart-pos-android/smart-pos-android.apk
+            smart-pos-windows/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

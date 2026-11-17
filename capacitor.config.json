@@ -1,0 +1,12 @@
+{
+  "appId": "com.smartpos.studio",
+  "appName": "Smart POS",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

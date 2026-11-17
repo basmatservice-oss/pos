@@ -43,6 +43,7 @@ import { toast } from 'react-hot-toast';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
+import SimpleReports from '../components/SimpleReports';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
@@ -53,7 +54,7 @@ import { formatNumber, formatQty } from '../utils/format';
 
 export default function Reports() {
   const { user } = useAuth();
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'financial'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'simple' | 'overview' | 'financial'>('simple');
   const orders = useLiveQuery(() => db.orders.toArray()) || [];
   const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
   const returns = useLiveQuery(() => db.returns.toArray()) || [];
@@ -486,25 +487,28 @@ export default function Reports() {
             <span>التقارير والمبيعات</span>
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            تحليل صافي الإيرادات (بعد فصل ضريبة القيمة المضافة) والتكاليف والقوائم المالية
+            {activeMainTab === 'simple'
+              ? 'تقارير مبسطة توضح لك كم بعت وكم ربحت وما لك وما عليك'
+              : activeMainTab === 'overview'
+              ? 'سجل الفواتير وتفاصيل المبيعات مع إمكانية الإرجاع والإلغاء'
+              : 'القوائم المالية التفصيلية (مخصصة للمحاسبين)'}
           </p>
-          <div className="mt-4 flex bg-slate-200/70 p-1 rounded-xl w-fit border border-slate-200">
-            <button
-              onClick={() => setActiveMainTab('overview')}
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
-                activeMainTab === 'overview' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
-              }`}
-            >
-              نظرة عامة
-            </button>
-            <button
-              onClick={() => setActiveMainTab('financial')}
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
-                activeMainTab === 'financial' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
-              }`}
-            >
-              التقرير المالي الشامل
-            </button>
+          <div className="mt-4 flex bg-slate-200/70 p-1 rounded-xl w-fit border border-slate-200 max-w-full overflow-x-auto">
+            {([
+              ['simple', 'الموقف المالي والتقارير'],
+              ['overview', 'الفواتير والتفاصيل'],
+              ['financial', 'للمحاسب (قوائم مالية)'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveMainTab(key)}
+                className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
+                  activeMainTab === key ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -542,6 +546,8 @@ export default function Reports() {
           </div>
         )}
       </div>
+
+      {activeMainTab === 'simple' && <SimpleReports />}
 
       {activeMainTab === 'overview' && (
         <>

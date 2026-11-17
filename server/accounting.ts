@@ -217,11 +217,21 @@ export function reverseJournalEntriesByReference(
   reason: string,
   createdBy?: string
 ) {
-  const entries = tx
+  const allForReference = tx
     .select()
     .from(journalEntries)
-    .where(and(eq(journalEntries.referenceId, referenceId), eq(journalEntries.status, 'posted')))
+    .where(eq(journalEntries.referenceId, referenceId))
     .all();
+
+  // Reversal entries share the same referenceId and stay 'posted'. They must never be
+  // reversed again, otherwise a second reversal (e.g. edit then delete of a purchase)
+  // would silently re-post the original entry and corrupt the ledger.
+  const reversalEntryIds = new Set(
+    allForReference.map((e: any) => e.reversedEntryId).filter(Boolean)
+  );
+  const entries = allForReference.filter(
+    (e: any) => e.status === 'posted' && !reversalEntryIds.has(e.id)
+  );
 
   for (const entry of entries) {
     const lines = tx

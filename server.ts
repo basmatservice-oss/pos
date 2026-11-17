@@ -1,7 +1,6 @@
 import { runMigrations } from './migrate.js';
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { eq } from 'drizzle-orm';
 import { db, closeDatabaseConnection } from './drizzle/db.js';
 import { settings } from './drizzle/schema.js';
@@ -94,6 +93,9 @@ async function startServer() {
   let viteInstance: any = null;
   if (process.env.NODE_ENV !== 'production') {
     const disableHmr = process.env.DISABLE_HMR === 'true';
+    // Loaded lazily: Vite is a dev-only dependency and must not be imported by the
+    // packaged server (it needs a newer Node than the Electron build used for Windows 7).
+    const { createServer: createViteServer } = await import('vite');
     viteInstance = await createViteServer({
       server: {
         middlewareMode: true,

@@ -11,12 +11,16 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "start": "tsx server.ts",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/server.js --external:@prisma/client --external:better-sqlite3 --external:sqlite3 --external:vite",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=esm --outfile=dist/server.js --external:@prisma/client --external:better-sqlite3 --external:vite --banner:js=\"import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);\"",
     "package": "npm run build && npm run build:server && electron-builder",
     "lint": "tsc --noEmit",
-    "test:unit": "node --test tests/*.test.js"
+    "test:unit": "node --test tests/*.test.js",
+    "cap:sync": "npm run build && cap sync android",
+    "android:prepare": "node scripts/prepare-android.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/core": "^7.4.0",
     "@google/genai": "^1.29.0",
     "@supabase/supabase-js": "^2.99.1",
     "@tailwindcss/vite": "^4.1.14",
@@ -24,7 +28,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "9.6.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "date-fns": "^4.1.0",
@@ -47,8 +51,6 @@
     "recharts": "^3.8.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1",
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
     "uuid": "^13.0.0",
@@ -56,6 +58,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
@@ -93,7 +96,14 @@
       "node_modules/better-sqlite3/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

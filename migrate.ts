@@ -461,7 +461,8 @@ export async function runMigrations() {
       const possiblePaths = [
         path.join(process.cwd(), 'resources', 'app', 'drizzle', 'migrations'),
         path.join(process.cwd(), 'drizzle', 'migrations'),
-        path.join(__dirname, '..', 'drizzle', 'migrations'),
+        // __dirname does not exist in the ESM server bundle (dist/server.js); guard it.
+        ...(typeof __dirname !== 'undefined' ? [path.join(__dirname, '..', 'drizzle', 'migrations')] : []),
       ];
 
       for (const p of possiblePaths) {
