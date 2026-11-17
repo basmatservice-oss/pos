@@ -378,13 +378,14 @@ export function restoreInventoryFIFO(
     allocations?: BatchAllocation[];
     fallbackCost: number;
     branchId?: number;
+    batchIdPrefix?: string;
   }
 ): {
   totalCostRestored: number;
   restoredAllocations: BatchAllocation[];
   remainingAllocations: BatchAllocation[];
 } {
-  const { productId, quantityInBaseUnits, allocations = [], fallbackCost, branchId } = params;
+  const { productId, quantityInBaseUnits, allocations = [], fallbackCost, branchId, batchIdPrefix } = params;
   const now = new Date().toISOString();
   const product = tx.select().from(products).where(eq(products.id, productId)).get();
   if (!product) throw new Error(`Product ${productId} not found`);
@@ -392,6 +393,7 @@ export function restoreInventoryFIFO(
   let remainingToRestore = quantityInBaseUnits;
   let totalCostRestored = 0;
   const restoredAllocations: BatchAllocation[] = [];
+  let createdBatchIndex = 0;
   const remainingAllocations = allocations
     .filter((allocation) => allocation && Number(allocation.quantity) > 0)
     .map((allocation) => ({
@@ -402,7 +404,7 @@ export function restoreInventoryFIFO(
 
   const createReturnBatch = (quantity: number, costPrice: number) => {
     if (quantity <= 0) return;
-    const batchId = crypto.randomUUID();
+    const batchId = batchIdPrefix ? `${batchIdPrefix}-${createdBatchIndex++}` : crypto.randomUUID();
     tx.insert(inventoryBatches)
       .values({
         id: batchId,
