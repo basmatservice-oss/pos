@@ -135,8 +135,9 @@ async function startServer() {
   startAutoBackup();
 
   const PORT = Number(process.env.PORT) || 3000;
-  httpServer.listen(PORT, process.env.POS_SERVER_BIND || '0.0.0.0', () => {
-    console.log(`[Startup 5/5] POS Central Server ready on http://0.0.0.0:${PORT}`);
+  const bindHost = process.env.POS_SERVER_BIND || '0.0.0.0';
+  httpServer.listen(PORT, bindHost, () => {
+    console.log(`[Startup 5/5] POS service ready on http://${bindHost}:${PORT}`);
   });
 
   const gracefulShutdown = async (signal: string) => {
