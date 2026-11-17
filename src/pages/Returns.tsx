@@ -243,7 +243,10 @@ export default function Returns() {
               <tbody className="divide-y divide-slate-100 text-sm">
                 {order.items.map((item, index) => (
                   <tr key={item.id ?? index}>
-                    <td className="py-3.5 font-bold text-slate-900">{item.productName}</td>
+                    <td className="py-3.5 font-bold text-slate-900">
+                      {item.productName}
+                      {item.unitCode && <div className="text-[10px] text-slate-500 font-normal">{item.unitCode}</div>}
+                    </td>
                     <td className="py-3.5 text-slate-600 tabular-nums">{item.unitPrice.toFixed(2)}</td>
                     <td className="py-3.5 text-slate-600 tabular-nums">{item.quantity}</td>
                     <td className="py-3.5 text-amber-600 font-bold tabular-nums">{item.previouslyReturned}</td>
