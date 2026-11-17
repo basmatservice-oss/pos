@@ -863,7 +863,7 @@ function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, pu
     return { currencyCode, baseCurrencyCode, exchangeRate: 1, exchangeRateId: null };
   }
 
-  const purchaseTimestamp = new Date(purchaseDate).getTime();
+  const purchaseTimestamp = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
   const eligibleRates = tx.select().from(exchangeRates).all().filter((rate: any) => {
     if (!rate.approvedAt || !Number.isFinite(Number(rate.rate)) || Number(rate.rate) <= 0) return false;
     const effectiveTimestamp = new Date(rate.effectiveAt).getTime();
@@ -906,11 +906,13 @@ function handlePurchaseCreate(
 
   const purchaseDate = purchase.date ? new Date(purchase.date).toISOString() : ctx.now;
   const currencySnapshot = resolvePurchaseCurrencySnapshot(tx, purchase.currencyCode, purchaseDate);
-  const originalTotalAmount = roundMoney(Number(purchase.totalAmount || 0));
-  const originalPaidAmount = roundMoney(Number(purchase.paidAmount || 0));
-  if (currencySnapshot && (!Number.isFinite(originalTotalAmount) || originalTotalAmount < 0 || !Number.isFinite(originalPaidAmount) || originalPaidAmount < 0)) {
+  const rawOriginalTotalAmount = Number(purchase.totalAmount ?? 0);
+  const rawOriginalPaidAmount = Number(purchase.paidAmount ?? 0);
+  if (currencySnapshot && (!Number.isFinite(rawOriginalTotalAmount) || rawOriginalTotalAmount < 0 || !Number.isFinite(rawOriginalPaidAmount) || rawOriginalPaidAmount < 0)) {
     throw new OperationError('إجمالي الفاتورة والمدفوع يجب أن يكونا أرقاماً موجبة أو صفراً', 400);
   }
+  const originalTotalAmount = roundMoney(rawOriginalTotalAmount);
+  const originalPaidAmount = roundMoney(rawOriginalPaidAmount);
   const conversionRate = currencySnapshot?.exchangeRate ?? 1;
   const totalAmount = roundMoney(originalTotalAmount * conversionRate);
   const paidAmount = roundMoney(originalPaidAmount * conversionRate);
