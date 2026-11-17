@@ -86,6 +86,56 @@ export const getLocalIPAddress = () => {
   return '127.0.0.1';
 };
 
+async function appendApiInventoryMovement(input: {
+  operationId: string;
+  movementKey: string;
+  productId: number;
+  branchId?: number | null;
+  movementType: string;
+  sourceType: string;
+  sourceId: string;
+  sourceLineId?: string | number | null;
+  deviceId?: string | null;
+  createdBy?: string | null;
+  inputQuantity?: number | null;
+  unitCode?: string | null;
+  baseUnitCode?: string | null;
+  conversionToBase?: number;
+  quantityDeltaBase: number;
+  unitCost?: number;
+  totalCost?: number;
+  batchAllocations?: any[] | string | null;
+  reason?: string | null;
+  createdAt: string;
+}) {
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+  await db.insert(inventoryMovements).values({
+    id: `${input.operationId}:${input.movementKey}`,
+    movementKey: input.movementKey,
+    productId: Number(input.productId),
+    branchId: input.branchId ?? null,
+    movementType: input.movementType,
+    sourceType: input.sourceType,
+    sourceId: String(input.sourceId),
+    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+    operationId: input.operationId,
+    deviceId: input.deviceId ?? null,
+    createdBy: input.createdBy ?? null,
+    inputQuantity: input.inputQuantity ?? null,
+    unitCode: input.unitCode ?? null,
+    baseUnitCode: input.baseUnitCode ?? null,
+    conversionToBase: Number(input.conversionToBase || 1),
+    quantityDeltaBase: Number(input.quantityDeltaBase),
+    unitCost: Number(input.unitCost || 0),
+    totalCost: Math.abs(Number(input.totalCost || 0)),
+    batchAllocations: allocations,
+    reason: input.reason ?? null,
+    createdAt: input.createdAt,
+  }).onConflictDoNothing();
+}
+
 const SAFE_PUBLIC_SETTING_KEYS = new Set([
   'businessName',
   'businessType',
