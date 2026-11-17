@@ -43,6 +43,8 @@ import {
   inventoryBatches,
   inventoryAlerts,
   syncQueue,
+  currencies,
+  exchangeRates,
 } from '../drizzle/schema.js';
 import {
   signToken,
@@ -1140,6 +1142,126 @@ export function createPosApp() {
       res.json({ message: 'Employee deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete employee' });
+    }
+  });
+
+  // --- Currency master data and append-only exchange-rate ledger ---
+  app.get('/api/currencies', async (_req, res) => {
+    try {
+      res.json(await db.select().from(currencies));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch currencies' });
+    }
+  });
+
+  app.post('/api/currencies', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const code = String(req.body?.code || '').trim().toUpperCase();
+      const name = String(req.body?.name || '').trim();
+      const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
+      const decimalPlaces = Number(req.body?.decimalPlaces ?? 2);
+      if (!/^[A-Z]{3}$/.test(code) || !name || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 4) {
+        return res.status(400).json({ error: 'Currency requires a 3-letter code, name, and 0-4 decimal places' });
+      }
+      const now = new Date().toISOString();
+      const [saved] = await db.insert(currencies).values({
+        code, name, symbol, decimalPlaces, isActive: 1, createdAt: now, updatedAt: now,
+      }).onConflictDoUpdate({
+        target: currencies.code,
+        set: { name, symbol, decimalPlaces, updatedAt: now },
+      }).returning();
+      res.status(201).json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to save currency' });
+    }
+  });
+
+  app.put('/api/currencies/:code/status', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const code = String(req.params.code || '').trim().toUpperCase();
+      const isActive = req.body?.isActive === true || req.body?.isActive === 1 ? 1 : 0;
+      const [saved] = await db.update(currencies).set({ isActive, updatedAt: new Date().toISOString() })
+        .where(eq(currencies.code, code)).returning();
+      if (!saved) return res.status(404).json({ error: 'Currency not found' });
+      res.json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to update currency status' });
+    }
+  });
+
+  app.get('/api/currencies/base', async (_req, res) => {
+    try {
+      const [setting] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
+      res.json({ baseCurrencyCode: setting?.value || null });
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch base currency' });
+    }
+  });
+
+  app.put('/api/currencies/base', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const code = String(req.body?.code || '').trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(code)) return res.status(400).json({ error: 'A valid 3-letter currency code is required' });
+      const [currency] = await db.select().from(currencies).where(eq(currencies.code, code));
+      if (!currency || !currency.isActive) return res.status(400).json({ error: 'Base currency must exist and be active' });
+      const now = new Date().toISOString();
+      const [saved] = await db.insert(settings).values({ key: 'baseCurrencyCode', value: code, isSynced: 0, createdAt: now, updatedAt: now })
+        .onConflictDoUpdate({ target: settings.key, set: { value: code, isSynced: 0, updatedAt: now } }).returning();
+      res.json({ baseCurrencyCode: saved.value });
+    } catch {
+      res.status(500).json({ error: 'Failed to set base currency' });
+    }
+  });
+
+  app.get('/api/exchange-rates', async (req, res) => {
+    try {
+      const base = req.query.base ? String(req.query.base).toUpperCase() : undefined;
+      const quote = req.query.quote ? String(req.query.quote).toUpperCase() : undefined;
+      const rows = await db.select().from(exchangeRates);
+      res.json(rows.filter((row) => (!base || row.baseCurrencyCode === base) && (!quote || row.quoteCurrencyCode === quote))
+        .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt)));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch exchange rates' });
+    }
+  });
+
+  app.post('/api/exchange-rates', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const baseCurrencyCode = String(req.body?.baseCurrencyCode || '').trim().toUpperCase();
+      const quoteCurrencyCode = String(req.body?.quoteCurrencyCode || '').trim().toUpperCase();
+      const rate = Number(req.body?.rate);
+      const effectiveAt = String(req.body?.effectiveAt || '').trim();
+      const source = String(req.body?.source || '').trim();
+      if (!/^[A-Z]{3}$/.test(baseCurrencyCode) || !/^[A-Z]{3}$/.test(quoteCurrencyCode) || baseCurrencyCode === quoteCurrencyCode || !Number.isFinite(rate) || rate <= 0 || !effectiveAt || Number.isNaN(Date.parse(effectiveAt)) || !source) {
+        return res.status(400).json({ error: 'Valid distinct currencies, positive rate, effective date, and source are required' });
+      }
+      const active = await db.select().from(currencies);
+      if (![baseCurrencyCode, quoteCurrencyCode].every((code) => active.some((currency) => currency.code === code && currency.isActive))) {
+        return res.status(400).json({ error: 'Both currencies must be registered and active' });
+      }
+      const now = new Date().toISOString();
+      const [saved] = await db.insert(exchangeRates).values({
+        id: crypto.randomUUID(), baseCurrencyCode, quoteCurrencyCode, rate, effectiveAt, source,
+        createdBy: req.authUser?.username || null, createdAt: now, approvedBy: null, approvedAt: null, isSynced: 0,
+      }).returning();
+      res.status(201).json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to create exchange rate' });
+    }
+  });
+
+  app.post('/api/exchange-rates/:id/approve', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const [rate] = await db.select().from(exchangeRates).where(eq(exchangeRates.id, req.params.id));
+      if (!rate) return res.status(404).json({ error: 'Exchange rate not found' });
+      if (rate.approvedAt) return res.status(409).json({ error: 'Approved exchange rates are immutable' });
+      const now = new Date().toISOString();
+      const [approved] = await db.update(exchangeRates).set({
+        approvedBy: req.authUser?.username || 'admin', approvedAt: now, isSynced: 0,
+      }).where(eq(exchangeRates.id, req.params.id)).returning();
+      res.json(approved);
+    } catch {
+      res.status(500).json({ error: 'Failed to approve exchange rate' });
     }
   });
 
