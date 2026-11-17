@@ -275,6 +275,35 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Transaction', 'returnId', 'text');
   ensureColumn(sqlite, 'Transaction', 'createdAt', 'text');
 
+  // Currency foundation: no seeded/default base currency and no rewriting of legacy amounts.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS "Currency" (
+      "code" text PRIMARY KEY NOT NULL,
+      "name" text NOT NULL,
+      "symbol" text,
+      "decimalPlaces" integer NOT NULL DEFAULT 2,
+      "isActive" integer NOT NULL DEFAULT 1,
+      "createdAt" text NOT NULL,
+      "updatedAt" text NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "ExchangeRate" (
+      "id" text PRIMARY KEY NOT NULL,
+      "baseCurrencyCode" text NOT NULL,
+      "quoteCurrencyCode" text NOT NULL,
+      "rate" real NOT NULL CHECK ("rate" > 0),
+      "effectiveAt" text NOT NULL,
+      "source" text NOT NULL,
+      "approvedBy" text,
+      "approvedAt" text,
+      "createdBy" text,
+      "createdAt" text NOT NULL,
+      "isSynced" integer NOT NULL DEFAULT 0,
+      CHECK ("baseCurrencyCode" <> "quoteCurrencyCode")
+    );
+    CREATE INDEX IF NOT EXISTS "idx_exchange_rate_pair_effective"
+      ON "ExchangeRate" ("baseCurrencyCode", "quoteCurrencyCode", "effectiveAt");
+  `);
+
   // Helpful indexes for performance
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS "idx_batch_product_rem" ON "InventoryBatch" ("productId", "remainingQuantity", "purchaseDate");
