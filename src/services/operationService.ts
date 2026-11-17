@@ -1346,8 +1346,8 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-        await applyOperationLocally(type, localPayload, 'synced', response.result);
+        // The optimistic local operation was already applied above. Reapplying it
+        // with the server response would decrement/increment stock a second time.
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
