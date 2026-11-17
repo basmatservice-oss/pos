@@ -102,14 +102,20 @@ class PosLocalDatabasePlugin : Plugin() {
                 put("type", type)
                 put("payload", payload.toString())
                 put("device_id", call.getString("deviceId") ?: "")
+                put("tenant_id", call.getString("tenantId") ?: "")
                 put("branch_id", call.getString("branchId") ?: "")
+                put("actor", call.getString("actor") ?: "")
+                put("schema_version", call.getInt("schemaVersion") ?: 1)
                 put("created_at", System.currentTimeMillis())
                 put("status", "pending")
             }
             val result = helper.writableDatabase.insertWithOnConflict(
                 "pos_outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE
             )
-            call.resolve(JSObject().put("queued", result != -1L).put("operationId", operationId))
+            val duplicate = result == -1L && helper.readableDatabase.query(
+                "pos_outbox", arrayOf("operation_id"), "operation_id = ?", arrayOf(operationId), null, null, null
+            ).use { it.moveToFirst() }
+            call.resolve(JSObject().put("queued", result != -1L || duplicate).put("duplicate", duplicate).put("operationId", operationId))
         } catch (error: Exception) {
             call.reject("تعذر إضافة العملية إلى قائمة المزامنة", error)
         }
@@ -129,7 +135,10 @@ class PosLocalDatabasePlugin : Plugin() {
                     item.put("type", cursor.getString(cursor.getColumnIndexOrThrow("type")))
                     item.put("payload", JSONObject(cursor.getString(cursor.getColumnIndexOrThrow("payload"))))
                     item.put("deviceId", cursor.getString(cursor.getColumnIndexOrThrow("device_id")))
+                    item.put("tenantId", cursor.getString(cursor.getColumnIndexOrThrow("tenant_id")))
                     item.put("branchId", cursor.getString(cursor.getColumnIndexOrThrow("branch_id")))
+                    item.put("actor", cursor.getString(cursor.getColumnIndexOrThrow("actor")))
+                    item.put("schemaVersion", cursor.getInt(cursor.getColumnIndexOrThrow("schema_version")))
                     item.put("createdAt", cursor.getLong(cursor.getColumnIndexOrThrow("created_at")))
                     item.put("retryCount", cursor.getInt(cursor.getColumnIndexOrThrow("retry_count")))
                     rows.put(item)
@@ -209,7 +218,7 @@ private class PosDatabaseHelper(context: android.content.Context) :
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE pos_records (entity TEXT NOT NULL, record_id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, sync_state TEXT NOT NULL DEFAULT 'local', PRIMARY KEY(entity, record_id))")
         db.execSQL("CREATE INDEX idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
-        db.execSQL("CREATE TABLE pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
+        db.execSQL("CREATE TABLE pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '', schema_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
         db.execSQL("CREATE INDEX idx_pos_outbox_status_created ON pos_outbox(status, created_at)")
         db.execSQL("CREATE TABLE pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
