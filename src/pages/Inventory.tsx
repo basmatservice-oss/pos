@@ -1229,7 +1229,11 @@ export default function Inventory() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية {editingProduct ? '(تُعدّل عبر الجرد)' : ''}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      الكمية ({editingProduct?.baseUnitCode
+                        ? unitDefinitions.find((unit) => unit.code === editingProduct.baseUnitCode)?.symbol || editingProduct.baseUnitCode
+                        : 'حبة'}) {editingProduct ? '(تُعدّل عبر الجرد)' : ''}
+                    </label>
                     <input 
                       type="number" 
                       required
@@ -1313,7 +1317,7 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">التكلفة ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">تكلفة وحدة الأساس ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required
@@ -1326,7 +1330,7 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر البيع ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر بيع وحدة الأساس ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required
