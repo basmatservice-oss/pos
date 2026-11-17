@@ -7,7 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql, asc, gt, or, inArray } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gt, or, inArray } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
@@ -1142,6 +1142,7 @@ export function createPosApp() {
       const movementKeys = typeof req.query.movementKeys === 'string'
         ? req.query.movementKeys.split(',').filter(Boolean).slice(0, 200)
         : [];
+      const latest = req.query.latest === 'true';
       const filters: any[] = [];
 
       if (movementKeys.length > 0) {
@@ -1164,7 +1165,14 @@ export function createPosApp() {
       else if (filters.length > 1) query = query.where(and(...filters));
 
       const rows = await query
-        .orderBy(asc(inventoryMovements.createdAt), asc(inventoryMovements.id))
+        .orderBy(
+          latest && movementKeys.length === 0
+            ? desc(inventoryMovements.createdAt)
+            : asc(inventoryMovements.createdAt),
+          latest && movementKeys.length === 0
+            ? desc(inventoryMovements.id)
+            : asc(inventoryMovements.id)
+        )
         .limit(limit + 1);
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, limit) : rows;
@@ -1172,7 +1180,9 @@ export function createPosApp() {
       res.json({
         items,
         hasMore,
-        nextCursor: last ? { createdAt: last.createdAt, id: last.id } : null,
+        nextCursor: latest || movementKeys.length > 0 || !last
+          ? null
+          : { createdAt: last.createdAt, id: last.id },
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch inventory movements' });
