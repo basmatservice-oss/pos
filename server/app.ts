@@ -1220,57 +1220,60 @@ export function createPosApp() {
       const batchId = req.body.id ? String(req.body.id) : crypto.randomUUID();
       const batchQuantity = Number(req.body.baseQuantity ?? req.body.quantity ?? 0);
       const factor = Number(req.body.conversionToBase || 1);
-      const [batch] = await db
-        .insert(inventoryBatches)
-        .values({
-          id: batchId,
-          productId: Number(req.body.productId),
-          purchaseId: req.body.purchaseId || null,
-          quantity: batchQuantity,
-          remainingQuantity: Number(req.body.remainingQuantity ?? batchQuantity),
-          costPrice: Number(req.body.costPrice || 0),
-          originalCostPrice: req.body.originalCostPrice ?? null,
-          currencyCode: req.body.currencyCode ?? null,
-          exchangeRate: req.body.exchangeRate ?? null,
-          exchangeRateId: req.body.exchangeRateId ?? null,
-          unitCode: req.body.unitCode ?? null,
-          baseUnitCode: req.body.baseUnitCode ?? null,
+      const batch = await db.transaction(async (tx: any) => {
+        const [createdBatch] = await tx
+          .insert(inventoryBatches)
+          .values({
+            id: batchId,
+            productId: Number(req.body.productId),
+            purchaseId: req.body.purchaseId || null,
+            quantity: batchQuantity,
+            remainingQuantity: Number(req.body.remainingQuantity ?? batchQuantity),
+            costPrice: Number(req.body.costPrice || 0),
+            originalCostPrice: req.body.originalCostPrice ?? null,
+            currencyCode: req.body.currencyCode ?? null,
+            exchangeRate: req.body.exchangeRate ?? null,
+            exchangeRateId: req.body.exchangeRateId ?? null,
+            unitCode: req.body.unitCode ?? null,
+            baseUnitCode: req.body.baseUnitCode ?? null,
+            conversionToBase: factor,
+            baseQuantity: batchQuantity,
+            purchaseDate: req.body.purchaseDate || now,
+            expiryDate: req.body.expiryDate ?? null,
+            batchNumber: req.body.batchNumber ?? null,
+            branchId: req.body.branchId || null,
+            isSynced: 0,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        const movementType = createdBatch.purchaseId ? 'purchase_receipt' : 'opening_balance';
+        const sourceType = createdBatch.purchaseId ? 'purchase' : 'product';
+        const sourceId = createdBatch.purchaseId ? String(createdBatch.purchaseId) : String(createdBatch.productId);
+        const operationId = String(req.body.operationId || `legacy-api:batch:${createdBatch.id}`);
+        const movementKey = `${movementType}:${sourceType}:${sourceId}:${createdBatch.id}`;
+        await appendApiInventoryMovement({
+          operationId,
+          movementKey,
+          productId: createdBatch.productId,
+          branchId: createdBatch.branchId,
+          movementType,
+          sourceType,
+          sourceId,
+          sourceLineId: createdBatch.id,
+          deviceId: req.body.deviceId,
+          createdBy: req.body.createdBy,
+          inputQuantity: factor > 0 ? batchQuantity / factor : batchQuantity,
+          unitCode: createdBatch.unitCode,
+          baseUnitCode: createdBatch.baseUnitCode,
           conversionToBase: factor,
-          baseQuantity: batchQuantity,
-          purchaseDate: req.body.purchaseDate || now,
-          expiryDate: req.body.expiryDate ?? null,
-          batchNumber: req.body.batchNumber ?? null,
-          branchId: req.body.branchId || null,
-          isSynced: 0,
+          quantityDeltaBase: batchQuantity,
+          unitCost: createdBatch.costPrice,
+          totalCost: batchQuantity * createdBatch.costPrice,
+          batchAllocations: [{ batchId: createdBatch.id, quantity: batchQuantity, costPrice: createdBatch.costPrice }],
           createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      const movementType = batch.purchaseId ? 'purchase_receipt' : 'opening_balance';
-      const sourceType = batch.purchaseId ? 'purchase' : 'product';
-      const sourceId = batch.purchaseId ? String(batch.purchaseId) : String(batch.productId);
-      const operationId = String(req.body.operationId || `legacy-api:batch:${batch.id}`);
-      const movementKey = `${movementType}:${sourceType}:${sourceId}:${batch.id}`;
-      await appendApiInventoryMovement({
-        operationId,
-        movementKey,
-        productId: batch.productId,
-        branchId: batch.branchId,
-        movementType,
-        sourceType,
-        sourceId,
-        sourceLineId: batch.id,
-        deviceId: req.body.deviceId,
-        createdBy: req.body.createdBy,
-        inputQuantity: factor > 0 ? batchQuantity / factor : batchQuantity,
-        unitCode: batch.unitCode,
-        baseUnitCode: batch.baseUnitCode,
-        conversionToBase: factor,
-        quantityDeltaBase: batchQuantity,
-        unitCost: batch.costPrice,
-        totalCost: batchQuantity * batch.costPrice,
-        batchAllocations: [{ batchId: batch.id, quantity: batchQuantity, costPrice: batch.costPrice }],
-        createdAt: now,
+        }, tx);
+        return createdBatch;
       });
       res.status(201).json(batch);
     } catch {
@@ -1309,39 +1312,42 @@ export function createPosApp() {
         return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
       }
 
-      const [batch] = await db
-        .update(inventoryBatches)
-        .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
-        .where(eq(inventoryBatches.id, batchId))
-        .returning();
+      const batch = await db.transaction(async (tx: any) => {
+        const [updatedBatch] = await tx
+          .update(inventoryBatches)
+          .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
+          .where(eq(inventoryBatches.id, batchId))
+          .returning();
 
-      const delta = nextRemaining - Number(existing.remainingQuantity || 0);
-      if (Math.abs(delta) > 1e-9) {
-        const operationId = String(req.body.operationId || `legacy-api:batch-adjust:${batchId}:${now}`);
-        const movementKey = `legacy_batch_adjustment:inventory_batch:${batchId}:${now}`;
-        await appendApiInventoryMovement({
-          operationId,
-          movementKey,
-          productId: existing.productId,
-          branchId: existing.branchId,
-          movementType: 'legacy_batch_adjustment',
-          sourceType: 'inventory_batch',
-          sourceId: batchId,
-          sourceLineId: batchId,
-          deviceId: req.body.deviceId,
-          createdBy: req.body.createdBy,
-          inputQuantity: Math.abs(delta),
-          unitCode: existing.unitCode,
-          baseUnitCode: existing.baseUnitCode,
-          conversionToBase: Number(existing.conversionToBase || 1),
-          quantityDeltaBase: delta,
-          unitCost: Number(existing.costPrice || 0),
-          totalCost: Math.abs(delta * Number(existing.costPrice || 0)),
-          batchAllocations: [{ batchId, quantity: Math.abs(delta), costPrice: Number(existing.costPrice || 0) }],
-          reason: 'legacy_batch_update',
-          createdAt: now,
-        });
-      }
+        const delta = nextRemaining - Number(existing.remainingQuantity || 0);
+        if (Math.abs(delta) > 1e-9) {
+          const operationId = String(req.body.operationId || `legacy-api:batch-adjust:${batchId}:${now}`);
+          const movementKey = `legacy_batch_adjustment:inventory_batch:${batchId}:${now}`;
+          await appendApiInventoryMovement({
+            operationId,
+            movementKey,
+            productId: existing.productId,
+            branchId: existing.branchId,
+            movementType: 'legacy_batch_adjustment',
+            sourceType: 'inventory_batch',
+            sourceId: batchId,
+            sourceLineId: batchId,
+            deviceId: req.body.deviceId,
+            createdBy: req.body.createdBy,
+            inputQuantity: Math.abs(delta),
+            unitCode: existing.unitCode,
+            baseUnitCode: existing.baseUnitCode,
+            conversionToBase: Number(existing.conversionToBase || 1),
+            quantityDeltaBase: delta,
+            unitCost: Number(existing.costPrice || 0),
+            totalCost: Math.abs(delta * Number(existing.costPrice || 0)),
+            batchAllocations: [{ batchId, quantity: Math.abs(delta), costPrice: Number(existing.costPrice || 0) }],
+            reason: 'legacy_batch_update',
+            createdAt: now,
+          }, tx);
+        }
+        return updatedBatch;
+      });
       res.json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to update inventory batch' });
