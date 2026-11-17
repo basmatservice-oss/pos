@@ -1163,7 +1163,8 @@ export function createPosApp() {
       const [existingDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, code));
       if (existingDefinition && existingDefinition.dimension !== dimension) {
         const linkedUnits = await db.select().from(productUnits).where(eq(productUnits.unitCode, code));
-        if (linkedUnits.length > 0) return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
+        const linkedProducts = await db.select().from(products).where(eq(products.baseUnitCode, code));
+        if (linkedUnits.length > 0 || linkedProducts.length > 0) return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
       }
       const now = new Date().toISOString();
       const [saved] = await db.insert(unitDefinitions).values({
@@ -1174,8 +1175,9 @@ export function createPosApp() {
         set: { name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0, updatedAt: now },
       }).returning();
       res.status(201).json(saved);
-    } catch {
-      res.status(500).json({ error: 'Failed to save unit definition' });
+    } catch (error: any) {
+      const message = error?.message || 'Failed to save unit definition';
+      res.status(error instanceof TypeError ? 400 : 500).json({ error: message });
     }
   });
 
