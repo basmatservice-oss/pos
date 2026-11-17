@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   products,
   categories,
@@ -1327,11 +1327,14 @@ function handlePurchaseReturn(
     const prodId = Number(reqItem.productId);
 
     const matchingBatch = reqItem.batchId
-      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId))
+      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId) && b.productId === prodId)
       : purchaseBatches.find((b: any) =>
           b.productId === prodId &&
           Number(b.remainingQuantity || 0) >= qtyToReturn * Number(b.conversionToBase || 1)
         ) || purchaseBatches.find((b: any) => b.productId === prodId);
+    if (reqItem.unitCode && !matchingBatch) {
+      throw new OperationError('لا يمكن إرجاع وحدة شراء مخصصة دون العثور على دفعتها الأصلية', 409);
+    }
     const factor = Number(matchingBatch?.conversionToBase || 1);
     const baseQty = qtyToReturn * factor;
 
@@ -1368,7 +1371,14 @@ function handlePurchaseReturn(
 
     recalculateProductWeightedCost(tx, prodId);
 
-    const cost = Number(reqItem.costPrice ?? (Number(matchingBatch?.costPrice || 0) * factor));
+    const sourcePurchaseItems = tx.select().from(purchaseItems)
+      .where(eq(purchaseItems.purchaseId, String(originalPurchaseId))).all();
+    const sourceItem = sourcePurchaseItems.find((row: any) =>
+      row.productId === prodId && (!matchingBatch?.unitCode || row.unitCode === matchingBatch.unitCode)
+    );
+    const cost = matchingBatch
+      ? Number(matchingBatch.costPrice || 0) * factor
+      : Number(sourceItem?.costPrice ?? reqItem.costPrice ?? 0);
     const lineTotal = roundMoney(qtyToReturn * cost);
     totalReturn = roundMoney(totalReturn + lineTotal);
 
@@ -1382,7 +1392,7 @@ function handlePurchaseReturn(
         quantity: qtyToReturn,
         costPrice: cost,
         total: lineTotal,
-        unitCode: matchingBatch?.unitCode || reqItem.unitCode || null,
+        unitCode: matchingBatch?.unitCode || null,
         baseUnitCode: matchingBatch?.baseUnitCode || null,
         conversionToBase: factor,
         baseQuantity: baseQty,
