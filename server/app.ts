@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
+import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
 import {
   products,
   categories,
@@ -1981,6 +1982,7 @@ export function createPosApp() {
       const { startDate, endDate, branchId } = req.query;
       const allOrders = await db.select().from(orders);
       const allOrderItems = await db.select().from(orderItems);
+      const allProducts = await db.select().from(products);
       const allReturns = await db.select().from(returns);
       const allPurchases = await db.select().from(purchases);
       const allPurchaseReturns = await db.select().from(purchaseReturns);
@@ -2029,8 +2031,9 @@ export function createPosApp() {
       const netSalesExclTax = round(grossSales - discounts - returnsExclTax);
       const netVatPayable = round(salesTax - returnsTax);
 
+      const productsById = new Map(allProducts.map((product) => [product.id, product]));
       const grossCogs = round(
-        fItems.reduce((s, i) => s + Number(i.costPriceAtTimeOfSale || 0) * Number(i.quantity || 0), 0)
+        fItems.reduce((sum, item) => sum + getHistoricalCostAmount(item, productsById.get(item.productId)), 0)
       );
       const returnedCogs = round(fReturns.reduce((s, r) => s + Number(r.totalCostReversed || 0), 0));
       const netCogs = round(grossCogs - returnedCogs);
