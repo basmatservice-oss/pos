@@ -1253,6 +1253,12 @@ export function createPosApp() {
       delete updateData.unitCode;
       delete updateData.baseUnitCode;
       delete updateData.conversionToBase;
+      delete updateData.operationId;
+      delete updateData.deviceId;
+      delete updateData.createdBy;
+      delete updateData.isSynced;
+      delete updateData.createdAt;
+      delete updateData.updatedAt;
       const nextRemaining = Number(updateData.remainingQuantity ?? existing.remainingQuantity);
       delete updateData.remainingQuantity;
       if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
