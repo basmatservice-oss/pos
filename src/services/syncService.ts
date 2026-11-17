@@ -193,12 +193,10 @@ export const syncService = {
 
   async pushAll() {
     const tables: string[] = [
-      'categories',
-      'products',
-      'customers',
-      'suppliers',
+      // Products/customers/suppliers/categories/expenses are synchronized through
+      // idempotent operations. Pushing their full cached rows can overwrite newer
+      // stock, FIFO cost, or financial balances from another terminal.
       'employees',
-      'expenses',
       'shifts',
       'attendance',
       'branches',
