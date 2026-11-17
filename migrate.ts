@@ -591,11 +591,15 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'ReturnItem', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'ReturnItem', 'conversionToBase', 'real');
   ensureColumn(sqlite, 'ReturnItem', 'baseQuantity', 'real');
+  ensureColumn(sqlite, 'ReturnItem', 'costPrice', 'real DEFAULT 0');
+  ensureColumn(sqlite, 'ReturnItem', 'batchAllocations', 'text');
 
   ensureColumn(sqlite, 'PurchaseReturnItem', 'unitCode', 'text');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'conversionToBase', 'real');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'baseQuantity', 'real');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'batchId', 'text');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'costPrice', 'real DEFAULT 0');
 
   ensureColumn(sqlite, 'StocktakingEntry', 'unitCode', 'text');
   ensureColumn(sqlite, 'StocktakingEntry', 'baseUnitCode', 'text');
