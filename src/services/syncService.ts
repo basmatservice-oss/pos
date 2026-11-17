@@ -332,8 +332,18 @@ export const syncService = {
 
       const pendingOpsCount = await db.syncOperations
         .where('status')
-        .anyOf(['pending', 'error', 'syncing'])
+        .anyOf(['pending', 'error', 'syncing', 'conflict'])
         .count();
+
+      // Local optimistic records are kept pending while any operation remains
+      // unresolved. Once the queue is clear, mark them eligible for authoritative
+      // replacement before pulling the server snapshot.
+      if (pendingOpsCount === 0) {
+        for (const table of db.tables) {
+          if (!table.schema.indexes.some((index: any) => index.name === 'syncStatus')) continue;
+          await table.where('syncStatus').anyOf(['pending', 'error']).modify({ syncStatus: 'synced' }).catch(() => {});
+        }
+      }
 
       const pullTasks: Array<{
         table: any;
