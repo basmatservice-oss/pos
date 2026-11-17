@@ -187,6 +187,17 @@ export default function Purchases() {
     const value = Number(rate.rate);
     return rate.baseCurrencyCode === purchaseCurrencyCode ? value : 1 / value;
   }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
+  const selectedPurchaseRateId = useMemo(() => {
+    if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return null;
+    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
+    return approvedExchangeRates
+      .filter((rate) => rate.approvedAt && new Date(rate.effectiveAt).getTime() <= cutoff && (
+        (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
+        (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
+      ))
+      .sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime())[0]?.id || null;
+  }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
+
   const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
   const paidNum = Math.max(0, parseFloat(paidAmount || '0') || 0);
   const remainingAmount = Math.max(0, totalAmount - paidNum);
@@ -234,6 +245,7 @@ export default function Purchases() {
         supplierName: selectedSupplier.name,
         totalAmount,
         currencyCode: purchaseCurrencyCode || undefined,
+        exchangeRateId: selectedPurchaseRateId || undefined,
         paidAmount: paidNum,
         paymentMethod,
         paymentStatus: remainingAmount <= 0.01 ? 'paid' : paidNum > 0 ? 'partial' : 'unpaid',
