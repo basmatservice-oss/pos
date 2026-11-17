@@ -497,7 +497,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       const origOrder = await db.orders.get(targetOrderId);
       if (!origOrder || origOrder.status === 'void') return;
@@ -512,7 +512,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
         const fallbackBaseCost = factor > 0
           ? Number(oi.costPriceAtTimeOfSale || 0) / factor
           : Number(oi.costPriceAtTimeOfSale || 0);
-        await restoreLocalInventoryFIFO(
+        const restored = await restoreLocalInventoryFIFO(
           oi.productId,
           baseQty,
           parseLocalBatchAllocations(oi.batchAllocations),
@@ -521,6 +521,22 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
           syncStatus,
           `void-${targetOrderId}-${oi.id}`
         );
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(oi.productId),
+          branchId: origOrder.branchId ?? null,
+          movementType: 'sale_void',
+          sourceType: 'order_void',
+          sourceId: targetOrderId,
+          sourceLineId: oi.id,
+          inputQuantity: Number(oi.quantity || 0),
+          unitCode: oi.unitCode || null,
+          baseUnitCode: oi.baseUnitCode || null,
+          conversionToBase: factor,
+          quantityDeltaBase: baseQty,
+          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+          totalCost: restored.totalCostRestored,
+          batchAllocations: restored.restoredAllocations,
+        });
         const product = await db.products.get(oi.productId);
         if (product) {
           assertLocalBaseUnitMatches(product, oi);
