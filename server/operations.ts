@@ -1971,18 +1971,19 @@ function handleStocktakeApprove(
 
   // Include session and entry snapshots so an offline terminal can synchronize
   // and approve a stocktake without a separate table-push round trip.
-  if (payload?.session && String(payload.session.id) === String(sessionId)) {
+  const existingSession = tx.select().from(stocktakingSessions)
+    .where(eq(stocktakingSessions.id, sessionId)).get();
+  if (existingSession?.status === 'approved') {
+    return { session: existingSession, alreadyApproved: true };
+  }
+  if (!existingSession && payload?.session && String(payload.session.id) === String(sessionId)) {
     const { syncStatus: _sessionSyncStatus, ...sessionData } = payload.session;
-    const existingSession = tx.select().from(stocktakingSessions)
-      .where(eq(stocktakingSessions.id, sessionId)).get();
-    if (!existingSession) {
-      tx.insert(stocktakingSessions).values({
+    tx.insert(stocktakingSessions).values({
         ...sessionData,
         isSynced: 0,
         createdAt: sessionData.createdAt || approvedAt,
         updatedAt: approvedAt,
-      }).run();
-    }
+    }).run();
   }
   if (Array.isArray(payload?.entries)) {
     for (const entry of payload.entries) {
