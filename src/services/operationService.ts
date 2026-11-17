@@ -1223,6 +1223,16 @@ async function applyEntityLocally(
     ) {
       await table.delete(payload.record.id).catch(() => {});
     }
+    if (tableName === 'products' && finalRecord.id !== undefined) {
+      const existingProduct = await db.products.get(finalRecord.id);
+      if (existingProduct) {
+        const batchCount = await db.inventoryBatches.where('productId').equals(existingProduct.id!).count();
+        if (syncStatus === 'pending' || !serverResult) {
+          finalRecord.stockQuantity = existingProduct.stockQuantity;
+          if (batchCount > 0) finalRecord.costPrice = existingProduct.costPrice;
+        }
+      }
+    }
     await table.put({ ...finalRecord, syncStatus });
   }
 }
