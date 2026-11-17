@@ -1226,16 +1226,15 @@ export function createPosApp() {
         if (!isBaseUnit && !existingBase && !product.baseUnitCode) {
           throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
         }
-        if (isBaseUnit && existingBase && existingBase.unitCode !== unitCode) {
+        const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
           if (Number(product.stockQuantity || 0) > 0) {
             throw new Error('لا يمكن تغيير وحدة الأساس بعد وجود مخزون؛ يلزم تحويل مخزني موثق');
           }
-          if (existingUnits.some((row) => row.unitCode !== existingBase.unitCode)) {
+          if (existingUnits.some((row) => row.unitCode !== currentBaseCode)) {
             throw new Error('لا يمكن تغيير وحدة الأساس بعد تعريف وحدات بديلة؛ أعد تعريف معاملات التحويل أولاً');
           }
         }
-
-        const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
         if (currentBaseCode && currentBaseCode !== unitCode) {
           const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));
           if (baseDefinition && baseDefinition.dimension !== unit.dimension) {
