@@ -660,9 +660,12 @@ export function createPosApp() {
     try {
       const data = { ...req.body };
       const now = new Date().toISOString();
-      const existingProduct = data.id
-        ? await db.select().from(products).where(eq(products.id, Number(data.id))).get()
-        : undefined;
+      let existingProduct: any;
+      if (data.id) {
+        const [foundProduct] = await db.select().from(products)
+          .where(eq(products.id, Number(data.id))).limit(1);
+        existingProduct = foundProduct;
+      }
       let product: any;
       if (existingProduct) {
         delete data.stockQuantity;
