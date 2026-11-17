@@ -1160,12 +1160,11 @@ export function createPosApp() {
       const name = String(req.body?.name || '').trim();
       const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
       const decimalPlaces = Number(req.body?.decimalPlaces ?? 2);
-      let recognizedCode = false;
-      try {
-        recognizedCode = new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().currency === code;
-      } catch {
-        recognizedCode = false;
-      }
+      const supportedCurrencyCodes: string[] =
+        typeof (Intl as any).supportedValuesOf === 'function'
+          ? (Intl as any).supportedValuesOf('currency')
+          : [];
+      const recognizedCode = supportedCurrencyCodes.includes(code);
       if (!/^[A-Z]{3}$/.test(code) || !recognizedCode || !name || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 4) {
         return res.status(400).json({ error: 'Currency requires a recognized ISO 4217 code, name, and 0-4 decimal places' });
       }
