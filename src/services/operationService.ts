@@ -162,6 +162,9 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
       const origOrder = await db.orders.get(targetOrderId);
       if (!origOrder || origOrder.status === 'void') return;
 
+      if (Number(origOrder.returnedAmount || 0) > 0 || origOrder.status === 'returned' || origOrder.status === 'partially_returned') {
+        throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
+      }
       const origItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
       for (const oi of origItems) {
         const baseQty = getBaseMovementQuantity(oi);
@@ -216,7 +219,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
   await db.transaction(
     'rw',
-    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers],
+    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
@@ -227,13 +230,25 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
       let totalCostReversed = 0;
 
       for (const reqItem of items) {
-        const origItem = origItems.find(
-          (oi) =>
-            (reqItem.orderItemId && oi.id === reqItem.orderItemId) || oi.productId === reqItem.productId
-        );
-        if (!origItem) continue;
-
         const qty = Number(reqItem.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية المرتجع يجب أن تكون رقماً موجباً');
+        const origItem = reqItem.orderItemId
+          ? origItems.find((oi) => oi.id === reqItem.orderItemId)
+          : origItems.find((oi) =>
+              oi.productId === reqItem.productId &&
+              Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qty
+            );
+        if (!origItem) throw new Error('الصنف غير موجود في الفاتورة الأصلية أو لا توجد كمية كافية للإرجاع');
+        const remainingReturnable = Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0);
+        if (qty > remainingReturnable) throw new Error('كمية المرتجع تتجاوز الكمية المتبقية في الفاتورة الأصلية');
+        if (origItem.unitCode) {
+          const unitDefinition = await db.unitDefinitions.get(origItem.unitCode);
+          const precision = Math.max(0, Math.min(6, Number(unitDefinition?.decimalPlaces ?? 0)));
+          const scale = 10 ** precision;
+          if (!unitDefinition || Math.abs(qty * scale - Math.round(qty * scale)) > 1e-7) {
+            throw new Error('كمية المرتجع لا تتوافق مع دقة وحدة البيع الأصلية');
+          }
+        }
         const ratio = qty / Number(origItem.quantity);
         const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
         const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
