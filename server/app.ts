@@ -865,7 +865,7 @@ export function createPosApp() {
         .where(eq(inventoryBatches.productId, productId)).limit(1);
       const [movement] = await db.select().from(inventoryMovements)
         .where(eq(inventoryMovements.productId, productId)).limit(1);
-      if (Number(product.stockQuantity || 0) > 1e-9 || batch || movement) {
+      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
         return res.status(409).json({
           error: 'Product has stock or inventory history. Deactivate it instead of deleting it.',
         });
