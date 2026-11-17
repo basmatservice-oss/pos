@@ -1921,6 +1921,18 @@ function handleStocktakeApprove(
     const product = tx.select().from(products).where(eq(products.id, entry.productId)).get();
     if (!product) continue;
 
+    if (entry.unitCode) {
+      const definition = tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, entry.unitCode)).get();
+      if (!definition || !definition.isActive || (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode)) {
+        throw new OperationError('وحدة الجرد لا تطابق وحدة الأساس للصنف', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(Number(entry.actualQuantity) * scale - Math.round(Number(entry.actualQuantity) * scale)) > 1e-7) {
+        throw new OperationError(`كمية الجرد للصنف ${product.name} لا تتوافق مع دقة وحدة الأساس`, 400);
+      }
+    }
+
     const diff = Number(entry.actualQuantity) - Number(product.stockQuantity);
     if (diff === 0) continue;
 
@@ -1934,6 +1946,10 @@ function handleStocktakeApprove(
           quantity: diff,
           remainingQuantity: diff,
           costPrice: unitCost,
+          unitCode: entry.unitCode || product.baseUnitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: diff,
           purchaseDate: ctx.now,
           branchId: session.branchId || null,
           isSynced: 0,
