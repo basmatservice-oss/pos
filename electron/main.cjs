@@ -9,8 +9,15 @@ const IS_DEV = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
 let mainWindow = null;
 let serverProcess = null;
+let quitting = false;
 
-function waitForHealth(url, timeoutMs = 20000) {
+function getRuntimeRoot() {
+  if (!app.isPackaged) return app.getAppPath();
+  // The server bundle is unpacked because it is launched as a child Node process.
+  return path.join(process.resourcesPath, 'app.asar.unpacked');
+}
+
+function waitForHealth(url, timeoutMs = 30000) {
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const attempt = () => {
@@ -38,16 +45,14 @@ function waitForHealth(url, timeoutMs = 20000) {
 }
 
 function startBackendServer() {
-  if (IS_DEV) {
-    return Promise.resolve();
-  }
+  if (IS_DEV) return Promise.resolve();
 
-  const appRoot = app.getAppPath();
-  const serverEntry = path.join(appRoot, 'dist', 'server.js');
+  const runtimeRoot = getRuntimeRoot();
+  const serverEntry = path.join(runtimeRoot, 'dist', 'server.js');
   const dbPath = path.join(app.getPath('userData'), 'dev.db');
 
   serverProcess = spawn(process.execPath, [serverEntry], {
-    cwd: appRoot,
+    cwd: runtimeRoot,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
@@ -56,6 +61,7 @@ function startBackendServer() {
       POS_DB_PATH: dbPath,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
 
   serverProcess.stdout?.on('data', (chunk) => {
@@ -64,19 +70,27 @@ function startBackendServer() {
   serverProcess.stderr?.on('data', (chunk) => {
     process.stderr.write(`[POS Server ERR] ${chunk}`);
   });
+  serverProcess.on('error', (error) => {
+    console.error('Unable to launch POS backend:', error);
+  });
   serverProcess.on('exit', (code) => {
     console.log(`POS backend exited with code ${code}`);
     serverProcess = null;
+    if (!quitting && code !== 0) {
+      console.error('POS backend stopped unexpectedly.');
+    }
   });
 
-  return waitForHealth(HEALTH_URL, 25000);
+  return waitForHealth(HEALTH_URL, 30000);
 }
 
 function stopBackendServer() {
   if (serverProcess && !serverProcess.killed) {
     try {
-      serverProcess.kill('SIGTERM');
-    } catch {}
+      serverProcess.kill();
+    } catch (error) {
+      console.warn('Failed to stop POS backend:', error);
+    }
     serverProcess = null;
   }
 }
@@ -93,15 +107,13 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
-
+  mainWindow.once('ready-to-show', () => mainWindow?.show());
   const targetUrl = IS_DEV
-    ? 'http://localhost:5173'
+    ? `http://127.0.0.1:${SERVER_PORT}`
     : `http://127.0.0.1:${SERVER_PORT}`;
 
   await mainWindow.loadURL(targetUrl);
@@ -126,10 +138,10 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
-      await startBackendServer();
+      if (!IS_DEV) await startBackendServer();
       await createWindow();
-    } catch (err) {
-      console.error('Failed to start Electron POS app:', err);
+    } catch (error) {
+      console.error('Failed to start Electron POS app:', error);
       stopBackendServer();
       app.quit();
     }
@@ -137,18 +149,22 @@ if (!gotLock) {
 }
 
 app.on('before-quit', () => {
+  quitting = true;
   stopBackendServer();
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    stopBackendServer();
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    await createWindow();
+    try {
+      if (!IS_DEV && !serverProcess) await startBackendServer();
+      await createWindow();
+    } catch (error) {
+      console.error('Failed to recreate POS window:', error);
+      app.quit();
+    }
   }
 });
