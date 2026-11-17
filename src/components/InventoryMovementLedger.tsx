@@ -135,7 +135,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const exportCsv = () => {
     const textCell = (value: unknown) => {
       const raw = String(value ?? '');
-      const safe = /^[=+@\\-]/.test(raw) ? `'${raw}` : raw;
+      const safe = /^[=+@-]/.test(raw) ? `'${raw}` : raw;
       return `"${safe.replace(/"/g, '""')}"`;
     };
     const rows = [
