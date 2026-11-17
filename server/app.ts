@@ -1196,7 +1196,7 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/product-units', requirePermission('manage_settings'), async (req, res) => {
+  app.post('/api/product-units', requirePermission('edit_product'), async (req, res) => {
     try {
       const productId = Number(req.body?.productId);
       const unitCode = String(req.body?.unitCode || '').trim().toLowerCase();
