@@ -81,7 +81,13 @@ export const syncService = {
       if (!reachable) return false;
 
       await this.pushOperationsQueue();
-      await this.pushAll();
+      const unresolvedOperations = await db.syncOperations
+        .where('status')
+        .anyOf(['pending', 'error', 'syncing', 'conflict'])
+        .count();
+      if (unresolvedOperations === 0) {
+        await this.pushAll();
+      }
       await this.pullAll();
       await this.pullCurrencyLedger();
       await this.pullUnitCatalog();
