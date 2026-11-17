@@ -1226,11 +1226,22 @@ export function createPosApp() {
           throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
         }
         const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        const [orderMovement] = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, productId)).limit(1);
+        const [purchaseMovement] = await tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, productId)).limit(1);
+        const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
+        const hasMovementHistory = Boolean(orderMovement || purchaseMovement || inventoryMovement);
+
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
+          if (hasMovementHistory) {
+            throw new RangeError('لا يمكن تغيير وحدة الأساس بعد وجود حركات مخزون تاريخية');
+          }
           assertBaseUnitChangeAllowed({
             hasStock: Number(product.stockQuantity || 0) > 0,
             hasDependentAlternateUnits: existingUnits.some((row) => row.unitCode !== currentBaseCode),
           });
+        }
+        if (existing && Math.abs(Number(existing.conversionToBase) - conversionToBase) > 1e-10 && hasMovementHistory) {
+          throw new RangeError('لا يمكن تغيير معامل التحويل بعد وجود حركات مخزون تاريخية؛ أنشئ وحدة جديدة بدلاً من تعديل القديمة');
         }
         if (currentBaseCode && currentBaseCode !== unitCode) {
           const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));
