@@ -70,18 +70,16 @@ export const syncService = {
   async syncAll() {
     const token = getAuthToken();
     if (!token) return false;
-    // Prevent overlapping push/pull cycles from concurrent POS operations.
+    // Set the lock before the first await so concurrent POS operations cannot
+    // start overlapping push/pull cycles.
     if (useSyncStore.getState().isSyncing) return false;
-
-    const reachable = await apiService.checkServerReachability(2500);
-    useSyncStore.getState().setOnlineStatus(reachable);
-    if (!reachable) {
-      return false;
-    }
-
     useSyncStore.getState().setSyncing(true);
 
     try {
+      const reachable = await apiService.checkServerReachability(2500);
+      useSyncStore.getState().setOnlineStatus(reachable);
+      if (!reachable) return false;
+
       await this.pushOperationsQueue();
       await this.pushAll();
       await this.pullAll();
