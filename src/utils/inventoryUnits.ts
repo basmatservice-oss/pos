@@ -15,12 +15,19 @@ export function getHistoricalBaseQuantity(item: any, product?: any): number {
   }
 
   const legacyUnit = String(item?.unit || item?.selectedUnit || '');
-  const rawFactor =
-    item?.conversionToBase ??
-    item?.conversionFactor ??
-    (legacyUnit === 'box' ? product?.conversionFactor : 1) ??
-    1;
-  const factor = Number(rawFactor);
+  const storedFactor = Number(item?.conversionFactor);
+  const productFactor = Number(product?.conversionFactor);
+  // Older OrderItem rows defaulted conversionFactor to 1 even when the product
+  // was sold by box. Prefer a meaningful recorded factor, then the product's
+  // legacy box factor when the line only contains that schema default.
+  const legacyFactor = legacyUnit === 'box'
+    ? (Number.isFinite(storedFactor) && storedFactor > 1
+        ? storedFactor
+        : Number.isFinite(productFactor) && productFactor > 1
+          ? productFactor
+          : Number.isFinite(storedFactor) && storedFactor > 0 ? storedFactor : 1)
+    : Number.isFinite(storedFactor) && storedFactor > 0 ? storedFactor : 1;
+  const factor = Number(item?.conversionToBase ?? legacyFactor);
   return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 }
 
