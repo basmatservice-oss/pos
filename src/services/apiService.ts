@@ -499,6 +499,20 @@ export const apiService = {
     return axios.post(`${API_BASE}/exchange-rates/${encodeURIComponent(id)}/approve`).then((r) => r.data);
   },
 
+  // --- Unit catalogue and per-product unit conversions ---
+  async getUnitDefinitions() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/unit-definitions`).then((r) => r.data));
+  },
+  async saveUnitDefinition(unit: { code: string; name: string; symbol?: string; dimension: string; decimalPlaces?: number }) {
+    return axios.post(`${API_BASE}/unit-definitions`, unit).then((r) => r.data);
+  },
+  async getProductUnits(productId?: number) {
+    return requestWithRetry(() => axios.get(`${API_BASE}/product-units`, { params: { productId } }).then((r) => r.data));
+  },
+  async saveProductUnit(unit: { productId: number; unitCode: string; conversionToBase: number; isBaseUnit?: boolean; sellingPrice?: number | null; barcode?: string }) {
+    return axios.post(`${API_BASE}/product-units`, unit).then((r) => r.data);
+  },
+
   // --- Sync Queue ---
   async getSyncQueue() {
     return requestWithRetry(() => axios.get(`${API_BASE}/sync-queue`).then((r) => r.data));
