@@ -2271,6 +2271,26 @@ function handleStocktakeApprove(
         .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: approvedAt, isSynced: 0 })
         .where(eq(products.id, product.id))
         .run();
+      appendInventoryMovement(tx, ctx, {
+        productId: product.id,
+        branchId: session.branchId || null,
+        movementType: 'stocktake_increase',
+        sourceType: 'stocktake',
+        sourceId: String(sessionId),
+        sourceLineId: entry.id,
+        inputQuantity: diff,
+        unitCode: entry.unitCode || null,
+        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: diff,
+        unitCost,
+        totalCost: diff * unitCost,
+        batchAllocations: [{
+          batchId: `stocktake-${sessionId}-${product.id}`,
+          quantity: diff,
+          costPrice: unitCost,
+        }],
+      });
       netAdjustmentValue = roundMoney(netAdjustmentValue + diff * unitCost);
     } else {
       const fifo = consumeInventoryFIFO(tx, {
@@ -2280,6 +2300,22 @@ function handleStocktakeApprove(
         deviceId: ctx.deviceId,
         productName: product.name,
         allowNegative: true,
+      });
+      appendInventoryMovement(tx, ctx, {
+        productId: product.id,
+        branchId: session.branchId || null,
+        movementType: 'stocktake_decrease',
+        sourceType: 'stocktake',
+        sourceId: String(sessionId),
+        sourceLineId: entry.id,
+        inputQuantity: Math.abs(diff),
+        unitCode: entry.unitCode || null,
+        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: diff,
+        unitCost: fifo.averageUnitCost,
+        totalCost: fifo.totalCost,
+        batchAllocations: fifo.allocations,
       });
       netAdjustmentValue = roundMoney(netAdjustmentValue - fifo.totalCost);
     }
