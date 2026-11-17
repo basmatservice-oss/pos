@@ -38,8 +38,9 @@ function roundMoney(n: number): number {
 
 function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 0)): number {
   const originalQuantity = Number(item?.quantity || 0);
+  const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
   const storedBaseQuantity = Number(item?.baseQuantity);
-  if (originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
+  if (hasStoredBaseQuantity && originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
     return storedBaseQuantity * (quantity / originalQuantity);
   }
   const factor = Number(item?.conversionToBase ?? item?.selectedConversionToBase ??
