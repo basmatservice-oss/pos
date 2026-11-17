@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
 import {
   Plus,
@@ -48,6 +48,10 @@ export default function Purchases() {
   const approvedExchangeRates = useLiveQuery(() => db.exchangeRates.toArray()) || [];
   const baseCurrencySetting = useLiveQuery(() => db.settings.where('key').equals('baseCurrencyCode').first());
 
+
+  useEffect(() => {
+    if (baseCurrencySetting?.value && !purchaseCurrencyCode) setPurchaseCurrencyCode(String(baseCurrencySetting.value).toUpperCase());
+  }, [baseCurrencySetting?.value, purchaseCurrencyCode]);
 
   const purchases = useMemo(() => {
     return [...allPurchases].sort(
@@ -168,7 +172,7 @@ export default function Purchases() {
   const baseCurrencyCode = String(baseCurrencySetting?.value || '').toUpperCase();
   const selectedPurchaseRate = useMemo(() => {
     if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return purchaseCurrencyCode === baseCurrencyCode && baseCurrencyCode ? 1 : null;
-    const cutoff = new Date(purchaseDate).getTime();
+    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999`).getTime();
     const matches = approvedExchangeRates.filter((rate) => {
       if (!rate.approvedAt || new Date(rate.effectiveAt).getTime() > cutoff) return false;
       return (
@@ -478,7 +482,7 @@ export default function Purchases() {
                 value={purchaseCurrencyCode}
                 onChange={(e) => setPurchaseCurrencyCode(e.target.value)}
                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none text-sm"
-                disabled={Boolean(editingPurchase)}
+                disabled={Boolean(editingPurchase) || cart.length > 0}
               >
                 <option value="">عملة النظام القديمة</option>
                 {currencyRows.filter((item) => item.isActive).map((item) => (
@@ -568,7 +572,7 @@ export default function Purchases() {
               <div className="flex justify-between text-slate-600">
                 <span>الإجمالي</span>
                 <span className="font-bold text-slate-900">
-                  {totalAmount.toFixed(2)} {storeSettings.currency}
+                  {totalAmount.toFixed(2)} {purchaseCurrencyCode || storeSettings.currency}
                 </span>
               </div>
               <div className="flex justify-between items-center gap-2">
