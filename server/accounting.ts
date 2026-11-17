@@ -379,55 +379,42 @@ export function restoreInventoryFIFO(
     fallbackCost: number;
     branchId?: number;
   }
-): { totalCostRestored: number; restoredAllocations: BatchAllocation[] } {
+): {
+  totalCostRestored: number;
+  restoredAllocations: BatchAllocation[];
+  remainingAllocations: BatchAllocation[];
+} {
   const { productId, quantityInBaseUnits, allocations = [], fallbackCost, branchId } = params;
   const now = new Date().toISOString();
+  const product = tx.select().from(products).where(eq(products.id, productId)).get();
+  if (!product) throw new Error(`Product ${productId} not found`);
 
   let remainingToRestore = quantityInBaseUnits;
   let totalCostRestored = 0;
   const restoredAllocations: BatchAllocation[] = [];
+  const remainingAllocations = allocations
+    .filter((allocation) => allocation && Number(allocation.quantity) > 0)
+    .map((allocation) => ({
+      batchId: allocation.batchId || null,
+      quantity: Number(allocation.quantity),
+      costPrice: Number(allocation.costPrice ?? fallbackCost),
+    }));
 
-  // Restore into original batch layers (LIFO reverse of allocations or direct batch restore)
-  for (let i = allocations.length - 1; i >= 0 && remainingToRestore > 0; i--) {
-    const alloc = allocations[i];
-    if (!alloc || alloc.quantity <= 0) continue;
-    const putBack = Math.min(remainingToRestore, alloc.quantity);
-
-    if (alloc.batchId) {
-      const batch = tx
-        .select()
-        .from(inventoryBatches)
-        .where(eq(inventoryBatches.id, alloc.batchId))
-        .get();
-      if (batch) {
-        const newRem = Math.min(Number(batch.quantity), Number(batch.remainingQuantity) + putBack);
-        tx.update(inventoryBatches)
-          .set({ remainingQuantity: newRem, updatedAt: now, isSynced: 0 })
-          .where(eq(inventoryBatches.id, batch.id))
-          .run();
-      }
-    }
-
-    totalCostRestored += putBack * Number(alloc.costPrice ?? fallbackCost);
-    restoredAllocations.push({
-      batchId: alloc.batchId,
-      quantity: putBack,
-      costPrice: Number(alloc.costPrice ?? fallbackCost),
-    });
-    remainingToRestore -= putBack;
-  }
-
-  // If no batch allocations were present, create a return batch layer so FIFO stays consistent
-  if (remainingToRestore > 0) {
+  const createReturnBatch = (quantity: number, costPrice: number) => {
+    if (quantity <= 0) return;
     const batchId = crypto.randomUUID();
     tx.insert(inventoryBatches)
       .values({
         id: batchId,
         productId,
         purchaseId: null,
-        quantity: remainingToRestore,
-        remainingQuantity: remainingToRestore,
-        costPrice: fallbackCost,
+        quantity,
+        remainingQuantity: quantity,
+        costPrice,
+        unitCode: product.baseUnitCode || null,
+        baseUnitCode: product.baseUnitCode || null,
+        conversionToBase: 1,
+        baseQuantity: quantity,
         purchaseDate: now,
         branchId: branchId ?? null,
         isSynced: 0,
@@ -435,13 +422,59 @@ export function restoreInventoryFIFO(
         updatedAt: now,
       })
       .run();
+    restoredAllocations.push({ batchId, quantity, costPrice });
+  };
 
+  // Consume the unreturned portion of the original allocations, newest layer first.
+  // Each return shrinks this snapshot on the original order item, preventing a later
+  // partial return from restoring the same FIFO layer twice.
+  for (let i = remainingAllocations.length - 1; i >= 0 && remainingToRestore > 0; i--) {
+    const allocation = remainingAllocations[i];
+    const take = Math.min(remainingToRestore, allocation.quantity);
+    if (take <= 0) continue;
+
+    const unitCost = Number(allocation.costPrice ?? fallbackCost);
+    let restoredToOriginalBatch = 0;
+    if (allocation.batchId) {
+      const batch = tx.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.id, allocation.batchId)).get();
+      if (batch) {
+        const batchQuantity = Number(batch.quantity || 0);
+        const currentRemaining = Number(batch.remainingQuantity ?? 0);
+        const capacity = Math.max(0, batchQuantity - currentRemaining);
+        restoredToOriginalBatch = Math.min(take, capacity);
+        if (restoredToOriginalBatch > 0) {
+          tx.update(inventoryBatches)
+            .set({
+              remainingQuantity: currentRemaining + restoredToOriginalBatch,
+              updatedAt: now,
+              isSynced: 0,
+            })
+            .where(eq(inventoryBatches.id, batch.id))
+            .run();
+          restoredAllocations.push({
+            batchId: batch.id,
+            quantity: restoredToOriginalBatch,
+            costPrice: unitCost,
+          });
+        }
+      }
+    }
+
+    const missingFromOriginalBatch = take - restoredToOriginalBatch;
+    if (missingFromOriginalBatch > 0) {
+      createReturnBatch(missingFromOriginalBatch, unitCost);
+    }
+
+    totalCostRestored += take * unitCost;
+    allocation.quantity -= take;
+    remainingToRestore -= take;
+  }
+
+  // Legacy sales and offline oversells may not have complete batch allocations.
+  if (remainingToRestore > 0) {
+    createReturnBatch(remainingToRestore, fallbackCost);
     totalCostRestored += remainingToRestore * fallbackCost;
-    restoredAllocations.push({
-      batchId,
-      quantity: remainingToRestore,
-      costPrice: fallbackCost,
-    });
   }
 
   tx.update(products)
@@ -456,6 +489,7 @@ export function restoreInventoryFIFO(
   return {
     totalCostRestored: roundMoney(totalCostRestored),
     restoredAllocations,
+    remainingAllocations: remainingAllocations.filter((allocation) => allocation.quantity > 1e-9),
   };
 }
 
