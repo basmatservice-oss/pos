@@ -154,7 +154,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
         movement.syncStatus,
       ]),
     ];
-    const csv = '\uFEFF' + rows.map((row) => row.map((value, index) =>
+    const csv = '\uFEFF' + rows.map((row) => row.map((value) =>
       typeof value === 'number' ? String(value) : textCell(value)
     ).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
