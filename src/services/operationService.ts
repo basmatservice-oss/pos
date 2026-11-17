@@ -1269,7 +1269,7 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
   if (type === 'shift_movement' && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
-  if (type === 'purchase_return' && !payload?.id) {
+  if ((type === 'purchase_return' || type === 'return') && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
   return payload;
