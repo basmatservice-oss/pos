@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const { spawn } = require('child_process');
 
@@ -10,6 +11,19 @@ const IS_DEV = process.env.NODE_ENV === 'development' && !app.isPackaged;
 let mainWindow = null;
 let serverProcess = null;
 let quitting = false;
+
+function getRoleConfigPath() {
+  return path.join(app.getPath('userData'), 'runtime-config.json');
+}
+
+function readConfiguredRole() {
+  try {
+    const config = JSON.parse(fs.readFileSync(getRoleConfigPath(), 'utf8'));
+    return config.deviceRole === 'client' ? 'client' : 'server';
+  } catch {
+    return 'server';
+  }
+}
 
 function getRuntimeRoot() {
   if (!app.isPackaged) return app.getAppPath();
@@ -59,6 +73,7 @@ function startBackendServer() {
       NODE_ENV: 'production',
       PORT: String(SERVER_PORT),
       POS_DB_PATH: dbPath,
+      POS_SERVER_BIND: readConfiguredRole() === 'client' ? '127.0.0.1' : '0.0.0.0',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -124,6 +139,23 @@ async function createWindow() {
 
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('app:server-url', () => `http://127.0.0.1:${SERVER_PORT}`);
+
+ipcMain.handle('app:set-device-role', (_event, role) => {
+  if (role !== 'server' && role !== 'client') {
+    throw new Error('Invalid device role');
+  }
+  const previousRole = readConfiguredRole();
+  const configPath = getRoleConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify({ deviceRole: role }, null, 2), 'utf8');
+
+  // Restart once when the role changes so the local backend binds to the correct interface.
+  if (!IS_DEV && previousRole !== role) {
+    app.relaunch();
+    app.quit();
+  }
+  return true;
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
