@@ -1161,10 +1161,15 @@ export function createPosApp() {
     try {
       const { code, name, symbol, dimension, decimalPlaces, isFractional } = normalizeUnitDefinition(req.body);
       const [existingDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, code));
-      if (existingDefinition && existingDefinition.dimension !== dimension) {
+      if (existingDefinition) {
         const linkedUnits = await db.select().from(productUnits).where(eq(productUnits.unitCode, code));
         const linkedProducts = await db.select().from(products).where(eq(products.baseUnitCode, code));
-        if (linkedUnits.length > 0 || linkedProducts.length > 0) return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
+        if (existingDefinition.dimension !== dimension && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
+          return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
+        }
+        if (existingDefinition.decimalPlaces !== decimalPlaces && linkedProducts.length > 0) {
+          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة أساس مستخدمة في أصناف؛ أنشئ وحدة جديدة أو نفّذ ترحيلاً موثقاً' });
+        }
       }
       const now = new Date().toISOString();
       const [saved] = await db.insert(unitDefinitions).values({
