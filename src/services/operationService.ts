@@ -322,6 +322,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 
           await db.orderItems.add({
+            id: item.id || generateUUID(),
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
@@ -1309,6 +1310,15 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'sale' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      items: payload.items.map((item: any) => ({
+        ...item,
+        id: item.id || generateUUID(),
+      })),
+    };
+  }
   if ((type === 'purchase' || type === 'purchase_update') && Array.isArray(payload?.items)) {
     return {
       ...payload,
