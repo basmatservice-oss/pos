@@ -39,6 +39,8 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const [serverMovements, setServerMovements] = useState<any[] | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [reconciliation, setReconciliation] = useState<any | null>(null);
+  const [loadingReconciliation, setLoadingReconciliation] = useState(false);
 
   const localMovements = useLiveQuery(
     () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
@@ -132,6 +134,22 @@ export default function InventoryMovementLedger({ currency }: Props) {
     () => [...new Set(movements.map((movement) => movement.sourceType))].sort(),
     [movements]
   );
+  const handleReconciliation = async () => {
+    if (reconciliation) {
+      setReconciliation(null);
+      return;
+    }
+    setLoadingReconciliation(true);
+    try {
+      const result = await apiService.getInventoryMovementReconciliation();
+      setReconciliation(result);
+    } catch {
+      setReconciliation({ error: 'تعذر جلب نتيجة المطابقة من الخادم' });
+    } finally {
+      setLoadingReconciliation(false);
+    }
+  };
+
   const exportCsv = () => {
     const textCell = (value: unknown) => {
       const raw = String(value ?? '');
@@ -195,6 +213,14 @@ export default function InventoryMovementLedger({ currency }: Props) {
             <h3 className="font-bold text-gray-900">سجل حركة المخزون</h3>
             <p className="text-xs text-gray-500 mt-1">أحدث الحركات المتاحة محلياً ومن الخادم</p>
           </div>
+          <button
+            type="button"
+            onClick={handleReconciliation}
+            disabled={loadingReconciliation}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loadingReconciliation ? 'جارٍ الفحص...' : reconciliation ? 'إخفاء المطابقة' : 'مطابقة الرصيد'}
+          </button>
           <button
             type="button"
             onClick={exportCsv}
@@ -318,6 +344,52 @@ export default function InventoryMovementLedger({ currency }: Props) {
           >
             {loadingMore ? 'جارٍ تحميل المزيد...' : 'تحميل 500 حركة إضافية'}
           </button>
+        </div>
+      )}
+      {reconciliation && (
+        <div className="border-t border-gray-200 p-4 space-y-3" dir="rtl">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h4 className="font-bold text-gray-900">مطابقة الرصيد مع دفتر الحركات</h4>
+              <p className="text-xs text-gray-500 mt-1">فحص تشخيصي للرصيد الحالي مقابل صافي الحركات المسجلة؛ لا يتم تعديل أي رصيد تلقائياً.</p>
+            </div>
+            {reconciliation.summary && (
+              <div className="flex gap-3 text-xs text-gray-600">
+                <span>الأصناف المفحوصة: <b>{reconciliation.summary.productsChecked}</b></span>
+                <span>الفروقات: <b className={reconciliation.summary.mismatchedProducts > 0 ? 'text-rose-700' : 'text-emerald-700'}>{reconciliation.summary.mismatchedProducts}</b></span>
+              </div>
+            )}
+          </div>
+          {reconciliation.error ? (
+            <p className="text-sm text-rose-700">{reconciliation.error}</p>
+          ) : reconciliation.items?.length ? (
+            <div className="overflow-auto max-h-72 rounded-xl border border-gray-200">
+              <table className="w-full min-w-[680px] text-xs text-right">
+                <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="p-3">الصنف</th>
+                    <th className="p-3">رصيد الصنف</th>
+                    <th className="p-3">صافي دفتر الحركة</th>
+                    <th className="p-3">الفرق</th>
+                    <th className="p-3">عدد الحركات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconciliation.items.map((item: any) => (
+                    <tr key={item.productId} className="border-t border-gray-100">
+                      <td className="p-3 font-semibold">{item.productName}</td>
+                      <td className="p-3 tabular-nums">{quantity(item.stockQuantity)} {item.baseUnitCode || ''}</td>
+                      <td className="p-3 tabular-nums">{quantity(item.ledgerQuantity)} {item.baseUnitCode || ''}</td>
+                      <td className="p-3 tabular-nums font-bold text-rose-700">{quantity(item.difference)} {item.baseUnitCode || ''}</td>
+                      <td className="p-3 tabular-nums">{item.movementCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="rounded-xl bg-emerald-50 text-emerald-800 p-4 text-sm">لا توجد فروقات بين أرصدة الأصناف وصافي الحركات المسجلة.</p>
+          )}
         </div>
       )}
     </div>
