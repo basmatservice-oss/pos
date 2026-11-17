@@ -426,6 +426,7 @@ export const apiService = {
     afterCreatedAt?: string;
     afterId?: string;
     movementKeys?: string;
+    latest?: boolean;
     limit?: number;
   }) {
     return requestWithRetry(() =>
