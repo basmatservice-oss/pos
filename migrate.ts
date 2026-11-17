@@ -254,6 +254,24 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Purchase', 'returnedAmount', 'real DEFAULT 0');
   ensureColumn(sqlite, 'Purchase', 'deviceId', 'text');
   ensureColumn(sqlite, 'Purchase', 'operationId', 'text');
+  ensureColumn(sqlite, 'Purchase', 'currencyCode', 'text');
+  ensureColumn(sqlite, 'Purchase', 'baseCurrencyCode', 'text');
+  ensureColumn(sqlite, 'Purchase', 'exchangeRate', 'real');
+  ensureColumn(sqlite, 'Purchase', 'exchangeRateId', 'text');
+  ensureColumn(sqlite, 'Purchase', 'originalTotalAmount', 'real');
+  ensureColumn(sqlite, 'Purchase', 'originalPaidAmount', 'real');
+
+  ensureColumn(sqlite, 'PurchaseItem', 'originalCostPrice', 'real');
+  ensureColumn(sqlite, 'PurchaseItem', 'originalTotal', 'real');
+  ensureColumn(sqlite, 'PurchaseItem', 'currencyCode', 'text');
+  ensureColumn(sqlite, 'PurchaseItem', 'exchangeRate', 'real');
+  ensureColumn(sqlite, 'PurchaseItem', 'exchangeRateId', 'text');
+
+  ensureColumn(sqlite, 'InventoryBatch', 'originalCostPrice', 'real');
+  ensureColumn(sqlite, 'InventoryBatch', 'currencyCode', 'text');
+  ensureColumn(sqlite, 'InventoryBatch', 'exchangeRate', 'real');
+  ensureColumn(sqlite, 'InventoryBatch', 'exchangeRateId', 'text');
+
 
   ensureColumn(sqlite, 'AuditLog', 'operationName', 'text');
   ensureColumn(sqlite, 'AuditLog', 'productName', 'text');

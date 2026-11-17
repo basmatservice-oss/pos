@@ -54,7 +54,11 @@ export const inventoryBatches = sqliteTable('InventoryBatch', {
   purchaseId: text('purchaseId'),
   quantity: integer('quantity').notNull(),
   remainingQuantity: integer('remainingQuantity').notNull(),
-  costPrice: real('costPrice').notNull(),
+  costPrice: real('costPrice').notNull(), // Immutable FIFO/COGS cost in the system base currency.
+  originalCostPrice: real('originalCostPrice'),
+  currencyCode: text('currencyCode'),
+  exchangeRate: real('exchangeRate'),
+  exchangeRateId: text('exchangeRateId'),
   purchaseDate: text('purchaseDate').notNull(),
   expiryDate: text('expiryDate'),
   batchNumber: text('batchNumber'),
@@ -346,7 +350,13 @@ export const purchases = sqliteTable('Purchase', {
   id: text('id').primaryKey(),
   supplierId: integer('supplierId'),
   supplierName: text('supplierName'),
-  totalAmount: real('totalAmount').notNull(),
+  totalAmount: real('totalAmount').notNull(), // Always stored in the system base currency for accounting.
+  currencyCode: text('currencyCode'),
+  baseCurrencyCode: text('baseCurrencyCode'),
+  exchangeRate: real('exchangeRate'), // Base-currency units per one document-currency unit.
+  exchangeRateId: text('exchangeRateId'),
+  originalTotalAmount: real('originalTotalAmount'),
+  originalPaidAmount: real('originalPaidAmount'),
   paymentStatus: text('paymentStatus').default('unpaid'),
   paymentMethod: text('paymentMethod').default('cash'),
   paidAmount: real('paidAmount').default(0),
@@ -366,8 +376,13 @@ export const purchaseItems = sqliteTable('PurchaseItem', {
   productId: integer('productId').notNull(),
   productName: text('productName').notNull(),
   quantity: integer('quantity').notNull(),
-  costPrice: real('costPrice').notNull(),
-  total: real('total').notNull(),
+  costPrice: real('costPrice').notNull(), // Base-currency unit cost.
+  originalCostPrice: real('originalCostPrice'),
+  originalTotal: real('originalTotal'),
+  currencyCode: text('currencyCode'),
+  exchangeRate: real('exchangeRate'),
+  exchangeRateId: text('exchangeRateId'),
+  total: real('total').notNull(), // Base-currency line total.
   isSynced: integer('isSynced').default(0),
   createdAt: text('createdAt').default(new Date().toISOString()),
 });

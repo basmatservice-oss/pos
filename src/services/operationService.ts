@@ -9,6 +9,7 @@ import {
 import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
+import { getBasePerDocumentUnit } from '../utils/currencyConversion.js';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 
@@ -322,12 +323,81 @@ async function applyPurchaseLocally(
 ) {
   const now = new Date().toISOString();
 
+  let resolvedPurchase = payload.purchase;
+  let resolvedItems: any[] = payload.items || [];
+  const serverItems: any[] = Array.isArray(payload._serverItems) ? payload._serverItems : [];
+
+  if (type !== 'purchase_delete' && resolvedPurchase?.currencyCode) {
+    if (serverItems.length > 0) {
+      // Server-returned item costs are authoritative and already converted to base currency.
+      resolvedItems = resolvedItems.map((item, index) => {
+        const serverItem = serverItems[index] || serverItems.find(
+          (candidate) => candidate.productId === item.productId && Number(candidate.quantity) === Number(item.quantity)
+        );
+        return {
+          ...item,
+          costPrice: Number(serverItem?.costPrice ?? item.costPrice),
+          originalCostPrice: serverItem?.originalCostPrice ?? item.costPrice,
+          originalTotal: serverItem?.originalTotal ?? roundMoney(Number(item.quantity) * Number(item.costPrice)),
+          currencyCode: serverItem?.currencyCode ?? resolvedPurchase.currencyCode,
+          exchangeRate: serverItem?.exchangeRate ?? resolvedPurchase.exchangeRate,
+          exchangeRateId: serverItem?.exchangeRateId ?? resolvedPurchase.exchangeRateId,
+        };
+      });
+    } else {
+      // Offline optimistic application uses the exact approved rate snapshot selected in the UI.
+      const baseSetting = await db.settings.where('key').equals('baseCurrencyCode').first();
+      const baseCurrencyCode = String(resolvedPurchase.baseCurrencyCode || baseSetting?.value || '').toUpperCase();
+      const currencyCode = String(resolvedPurchase.currencyCode).toUpperCase();
+      if (!baseCurrencyCode) throw new Error('لا توجد عملة أساسية محفوظة على هذا الجهاز');
+
+      let conversionRate = 1;
+      let exchangeRateId: string | null = null;
+      if (currencyCode !== baseCurrencyCode) {
+        exchangeRateId = resolvedPurchase.exchangeRateId || null;
+        const rate = exchangeRateId ? await db.exchangeRates.get(exchangeRateId) : undefined;
+        const invoiceCutoff = new Date(`${String(resolvedPurchase.date || now).slice(0, 10)}T23:59:59.999Z`).getTime();
+        const pairMatches = rate && (
+          (rate.baseCurrencyCode === currencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
+          (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === currencyCode)
+        );
+        if (!rate || !rate.approvedAt || !pairMatches || new Date(rate.effectiveAt).getTime() > invoiceCutoff) {
+          throw new Error('سعر الصرف المعتمد المحدد غير متوفر في التخزين المحلي؛ أعد المزامنة قبل تسجيل الفاتورة');
+        }
+        conversionRate = getBasePerDocumentUnit(rate, currencyCode, baseCurrencyCode);
+      }
+
+      const originalTotalAmount = roundMoney(Number(resolvedPurchase.totalAmount || 0));
+      const originalPaidAmount = roundMoney(Number(resolvedPurchase.paidAmount || 0));
+      resolvedPurchase = {
+        ...resolvedPurchase,
+        currencyCode,
+        baseCurrencyCode,
+        exchangeRate: conversionRate,
+        exchangeRateId,
+        originalTotalAmount,
+        originalPaidAmount,
+        totalAmount: roundMoney(originalTotalAmount * conversionRate),
+        paidAmount: roundMoney(originalPaidAmount * conversionRate),
+      };
+      resolvedItems = resolvedItems.map((item) => ({
+        ...item,
+        originalCostPrice: Number(item.costPrice || 0),
+        originalTotal: roundMoney(Number(item.quantity || 0) * Number(item.costPrice || 0)),
+        currencyCode,
+        exchangeRate: conversionRate,
+        exchangeRateId,
+        costPrice: roundMoney(Number(item.costPrice || 0) * conversionRate),
+      }));
+    }
+  }
+
   await db.transaction(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
     async () => {
       if (type === 'purchase_delete' || type === 'purchase_update') {
-        const pid = type === 'purchase_delete' ? payload.id : payload.purchase.id;
+        const pid = type === 'purchase_delete' ? payload.id : resolvedPurchase.id;
         const oldPurchase = await db.purchases.get(pid);
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
         for (const item of oldItems) {
@@ -359,22 +429,26 @@ async function applyPurchaseLocally(
         }
       }
 
-      const { purchase, items = [], _serverItems } = payload;
-      await db.purchases.put({ ...purchase, returnedAmount: purchase.returnedAmount || 0, syncStatus });
-      await db.purchaseItems.where('purchaseId').equals(purchase.id).delete();
+      await db.purchases.put({ ...resolvedPurchase, returnedAmount: resolvedPurchase.returnedAmount || 0, syncStatus });
+      await db.purchaseItems.where('purchaseId').equals(resolvedPurchase.id).delete();
 
-      if (Array.isArray(_serverItems) && _serverItems.length > 0) {
-        await db.purchaseItems.bulkPut(_serverItems.map((si: any) => ({ ...si, syncStatus })));
+      if (serverItems.length > 0) {
+        await db.purchaseItems.bulkPut(serverItems.map((item: any) => ({ ...item, syncStatus })));
       }
 
-      for (const item of items) {
-        if (!Array.isArray(_serverItems) || _serverItems.length === 0) {
+      for (const item of resolvedItems) {
+        if (serverItems.length === 0) {
           await db.purchaseItems.add({
-            purchaseId: purchase.id,
+            purchaseId: resolvedPurchase.id,
             productId: item.productId,
             productName: item.productName,
             quantity: item.quantity,
             costPrice: item.costPrice,
+            originalCostPrice: item.originalCostPrice ?? null,
+            originalTotal: item.originalTotal ?? null,
+            currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
+            exchangeRate: item.exchangeRate ?? resolvedPurchase.exchangeRate ?? null,
+            exchangeRateId: item.exchangeRateId ?? resolvedPurchase.exchangeRateId ?? null,
             total: roundMoney(item.quantity * item.costPrice),
             syncStatus,
           });
@@ -382,12 +456,16 @@ async function applyPurchaseLocally(
         await db.inventoryBatches.put({
           id: item.batchId || generateUUID(),
           productId: item.productId,
-          purchaseId: purchase.id,
+          purchaseId: resolvedPurchase.id,
           quantity: item.quantity,
           remainingQuantity: item.quantity,
           costPrice: item.costPrice,
-          purchaseDate: purchase.date || now,
-          branchId: purchase.branchId,
+          originalCostPrice: item.originalCostPrice ?? null,
+          currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
+          exchangeRate: item.exchangeRate ?? resolvedPurchase.exchangeRate ?? null,
+          exchangeRateId: item.exchangeRateId ?? resolvedPurchase.exchangeRateId ?? null,
+          purchaseDate: resolvedPurchase.date || now,
+          branchId: resolvedPurchase.branchId,
           syncStatus,
         });
         const prod = await db.products.get(item.productId);
@@ -401,9 +479,9 @@ async function applyPurchaseLocally(
         }
       }
 
-      const remaining = Number(purchase.totalAmount || 0) - Number(purchase.paidAmount || 0);
-      if (purchase.supplierId && remaining > 0) {
-        const sup = await db.suppliers.get(purchase.supplierId);
+      const remaining = Number(resolvedPurchase.totalAmount || 0) - Number(resolvedPurchase.paidAmount || 0);
+      if (resolvedPurchase.supplierId && remaining > 0) {
+        const sup = await db.suppliers.get(resolvedPurchase.supplierId);
         if (sup) {
           await db.suppliers.update(sup.id!, {
             balance: roundMoney((sup.balance || 0) + remaining),

@@ -17,6 +17,8 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
     const returnedAmount = Number(purchase.returnedAmount || 0);
     const netTotal = Math.max(0, Number(purchase.totalAmount || 0) - returnedAmount);
     const remaining = Math.max(0, netTotal - Number(purchase.paidAmount || 0));
+    const hasCurrencySnapshot = Boolean(purchase.currencyCode && purchase.baseCurrencyCode && purchase.originalTotalAmount != null);
+    const invoiceCurrency = purchase.currencyCode || settings.currency;
 
     return (
       <div ref={ref} className="bg-white p-6 text-slate-900 w-full max-w-sm mx-auto" dir="rtl">
@@ -58,7 +60,7 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
                 <tr key={idx}>
                   <td className="py-2 font-medium">{item.productName}</td>
                   <td className="text-center py-2 tabular-nums">{item.quantity}</td>
-                  <td className="text-left py-2 tabular-nums font-bold">{formatAmount(item.total)}</td>
+                  <td className="text-left py-2 tabular-nums font-bold">{formatAmount(item.originalTotal ?? item.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -69,27 +71,33 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
           <div className="flex justify-between font-bold text-sm">
             <span>إجمالي الفاتورة:</span>
             <span>
-              {formatAmount(purchase.totalAmount)} {settings.currency}
+              {formatAmount(purchase.originalTotalAmount ?? purchase.totalAmount)} {invoiceCurrency}
             </span>
           </div>
+          {hasCurrencySnapshot && purchase.currencyCode !== purchase.baseCurrencyCode && (
+            <div className="flex justify-between text-slate-500">
+              <span>المعادل بالعملة الأساسية ({purchase.baseCurrencyCode}):</span>
+              <span>{formatAmount(purchase.totalAmount)} {purchase.baseCurrencyCode}</span>
+            </div>
+          )}
           {returnedAmount > 0 && (
             <div className="flex justify-between text-amber-700 font-bold">
               <span>مرتجعات المشتريات:</span>
               <span>
-                -{formatAmount(returnedAmount)} {settings.currency}
+                -{formatAmount(returnedAmount)} {purchase.baseCurrencyCode || settings.currency}
               </span>
             </div>
           )}
           <div className="flex justify-between text-emerald-700 font-bold">
             <span>المدفوع:</span>
             <span>
-              {formatAmount(purchase.paidAmount)} {settings.currency}
+              {formatAmount(purchase.originalPaidAmount ?? purchase.paidAmount)} {invoiceCurrency}
             </span>
           </div>
           <div className="flex justify-between font-black text-rose-700 pt-1 border-t border-slate-100">
-            <span>المتبقي للمورد:</span>
+            <span>المتبقي للمورد ({purchase.baseCurrencyCode || settings.currency}):</span>
             <span>
-              {formatAmount(remaining)} {settings.currency}
+              {formatAmount(remaining)} {purchase.baseCurrencyCode || settings.currency}
             </span>
           </div>
         </div>

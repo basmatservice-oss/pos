@@ -23,6 +23,8 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run unit tests
         run: npm run test:unit
+      - name: Verify additive purchase currency migration
+        run: python3 tests/purchase_currency_migration_test.py
       - name: TypeScript validation
         run: npm run lint
       - name: Build frontend
