@@ -608,6 +608,8 @@ export class POSDatabase extends Dexie {
   syncOperations!: Table<SyncOperation, string>;
   inventoryAlerts!: Table<InventoryAlert, string>;
   heldOrders!: Table<HeldOrder, string>;
+  currencies!: Table<Currency, string>;
+  exchangeRates!: Table<ExchangeRate, string>;
 
   constructor() {
     super('RetailPOSDB');
