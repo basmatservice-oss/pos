@@ -44,6 +44,10 @@ export default function Purchases() {
   const allPurchases = useLiveQuery(() => db.purchases.toArray()) || [];
   const allBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const currencyRows = useLiveQuery(() => db.currencies.toArray()) || [];
+  const approvedExchangeRates = useLiveQuery(() => db.exchangeRates.toArray()) || [];
+  const baseCurrencySetting = useLiveQuery(() => db.settings.where('key').equals('baseCurrencyCode').first());
+
 
   const purchases = useMemo(() => {
     return [...allPurchases].sort(
@@ -79,6 +83,7 @@ export default function Purchases() {
   const [paidAmount, setPaidAmount] = useState<string>('0');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [purchaseDate, setPurchaseDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [purchaseCurrencyCode, setPurchaseCurrencyCode] = useState('');
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
 
   // Confirm Delete Modal State
@@ -144,7 +149,7 @@ export default function Purchases() {
         )
       );
     } else {
-      setCart([...cart, { product, quantity: 1, costPrice: product.costPrice }]);
+      setCart([...cart, { product, quantity: 1, costPrice: selectedPurchaseRate ? product.costPrice / selectedPurchaseRate : product.costPrice }]);
     }
   };
 
@@ -160,6 +165,22 @@ export default function Purchases() {
     );
   };
 
+  const baseCurrencyCode = String(baseCurrencySetting?.value || '').toUpperCase();
+  const selectedPurchaseRate = useMemo(() => {
+    if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return purchaseCurrencyCode === baseCurrencyCode && baseCurrencyCode ? 1 : null;
+    const cutoff = new Date(purchaseDate).getTime();
+    const matches = approvedExchangeRates.filter((rate) => {
+      if (!rate.approvedAt || new Date(rate.effectiveAt).getTime() > cutoff) return false;
+      return (
+        (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
+        (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
+      );
+    }).sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime());
+    const rate = matches[0];
+    if (!rate) return null;
+    const value = Number(rate.rate);
+    return rate.baseCurrencyCode === purchaseCurrencyCode ? value : 1 / value;
+  }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
   const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
   const paidNum = Math.max(0, parseFloat(paidAmount || '0') || 0);
   const remainingAmount = Math.max(0, totalAmount - paidNum);
@@ -172,6 +193,7 @@ export default function Purchases() {
     setPaidAmount('0');
     setPaymentMethod('cash');
     setPurchaseDate(format(new Date(), 'yyyy-MM-dd'));
+    setPurchaseCurrencyCode(baseCurrencyCode);
   };
 
   const handleSavePurchase = async () => {
@@ -181,6 +203,10 @@ export default function Purchases() {
     }
     if (cart.length === 0) {
       toast.error('السلة فارغة');
+      return;
+    }
+    if (purchaseCurrencyCode && (!baseCurrencyCode || !selectedPurchaseRate || selectedPurchaseRate <= 0)) {
+      toast.error('لا يمكن تسجيل فاتورة بعملة أجنبية دون سعر صرف معتمد وساري');
       return;
     }
     if (cart.some((i) => i.quantity <= 0)) {
@@ -201,6 +227,7 @@ export default function Purchases() {
         supplierId: selectedSupplier.id!,
         supplierName: selectedSupplier.name,
         totalAmount,
+        currencyCode: purchaseCurrencyCode || undefined,
         paidAmount: paidNum,
         paymentMethod,
         paymentStatus: remainingAmount <= 0.01 ? 'paid' : paidNum > 0 ? 'partial' : 'unpaid',
@@ -214,7 +241,7 @@ export default function Purchases() {
         productId: item.product.id!,
         productName: item.product.name,
         quantity: item.quantity,
-        costPrice: item.costPrice,
+        costPrice: item.originalCostPrice ?? item.costPrice,
         total: item.quantity * item.costPrice,
       }));
 
@@ -260,7 +287,8 @@ export default function Purchases() {
     setEditingPurchase(purchase);
     setSelectedSupplier(supplier || null);
     setPurchaseDate(format(new Date(purchase.date), 'yyyy-MM-dd'));
-    setPaidAmount(purchase.paidAmount.toString());
+    setPurchaseCurrencyCode(purchase.currencyCode || baseCurrencyCode);
+    setPaidAmount((purchase.originalPaidAmount ?? purchase.paidAmount).toString());
     setPaymentMethod(purchase.paymentMethod === 'card' ? 'card' : 'cash');
 
     const cartItems = items.map((item) => {
@@ -444,6 +472,27 @@ export default function Purchases() {
                 </option>
               ))}
             </select>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">عملة فاتورة المورد</label>
+              <select
+                value={purchaseCurrencyCode}
+                onChange={(e) => setPurchaseCurrencyCode(e.target.value)}
+                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none text-sm"
+                disabled={Boolean(editingPurchase)}
+              >
+                <option value="">عملة النظام القديمة</option>
+                {currencyRows.filter((item) => item.isActive).map((item) => (
+                  <option key={item.code} value={item.code}>{item.code} — {item.name}</option>
+                ))}
+              </select>
+              {purchaseCurrencyCode && purchaseCurrencyCode !== baseCurrencyCode && (
+                <p className={`text-xs mt-1 ${selectedPurchaseRate ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  {selectedPurchaseRate
+                    ? `السعر المعتمد: 1 ${purchaseCurrencyCode} = ${selectedPurchaseRate.toFixed(6)} ${baseCurrencyCode}`
+                    : 'لا يوجد سعر صرف معتمد وساري لهذا التاريخ. لا يمكن حفظ الفاتورة بهذه العملة.'}
+                </p>
+              )}
+            </div>
             <div>
               <label className="text-xs text-slate-500 block mb-1">تاريخ الفاتورة</label>
               <input
