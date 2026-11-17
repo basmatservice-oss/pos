@@ -214,7 +214,7 @@ class PosLocalDatabasePlugin : Plugin() {
 }
 
 private class PosDatabaseHelper(context: android.content.Context) :
-    SQLiteOpenHelper(context, "pos-local.db", null, 1) {
+    SQLiteOpenHelper(context, "pos-local.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE pos_records (entity TEXT NOT NULL, record_id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, sync_state TEXT NOT NULL DEFAULT 'local', PRIMARY KEY(entity, record_id))")
         db.execSQL("CREATE INDEX idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
@@ -223,6 +223,10 @@ private class PosDatabaseHelper(context: android.content.Context) :
         db.execSQL("CREATE TABLE pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Future migrations must be additive and preserve existing records.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+        }
     }
 }
