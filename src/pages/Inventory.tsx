@@ -20,7 +20,7 @@ export default function Inventory() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
-  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '' });
+  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
@@ -160,6 +160,7 @@ export default function Inventory() {
       conversionToBase: '1',
       isBaseUnit: !product.baseUnitCode,
       sellingPrice: '',
+      barcode: '',
     });
   };
 
@@ -179,6 +180,7 @@ export default function Inventory() {
         conversionToBase,
         isBaseUnit: unitDraft.isBaseUnit,
         sellingPrice: unitDraft.sellingPrice === '' ? null : Number(unitDraft.sellingPrice),
+        barcode: unitDraft.barcode.trim() || undefined,
       });
       await db.productUnits.put({ ...saved, syncStatus: 'synced' });
       if (saved.isBaseUnit) {
@@ -191,7 +193,7 @@ export default function Inventory() {
         setUnitEditorProduct((prev) => prev ? { ...prev, baseUnitCode: saved.unitCode, quantityPrecision: definition?.decimalPlaces ?? 0 } : prev);
       }
       toast.success('تم حفظ وحدة الصنف');
-      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '' });
+      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '', barcode: '' });
     } catch (error: any) {
       toast.error(error?.response?.data?.error || error?.message || 'تعذر حفظ وحدة الصنف');
     } finally {
@@ -1524,6 +1526,9 @@ export default function Inventory() {
               <label className="text-sm space-y-1">سعر البيع لهذه الوحدة (اختياري)
                 <input type="number" min="0" step="0.01" value={unitDraft.sellingPrice} onChange={(e) => setUnitDraft({ ...unitDraft, sellingPrice: e.target.value })} className="w-full p-3 border rounded-xl" />
               </label>
+              <label className="text-sm space-y-1">باركود هذه الوحدة (اختياري)
+                <input value={unitDraft.barcode} onChange={(e) => setUnitDraft({ ...unitDraft, barcode: e.target.value })} className="w-full p-3 border rounded-xl font-mono" placeholder="امسح باركود العبوة" />
+              </label>
               <label className="flex items-center gap-2 text-sm self-end p-3 border rounded-xl">
                 <input type="checkbox" checked={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, isBaseUnit: e.target.checked, conversionToBase: '1' })} />
                 هذه وحدة الأساس للصنف (معاملها 1)
@@ -1537,13 +1542,14 @@ export default function Inventory() {
               <h4 className="font-bold text-gray-800 mb-3">الوحدات المسجلة</h4>
               <div className="overflow-x-auto border rounded-xl">
                 <table className="w-full text-sm text-right">
-                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th></tr></thead>
+                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th><th className="p-3">الباركود</th></tr></thead>
                   <tbody>{productUnitRows.map((unit) => (
                     <tr key={unit.id} className="border-t">
                       <td className="p-3">{unitDefinitions.find((definition) => definition.code === unit.unitCode)?.name || unit.unitCode}</td>
                       <td className="p-3 tabular-nums">{unit.conversionToBase}</td>
                       <td className="p-3">{unit.isBaseUnit ? 'أساس' : 'بديلة'}</td>
                       <td className="p-3 tabular-nums">{unit.sellingPrice ?? '—'}</td>
+                      <td className="p-3 font-mono">{unit.barcode || '—'}</td>
                     </tr>
                   ))}</tbody>
                 </table>
