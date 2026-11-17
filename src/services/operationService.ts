@@ -50,6 +50,12 @@ function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 
 
 type LocalBatchAllocation = { batchId: string | number | null; quantity: number; costPrice: number };
 
+function assertLocalBaseUnitMatches(product: any, item: any): void {
+  if (item?.baseUnitCode && String(item.baseUnitCode) !== String(product?.baseUnitCode || '')) {
+    throw new Error('تغيرت وحدة الأساس للصنف؛ لا يمكن تطبيق حركة مسجلة بوحدة أساس قديمة محلياً');
+  }
+}
+
 function parseLocalBatchAllocations(value: unknown): LocalBatchAllocation[] {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -271,6 +277,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           }
           const product = await db.products.get(item.productId);
           if (product) {
+            assertLocalBaseUnitMatches(product, item);
             await db.products.update(product.id!, {
               stockQuantity: product.stockQuantity - baseQty,
               updatedAt: now,
@@ -283,6 +290,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
         for (const item of items) {
           const baseQty = getBaseMovementQuantity(item);
           const product = await db.products.get(item.productId);
+          if (product) assertLocalBaseUnitMatches(product, item);
           const factor = Number(item.conversionToBase ?? item.selectedConversionToBase ??
             (item.unit === 'box' || item.selectedUnit === 'box' ? item.conversionFactor : 1) ?? 1);
           const fifo = await consumeLocalInventoryFIFO(
@@ -777,6 +785,7 @@ async function applyPurchaseLocally(
         });
         const prod = await db.products.get(item.productId);
         if (prod) {
+          assertLocalBaseUnitMatches(prod, item);
           await db.products.update(prod.id!, {
             stockQuantity: prod.stockQuantity + baseQuantity,
             updatedAt: now,
