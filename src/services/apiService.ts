@@ -431,6 +431,7 @@ export const apiService = {
     afterId?: string;
     movementKeys?: string;
     latest?: boolean;
+    offset?: number;
     limit?: number;
   }) {
     return requestWithRetry(() =>
