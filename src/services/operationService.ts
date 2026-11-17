@@ -1095,7 +1095,8 @@ async function applyShiftLocally(
 }
 
 async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  const now = payload?.approvedAt ? new Date(payload.approvedAt).toISOString() : new Date().toISOString();
+  const requestedTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date();
+  const now = Number.isNaN(requestedTime.getTime()) ? new Date().toISOString() : requestedTime.toISOString();
   const { sessionId } = payload;
   await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
