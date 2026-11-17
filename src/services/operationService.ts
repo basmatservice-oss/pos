@@ -1306,6 +1306,11 @@ export async function dispatchOperation(
   const role = await getDeviceRole();
   const now = new Date().toISOString();
   const token = getAuthToken();
+  const unresolvedQueueCount = await db.syncOperations
+    .where('status')
+    .anyOf(['pending', 'error', 'syncing', 'conflict'])
+    .count();
+  const canExecuteImmediately = unresolvedQueueCount === 0;
 
   const opRecord: SyncOperation = {
     id: operationId,
@@ -1319,7 +1324,7 @@ export async function dispatchOperation(
     updatedAt: now,
   };
 
-  if (role === 'server' && token) {
+  if (role === 'server' && token && canExecuteImmediately) {
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
@@ -1340,7 +1345,7 @@ export async function dispatchOperation(
 
   await db.syncOperations.put(opRecord);
 
-  if (token) {
+  if (token && canExecuteImmediately) {
     let reachable = false;
     try {
       reachable = await apiService.checkServerReachability(2000);
