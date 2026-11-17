@@ -60,6 +60,82 @@ class PosLocalDatabasePlugin : Plugin() {
         }
     }
 
+    /**
+     * Atomically persists a local record and its synchronization operation.
+     * This prevents a committed local write from being lost between separate
+     * record and outbox calls when the process is interrupted.
+     */
+    @PluginMethod
+    fun saveRecordAndEnqueueOperation(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val recordId = call.getString("recordId")?.trim().orEmpty()
+        val record = call.getObject("record")
+        val operationId = call.getString("operationId")?.trim().orEmpty()
+        val type = call.getString("type")?.trim().orEmpty()
+        val payload = call.getObject("payload")
+        if (entity.isBlank() || recordId.isBlank() || record == null ||
+            operationId.isBlank() || type.isBlank() || payload == null) {
+            call.reject("بيانات السجل والعملية مطلوبة للحفظ الذري")
+            return
+        }
+        val db = helper.writableDatabase
+        try {
+            db.beginTransaction()
+            try {
+                val existing = db.query(
+                    "pos_outbox", arrayOf("operation_id"), "operation_id = ?",
+                    arrayOf(operationId), null, null, null
+                ).use { it.moveToFirst() }
+                if (existing) {
+                    db.setTransactionSuccessful()
+                    call.resolve(
+                        JSObject().put("saved", false).put("queued", true)
+                            .put("duplicate", true).put("operationId", operationId)
+                    )
+                    return
+                }
+
+                val recordValues = ContentValues().apply {
+                    put("entity", entity)
+                    put("record_id", recordId)
+                    put("json", record.toString())
+                    put("updated_at", System.currentTimeMillis())
+                    put("sync_state", "pending")
+                }
+                db.insertWithOnConflict(
+                    "pos_records", null, recordValues, SQLiteDatabase.CONFLICT_REPLACE
+                )
+
+                val operationValues = ContentValues().apply {
+                    put("operation_id", operationId)
+                    put("type", type)
+                    put("payload", payload.toString())
+                    put("device_id", call.getString("deviceId") ?: "")
+                    put("tenant_id", call.getString("tenantId") ?: "")
+                    put("branch_id", call.getString("branchId") ?: "")
+                    put("actor", call.getString("actor") ?: "")
+                    put("schema_version", call.getInt("schemaVersion") ?: 1)
+                    put("created_at", System.currentTimeMillis())
+                    put("status", "pending")
+                }
+                val inserted = db.insertWithOnConflict(
+                    "pos_outbox", null, operationValues, SQLiteDatabase.CONFLICT_IGNORE
+                )
+                if (inserted == -1L) throw IllegalStateException("Operation could not be queued")
+
+                db.setTransactionSuccessful()
+                call.resolve(
+                    JSObject().put("saved", true).put("queued", true)
+                        .put("duplicate", false).put("operationId", operationId)
+                )
+            } finally {
+                db.endTransaction()
+            }
+        } catch (error: Exception) {
+            call.reject("تعذر حفظ السجل وعملية المزامنة بصورة ذرية", error)
+        }
+    }
+
     @PluginMethod
     fun getRecords(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
