@@ -62,7 +62,7 @@ function startBackendServer() {
   if (IS_DEV) return Promise.resolve();
 
   const runtimeRoot = getRuntimeRoot();
-  const serverEntry = path.join(runtimeRoot, 'dist', 'server.js');
+  const serverEntry = path.join(runtimeRoot, 'dist', 'server.cjs');
   const dbPath = path.join(app.getPath('userData'), 'dev.db');
 
   serverProcess = spawn(process.execPath, [serverEntry], {
