@@ -2221,6 +2221,26 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       .get();
   }
 
+  if (tableName === 'products') {
+    const productData: any = { ...clean };
+    const existingProduct = productData.id
+      ? tx.select().from(products).where(eq(products.id, Number(productData.id))).get()
+      : null;
+    if (existingProduct) {
+      // Stock is changed only by stock movements/stocktaking, never by a stale
+      // product form or a background entity sync.
+      delete productData.stockQuantity;
+      const existingBatch = tx.select({ id: inventoryBatches.id })
+        .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1).get();
+      if (existingBatch) delete productData.costPrice;
+      return tx.update(products)
+        .set({ ...productData, isSynced: 0, updatedAt: now })
+        .where(eq(products.id, existingProduct.id))
+        .returning()
+        .get();
+    }
+  }
+
   if (tableName === 'offers') {
     const offData: any = { ...clean };
     if (Array.isArray(offData.applicableProducts)) {
