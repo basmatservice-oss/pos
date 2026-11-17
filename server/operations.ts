@@ -42,6 +42,7 @@ import {
   BatchAllocation,
 } from './accounting.js';
 import { hashSecret, sanitizeEmployee } from './auth.js';
+import { getBasePerDocumentUnit } from '../src/utils/currencyConversion.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -879,11 +880,11 @@ function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, pu
     throw new OperationError('لا يوجد سعر صرف معتمد وساري بتاريخ فاتورة الشراء لهذه العملات', 400);
   }
 
-  const rawRate = Number(selectedRate.rate);
-  const basePerDocumentUnit =
-    selectedRate.baseCurrencyCode === currencyCode ? rawRate : 1 / rawRate;
-  if (!Number.isFinite(basePerDocumentUnit) || basePerDocumentUnit <= 0) {
-    throw new OperationError('سعر الصرف المعتمد غير صالح', 400);
+  let basePerDocumentUnit: number;
+  try {
+    basePerDocumentUnit = getBasePerDocumentUnit(selectedRate, currencyCode, baseCurrencyCode);
+  } catch {
+    throw new OperationError('سعر الصرف المعتمد غير صالح أو لا يطابق زوج العملات', 400);
   }
 
   return {
