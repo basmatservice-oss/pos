@@ -1216,7 +1216,7 @@ export function createPosApp() {
 
   app.get('/api/inventoryMovements/reconciliation', async (_req, res) => {
     try {
-      const [stockRows, ledgerRows] = await Promise.all([
+      const [stockRows, batchRows, ledgerRows] = await Promise.all([
         db.select({
           productId: products.id,
           productName: products.name,
@@ -1224,56 +1224,71 @@ export function createPosApp() {
           stockQuantity: products.stockQuantity,
         }).from(products),
         db.select({
+          productId: inventoryBatches.productId,
+          batchQuantity: sql<number>`COALESCE(SUM(${inventoryBatches.remainingQuantity}), 0)`,
+          batchCount: sql<number>`COUNT(*)`,
+        }).from(inventoryBatches).groupBy(inventoryBatches.productId),
+        db.select({
           productId: inventoryMovements.productId,
           ledgerQuantity: sql<number>`COALESCE(SUM(${inventoryMovements.quantityDeltaBase}), 0)`,
           movementCount: sql<number>`COUNT(*)`,
         }).from(inventoryMovements).groupBy(inventoryMovements.productId),
       ]);
+      const batchesByProduct = new Map(
+        batchRows.map((row) => [row.productId, {
+          batchQuantity: Number(row.batchQuantity || 0),
+          batchCount: Number(row.batchCount || 0),
+        }])
+      );
       const ledgerByProduct = new Map(
         ledgerRows.map((row) => [row.productId, {
           ledgerQuantity: Number(row.ledgerQuantity || 0),
           movementCount: Number(row.movementCount || 0),
         }])
       );
-      const productIds = new Set(stockRows.map((product) => product.productId));
-      const items = stockRows.map((product) => {
-        const ledger = ledgerByProduct.get(product.productId);
-        const stockQuantity = Number(product.stockQuantity || 0);
+      const allProductIds = new Set([
+        ...stockRows.map((row) => row.productId),
+        ...batchRows.map((row) => row.productId),
+        ...ledgerRows.map((row) => row.productId),
+      ]);
+      const stockByProduct = new Map(stockRows.map((row) => [row.productId, row]));
+      const items = [...allProductIds].map((productId) => {
+        const product = stockByProduct.get(productId);
+        const batch = batchesByProduct.get(productId);
+        const ledger = ledgerByProduct.get(productId);
+        const stockQuantity = Number(product?.stockQuantity || 0);
+        const batchQuantity = batch?.batchQuantity || 0;
         const ledgerQuantity = ledger?.ledgerQuantity || 0;
         return {
-          productId: product.productId,
-          productName: product.productName,
-          baseUnitCode: product.baseUnitCode || null,
+          productId,
+          productName: product?.productName || `#${productId} (صنف غير موجود)`,
+          baseUnitCode: product?.baseUnitCode || null,
           stockQuantity,
+          batchQuantity,
           ledgerQuantity,
-          difference: stockQuantity - ledgerQuantity,
+          stockVsBatchDifference: stockQuantity - batchQuantity,
+          batchVsLedgerDifference: batchQuantity - ledgerQuantity,
+          stockVsLedgerDifference: stockQuantity - ledgerQuantity,
+          batchCount: batch?.batchCount || 0,
           movementCount: ledger?.movementCount || 0,
         };
       });
-      for (const ledger of ledgerRows) {
-        if (productIds.has(ledger.productId)) continue;
-        const ledgerQuantity = Number(ledger.ledgerQuantity || 0);
-        items.push({
-          productId: ledger.productId,
-          productName: `#${ledger.productId} (صنف غير موجود)`,
-          baseUnitCode: null,
-          stockQuantity: 0,
-          ledgerQuantity,
-          difference: -ledgerQuantity,
-          movementCount: Number(ledger.movementCount || 0),
-        });
-      }
-      const mismatched = items.filter((item) => Math.abs(item.difference) > 1e-6);
+      const hasDifference = (item: any) =>
+        Math.abs(item.stockVsBatchDifference) > 1e-6 ||
+        Math.abs(item.batchVsLedgerDifference) > 1e-6;
+      const mismatched = items.filter(hasDifference);
       res.json({
         items: mismatched,
         summary: {
           productsChecked: items.length,
           productsWithMovements: items.filter((item) => item.movementCount > 0).length,
+          productsWithBatchMismatch: items.filter((item) => Math.abs(item.stockVsBatchDifference) > 1e-6).length,
+          productsWithLedgerMismatch: items.filter((item) => Math.abs(item.batchVsLedgerDifference) > 1e-6).length,
           mismatchedProducts: mismatched.length,
         },
       });
     } catch {
-      res.status(500).json({ error: 'Failed to reconcile inventory movement ledger' });
+      res.status(500).json({ error: 'Failed to reconcile stock, FIFO batches and movement ledger' });
     }
   });
 
