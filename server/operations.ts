@@ -1363,8 +1363,11 @@ function handlePurchaseReturn(
       ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId) && b.productId === prodId)
       : purchaseBatches.find((b: any) =>
           b.productId === prodId &&
+          (!reqItem.unitCode || b.unitCode === reqItem.unitCode) &&
           Number(b.remainingQuantity || 0) >= qtyToReturn * Number(b.conversionToBase || 1)
-        ) || purchaseBatches.find((b: any) => b.productId === prodId);
+        ) || purchaseBatches.find((b: any) =>
+          b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
+        );
     if (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode)) {
       throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
     }
