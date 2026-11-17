@@ -1,12 +1,20 @@
 import axios from 'axios';
-import { API_BASE } from './apiService';
+import { apiService } from './apiService';
 
 export const checkDatabaseHealth = async (): Promise<boolean> => {
-  try {
-    const response = await axios.get(`${API_BASE}/health`, { timeout: 5000 });
-    return response.data?.connected === true;
-  } catch (error) {
-    console.error('Server database health check failed:', error);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return false;
   }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await axios.get(`${apiService.API_BASE}/health`, { timeout: 12000 });
+      return response.data?.connected === true;
+    } catch {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+  return false;
 };
