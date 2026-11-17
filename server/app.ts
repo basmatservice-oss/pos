@@ -1229,6 +1229,7 @@ export function createPosApp() {
           movementCount: Number(row.movementCount || 0),
         }])
       );
+      const productIds = new Set(stockRows.map((product) => product.productId));
       const items = stockRows.map((product) => {
         const ledger = ledgerByProduct.get(product.productId);
         const stockQuantity = Number(product.stockQuantity || 0);
@@ -1243,6 +1244,19 @@ export function createPosApp() {
           movementCount: ledger?.movementCount || 0,
         };
       });
+      for (const ledger of ledgerRows) {
+        if (productIds.has(ledger.productId)) continue;
+        const ledgerQuantity = Number(ledger.ledgerQuantity || 0);
+        items.push({
+          productId: ledger.productId,
+          productName: `#${ledger.productId} (صنف غير موجود)`,
+          baseUnitCode: null,
+          stockQuantity: 0,
+          ledgerQuantity,
+          difference: -ledgerQuantity,
+          movementCount: Number(ledger.movementCount || 0),
+        });
+      }
       const mismatched = items.filter((item) => Math.abs(item.difference) > 1e-6);
       res.json({
         items: mismatched,
