@@ -2695,6 +2695,17 @@ function handleEntityDelete(tx: any, payload: any) {
     throw new OperationError(`Unsupported entity table: ${tableName}`, 400);
   }
 
+  if (tableName === 'categories') {
+    const linkedProducts = tx.select().from(products)
+      .where(eq(products.categoryId, Number(id))).limit(1).get();
+    if (linkedProducts) {
+      throw new OperationError(
+        'لا يمكن حذف تصنيف مرتبط بأصناف. انقل الأصناف أو عطّلها أولاً.',
+        409
+      );
+    }
+  }
+
   if (tableName === 'products') {
     const productId = Number(id);
     const product = tx.select().from(products).where(eq(products.id, productId)).get();
