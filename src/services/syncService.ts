@@ -276,26 +276,24 @@ export const syncService = {
         throw new Error('Invalid inventory movement page response');
       }
 
-      await db.transaction('rw', db.inventoryMovements, db.settings, async () => {
-        await saveMovementRows(response.items);
-        if (response.nextCursor?.createdAt && response.nextCursor?.id) {
-          const setting = {
-            ...(cursorSetting || {}),
-            key: INVENTORY_MOVEMENT_CURSOR_KEY,
-            value: JSON.stringify(response.nextCursor),
-            syncStatus: 'synced' as const,
-            createdAt: cursorSetting?.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          if (cursorSetting?.id !== undefined) {
-            await db.settings.put({ ...setting, id: cursorSetting.id });
-            cursorSetting = { ...setting, id: cursorSetting.id };
-          } else {
-            const id = await db.settings.add(setting);
-            cursorSetting = { ...setting, id };
-          }
+      await saveMovementRows(response.items);
+      if (response.nextCursor?.createdAt && response.nextCursor?.id) {
+        const setting = {
+          ...(cursorSetting || {}),
+          key: INVENTORY_MOVEMENT_CURSOR_KEY,
+          value: JSON.stringify(response.nextCursor),
+          syncStatus: 'synced' as const,
+          createdAt: cursorSetting?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        if (cursorSetting?.id !== undefined) {
+          await db.settings.put({ ...setting, id: cursorSetting.id });
+          cursorSetting = { ...setting, id: cursorSetting.id };
+        } else {
+          const id = await db.settings.add(setting);
+          cursorSetting = { ...setting, id };
         }
-      });
+      }
 
       if (!response.hasMore || !response.nextCursor) break;
       cursor = response.nextCursor;
