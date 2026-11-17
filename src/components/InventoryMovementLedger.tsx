@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Search } from 'lucide-react';
 import { db } from '../db/db';
+import { apiService } from '../services/apiService';
 
 type Props = { currency: string };
 
@@ -37,6 +38,30 @@ export default function InventoryMovementLedger({ currency }: Props) {
   ) || [];
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
   const units = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLatest = async () => {
+      try {
+        const response = await apiService.getInventoryMovements({ latest: true, limit: 500 });
+        if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
+        await db.transaction('rw', db.inventoryMovements, async () => {
+          const keys = response.items.map((movement: any) => movement.movementKey);
+          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
+          const serverIds = new Set(response.items.map((movement: any) => movement.id));
+          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
+          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+          await db.inventoryMovements.bulkPut(
+            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+          );
+        });
+      } catch {
+        // Keep cached local history available when the server is offline.
+      }
+    };
+    loadLatest();
+    return () => { cancelled = true; };
+  }, []);
 
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const movementTypes = useMemo(
