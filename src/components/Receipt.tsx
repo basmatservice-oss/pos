@@ -93,7 +93,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         <div className="border-b-2 border-black border-dashed mb-6 pb-4 space-y-1 tabular-nums">
           <div className="flex justify-between text-gray-600">
             <span>الصافي قبل الضريبة:</span>
-            <span className="font-mono">{Math.max(0, order.netAmount - order.taxAmount).toFixed(2)}</span>
+            <span className="font-mono">{formatAmount(Math.max(0, order.netAmount - order.taxAmount))}</span>
           </div>
           {order.discountAmount > 0 && (
             <div className="flex justify-between text-gray-600">
