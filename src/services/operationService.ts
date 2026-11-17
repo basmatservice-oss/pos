@@ -67,6 +67,8 @@ async function appendLocalInventoryMovement(
     ? input.batchAllocations
     : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
 
+  // Keep local rows pending until the cursor pull confirms the authoritative server row.
+  const localSyncStatus = syncStatus === 'synced' ? 'pending' : syncStatus;
   await db.inventoryMovements.put({
     id: `${operationId}:${movementKey}`,
     movementKey,
@@ -89,7 +91,7 @@ async function appendLocalInventoryMovement(
     batchAllocations: allocations,
     reason: input.reason ?? null,
     createdAt: new Date().toISOString(),
-    syncStatus,
+    syncStatus: localSyncStatus,
   });
 }
 
