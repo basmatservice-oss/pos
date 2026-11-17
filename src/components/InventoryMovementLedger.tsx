@@ -37,6 +37,8 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [serverMovements, setServerMovements] = useState<any[] | null>(null);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const localMovements = useLiveQuery(
     () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
@@ -51,9 +53,11 @@ export default function InventoryMovementLedger({ currency }: Props) {
     let cancelled = false;
     const loadLatest = async () => {
       setServerMovements(null);
+      setNextOffset(null);
       try {
         const response = await apiService.getInventoryMovements({
           latest: true,
+          offset: 0,
           limit: 500,
           branchId: branchId === 'all' ? undefined : Number(branchId),
           sourceType: sourceType === 'all' ? undefined : sourceType,
@@ -62,6 +66,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
         });
         if (cancelled || !Array.isArray(response?.items)) return;
         setServerMovements(response.items);
+        setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
         if (response.items.length === 0) return;
         await db.transaction('rw', db.inventoryMovements, async () => {
           const keys = response.items.map((movement: any) => movement.movementKey);
@@ -82,6 +87,41 @@ export default function InventoryMovementLedger({ currency }: Props) {
     loadLatest();
     return () => { cancelled = true; };
   }, [branchId, sourceType, startDate, endDate]);
+
+  const handleLoadMore = async () => {
+    if (nextOffset === null || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const response = await apiService.getInventoryMovements({
+        latest: true,
+        offset: nextOffset,
+        limit: 500,
+        branchId: branchId === 'all' ? undefined : Number(branchId),
+        sourceType: sourceType === 'all' ? undefined : sourceType,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      });
+      if (!Array.isArray(response?.items)) return;
+      setServerMovements((previous) => [...(previous || []), ...response.items]);
+      setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
+      if (response.items.length > 0) {
+        await db.transaction('rw', db.inventoryMovements, async () => {
+          const keys = response.items.map((movement: any) => movement.movementKey);
+          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
+          const serverIds = new Set(response.items.map((movement: any) => movement.id));
+          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
+          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+          await db.inventoryMovements.bulkPut(
+            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+          );
+        });
+      }
+    } catch {
+      // Keep already loaded pages visible if the network drops.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const movementTypes = useMemo(
@@ -224,6 +264,18 @@ export default function InventoryMovementLedger({ currency }: Props) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {nextOffset !== null && (
+        <div className="p-4 border-t border-gray-100 flex justify-center">
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-sm font-semibold text-gray-700"
+          >
+            {loadingMore ? 'جارٍ تحميل المزيد...' : 'تحميل 500 حركة إضافية'}
+          </button>
         </div>
       )}
     </div>
