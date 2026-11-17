@@ -92,8 +92,9 @@ function resolveMovementUnit(tx: any, productId: number, item: any, quantity: nu
     if (definition.dimension !== baseDefinition.dimension) {
       throw new OperationError('لا يمكن التحويل بين وحدات ذات أبعاد مختلفة', 409);
     }
-    if (Math.abs(Number(baseUnit.conversionToBase) - 1) > 1e-10) {
-      throw new OperationError('معامل وحدة الأساس يجب أن يساوي 1', 409);
+    if (Math.abs(Number(baseUnit.conversionToBase) - 1) > 1e-10 ||
+        (selectedUnit.isBaseUnit === 1 && unitCode !== baseUnitCode)) {
+      throw new OperationError('تعريف وحدة الأساس للصنف غير متسق', 409);
     }
 
     // Honor the conversion snapshot captured on the terminal. Offline transactions
