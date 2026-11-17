@@ -1205,47 +1205,71 @@ export function createPosApp() {
       if (isBaseUnit && Math.abs(conversionToBase - 1) > 1e-10) {
         return res.status(400).json({ error: 'معامل تحويل وحدة الأساس يجب أن يساوي 1' });
       }
-      const [product] = await db.select().from(products).where(eq(products.id, productId));
-      const [unit] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, unitCode));
-      if (!product || !unit || !unit.isActive) return res.status(404).json({ error: 'الصنف أو تعريف الوحدة غير موجود أو غير نشط' });
-      const existingUnits = await db.select().from(productUnits).where(eq(productUnits.productId, productId));
-      const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
-      if (!isBaseUnit && !existingBase && !product.baseUnitCode) {
-        return res.status(409).json({ error: 'يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل' });
-      }
-      if (isBaseUnit && existingBase && existingBase.unitCode !== unitCode && Number(product.stockQuantity || 0) > 0) {
-        return res.status(409).json({ error: 'لا يمكن تغيير وحدة الأساس بعد وجود مخزون؛ يلزم تحويل مخزني موثق' });
-      }
-      if (existingBase && existingBase.unitCode !== unitCode) {
-        const [baseDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, existingBase.unitCode));
-        if (baseDefinition && baseDefinition.dimension !== unit.dimension) {
-          return res.status(400).json({ error: 'لا يمكن تحويل الصنف بين وحدات ذات أبعاد مختلفة' });
+
+      const saved = await db.transaction(async (tx) => {
+        const [product] = await tx.select().from(products).where(eq(products.id, productId));
+        const [unit] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, unitCode));
+        if (!product || !unit || !unit.isActive) throw new Error('الصنف أو تعريف الوحدة غير موجود أو غير نشط');
+
+        const existingUnits = await tx.select().from(productUnits).where(eq(productUnits.productId, productId));
+        const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
+        const existing = existingUnits.find((row) => row.unitCode === unitCode);
+
+        if (!isBaseUnit && existingBase?.unitCode === unitCode) {
+          throw new Error('لا يمكن إلغاء وحدة الأساس دون تعيين وحدة أساس بديلة');
         }
-      }
-      const now = new Date().toISOString();
-      const existing = existingUnits.find((row) => row.unitCode === unitCode);
-      let saved: any;
-      if (existing) {
-        [saved] = await db.update(productUnits).set({ conversionToBase, isBaseUnit, sellingPrice, barcode, isActive: 1, updatedAt: now })
-          .where(eq(productUnits.id, existing.id)).returning();
-      } else {
-        [saved] = await db.insert(productUnits).values({
-          id: crypto.randomUUID(), productId, unitCode, conversionToBase, isBaseUnit,
-          sellingPrice, barcode, isActive: 1, createdAt: now, updatedAt: now,
-        }).returning();
-      }
-      if (isBaseUnit) {
-        for (const row of existingUnits) {
-          if (row.unitCode !== unitCode && row.isBaseUnit) {
-            await db.update(productUnits).set({ isBaseUnit: 0, updatedAt: now }).where(eq(productUnits.id, row.id));
+        if (!isBaseUnit && !existingBase && !product.baseUnitCode) {
+          throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
+        }
+        if (isBaseUnit && existingBase && existingBase.unitCode !== unitCode) {
+          if (Number(product.stockQuantity || 0) > 0) {
+            throw new Error('لا يمكن تغيير وحدة الأساس بعد وجود مخزون؛ يلزم تحويل مخزني موثق');
+          }
+          if (existingUnits.some((row) => row.unitCode !== existingBase.unitCode)) {
+            throw new Error('لا يمكن تغيير وحدة الأساس بعد تعريف وحدات بديلة؛ أعد تعريف معاملات التحويل أولاً');
           }
         }
-        await db.update(products).set({ baseUnitCode: unitCode, quantityPrecision: unit.decimalPlaces, updatedAt: now })
-          .where(eq(products.id, productId));
-      }
+
+        const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        if (currentBaseCode && currentBaseCode !== unitCode) {
+          const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));
+          if (baseDefinition && baseDefinition.dimension !== unit.dimension) {
+            throw new Error('لا يمكن تحويل الصنف بين وحدات ذات أبعاد مختلفة');
+          }
+        }
+
+        const now = new Date().toISOString();
+        let result: any;
+        if (existing) {
+          [result] = await tx.update(productUnits).set({
+            conversionToBase, isBaseUnit, sellingPrice, barcode, isActive: 1, updatedAt: now,
+          }).where(eq(productUnits.id, existing.id)).returning();
+        } else {
+          [result] = await tx.insert(productUnits).values({
+            id: crypto.randomUUID(), productId, unitCode, conversionToBase, isBaseUnit,
+            sellingPrice, barcode, isActive: 1, createdAt: now, updatedAt: now,
+          }).returning();
+        }
+
+        if (isBaseUnit) {
+          for (const row of existingUnits) {
+            if (row.unitCode !== unitCode && row.isBaseUnit) {
+              await tx.update(productUnits).set({ isBaseUnit: 0, updatedAt: now }).where(eq(productUnits.id, row.id));
+            }
+          }
+          await tx.update(products).set({
+            baseUnitCode: unitCode,
+            quantityPrecision: unit.decimalPlaces,
+            updatedAt: now,
+          }).where(eq(products.id, productId));
+        }
+        return result;
+      });
       res.status(201).json(saved);
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || 'Failed to save product unit' });
+      const message = error?.message || 'Failed to save product unit';
+      const status = /غير موجود|غير نشط/.test(message) ? 404 : /لا يمكن|يجب/.test(message) ? 409 : 400;
+      res.status(status).json({ error: message });
     }
   });
 
