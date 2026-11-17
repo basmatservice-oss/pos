@@ -80,6 +80,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           console.log('Server not reachable yet, saved locally');
         }
         
+        const desktopApi = (window as any).electronAPI;
+        if (desktopApi?.setDeviceRole) desktopApi.setDeviceRole('server').catch((error: unknown) => console.error('Failed to persist desktop role:', error));
         toast.success('تم إعداد السيرفر الرئيسي بنجاح!');
         onComplete(selectedType, 'server');
       } else {
@@ -126,6 +128,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           await db.settings.put({ key: 'businessType', value: fetchedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
 
+          const desktopApi = (window as any).electronAPI;
+          if (desktopApi?.setDeviceRole) desktopApi.setDeviceRole('client').catch((error: unknown) => console.error('Failed to persist desktop role:', error));
           toast.success('تم الاتصال بالسيرفر بنجاح!');
           onComplete(fetchedType, 'client');
         } catch {
