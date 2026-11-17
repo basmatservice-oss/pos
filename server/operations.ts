@@ -1960,9 +1960,9 @@ function handleStocktakeApprove(
   ctx: { operationId: string; deviceId: string; actor: string; now: string }
 ) {
   const { sessionId } = payload;
-  const requestedApprovalTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date(approvedAt);
+  const requestedApprovalTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date(ctx.now);
   const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
-    ? approvedAt
+    ? ctx.now
     : requestedApprovalTime.toISOString();
   const session = tx
     .select()
