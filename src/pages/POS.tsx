@@ -87,6 +87,7 @@ export default function POS() {
     globalDiscountType,
     clearCart,
     loadCartState,
+    removeItem,
     updateQuantity,
     updateItemUnit,
     updateItemDiscount,
@@ -861,7 +862,11 @@ export default function POS() {
                       <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1 border border-slate-200">
                         {hasPermission('void_items') ? (
                           <button
-                            onClick={() => updateQuantity(item.cartItemId, item.cartQuantity - getUnitQuantityStep(item))}
+                            onClick={() => {
+                              const nextQuantity = item.cartQuantity - getUnitQuantityStep(item);
+                              if (nextQuantity <= 0.0000001) removeItem(item.cartItemId);
+                              else updateQuantity(item.cartItemId, nextQuantity);
+                            }}
                             className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-rose-600"
                           >
                             <Minus className="w-3.5 h-3.5" />
@@ -874,7 +879,12 @@ export default function POS() {
                           min="0.000001"
                           step="any"
                           value={item.cartQuantity}
-                          onChange={(e) => updateQuantity(item.cartItemId, Number(e.target.value))}
+                          onChange={(e) => {
+                            if (e.target.value === '') return;
+                            const nextQuantity = Number(e.target.value);
+                            if (nextQuantity <= 0) removeItem(item.cartItemId);
+                            else updateQuantity(item.cartItemId, nextQuantity);
+                          }}
                           className="font-bold w-14 text-center text-sm tabular-nums bg-transparent outline-none"
                           aria-label="الكمية"
                         />
