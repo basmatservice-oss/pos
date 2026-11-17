@@ -1263,9 +1263,10 @@ function handlePurchaseCreate(
       .get();
     savedItems.push(pItem);
 
+    const batchId = item.batchId ? String(item.batchId) : crypto.randomUUID();
     tx.insert(inventoryBatches)
       .values({
-        id: item.batchId ? String(item.batchId) : crypto.randomUUID(),
+        id: batchId,
         productId: Number(item.productId),
         purchaseId: purchase.id,
         quantity: baseQty,
@@ -1286,6 +1287,23 @@ function handlePurchaseCreate(
         updatedAt: ctx.now,
       })
       .run();
+
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(item.productId),
+      branchId: purchase.branchId || null,
+      movementType: 'purchase_receipt',
+      sourceType: 'purchase',
+      sourceId: String(purchase.id),
+      sourceLineId: pItem.id,
+      inputQuantity: qty,
+      unitCode: unitSnapshot.unitCode,
+      baseUnitCode: unitSnapshot.baseUnitCode,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseUnitCost,
+      totalCost: baseQty * baseUnitCost,
+      batchAllocations: [{ batchId, quantity: baseQty, costPrice: baseUnitCost }],
+    });
 
     tx.update(products)
       .set({
