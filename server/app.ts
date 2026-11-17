@@ -728,11 +728,31 @@ export function createPosApp() {
       const [existingBatch] = await db.select({ id: inventoryBatches.id })
         .from(inventoryBatches).where(eq(inventoryBatches.productId, id)).limit(1);
       if (existingBatch) delete updateData.costPrice;
+      const now = new Date().toISOString();
       const [product] = await db
         .update(products)
-        .set({ ...updateData, isSynced: 0, updatedAt: new Date().toISOString() })
+        .set({ ...updateData, isSynced: 0, updatedAt: now })
         .where(eq(products.id, id))
         .returning();
+      if (product && !existingBatch && Number(product.stockQuantity || 0) > 0) {
+        await db.insert(inventoryBatches).values({
+          id: `opening-${product.id}`,
+          productId: product.id,
+          purchaseId: null,
+          quantity: Number(product.stockQuantity),
+          remainingQuantity: Number(product.stockQuantity),
+          costPrice: Number(product.costPrice || 0),
+          unitCode: product.baseUnitCode || null,
+          baseUnitCode: product.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(product.stockQuantity),
+          purchaseDate: product.createdAt || now,
+          branchId: product.branchId || null,
+          isSynced: 0,
+          createdAt: product.createdAt || now,
+          updatedAt: now,
+        }).onConflictDoNothing();
+      }
       res.json(product);
     } catch {
       res.status(500).json({ error: 'Failed to update product' });
