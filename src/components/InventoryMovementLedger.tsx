@@ -393,7 +393,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
               </table>
             </div>
           ) : (
-            <p className="rounded-xl bg-emerald-50 text-emerald-800 p-4 text-sm">لا توجد فروقات بين أرصدة الأصناف وصافي الحركات المسجلة.</p>
+            <p className="rounded-xl bg-emerald-50 text-emerald-800 p-4 text-sm">لا توجد فروقات بين أرصدة الأصناف ودفعات FIFO وصافي دفتر الحركات.</p>
           )}
         </div>
       )}
