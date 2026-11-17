@@ -1116,6 +1116,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
         const precision = Math.max(0, Math.min(6, Number(definition?.decimalPlaces ?? 0)));
         const scale = 10 ** precision;
         if (!definition || (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
+            (entry.baseUnitCode && entry.baseUnitCode !== product.baseUnitCode) ||
             Math.abs(actualQuantity * scale - Math.round(actualQuantity * scale)) > 1e-7) {
           throw new Error('كمية الجرد لا تتوافق مع دقة وحدة الأساس');
         }
