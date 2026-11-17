@@ -433,7 +433,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">المصروفات + تسوية الجرد</p>
-                <p className="text-2xl font-black text-rose-600">{(totalExpenses + stocktakeAdjustments).toFixed(2)}</p>
+                <p className="text-2xl font-black text-rose-600">{formatAmount(totalExpenses + stocktakeAdjustments)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">الرواتب والأجور</p>
