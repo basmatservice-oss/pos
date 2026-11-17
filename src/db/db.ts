@@ -1,4 +1,4 @@
-import\n\n Dexie, { Table } from 'dexie';
+import Dexie, { Table } from 'dexie';
 
 // --- Interfaces ---
 
