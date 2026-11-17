@@ -802,7 +802,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
 
   await db.transaction(
     'rw',
-    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers],
+    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions],
     async () => {
       const origPurchase = await db.purchases.get(String(originalPurchaseId));
       const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
@@ -810,13 +810,25 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       let totalReturn = 0;
       for (const reqItem of items) {
         const qty = Number(reqItem.quantity || 0);
-        if (qty <= 0) continue;
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية مرتجع المشتريات يجب أن تكون رقماً موجباً');
         const batch = reqItem.batchId
           ? batches.find((b) => b.id === reqItem.batchId && b.productId === Number(reqItem.productId))
           : batches.find((b) =>
               b.productId === Number(reqItem.productId) && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
             );
         if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
+        const unitCode = batch?.unitCode || null;
+        if (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode)) {
+          throw new Error('وحدة مرتجع المشتريات لا تطابق دفعتها الأصلية');
+        }
+        if (unitCode) {
+          const definition = await db.unitDefinitions.get(unitCode);
+          const precision = Math.max(0, Math.min(6, Number(definition?.decimalPlaces ?? 0)));
+          const scale = 10 ** precision;
+          if (!definition || Math.abs(qty * scale - Math.round(qty * scale)) > 1e-7) {
+            throw new Error('كمية مرتجع المشتريات لا تتوافق مع دقة وحدة الشراء الأصلية');
+          }
+        }
         const conversionToBase = Number(batch?.conversionToBase || 1);
         const baseQuantity = qty * conversionToBase;
         if (batch && Number(batch.remainingQuantity ?? batch.quantity) < baseQuantity) {
@@ -833,6 +845,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
             updatedAt: now,
             syncStatus,
           });
+          batch.remainingQuantity = curRem - baseQuantity;
         }
 
         const prod = await db.products.get(Number(reqItem.productId));
@@ -1084,12 +1097,22 @@ async function applyShiftLocally(
 async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = payload?.approvedAt ? new Date(payload.approvedAt).toISOString() : new Date().toISOString();
   const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches], async () => {
+  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
     for (const entry of entries) {
       const product = await db.products.get(entry.productId);
       if (!product) continue;
       const actualQuantity = Number(entry.actualQuantity);
+      if (!Number.isFinite(actualQuantity) || actualQuantity < 0) throw new Error('كمية الجرد غير صالحة');
+      if (entry.unitCode) {
+        const definition = await db.unitDefinitions.get(entry.unitCode);
+        const precision = Math.max(0, Math.min(6, Number(definition?.decimalPlaces ?? 0)));
+        const scale = 10 ** precision;
+        if (!definition || (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
+            Math.abs(actualQuantity * scale - Math.round(actualQuantity * scale)) > 1e-7) {
+          throw new Error('كمية الجرد لا تتوافق مع دقة وحدة الأساس');
+        }
+      }
       const difference = actualQuantity - Number(product.stockQuantity || 0);
       if (difference > 1e-9) {
         await db.inventoryBatches.put({
@@ -1126,6 +1149,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
     }
     await db.stocktakingSessions.update(sessionId, {
       status: 'approved',
+      updatedAt: now,
       syncStatus,
     });
   });
