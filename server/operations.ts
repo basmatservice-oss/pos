@@ -344,7 +344,9 @@ function handleSale(
 
   for (const item of items) {
     const qty = Number(item.quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) continue;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new OperationError('كمية البيع يجب أن تكون رقماً موجباً', 400);
+    }
     const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
     const factor = unitSnapshot.conversionToBase;
     const baseQty = unitSnapshot.baseQuantity;
@@ -1085,7 +1087,9 @@ function handlePurchaseCreate(
   for (const item of items) {
     const qty = Number(item.quantity || 0);
     const originalCost = Number(item.costPrice || 0);
-    if (!Number.isFinite(qty) || qty <= 0) continue;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new OperationError('كمية الشراء يجب أن تكون رقماً موجباً', 400);
+    }
     if (!Number.isFinite(originalCost) || originalCost < 0) {
       throw new OperationError('تكلفة الصنف في فاتورة الشراء غير صالحة', 400);
     }
@@ -1361,8 +1365,8 @@ function handlePurchaseReturn(
           b.productId === prodId &&
           Number(b.remainingQuantity || 0) >= qtyToReturn * Number(b.conversionToBase || 1)
         ) || purchaseBatches.find((b: any) => b.productId === prodId);
-    if (reqItem.unitCode && !matchingBatch) {
-      throw new OperationError('لا يمكن إرجاع وحدة شراء مخصصة دون العثور على دفعتها الأصلية', 409);
+    if (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode)) {
+      throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
     }
     const unitCode = matchingBatch?.unitCode || null;
     if (unitCode) {
@@ -1395,6 +1399,7 @@ function handlePurchaseReturn(
         })
         .where(eq(inventoryBatches.id, matchingBatch.id))
         .run();
+      matchingBatch.remainingQuantity = Number(matchingBatch.remainingQuantity) - baseQty;
     } else {
       const product = tx.select().from(products).where(eq(products.id, prodId)).get();
       if (!product || Number(product.stockQuantity || 0) < baseQty) {
@@ -1965,7 +1970,11 @@ function handleStocktakeApprove(
       }
     }
 
-    const diff = Number(entry.actualQuantity) - Number(product.stockQuantity);
+    const actualBaseQuantity = Number(entry.actualQuantity);
+    if (!Number.isFinite(actualBaseQuantity) || actualBaseQuantity < 0) {
+      throw new OperationError(`كمية الجرد للصنف ${product.name} غير صالحة`, 400);
+    }
+    const diff = actualBaseQuantity - Number(product.stockQuantity);
     if (diff === 0) continue;
 
     if (diff > 0) {
