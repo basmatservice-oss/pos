@@ -69,3 +69,11 @@ Never merge by blindly copying integer primary keys. Use stable UUIDs and explic
 - Do not expose a nonfunctional standalone option.
 - Do not claim Android standalone is complete merely because an APK builds.
 - The two Android APK files must be copied from the same build output and verified with matching SHA-256 hashes.
+
+## Implementation progress
+
+- Added `native/android/PosLocalDatabasePlugin.kt`: a Kotlin Capacitor plugin backed by app-private SQLite. It provides record persistence, metadata, a durable operation outbox, idempotent operation IDs, ordered pending-operation reads, acknowledgements and retry-error state.
+- Added `native/android/MainActivity.kt` to register the plugin, and `src/native/posLocalDatabase.ts` as its typed React/TypeScript bridge.
+- Updated the Android packaging workflow to copy and register the native sources after Capacitor generates the Android project.
+- This is persistence infrastructure only. The React repositories, authentication, business-operation engine, and sync service are not yet routed through this database. Android standalone mode must remain unavailable until those integrations are complete. The existing Dexie database is still the active application store.
+- Requested functional tests are intentionally deferred until implementation and all three package builds are complete. Compilation/build feedback may still be used to fix packaging blockers; no functional test campaign is being run in this phase.
