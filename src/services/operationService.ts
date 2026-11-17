@@ -1229,6 +1229,8 @@ async function applyEntityLocally(
         const batchCount = await db.inventoryBatches.where('productId').equals(existingProduct.id!).count();
         if (syncStatus === 'pending' || !serverResult) {
           finalRecord.stockQuantity = existingProduct.stockQuantity;
+          finalRecord.baseUnitCode = existingProduct.baseUnitCode;
+          finalRecord.quantityPrecision = existingProduct.quantityPrecision;
           if (batchCount > 0) finalRecord.costPrice = existingProduct.costPrice;
         }
       }
