@@ -456,29 +456,25 @@ export async function runMigrations() {
 
     const db = drizzle(sqlite);
 
-    let migrationsFolder = path.resolve(process.cwd(), 'drizzle', 'migrations');
-    if (process.env.NODE_ENV === 'production') {
-      const possiblePaths = [
-        path.join(process.cwd(), 'resources', 'app', 'drizzle', 'migrations'),
-        path.join(process.cwd(), 'drizzle', 'migrations'),
-        path.join(__dirname, '..', 'drizzle', 'migrations'),
-      ];
+    const migrationsFolder = process.env.NODE_ENV === 'production'
+      ? [
+          path.join(process.cwd(), 'drizzle', 'migrations'),
+          path.join(__dirname, '..', 'drizzle', 'migrations'),
+          path.join(process.resourcesPath || '', 'app.asar.unpacked', 'drizzle', 'migrations'),
+        ].find((candidate) =>
+          fs.existsSync(path.join(candidate, 'meta', '_journal.json'))
+        )
+      : path.resolve(process.cwd(), 'drizzle', 'migrations');
 
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          migrationsFolder = p;
-          break;
-        }
-      }
+    if (!migrationsFolder || !fs.existsSync(path.join(migrationsFolder, 'meta', '_journal.json'))) {
+      throw new Error(
+        'Drizzle migrations are missing or incomplete. Expected drizzle/migrations/meta/_journal.json; checked packaged application paths.'
+      );
     }
 
-    if (fs.existsSync(migrationsFolder)) {
-      console.log('Starting migrate()...');
-      migrate(db, { migrationsFolder });
-      console.log('migrate() finished.');
-    } else {
-      console.warn('Migrations folder not found at:', migrationsFolder);
-    }
+    console.log('Starting migrate() from:', migrationsFolder);
+    migrate(db, { migrationsFolder });
+    console.log('migrate() finished.');
 
     console.log('Ensuring schema upgrades...');
     ensureSchemaUpgrades(sqlite);
