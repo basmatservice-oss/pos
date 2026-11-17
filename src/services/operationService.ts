@@ -368,7 +368,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
           }
           const serverFactor = Number(serverItem.conversionToBase ?? serverItem.conversionFactor ?? 1);
           const serverTotalCost = Number(serverItem.costPriceAtTimeOfSale || 0) * Number(serverItem.quantity ?? item.quantity ?? 0);
-          appendLocalInventoryMovement(operationId, syncStatus, {
+          await appendLocalInventoryMovement(operationId, syncStatus, {
             productId: Number(item.productId),
             branchId: order.branchId ?? null,
             movementType: 'sale',
@@ -424,7 +424,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
             syncStatus,
           });
 
-          appendLocalInventoryMovement(operationId, syncStatus, {
+          await appendLocalInventoryMovement(operationId, syncStatus, {
             productId: Number(item.productId),
             branchId: order.branchId ?? null,
             movementType: 'sale',
