@@ -286,8 +286,12 @@ export default function Purchases() {
       toast.error('لا يمكن تسجيل فاتورة بعملة أجنبية دون سعر صرف معتمد وساري');
       return;
     }
-    if (cart.some((i) => i.quantity <= 0)) {
-      toast.error('الكمية يجب أن تكون أكبر من صفر');
+    if (cart.some((i) => !Number.isFinite(i.quantity) || i.quantity <= 0)) {
+      toast.error('الكمية يجب أن تكون رقماً صحيحاً وموجباً وفق دقة وحدة القياس');
+      return;
+    }
+    if (cart.some((i) => !Number.isFinite(i.costPrice) || i.costPrice < 0)) {
+      toast.error('تكلفة الشراء يجب أن تكون رقماً صالحاً وغير سالب');
       return;
     }
     if (paidNum > totalAmount + 0.01) {
