@@ -65,6 +65,25 @@ function backfillInventoryMovementLedger(sqlite: Database.Database) {
 
   const now = new Date().toISOString();
   const transaction = sqlite.transaction(() => {
+    const allocationCost = (raw: any): number | null => {
+      if (!raw) return null;
+      try {
+        const rows = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!Array.isArray(rows) || rows.length === 0) return null;
+        const total = rows.reduce((sum: number, row: any) => {
+          const quantity = Number(row?.quantity);
+          const cost = Number(row?.costPrice);
+          if (!Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(cost) || cost < 0) {
+            return NaN;
+          }
+          return sum + quantity * cost;
+        }, 0);
+        return Number.isFinite(total) ? total : null;
+      } catch {
+        return null;
+      }
+    };
+
     const save = (movement: any) => {
       const movementKey = [
         movement.movementType,
@@ -156,8 +175,8 @@ function backfillInventoryMovementLedger(sqlite: Database.Database) {
       const baseQuantity = Number(item.baseQuantity ?? quantity * safeFactor);
       if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) continue;
       const inputCost = Number(item.costPriceAtTimeOfSale || 0);
-      const totalCost = inputCost * quantity;
       const allocations = item.batchAllocations || null;
+      const totalCost = allocationCost(allocations) ?? inputCost * quantity;
       save({
         productId: item.productId,
         branchId: item.branchId,
@@ -217,7 +236,7 @@ function backfillInventoryMovementLedger(sqlite: Database.Database) {
       const safeFactor = factor > 0 ? factor : 1;
       const baseQuantity = Number(item.baseQuantity ?? quantity * safeFactor);
       if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) continue;
-      const totalCost = Number(item.costPrice || 0) * quantity;
+      const totalCost = allocationCost(item.batchAllocations) ?? Number(item.costPrice || 0) * quantity;
       save({
         productId: item.productId,
         branchId: item.branchId,
