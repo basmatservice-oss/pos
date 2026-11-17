@@ -1657,6 +1657,26 @@ function handlePurchaseReturn(
       .returning()
       .get();
 
+    const baseUnitCost = factor > 0 ? cost / factor : cost;
+    appendInventoryMovement(tx, ctx, {
+      productId: prodId,
+      branchId: branchId ?? origPurchase.branchId ?? null,
+      movementType: 'purchase_return',
+      sourceType: 'purchase_return',
+      sourceId: String(returnId),
+      sourceLineId: insertedItem.id,
+      inputQuantity: qtyToReturn,
+      unitCode: matchingBatch?.unitCode || null,
+      baseUnitCode: matchingBatch?.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: -baseQty,
+      unitCost: baseUnitCost,
+      totalCost: baseQty * baseUnitCost,
+      batchAllocations: matchingBatch
+        ? [{ batchId: matchingBatch.id, quantity: baseQty, costPrice: baseUnitCost }]
+        : null,
+      reason: reason || null,
+    });
     savedItems.push(insertedItem);
   }
 
