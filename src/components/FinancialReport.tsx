@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { formatAmount } from '../utils/numberFormat.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, Purchase } from '../db/db';
 import {
@@ -295,12 +296,12 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
     const rows = trialBalanceRows.map((r: any) => [
       r.code,
       `"${r.name}"`,
-      Number(r.openingDebit || 0).toFixed(2),
-      Number(r.openingCredit || 0).toFixed(2),
-      Number(r.periodDebit || 0).toFixed(2),
-      Number(r.periodCredit || 0).toFixed(2),
-      Number(r.closingDebit || 0).toFixed(2),
-      Number(r.closingCredit || 0).toFixed(2),
+      formatAmount(Number(r.openingDebit || 0)),
+      formatAmount(Number(r.openingCredit || 0)),
+      formatAmount(Number(r.periodDebit || 0)),
+      formatAmount(Number(r.periodCredit || 0)),
+      formatAmount(Number(r.closingDebit || 0)),
+      formatAmount(Number(r.closingCredit || 0)),
     ]);
     const csv = '\uFEFF' + [headers.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -420,15 +421,15 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">صافي المبيعات (بدون ضريبة)</p>
-                <p className="text-2xl font-black text-emerald-600">{netSalesExclTax.toFixed(2)}</p>
+                <p className="text-2xl font-black text-emerald-600">{formatAmount(netSalesExclTax)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">صافي ضريبة القيمة المضافة</p>
-                <p className="text-2xl font-black text-amber-600">{netVatPayable.toFixed(2)}</p>
+                <p className="text-2xl font-black text-amber-600">{formatAmount(netVatPayable)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">تكلفة المبيعات (COGS)</p>
-                <p className="text-2xl font-black text-slate-900">{totalCOGS.toFixed(2)}</p>
+                <p className="text-2xl font-black text-slate-900">{formatAmount(totalCOGS)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">المصروفات + تسوية الجرد</p>
@@ -436,18 +437,18 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">الرواتب والأجور</p>
-                <p className="text-2xl font-black text-rose-600">{totalSalaries.toFixed(2)}</p>
+                <p className="text-2xl font-black text-rose-600">{formatAmount(totalSalaries)}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-indigo-600 p-5 rounded-2xl text-white">
                 <p className="text-indigo-100 text-xs font-bold mb-1">صافي الربح المحاسبي (بدون ضريبة)</p>
-                <p className="text-3xl font-black">{netProfit.toFixed(2)}</p>
+                <p className="text-3xl font-black">{formatAmount(netProfit)}</p>
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">قيمة المخزون الحالية (FIFO)</p>
-                <p className="text-3xl font-black text-slate-900">{inventoryCostValue.toFixed(2)}</p>
+                <p className="text-3xl font-black text-slate-900">{formatAmount(inventoryCostValue)}</p>
               </div>
             </div>
 
@@ -461,7 +462,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                       : 'bg-rose-50 border-rose-200 text-rose-700'
                   }`}
                 >
-                  المدين: {totalDebit.toFixed(2)} | الدائن: {totalCredit.toFixed(2)}
+                  المدين: {formatAmount(totalDebit)} | الدائن: {formatAmount(totalCredit)}
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -483,12 +484,12 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                       <tr key={acc.code} className="hover:bg-slate-50">
                         <td className="px-4 py-2.5 font-mono text-slate-500">{acc.code}</td>
                         <td className="px-4 py-2.5 font-bold text-slate-900">{acc.name}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{Number(acc.openingDebit || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{Number(acc.openingCredit || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 font-bold text-emerald-600">{Number(acc.periodDebit || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 font-bold text-rose-600">{Number(acc.periodCredit || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 font-black text-indigo-700">{Number(acc.closingDebit || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 font-black text-indigo-700">{Number(acc.closingCredit || 0).toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{formatAmount(Number(acc.openingDebit || 0))}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{formatAmount(Number(acc.openingCredit || 0))}</td>
+                        <td className="px-4 py-2.5 font-bold text-emerald-600">{formatAmount(Number(acc.periodDebit || 0))}</td>
+                        <td className="px-4 py-2.5 font-bold text-rose-600">{formatAmount(Number(acc.periodCredit || 0))}</td>
+                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatAmount(Number(acc.closingDebit || 0))}</td>
+                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatAmount(Number(acc.closingCredit || 0))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -521,7 +522,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="p-4 bg-emerald-50 border-b border-emerald-200 flex justify-between items-center">
                   <h4 className="font-bold text-emerald-950">الأصول (Assets)</h4>
-                  <span className="font-black text-emerald-800">{Number(balanceSheetData.totalAssets).toFixed(2)}</span>
+                  <span className="font-black text-emerald-800">{formatAmount(Number(balanceSheetData.totalAssets))}</span>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {balanceSheetData.assets.map((a: any) => (
@@ -530,7 +531,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{a.code}]</span>
                         <span className="font-bold text-slate-800">{a.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{Number(a.balance).toFixed(2)}</span>
+                      <span className="font-bold text-slate-900">{formatAmount(Number(a.balance))}</span>
                     </div>
                   ))}
                 </div>
@@ -541,7 +542,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                 <div className="p-4 bg-indigo-50 border-b border-indigo-200 flex justify-between items-center">
                   <h4 className="font-bold text-indigo-950">الخصوم وحقوق الملكية</h4>
                   <span className="font-black text-indigo-800">
-                    {Number(balanceSheetData.totalLiabilitiesAndEquity).toFixed(2)}
+                    {formatAmount(Number(balanceSheetData.totalLiabilitiesAndEquity))}
                   </span>
                 </div>
                 <div className="divide-y divide-slate-100">
@@ -551,7 +552,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{l.code}]</span>
                         <span className="font-bold text-slate-800">{l.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{Number(l.balance).toFixed(2)}</span>
+                      <span className="font-bold text-slate-900">{formatAmount(Number(l.balance))}</span>
                     </div>
                   ))}
                   {balanceSheetData.equity.map((eqItem: any) => (
@@ -560,12 +561,12 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{eqItem.code}]</span>
                         <span className="font-bold text-slate-800">{eqItem.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{Number(eqItem.balance).toFixed(2)}</span>
+                      <span className="font-bold text-slate-900">{formatAmount(Number(eqItem.balance))}</span>
                     </div>
                   ))}
                   <div className="px-4 py-3 flex justify-between items-center text-sm bg-slate-50">
                     <span className="font-bold text-indigo-700">صافي الدخل التراكمي للفترة الجارية</span>
-                    <span className="font-black text-indigo-700">{Number(balanceSheetData.netIncome).toFixed(2)}</span>
+                    <span className="font-black text-indigo-700">{formatAmount(Number(balanceSheetData.netIncome))}</span>
                   </div>
                 </div>
               </div>
@@ -642,7 +643,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                             : log.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-bold text-slate-900 tabular-nums">{Number(log.amount).toFixed(2)}</td>
+                      <td className="px-4 py-3 font-bold text-slate-900 tabular-nums">{formatAmount(Number(log.amount))}</td>
                       <td className="px-4 py-3">
                         {(log.type === 'sale' || log.type === 'purchase') && (
                           <button
@@ -682,10 +683,10 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               </div>
               <div className="flex gap-3 text-xs font-bold tabular-nums">
                 <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
-                  إجمالي المدين: {totalDebit.toFixed(2)}
+                  إجمالي المدين: {formatAmount(totalDebit)}
                 </span>
                 <span className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700">
-                  إجمالي الدائن: {totalCredit.toFixed(2)}
+                  إجمالي الدائن: {formatAmount(totalCredit)}
                 </span>
               </div>
             </div>
@@ -715,10 +716,10 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         {line.referenceType}:{String(line.referenceId).slice(0, 8)}
                       </td>
                       <td className="px-4 py-2.5 font-bold text-emerald-600">
-                        {line.debit > 0 ? line.debit.toFixed(2) : '-'}
+                        {line.debit > 0 ? formatAmount(line.debit) : '-'}
                       </td>
                       <td className="px-4 py-2.5 font-bold text-rose-600">
-                        {line.credit > 0 ? line.credit.toFixed(2) : '-'}
+                        {line.credit > 0 ? formatAmount(line.credit) : '-'}
                       </td>
                     </tr>
                   ))}
@@ -770,7 +771,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <td className="px-4 py-2.5 text-slate-600">{log.details}</td>
                         <td className="px-4 py-2.5 text-slate-600">{log.branchId || '-'}</td>
                         <td className="px-4 py-2.5 font-bold" dir="ltr">
-                          {Number(log.value || 0).toFixed(2)} / {log.quantity || 0}
+                          {formatAmount(Number(log.value || 0))} / {log.quantity || 0}
                         </td>
                       </tr>
                     ))}
