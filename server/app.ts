@@ -107,11 +107,11 @@ async function appendApiInventoryMovement(input: {
   batchAllocations?: any[] | string | null;
   reason?: string | null;
   createdAt: string;
-}) {
+}, executor: any = db) {
   const allocations = typeof input.batchAllocations === 'string'
     ? input.batchAllocations
     : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
-  await db.insert(inventoryMovements).values({
+  await executor.insert(inventoryMovements).values({
     id: `${input.operationId}:${input.movementKey}`,
     movementKey: input.movementKey,
     productId: Number(input.productId),
