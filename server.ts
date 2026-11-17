@@ -1,7 +1,6 @@
 import { runMigrations } from './migrate.js';
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { eq } from 'drizzle-orm';
 import { db, closeDatabaseConnection } from './drizzle/db.js';
 import { settings } from './drizzle/schema.js';
@@ -93,6 +92,10 @@ async function startServer() {
   console.log('[Startup 4/5] Attaching frontend server...');
   let viteInstance: any = null;
   if (process.env.NODE_ENV !== 'production') {
+    // Load Vite only in development. The packaged Electron backend runs from
+    // app.asar.unpacked, so a top-level external Vite import cannot resolve
+    // modules stored inside app.asar in production.
+    const { createServer: createViteServer } = await import('vite');
     const disableHmr = process.env.DISABLE_HMR === 'true';
     viteInstance = await createViteServer({
       server: {
