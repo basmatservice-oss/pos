@@ -3,13 +3,24 @@ import { generateUUID } from '../utils/uuid';
 import { Product } from '../db/db';
 import { calculateVatInclusiveOrder, ComputedOrderTaxSummary } from '../utils/tax';
 
+export interface CartUnitSelection {
+  unitCode: string;
+  conversionToBase: number;
+  label?: string;
+  sellingPrice?: number | null;
+}
+
 export interface CartItem extends Product {
   cartItemId: string;
   cartQuantity: number;
   discount: number;
   discountType: 'percentage' | 'fixed';
   costPriceAtTimeOfSale: number;
-  selectedUnit: 'piece' | 'box';
+  selectedUnit: string;
+  selectedUnitCode?: string;
+  selectedConversionToBase?: number;
+  selectedUnitPrice?: number | null;
+  selectedUnitLabel?: string;
 }
 
 interface CartState {
@@ -21,10 +32,10 @@ interface CartState {
   taxRate: number;
 
   // Actions
-  addItem: (product: Product, unit?: 'piece' | 'box') => void;
+  addItem: (product: Product, unit?: string, unitSelection?: CartUnitSelection) => void;
   removeItem: (cartItemId: string) => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
-  updateItemUnit: (cartItemId: string, unit: 'piece' | 'box') => void;
+  updateItemUnit: (cartItemId: string, unit: string, unitSelection?: CartUnitSelection) => void;
   updateItemDiscount: (cartItemId: string, discount: number, type: 'percentage' | 'fixed') => void;
   clearCart: () => void;
   loadCartState: (state: {
@@ -46,11 +57,16 @@ interface CartState {
 }
 
 export const getItemPrice = (item: CartItem) => {
-  const basePrice = Number(item.sellingPrice) || 0;
-  if (item.selectedUnit === 'box' && item.conversionFactor) {
-    return basePrice * (Number(item.conversionFactor) || 1);
+  if (item.selectedUnitPrice !== undefined && item.selectedUnitPrice !== null) {
+    return Math.max(0, Number(item.selectedUnitPrice) || 0);
   }
-  return basePrice;
+  const basePrice = Number(item.sellingPrice) || 0;
+  const factor = item.selectedUnitCode
+    ? Number(item.selectedConversionToBase || 1)
+    : item.selectedUnit === 'box'
+      ? Number(item.conversionFactor || 1)
+      : 1;
+  return basePrice * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 };
 
 export const useCartStore = create<CartState>((set, get) => ({
@@ -61,15 +77,21 @@ export const useCartStore = create<CartState>((set, get) => ({
   loyaltyDiscount: 0,
   taxRate: 15,
 
-  addItem: (product, unit = 'piece') => {
+  addItem: (product, unit = 'piece', unitSelection) => {
     set((state) => {
       const existingItem = state.items.find(
-        (item) => item.id === product.id && item.selectedUnit === unit
+        (item) => item.id === product.id &&
+          (unitSelection?.unitCode
+            ? item.selectedUnitCode === unitSelection.unitCode
+            : !item.selectedUnitCode && item.selectedUnit === unit)
       );
       if (existingItem) {
         return {
           items: state.items.map((item) =>
-            item.id === product.id && item.selectedUnit === unit
+            item.id === product.id &&
+              (unitSelection?.unitCode
+                ? item.selectedUnitCode === unitSelection.unitCode
+                : !item.selectedUnitCode && item.selectedUnit === unit)
               ? { ...item, cartQuantity: item.cartQuantity + 1 }
               : item
           ),
@@ -87,6 +109,10 @@ export const useCartStore = create<CartState>((set, get) => ({
             costPriceAtTimeOfSale: product.costPrice,
             vatRate: state.taxRate,
             selectedUnit: unit,
+            selectedUnitCode: unitSelection?.unitCode,
+            selectedConversionToBase: unitSelection?.conversionToBase,
+            selectedUnitPrice: unitSelection?.sellingPrice,
+            selectedUnitLabel: unitSelection?.label,
           },
         ],
       };
@@ -107,10 +133,19 @@ export const useCartStore = create<CartState>((set, get) => ({
     }));
   },
 
-  updateItemUnit: (cartItemId, unit) => {
+  updateItemUnit: (cartItemId, unit, unitSelection) => {
     set((state) => ({
       items: state.items.map((item) =>
-        item.cartItemId === cartItemId ? { ...item, selectedUnit: unit } : item
+        item.cartItemId === cartItemId
+          ? {
+              ...item,
+              selectedUnit: unit,
+              selectedUnitCode: unitSelection?.unitCode,
+              selectedConversionToBase: unitSelection?.conversionToBase,
+              selectedUnitPrice: unitSelection?.sellingPrice,
+              selectedUnitLabel: unitSelection?.label,
+            }
+          : item
       ),
     }));
   },
