@@ -197,12 +197,8 @@ export const syncService = {
       // idempotent operations. Pushing their full cached rows can overwrite newer
       // stock, FIFO cost, or financial balances from another terminal.
       'employees',
-      'shifts',
-      'attendance',
       'branches',
-      'payroll',
       'offers',
-      'loyaltyTransactions',
       'settings',
       'auditLogs',
       'stocktakingSessions',
