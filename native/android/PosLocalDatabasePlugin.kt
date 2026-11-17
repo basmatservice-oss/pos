@@ -161,9 +161,18 @@ class PosLocalDatabasePlugin : Plugin() {
             val values = ContentValues().apply {
                 put("status", status)
                 if (message != null) put("last_error", message)
-                if (status == "error") put("retry_count", "retry_count + 1")
             }
-            helper.writableDatabase.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
+            val db = helper.writableDatabase
+            db.beginTransaction()
+            try {
+                db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
+                if (status == "error") {
+                    db.execSQL("UPDATE pos_outbox SET retry_count = retry_count + 1 WHERE operation_id = ?", arrayOf(operationId))
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
             call.resolve(JSObject().put("updated", true).put("operationId", operationId))
         } catch (error: Exception) {
             call.reject("تعذر تحديث حالة العملية", error)
