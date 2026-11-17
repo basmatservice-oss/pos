@@ -233,6 +233,18 @@ export const syncService = {
 
       await db.transaction('rw', db.inventoryMovements, db.settings, async () => {
         if (response.items.length > 0) {
+          const movementKeys = response.items.map((movement: any) => movement.movementKey);
+          const localMatches = await db.inventoryMovements
+            .where('movementKey')
+            .anyOf(movementKeys)
+            .toArray();
+          const serverIds = new Set(response.items.map((movement: any) => movement.id));
+          const staleLocalIds = localMatches
+            .filter((movement) => !serverIds.has(movement.id))
+            .map((movement) => movement.id);
+          if (staleLocalIds.length > 0) {
+            await db.inventoryMovements.bulkDelete(staleLocalIds);
+          }
           await db.inventoryMovements.bulkPut(
             response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
           );
