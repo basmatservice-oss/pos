@@ -1208,6 +1208,16 @@ export function createPosApp() {
         const existingUnits = await tx.select().from(productUnits).where(eq(productUnits.productId, productId));
         const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
         const existing = existingUnits.find((row) => row.unitCode === unitCode);
+        if (barcode) {
+          const [duplicateUnitBarcode] = await tx.select().from(productUnits).where(eq(productUnits.barcode, barcode));
+          if (duplicateUnitBarcode && duplicateUnitBarcode.id !== existing?.id) {
+            throw new RangeError('هذا الباركود مستخدم بالفعل لوحدة أخرى');
+          }
+          const [duplicateProductBarcode] = await tx.select().from(products).where(eq(products.barcode, barcode));
+          if (duplicateProductBarcode) {
+            throw new RangeError('هذا الباركود مستخدم بالفعل كرمز صنف؛ استخدم باركوداً مختلفاً للوحدة');
+          }
+        }
 
         if (!isBaseUnit && existingBase?.unitCode === unitCode) {
           throw new Error('لا يمكن إلغاء وحدة الأساس دون تعيين وحدة أساس بديلة');
