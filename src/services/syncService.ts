@@ -98,53 +98,47 @@ export const syncService = {
   },
 
   async pushOperationsQueue() {
+    const conflictCount = await db.syncOperations.where('status').equals('conflict').count();
+    if (conflictCount > 0) return;
+
     const now = Date.now();
-    const queued = await db.syncOperations
+    const readyOps = (await db.syncOperations
       .where('status')
       .anyOf(['pending', 'error'])
-      .toArray();
-
-    const readyOps = queued
+      .toArray())
       .filter((op) => !op.nextRetryAt || new Date(op.nextRetryAt).getTime() <= now)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    if (readyOps.length === 0) return;
-
-    for (let i = 0; i < readyOps.length; i += 20) {
-      const batch = readyOps.slice(i, i + 20);
-      const response = await apiService.executeOperationsBatch(
-        batch.map((op) => ({
-          id: op.id,
-          type: op.type,
-          payload: op.payload,
-          deviceId: op.deviceId,
-          branchId: op.branchId,
-        }))
-      );
-
-      const results = response?.results || [];
-      for (const res of results) {
-        const op = batch.find((b) => b.id === res.operationId);
-        if (!op) continue;
-
-        if (res.status === 'ok' || res.status === 'duplicate') {
-          await db.syncOperations.update(op.id, {
-            status: 'synced',
-            lastError: undefined,
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
-          const retryCount = (op.retryCount || 0) + 1;
-          const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
-          await db.syncOperations.update(op.id, {
-            status: retryCount >= 8 ? 'conflict' : 'error',
-            retryCount,
-            lastError: res.error || 'Unknown sync error',
-            nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        }
+    // Process one operation at a time. A failed/conflicted operation blocks later
+    // operations so dependent stock and financial movements cannot be reordered.
+    for (const op of readyOps) {
+      const response = await apiService.executeOperationsBatch([{
+        id: op.id,
+        type: op.type,
+        payload: op.payload,
+        deviceId: op.deviceId,
+        branchId: op.branchId,
+      }]);
+      const result = (response?.results || []).find((row: any) => row.operationId === op.id);
+      if (result?.status === 'ok' || result?.status === 'duplicate') {
+        await db.syncOperations.update(op.id, {
+          status: 'synced',
+          lastError: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        continue;
       }
+
+      const retryCount = (op.retryCount || 0) + 1;
+      const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+      await db.syncOperations.update(op.id, {
+        status: retryCount >= 8 ? 'conflict' : 'error',
+        retryCount,
+        lastError: result?.error || 'Unknown sync error',
+        nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      break;
     }
   },
 
