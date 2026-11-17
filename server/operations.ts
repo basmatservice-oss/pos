@@ -1960,6 +1960,10 @@ function handleStocktakeApprove(
   ctx: { operationId: string; deviceId: string; actor: string; now: string }
 ) {
   const { sessionId } = payload;
+  const requestedApprovalTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date(approvedAt);
+  const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
+    ? approvedAt
+    : requestedApprovalTime.toISOString();
   const session = tx
     .select()
     .from(stocktakingSessions)
@@ -2013,15 +2017,15 @@ function handleStocktakeApprove(
           baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
           conversionToBase: 1,
           baseQuantity: diff,
-          purchaseDate: ctx.now,
+          purchaseDate: approvedAt,
           branchId: session.branchId || null,
           isSynced: 0,
-          createdAt: ctx.now,
-          updatedAt: ctx.now,
+          createdAt: approvedAt,
+          updatedAt: approvedAt,
         })
         .run();
       tx.update(products)
-        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: ctx.now, isSynced: 0 })
+        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: approvedAt, isSynced: 0 })
         .where(eq(products.id, product.id))
         .run();
       netAdjustmentValue = roundMoney(netAdjustmentValue + diff * unitCost);
@@ -2046,7 +2050,7 @@ function handleStocktakeApprove(
   if (netAdjustmentValue !== 0) {
     const absVal = Math.abs(netAdjustmentValue);
     postJournalEntry(tx, {
-      date: ctx.now,
+      date: approvedAt,
       referenceId: sessionId,
       referenceType: 'stocktake',
       description: `تسوية جرد مخزون #${sessionId}`,
@@ -2068,7 +2072,7 @@ function handleStocktakeApprove(
   tx.insert(auditLogs)
     .values({
       id: crypto.randomUUID(),
-      date: ctx.now,
+      date: approvedAt,
       type: 'stocktake_approve',
       userName: ctx.actor,
       action: 'اعتماد جرد',
