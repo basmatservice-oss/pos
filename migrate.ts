@@ -515,6 +515,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Product', 'unit', "text DEFAULT 'piece'");
   ensureColumn(sqlite, 'Product', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'Product', 'quantityPrecision', 'integer DEFAULT 0');
+  ensureColumn(sqlite, 'Product', 'isActive', 'integer NOT NULL DEFAULT 1');
   ensureColumn(sqlite, 'Product', 'conversionFactor', 'real DEFAULT 1');
   ensureColumn(sqlite, 'Product', 'expiryDate', 'text');
   ensureColumn(sqlite, 'Product', 'batchNumber', 'text');
