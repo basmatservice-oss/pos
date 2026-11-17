@@ -1354,7 +1354,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
   const requestedTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date();
   const now = Number.isNaN(requestedTime.getTime()) ? new Date().toISOString() : requestedTime.toISOString();
   const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions], async () => {
+  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions, db.inventoryMovements], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
     for (const entry of entries) {
       const product = await db.products.get(entry.productId);
@@ -1373,13 +1373,15 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
       }
       const difference = actualQuantity - Number(product.stockQuantity || 0);
       if (difference > 1e-9) {
+        const batchId = `stocktake-${sessionId}-${entry.productId}`;
+        const unitCost = Number(product.costPrice || 0);
         await db.inventoryBatches.put({
-          id: `stocktake-${sessionId}-${entry.productId}`,
+          id: batchId,
           productId: entry.productId,
           purchaseId: null,
           quantity: difference,
           remainingQuantity: difference,
-          costPrice: Number(product.costPrice || 0),
+          costPrice: unitCost,
           unitCode: entry.baseUnitCode || product.baseUnitCode || null,
           baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
           conversionToBase: 1,
@@ -1390,13 +1392,45 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
           createdAt: now,
           updatedAt: now,
         });
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(entry.productId),
+          branchId: product.branchId ?? null,
+          movementType: 'stocktake_increase',
+          sourceType: 'stocktake',
+          sourceId: String(sessionId),
+          sourceLineId: entry.id,
+          inputQuantity: difference,
+          unitCode: entry.unitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: difference,
+          unitCost,
+          totalCost: difference * unitCost,
+          batchAllocations: [{ batchId, quantity: difference, costPrice: unitCost }],
+        });
       } else if (difference < -1e-9) {
-        await consumeLocalInventoryFIFO(
+        const fifo = await consumeLocalInventoryFIFO(
           entry.productId,
           Math.abs(difference),
           Number(product.costPrice || 0),
           syncStatus
         );
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(entry.productId),
+          branchId: product.branchId ?? null,
+          movementType: 'stocktake_decrease',
+          sourceType: 'stocktake',
+          sourceId: String(sessionId),
+          sourceLineId: entry.id,
+          inputQuantity: Math.abs(difference),
+          unitCode: entry.unitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: difference,
+          unitCost: fifo.averageUnitCost,
+          totalCost: fifo.totalCost,
+          batchAllocations: fifo.allocations,
+        });
       }
       await db.products.update(entry.productId, {
         stockQuantity: actualQuantity,
