@@ -1234,27 +1234,29 @@ async function applyEntityLocally(
       }
     }
     await table.put({ ...finalRecord, syncStatus });
-    if (tableName === 'products' && !await db.inventoryBatches.get(`opening-${finalRecord.id}`) &&
-        Number(finalRecord.stockQuantity || 0) > 0) {
-      const openingQuantity = Number(finalRecord.stockQuantity);
-      const createdAt = finalRecord.createdAt || new Date().toISOString();
-      await db.inventoryBatches.put({
-        id: `opening-${finalRecord.id}`,
-        productId: finalRecord.id,
-        purchaseId: null,
-        quantity: openingQuantity,
-        remainingQuantity: openingQuantity,
-        costPrice: Number(finalRecord.costPrice || 0),
-        unitCode: finalRecord.baseUnitCode || null,
-        baseUnitCode: finalRecord.baseUnitCode || null,
-        conversionToBase: 1,
-        baseQuantity: openingQuantity,
-        purchaseDate: createdAt,
-        branchId: finalRecord.branchId,
-        syncStatus,
-        createdAt,
-        updatedAt: new Date().toISOString(),
-      });
+    if (tableName === 'products' && Number(finalRecord.stockQuantity || 0) > 0) {
+      const existingBatchCount = await db.inventoryBatches.where('productId').equals(finalRecord.id).count();
+      if (existingBatchCount === 0) {
+        const openingQuantity = Number(finalRecord.stockQuantity);
+        const createdAt = finalRecord.createdAt || new Date().toISOString();
+        await db.inventoryBatches.put({
+          id: `opening-${finalRecord.id}`,
+          productId: finalRecord.id,
+          purchaseId: null,
+          quantity: openingQuantity,
+          remainingQuantity: openingQuantity,
+          costPrice: Number(finalRecord.costPrice || 0),
+          unitCode: finalRecord.baseUnitCode || null,
+          baseUnitCode: finalRecord.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: openingQuantity,
+          purchaseDate: createdAt,
+          branchId: finalRecord.branchId,
+          syncStatus,
+          createdAt,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     }
   }
 }
