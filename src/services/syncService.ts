@@ -266,6 +266,8 @@ export const syncService = {
         // metadata sync must never overwrite them from a stale terminal.
         delete (productPayload as any).stockQuantity;
         delete (productPayload as any).costPrice;
+        delete (productPayload as any).baseUnitCode;
+        delete (productPayload as any).quantityPrecision;
         return await apiService.updateProduct(record.id, productPayload);
       }
       case 'customers':
