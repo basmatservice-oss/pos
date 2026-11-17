@@ -296,12 +296,12 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
     const rows = trialBalanceRows.map((r: any) => [
       r.code,
       `"${r.name}"`,
-      formatAmount(Number(r.openingDebit || 0)),
-      formatAmount(Number(r.openingCredit || 0)),
-      formatAmount(Number(r.periodDebit || 0)),
-      formatAmount(Number(r.periodCredit || 0)),
-      formatAmount(Number(r.closingDebit || 0)),
-      formatAmount(Number(r.closingCredit || 0)),
+      Number(r.openingDebit || 0).toFixed(2),
+      Number(r.openingCredit || 0).toFixed(2),
+      Number(r.periodDebit || 0).toFixed(2),
+      Number(r.periodCredit || 0).toFixed(2),
+      Number(r.closingDebit || 0).toFixed(2),
+      Number(r.closingCredit || 0).toFixed(2),
     ]);
     const csv = '\uFEFF' + [headers.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
