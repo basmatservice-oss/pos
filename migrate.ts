@@ -377,6 +377,41 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       ON "ExchangeRate" ("baseCurrencyCode", "quoteCurrencyCode", "effectiveAt");
   `);
 
+  // Immutable, idempotent inventory movement ledger. Existing stock/FIFO tables remain authoritative.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS "InventoryMovement" (
+      "id" text PRIMARY KEY NOT NULL,
+      "movementKey" text NOT NULL,
+      "productId" integer NOT NULL,
+      "branchId" integer,
+      "movementType" text NOT NULL,
+      "sourceType" text NOT NULL,
+      "sourceId" text NOT NULL,
+      "sourceLineId" text,
+      "operationId" text NOT NULL,
+      "deviceId" text,
+      "createdBy" text,
+      "inputQuantity" real,
+      "unitCode" text,
+      "baseUnitCode" text,
+      "conversionToBase" real NOT NULL DEFAULT 1,
+      "quantityDeltaBase" real NOT NULL,
+      "unitCost" real NOT NULL DEFAULT 0,
+      "totalCost" real NOT NULL DEFAULT 0,
+      "batchAllocations" text,
+      "reason" text,
+      "createdAt" text NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS "idx_inventory_movement_operation_key"
+      ON "InventoryMovement" ("operationId", "movementKey");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_product_date"
+      ON "InventoryMovement" ("productId", "createdAt");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_branch_date"
+      ON "InventoryMovement" ("branchId", "createdAt");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_source"
+      ON "InventoryMovement" ("sourceType", "sourceId");
+  `);
+
   // Helpful indexes for performance
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS "idx_batch_product_rem" ON "InventoryBatch" ("productId", "remainingQuantity", "purchaseDate");
