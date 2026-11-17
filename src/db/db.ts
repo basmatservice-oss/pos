@@ -89,6 +89,7 @@ export interface Product {
   vatRate: number;
   imageUrl?: string;
   branchId?: number;
+  isActive?: number;
   expiryDate?: string;
   batchNumber?: string;
   syncStatus: 'synced' | 'pending' | 'error';
