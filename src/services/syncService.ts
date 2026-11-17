@@ -252,7 +252,13 @@ export const syncService = {
         return await apiService.updateCategory(record.id, record);
       case 'products':
         if (record.id && record.id > 1000000) return await apiService.createProduct(record);
-        return await apiService.updateProduct(record.id, record);
+        const productPayload = { ...record };
+        // Existing stock and FIFO weighted cost are owned by movement operations.
+        // A stale terminal must never overwrite them through a metadata sync.
+        delete (productPayload as any).stockQuantity;
+        const productBatchCount = await db.inventoryBatches.where('productId').equals(record.id).count();
+        if (productBatchCount > 0) delete (productPayload as any).costPrice;
+        return await apiService.updateProduct(record.id, productPayload);
       case 'customers':
         if (record.id && record.id > 1000000) return await apiService.createCustomer(record);
         return await apiService.updateCustomer(record.id, record);
