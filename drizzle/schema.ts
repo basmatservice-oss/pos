@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Currency master data and immutable, effective-dated exchange-rate snapshots.
 export const currencies = sqliteTable('Currency', {
@@ -98,6 +98,35 @@ export const inventoryBatches = sqliteTable('InventoryBatch', {
   createdAt: text('createdAt').default(new Date().toISOString()),
   updatedAt: text('updatedAt').notNull(),
 });
+
+export const inventoryMovements = sqliteTable('InventoryMovement', {
+  id: text('id').primaryKey(),
+  movementKey: text('movementKey').notNull(),
+  productId: integer('productId').notNull(),
+  branchId: integer('branchId'),
+  movementType: text('movementType').notNull(),
+  sourceType: text('sourceType').notNull(),
+  sourceId: text('sourceId').notNull(),
+  sourceLineId: text('sourceLineId'),
+  operationId: text('operationId').notNull(),
+  deviceId: text('deviceId'),
+  createdBy: text('createdBy'),
+  inputQuantity: real('inputQuantity'),
+  unitCode: text('unitCode'),
+  baseUnitCode: text('baseUnitCode'),
+  conversionToBase: real('conversionToBase').notNull().default(1),
+  quantityDeltaBase: real('quantityDeltaBase').notNull(),
+  unitCost: real('unitCost').notNull().default(0),
+  totalCost: real('totalCost').notNull().default(0),
+  batchAllocations: text('batchAllocations'),
+  reason: text('reason'),
+  createdAt: text('createdAt').notNull(),
+}, (table) => ({
+  operationKeyUnique: uniqueIndex('idx_inventory_movement_operation_key').on(table.operationId, table.movementKey),
+  productDateIdx: index('idx_inventory_movement_product_date').on(table.productId, table.createdAt),
+  branchDateIdx: index('idx_inventory_movement_branch_date').on(table.branchId, table.createdAt),
+  sourceIdx: index('idx_inventory_movement_source').on(table.sourceType, table.sourceId),
+}));
 
 export const categories = sqliteTable('Category', {
   id: integer('id').primaryKey({ autoIncrement: true }),
