@@ -283,7 +283,7 @@ export default function Stocktaking() {
       quantityPrecision: product.quantityPrecision ?? 0,
       unitLabel: product.baseUnitCode
         ? liveUnitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name || product.baseUnitCode
-        : product.unit || 'وحدة',
+        : (product.unit === 'box' ? 'حبة' : product.unit || 'حبة'),
       difference: 0
     }, ...prev]);
   };
