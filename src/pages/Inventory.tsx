@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, Supplier } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
-import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler } from 'lucide-react';
+import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler, Power } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
@@ -623,6 +623,34 @@ export default function Inventory() {
     });
   };
 
+  const handleToggleProductActive = async (product: Product) => {
+    if (product.id === undefined) return;
+    try {
+      const nextActive = product.isActive === 0 ? 1 : 0;
+      await dispatchOperation(
+        'entity_upsert',
+        {
+          table: 'products',
+          record: { ...product, isActive: nextActive, updatedAt: new Date().toISOString() },
+        },
+        user?.branchId
+      );
+      await logAction(
+        user?.name || 'Unknown',
+        nextActive ? 'تفعيل منتج' : 'إيقاف منتج',
+        'product',
+        `${nextActive ? 'تم تفعيل' : 'تم إيقاف'} الصنف: ${product.name}`,
+        0,
+        0,
+        product.name
+      );
+      toast.success(nextActive ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف');
+    } catch (error) {
+      console.error(error);
+      toast.error('تعذر تغيير حالة الصنف');
+    }
+  };
+
   const handleUpdatePricesFromExchangeRate = () => {
     if (!storeSettings.exchangeRate || storeSettings.exchangeRate <= 0) {
       toast.error('يرجى تعيين سعر صرف صحيح في الإعدادات أولاً');
@@ -985,6 +1013,11 @@ export default function Inventory() {
                       </div>
                       <div className="mr-4">
                         <div className="text-sm font-bold text-gray-900">{product.name}</div>
+                        {product.isActive === 0 && (
+                          <span className="inline-flex mt-1 px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[10px] font-bold">
+                            موقوف
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -1052,13 +1085,24 @@ export default function Inventory() {
                         <Printer className="w-4 h-4" />
                       </button>
                       {hasPermission('edit_product') && (
-                        <button 
-                          onClick={() => handleOpenModal(product)}
-                          className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
-                          title="تعديل"
-                        >
-                          <Plus className="w-4 h-4 rotate-45" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleToggleProductActive(product)}
+                            className={product.isActive === 0
+                              ? 'text-emerald-700 hover:text-emerald-900 p-2 bg-emerald-50 rounded-lg'
+                              : 'text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg'}
+                            title={product.isActive === 0 ? 'تفعيل الصنف' : 'إيقاف الصنف'}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleOpenModal(product)}
+                            className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
+                            title="تعديل"
+                          >
+                            <Plus className="w-4 h-4 rotate-45" />
+                          </button>
+                        </>
                       )}
                       {hasPermission('delete_product') && (
                         <button 
