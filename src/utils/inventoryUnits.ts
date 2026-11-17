@@ -11,7 +11,7 @@ export function getHistoricalBaseQuantity(item: any, product?: any): number {
 
   if (item?.baseQuantity !== null && item?.baseQuantity !== undefined) {
     const stored = Number(item.baseQuantity);
-    if (Number.isFinite(stored) && stored >= 0) return stored;
+    if (Number.isFinite(stored) && stored > 0) return stored;
   }
 
   const legacyUnit = String(item?.unit || item?.selectedUnit || '');
