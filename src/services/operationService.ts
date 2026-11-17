@@ -556,7 +556,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         if (qty <= 0) continue;
         const batch = reqItem.batchId
           ? batches.find((b) => b.id === reqItem.batchId && b.productId === Number(reqItem.productId))
-          : batches.find((b) => b.productId === Number(reqItem.productId));
+          : batches.find((b) =>
+              b.productId === Number(reqItem.productId) && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
+            );
         if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
         const conversionToBase = Number(batch?.conversionToBase || 1);
         const baseQuantity = qty * conversionToBase;
