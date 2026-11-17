@@ -1986,8 +1986,10 @@ function handleStocktakeApprove(
 
     if (entry.unitCode) {
       const definition = tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, entry.unitCode)).get();
-      if (!definition || !definition.isActive || (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode)) {
-        throw new OperationError('وحدة الجرد لا تطابق وحدة الأساس للصنف', 409);
+      if (!definition || !definition.isActive ||
+          (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
+          (entry.baseUnitCode && entry.baseUnitCode !== product.baseUnitCode)) {
+        throw new OperationError('وحدة الجرد لا تطابق وحدة الأساس الحالية للصنف', 409);
       }
       const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
       const scale = 10 ** precision;
