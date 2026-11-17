@@ -742,22 +742,45 @@ export function createPosApp() {
           .from(inventoryBatches)
           .where(eq(inventoryBatches.productId, product.id));
         if (existingBatches.length === 0) {
+          const openingBatchId = `opening-${product.id}`;
+          const openingQuantity = Number(product.stockQuantity);
+          const openingUnitCost = Number(product.costPrice || 0);
           await db.insert(inventoryBatches).values({
-            id: `opening-${product.id}`,
+            id: openingBatchId,
             productId: product.id,
             purchaseId: null,
-            quantity: Number(product.stockQuantity),
-            remainingQuantity: Number(product.stockQuantity),
-            costPrice: Number(product.costPrice || 0),
+            quantity: openingQuantity,
+            remainingQuantity: openingQuantity,
+            costPrice: openingUnitCost,
             unitCode: product.baseUnitCode || null,
             baseUnitCode: product.baseUnitCode || null,
             conversionToBase: 1,
-            baseQuantity: Number(product.stockQuantity),
+            baseQuantity: openingQuantity,
             purchaseDate: product.createdAt || now,
             branchId: product.branchId || null,
             isSynced: 0,
             createdAt: product.createdAt || now,
             updatedAt: now,
+          });
+          const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
+          await appendApiInventoryMovement({
+            operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
+            movementKey,
+            productId: product.id,
+            branchId: product.branchId || null,
+            movementType: 'opening_balance',
+            sourceType: 'product',
+            sourceId: String(product.id),
+            sourceLineId: openingBatchId,
+            inputQuantity: openingQuantity,
+            unitCode: product.baseUnitCode || null,
+            baseUnitCode: product.baseUnitCode || null,
+            conversionToBase: 1,
+            quantityDeltaBase: openingQuantity,
+            unitCost: openingUnitCost,
+            totalCost: openingQuantity * openingUnitCost,
+            batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
+            createdAt: product.createdAt || now,
           });
         }
       }
@@ -786,23 +809,46 @@ export function createPosApp() {
         .where(eq(products.id, id))
         .returning();
       if (product && !existingBatch && Number(product.stockQuantity || 0) > 0) {
+        const openingBatchId = `opening-${product.id}`;
+        const openingQuantity = Number(product.stockQuantity);
+        const openingUnitCost = Number(product.costPrice || 0);
         await db.insert(inventoryBatches).values({
-          id: `opening-${product.id}`,
+          id: openingBatchId,
           productId: product.id,
           purchaseId: null,
-          quantity: Number(product.stockQuantity),
-          remainingQuantity: Number(product.stockQuantity),
-          costPrice: Number(product.costPrice || 0),
+          quantity: openingQuantity,
+          remainingQuantity: openingQuantity,
+          costPrice: openingUnitCost,
           unitCode: product.baseUnitCode || null,
           baseUnitCode: product.baseUnitCode || null,
           conversionToBase: 1,
-          baseQuantity: Number(product.stockQuantity),
+          baseQuantity: openingQuantity,
           purchaseDate: product.createdAt || now,
           branchId: product.branchId || null,
           isSynced: 0,
           createdAt: product.createdAt || now,
           updatedAt: now,
         }).onConflictDoNothing();
+        const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
+        await appendApiInventoryMovement({
+          operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
+          movementKey,
+          productId: product.id,
+          branchId: product.branchId || null,
+          movementType: 'opening_balance',
+          sourceType: 'product',
+          sourceId: String(product.id),
+          sourceLineId: openingBatchId,
+          inputQuantity: openingQuantity,
+          unitCode: product.baseUnitCode || null,
+          baseUnitCode: product.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: openingQuantity,
+          unitCost: openingUnitCost,
+          totalCost: openingQuantity * openingUnitCost,
+          batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
+          createdAt: product.createdAt || now,
+        });
       }
       res.json(product);
     } catch {
