@@ -1214,6 +1214,7 @@ export function createPosApp() {
         db.select({
           productId: products.id,
           productName: products.name,
+          baseUnitCode: products.baseUnitCode,
           stockQuantity: products.stockQuantity,
         }).from(products),
         db.select({
@@ -1235,6 +1236,7 @@ export function createPosApp() {
         return {
           productId: product.productId,
           productName: product.productName,
+          baseUnitCode: product.baseUnitCode || null,
           stockQuantity,
           ledgerQuantity,
           difference: stockQuantity - ledgerQuantity,
@@ -1248,7 +1250,6 @@ export function createPosApp() {
           productsChecked: items.length,
           productsWithMovements: items.filter((item) => item.movementCount > 0).length,
           mismatchedProducts: mismatched.length,
-          absoluteDifference: mismatched.reduce((sum, item) => sum + Math.abs(item.difference), 0),
         },
       });
     } catch {
