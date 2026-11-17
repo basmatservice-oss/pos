@@ -977,13 +977,15 @@ export default function Inventory() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
                     <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => handleOpenUnitManager(product)}
-                        className="text-amber-700 hover:text-amber-900 p-2 bg-amber-50 rounded-lg"
-                        title="إدارة وحدات الصنف"
-                      >
-                        <Ruler className="w-4 h-4" />
-                      </button>
+                      {hasPermission('edit_product') && (
+                        <button
+                          onClick={() => handleOpenUnitManager(product)}
+                          className="text-amber-700 hover:text-amber-900 p-2 bg-amber-50 rounded-lg"
+                          title="إدارة وحدات الصنف"
+                        >
+                          <Ruler className="w-4 h-4" />
+                        </button>
+                      )}
                       <button 
                         onClick={() => openPrintBarcode(product)}
                         className="text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg"
