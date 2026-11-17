@@ -226,6 +226,13 @@ export default function POS() {
     else updateItemUnit(cartItemId, unitCode as 'piece' | 'box');
   };
 
+  const getUnitQuantityStep = (item: (typeof items)[number]) => {
+    const precision = item.selectedUnitCode
+      ? Number(liveUnitDefinitions.find((unit) => unit.code === item.selectedUnitCode)?.decimalPlaces ?? 0)
+      : 0;
+    return 10 ** -Math.max(0, Math.min(6, precision));
+  };
+
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
@@ -854,7 +861,7 @@ export default function POS() {
                       <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1 border border-slate-200">
                         {hasPermission('void_items') ? (
                           <button
-                            onClick={() => updateQuantity(item.cartItemId, item.cartQuantity - 1)}
+                            onClick={() => updateQuantity(item.cartItemId, item.cartQuantity - getUnitQuantityStep(item))}
                             className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-rose-600"
                           >
                             <Minus className="w-3.5 h-3.5" />
@@ -862,9 +869,17 @@ export default function POS() {
                         ) : (
                           <div className="w-7 h-7" />
                         )}
-                        <span className="font-bold w-6 text-center text-sm tabular-nums">{item.cartQuantity}</span>
+                        <input
+                          type="number"
+                          min="0.000001"
+                          step="any"
+                          value={item.cartQuantity}
+                          onChange={(e) => updateQuantity(item.cartItemId, Number(e.target.value))}
+                          className="font-bold w-14 text-center text-sm tabular-nums bg-transparent outline-none"
+                          aria-label="الكمية"
+                        />
                         <button
-                          onClick={() => updateQuantity(item.cartItemId, item.cartQuantity + 1)}
+                          onClick={() => updateQuantity(item.cartItemId, item.cartQuantity + getUnitQuantityStep(item))}
                           className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-indigo-600"
                         >
                           <Plus className="w-3.5 h-3.5" />
