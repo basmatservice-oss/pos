@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { formatAmount } from '../utils/numberFormat.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { Order, OrderItem } from '../db/db';
 import { format } from 'date-fns';
@@ -24,7 +25,7 @@ interface ReceiptProps {
 
 export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
   ({ order, items, settings }, ref) => {
-    const qrData = `Seller: ${settings.businessName}\nTax No: ${settings.taxNumber}\nDate: ${format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}\nTotal: ${order.netAmount.toFixed(2)}\nVAT: ${order.taxAmount.toFixed(2)}`;
+    const qrData = `Seller: ${settings.businessName}\nTax No: ${settings.taxNumber}\nDate: ${format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}\nTotal: ${formatAmount(order.netAmount)}\nVAT: ${formatAmount(order.taxAmount)}`;
 
     return (
       <div ref={ref} className="p-6 bg-white text-black w-[80mm] mx-auto text-sm font-sans" dir="rtl">
@@ -82,7 +83,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
                   )}
                 </td>
                 <td className="text-center py-2">{item.quantity}</td>
-                <td className="text-left py-2 pl-1 font-mono">{item.total.toFixed(2)}</td>
+                <td className="text-left py-2 pl-1 font-mono">{formatAmount(item.total)}</td>
               </tr>
             ))}
           </tbody>
@@ -92,21 +93,21 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         <div className="border-b-2 border-black border-dashed mb-6 pb-4 space-y-1 tabular-nums">
           <div className="flex justify-between text-gray-600">
             <span>الصافي قبل الضريبة:</span>
-            <span className="font-mono">{Math.max(0, order.netAmount - order.taxAmount).toFixed(2)}</span>
+            <span className="font-mono">{formatAmount(Math.max(0, order.netAmount - order.taxAmount))}</span>
           </div>
           {order.discountAmount > 0 && (
             <div className="flex justify-between text-gray-600">
               <span>الخصم:</span>
-              <span className="font-mono">-{order.discountAmount.toFixed(2)}</span>
+              <span className="font-mono">-{formatAmount(order.discountAmount)}</span>
             </div>
           )}
           <div className="flex justify-between text-gray-600">
             <span>ضريبة القيمة المضافة ({settings.taxRate}%):</span>
-            <span className="font-mono">{order.taxAmount.toFixed(2)}</span>
+            <span className="font-mono">{formatAmount(order.taxAmount)}</span>
           </div>
           <div className="flex justify-between font-bold text-xl mt-3 pt-3 border-t border-gray-300">
             <span>الإجمالي شامل الضريبة:</span>
-            <span className="font-mono">{order.netAmount.toFixed(2)} {settings.currency}</span>
+            <span className="font-mono">{formatAmount(order.netAmount)} {settings.currency}</span>
           </div>
           <div className="flex justify-between text-sm text-gray-600 mt-1">
             <span>طريقة الدفع:</span>
@@ -116,7 +117,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
                 : order.paymentMethod === 'card'
                 ? 'شبكة (بطاقة)'
                 : order.paymentMethod === 'mixed'
-                ? `مختلط (نقد: ${Number(order.cashAmount || 0).toFixed(2)} | شبكة: ${Number(order.cardAmount || 0).toFixed(2)})`
+                ? `مختلط (نقد: ${formatAmount(Number(order.cashAmount || 0))} | شبكة: ${formatAmount(Number(order.cardAmount || 0))})`
                 : 'آجل (ذمم)'}
             </span>
           </div>

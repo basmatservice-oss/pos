@@ -1,4 +1,5 @@
 import { forwardRef } from 'react';
+import { formatAmount } from '../utils/numberFormat.js';
 import { Purchase, PurchaseItem } from '../db/db';
 import { format } from 'date-fns';
 
@@ -57,7 +58,7 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
                 <tr key={idx}>
                   <td className="py-2 font-medium">{item.productName}</td>
                   <td className="text-center py-2 tabular-nums">{item.quantity}</td>
-                  <td className="text-left py-2 tabular-nums font-bold">{item.total.toFixed(2)}</td>
+                  <td className="text-left py-2 tabular-nums font-bold">{formatAmount(item.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -68,27 +69,27 @@ export const PurchaseReceipt = forwardRef<HTMLDivElement, PurchaseReceiptProps>(
           <div className="flex justify-between font-bold text-sm">
             <span>إجمالي الفاتورة:</span>
             <span>
-              {purchase.totalAmount.toFixed(2)} {settings.currency}
+              {formatAmount(purchase.totalAmount)} {settings.currency}
             </span>
           </div>
           {returnedAmount > 0 && (
             <div className="flex justify-between text-amber-700 font-bold">
               <span>مرتجعات المشتريات:</span>
               <span>
-                -{returnedAmount.toFixed(2)} {settings.currency}
+                -{formatAmount(returnedAmount)} {settings.currency}
               </span>
             </div>
           )}
           <div className="flex justify-between text-emerald-700 font-bold">
             <span>المدفوع:</span>
             <span>
-              {purchase.paidAmount.toFixed(2)} {settings.currency}
+              {formatAmount(purchase.paidAmount)} {settings.currency}
             </span>
           </div>
           <div className="flex justify-between font-black text-rose-700 pt-1 border-t border-slate-100">
             <span>المتبقي للمورد:</span>
             <span>
-              {remaining.toFixed(2)} {settings.currency}
+              {formatAmount(remaining)} {settings.currency}
             </span>
           </div>
         </div>

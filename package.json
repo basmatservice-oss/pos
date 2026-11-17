@@ -13,7 +13,8 @@
     "start": "tsx server.ts",
     "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/server.js --external:@prisma/client --external:better-sqlite3 --external:sqlite3 --external:vite",
     "package": "npm run build && npm run build:server && electron-builder",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:unit": "node --test tests/numberFormat.test.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

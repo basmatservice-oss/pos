@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import { formatAmount } from '../utils/numberFormat.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Purchase, PurchaseItem } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
@@ -571,12 +572,12 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">صافي المبيعات (بدون ضريبة)</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {stats.totalRevenueExclVat.toFixed(2)}{' '}
+                  {formatAmount(stats.totalRevenueExclVat)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
                 <div className="flex items-center gap-1 mt-1 text-emerald-600">
                   <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span className="text-xs font-bold">صافي الربح: {stats.netProfit.toFixed(2)}</span>
+                  <span className="text-xs font-bold">صافي الربح: {formatAmount(stats.netProfit)}</span>
                 </div>
               </div>
             </div>
@@ -588,10 +589,10 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">صافي ضريبة القيمة المضافة (2200)</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {stats.netVatPayable.toFixed(2)}{' '}
+                  {formatAmount(stats.netVatPayable)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {stats.netCollectedInclVat.toFixed(2)}</p>
+                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {formatAmount(stats.netCollectedInclVat)}</p>
               </div>
             </div>
 
@@ -602,11 +603,11 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">المصروفات والرواتب</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {(stats.totalExpenses + stats.totalPayrolls).toFixed(2)}{' '}
+                  {formatAmount(stats.totalExpenses + stats.totalPayrolls)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  تشغيلية: {stats.totalExpenses.toFixed(2)} | رواتب: {stats.totalPayrolls.toFixed(2)}
+                  تشغيلية: {formatAmount(stats.totalExpenses)} | رواتب: {formatAmount(stats.totalPayrolls)}
                 </p>
               </div>
             </div>
@@ -618,10 +619,10 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">قيمة المخزون (تكلفة FIFO)</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {stats.totalInventoryValue.toFixed(2)}{' '}
+                  {formatAmount(stats.totalInventoryValue)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {stats.totalRetailValue.toFixed(2)}</p>
+                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {formatAmount(stats.totalRetailValue)}</p>
               </div>
             </div>
           </div>
@@ -636,7 +637,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">التحصيل النقدي (شامل الضريبة)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {stats.cashRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatAmount(stats.cashRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.cashRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -653,7 +654,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الشبكة (شامل الضريبة)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {stats.cardRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatAmount(stats.cardRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.cardRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -670,7 +671,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الآجل (ذمم)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {stats.creditRevenue.toFixed(2)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatAmount(stats.creditRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.creditRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -734,7 +735,7 @@ export default function Reports() {
                         <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: item.color }} />
                         <span className="text-slate-600">{item.name}</span>
                       </div>
-                      <span className="font-bold text-slate-900 tabular-nums">{item.value.toFixed(2)}</span>
+                      <span className="font-bold text-slate-900 tabular-nums">{formatAmount(item.value)}</span>
                     </div>
                   ))}
                   {stats.expenseData.length === 0 && (
@@ -774,50 +775,50 @@ export default function Reports() {
                       صافي إيرادات المبيعات (بدون ضريبة القيمة المضافة)
                     </td>
                     <td className="px-6 py-3.5 font-black text-indigo-950 text-left">
-                      {stats.totalRevenueExclVat.toFixed(2)}
+                      {formatAmount(stats.totalRevenueExclVat)}
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-500 pr-10">ضريبة القيمة المضافة المستحقة للهيئة (حساب 2200)</td>
                     <td className="px-6 py-3 text-slate-500">صافي الضريبة المحصلة بعد المرتجعات</td>
-                    <td className="px-6 py-3 text-amber-700 font-bold text-left">{stats.netVatPayable.toFixed(2)}</td>
+                    <td className="px-6 py-3 text-amber-700 font-bold text-left">{formatAmount(stats.netVatPayable)}</td>
                   </tr>
                   <tr className="bg-rose-50/30">
                     <td className="px-6 py-3.5 font-black text-rose-900" colSpan={2}>
                       تكلفة البضاعة المباعة (COGS التاريخية FIFO)
                     </td>
-                    <td className="px-6 py-3.5 font-black text-rose-900 text-left">({stats.totalCost.toFixed(2)})</td>
+                    <td className="px-6 py-3.5 font-black text-rose-900 text-left">({formatAmount(stats.totalCost)})</td>
                   </tr>
                   <tr className="bg-emerald-50/40">
                     <td className="px-6 py-3.5 font-black text-emerald-900" colSpan={2}>
                       مجمل الربح (Gross Profit)
                     </td>
-                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{stats.grossProfit.toFixed(2)}</td>
+                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{formatAmount(stats.grossProfit)}</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">المصروفات التشغيلية</td>
                     <td className="px-6 py-3 text-slate-500">مصروفات الفترة</td>
-                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({stats.totalExpenses.toFixed(2)})</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatAmount(stats.totalExpenses)})</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">الرواتب والأجور</td>
                     <td className="px-6 py-3 text-slate-500">مسير الرواتب المنصرف</td>
-                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({stats.totalPayrolls.toFixed(2)})</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatAmount(stats.totalPayrolls)})</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">فروقات وتسويات الجرد (5400)</td>
                     <td className="px-6 py-3 text-slate-500">عجز / فائض المخزون المعتمد</td>
                     <td className="px-6 py-3 text-slate-900 font-bold text-left">
                       {stats.stocktakeAdjustments >= 0
-                        ? `(${stats.stocktakeAdjustments.toFixed(2)})`
-                        : `+${Math.abs(stats.stocktakeAdjustments).toFixed(2)}`}
+                        ? `(${formatAmount(stats.stocktakeAdjustments)})`
+                        : `+${formatAmount(Math.abs(stats.stocktakeAdjustments))}`}
                     </td>
                   </tr>
                   <tr className="bg-emerald-600 text-white">
                     <td className="px-6 py-4 font-black text-base" colSpan={2}>
                       صافي الربح المحاسبي النهائي (Net Profit)
                     </td>
-                    <td className="px-6 py-4 font-black text-lg text-left">{stats.netProfit.toFixed(2)}</td>
+                    <td className="px-6 py-4 font-black text-lg text-left">{formatAmount(stats.netProfit)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -850,7 +851,7 @@ export default function Reports() {
                         </div>
                       </div>
                       <p className="text-sm font-black text-emerald-600 tabular-nums">
-                        {product.revenue.toFixed(2)} {storeSettings.currency}
+                        {formatAmount(product.revenue)} {storeSettings.currency}
                       </p>
                     </div>
                   ))
@@ -911,7 +912,7 @@ export default function Reports() {
                         </p>
                       </div>
                       <div className="text-left tabular-nums">
-                        <p className="text-sm font-black text-indigo-600">{order.netAmount.toFixed(2)}</p>
+                        <p className="text-sm font-black text-indigo-600">{formatAmount(order.netAmount)}</p>
                         <p className="text-xs font-bold text-slate-500">
                           {order.paymentMethod === 'cash'
                             ? 'نقدي'
