@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   getServerUrl: () => ipcRenderer.invoke('app:server-url'),
+  setDeviceRole: (role) => ipcRenderer.invoke('app:set-device-role', role),
 });
