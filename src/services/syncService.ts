@@ -215,11 +215,18 @@ export const syncService = {
     }
 
     for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
-      const response = await apiService.getInventoryMovements({
-        afterCreatedAt: cursor?.createdAt,
-        afterId: cursor?.id,
-        limit: 500,
-      });
+      let response: any;
+      try {
+        response = await apiService.getInventoryMovements({
+          afterCreatedAt: cursor?.createdAt,
+          afterId: cursor?.id,
+          limit: 500,
+        });
+      } catch (error: any) {
+        // Allow a newer terminal to connect to an older server during staged LAN upgrades.
+        if (error?.response?.status === 404) return;
+        throw error;
+      }
       if (!response || !Array.isArray(response.items)) {
         throw new Error('Invalid inventory movement page response');
       }
