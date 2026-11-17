@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 source = Path("migrate.ts").read_text(encoding="utf-8")
-pattern = re.compile(r"ensureColumn\\(sqlite, '([^']+)', '([^']+)', '([^']*)'\\);")
+pattern = re.compile(r"ensureColumn\(sqlite, '([^']+)', '([^']+)', '([^']*)'\);")
 targets = {
     "Product", "OrderItem", "Purchase", "PurchaseItem", "InventoryBatch",
     "ReturnItem", "PurchaseReturnItem", "StocktakingEntry", "AuditLog",
@@ -48,7 +48,7 @@ INSERT INTO AuditLog VALUES (1, 1);
 """)
 
 # Execute the exact additive table definitions from migrate.ts for the new UOM master tables.
-for table, body in re.findall(r'CREATE TABLE IF NOT EXISTS "(UnitDefinition|ProductUnit)" \\((.*?)\\);', source, re.S):
+for table, body in re.findall(r'CREATE TABLE IF NOT EXISTS "(UnitDefinition|ProductUnit)" \((.*?)\);', source, re.S):
     connection.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({body})')
 
 def apply_additive_columns():
