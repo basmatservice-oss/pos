@@ -1968,6 +1968,44 @@ function handleStocktakeApprove(
   const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
     ? ctx.now
     : requestedApprovalTime.toISOString();
+
+  // Include session and entry snapshots so an offline terminal can synchronize
+  // and approve a stocktake without a separate table-push round trip.
+  if (payload?.session && String(payload.session.id) === String(sessionId)) {
+    const { syncStatus: _sessionSyncStatus, ...sessionData } = payload.session;
+    const existingSession = tx.select().from(stocktakingSessions)
+      .where(eq(stocktakingSessions.id, sessionId)).get();
+    if (!existingSession) {
+      tx.insert(stocktakingSessions).values({
+        ...sessionData,
+        isSynced: 0,
+        createdAt: sessionData.createdAt || approvedAt,
+        updatedAt: approvedAt,
+      }).run();
+    }
+  }
+  if (Array.isArray(payload?.entries)) {
+    for (const entry of payload.entries) {
+      if (!entry || String(entry.sessionId) !== String(sessionId) || entry.id == null) continue;
+      const { syncStatus: _entrySyncStatus, ...entryData } = entry;
+      const existingEntry = tx.select().from(stocktakingEntries)
+        .where(eq(stocktakingEntries.id, entry.id)).get();
+      if (existingEntry) {
+        tx.update(stocktakingEntries)
+          .set({ ...entryData, isSynced: 0, updatedAt: approvedAt })
+          .where(eq(stocktakingEntries.id, entry.id))
+          .run();
+      } else {
+        tx.insert(stocktakingEntries).values({
+          ...entryData,
+          isSynced: 0,
+          createdAt: entryData.createdAt || approvedAt,
+          updatedAt: approvedAt,
+        }).run();
+      }
+    }
+  }
+
   const session = tx
     .select()
     .from(stocktakingSessions)
