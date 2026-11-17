@@ -1978,31 +1978,28 @@ function handleStocktakeApprove(
     return { session: existingSession, alreadyApproved: true };
   }
   if (!existingSession && payload?.session && String(payload.session.id) === String(sessionId)) {
-    const { syncStatus: _sessionSyncStatus, ...sessionData } = payload.session;
+    const { syncStatus: _sessionSyncStatus, updatedAt: _sessionUpdatedAt, ...sessionData } = payload.session;
     tx.insert(stocktakingSessions).values({
         ...sessionData,
         isSynced: 0,
         createdAt: sessionData.createdAt || approvedAt,
-        updatedAt: approvedAt,
     }).run();
   }
   if (Array.isArray(payload?.entries)) {
     for (const entry of payload.entries) {
       if (!entry || String(entry.sessionId) !== String(sessionId) || entry.id == null) continue;
-      const { syncStatus: _entrySyncStatus, ...entryData } = entry;
+      const { syncStatus: _entrySyncStatus, updatedAt: _entryUpdatedAt, createdAt: _entryCreatedAt, ...entryData } = entry;
       const existingEntry = tx.select().from(stocktakingEntries)
         .where(eq(stocktakingEntries.id, entry.id)).get();
       if (existingEntry) {
         tx.update(stocktakingEntries)
-          .set({ ...entryData, isSynced: 0, updatedAt: approvedAt })
+          .set({ ...entryData, isSynced: 0 })
           .where(eq(stocktakingEntries.id, entry.id))
           .run();
       } else {
         tx.insert(stocktakingEntries).values({
           ...entryData,
           isSynced: 0,
-          createdAt: entryData.createdAt || approvedAt,
-          updatedAt: approvedAt,
         }).run();
       }
     }
@@ -2089,7 +2086,7 @@ function handleStocktakeApprove(
   }
 
   tx.update(stocktakingSessions)
-    .set({ status: 'approved', updatedAt: approvedAt, isSynced: 0 })
+    .set({ status: 'approved', isSynced: 0 })
     .where(eq(stocktakingSessions.id, sessionId))
     .run();
 
