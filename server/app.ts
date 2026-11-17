@@ -1273,6 +1273,9 @@ export function createPosApp() {
           throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
         }
         const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        if (!currentBaseCode && !isBaseUnit) {
+          throw new RangeError('يجب تحديد وحدة الأساس أولاً قبل إضافة وحدات بديلة');
+        }
         const [orderMovement] = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, productId)).limit(1);
         const [purchaseMovement] = await tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, productId)).limit(1);
         const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
