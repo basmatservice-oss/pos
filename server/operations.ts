@@ -917,6 +917,9 @@ function handlePurchaseCreate(
   const conversionRate = currencySnapshot?.exchangeRate ?? 1;
   const totalAmount = roundMoney(originalTotalAmount * conversionRate);
   const paidAmount = roundMoney(originalPaidAmount * conversionRate);
+  if (currencySnapshot && originalPaidAmount > originalTotalAmount + 0.01) {
+    throw new OperationError('المبلغ المدفوع لا يمكن أن يتجاوز إجمالي فاتورة الشراء', 400);
+  }
   const paymentMethod = purchase.paymentMethod === 'card' ? 'card' : 'cash';
   const remaining = roundMoney(totalAmount - paidAmount);
   const paymentStatus = remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
