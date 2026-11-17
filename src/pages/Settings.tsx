@@ -31,7 +31,8 @@ import {
   ScanLine,
   Printer,
   MonitorSmartphone,
-  Camera
+  Camera,
+  Ruler
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../db/db';
@@ -104,6 +105,9 @@ const Settings: React.FC = () => {
   const [currencyDraft, setCurrencyDraft] = useState({ code: '', name: '', symbol: '', decimalPlaces: 2 });
   const [rateDraft, setRateDraft] = useState({ baseCurrencyCode: '', quoteCurrencyCode: '', rate: '', effectiveAt: new Date().toISOString().slice(0, 16), source: '' });
   const [currencyBusy, setCurrencyBusy] = useState(false);
+  const [unitRows, setUnitRows] = useState<any[]>([]);
+  const [unitDraft, setUnitDraft] = useState({ code: '', name: '', symbol: '', dimension: 'count', decimalPlaces: 0 });
+  const [unitBusy, setUnitBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -351,6 +355,7 @@ const Settings: React.FC = () => {
   const tabs = [
     { id: 'general', label: 'العامة', icon: SettingsIcon },
     { id: 'currencies', label: 'العملات والصرف', icon: Globe },
+    { id: 'units', label: 'وحدات القياس', icon: Ruler },
     { id: 'visual', label: 'المظهر', icon: Palette },
     { id: 'receipt', label: 'الفاتورة', icon: FileText },
     { id: 'hardware', label: 'الأجهزة', icon: Monitor },
@@ -579,6 +584,37 @@ const Settings: React.FC = () => {
       toast.error(error?.response?.data?.error || 'تعذر اعتماد سعر الصرف');
     } finally {
       setCurrencyBusy(false);
+    }
+  };
+
+  const loadUnitCatalog = async () => {
+    try {
+      const rows = await apiService.getUnitDefinitions();
+      setUnitRows(Array.isArray(rows) ? rows : []);
+      await db.unitDefinitions.bulkPut((rows || []).map((unit: any) => ({ ...unit, syncStatus: 'synced' })));
+    } catch {
+      setUnitRows(await db.unitDefinitions.toArray().catch(() => []));
+      toast.error('تعذر الاتصال بالخادم؛ بيانات الوحدات المحلية للقراءة فقط');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'units') loadUnitCatalog();
+  }, [activeTab]);
+
+  const handleSaveUnitDefinition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUnitBusy(true);
+    try {
+      const saved = await apiService.saveUnitDefinition(unitDraft);
+      await db.unitDefinitions.put({ ...saved, syncStatus: 'synced' });
+      setUnitRows((prev) => [...prev.filter((item) => item.code !== saved.code), saved]);
+      setUnitDraft({ code: '', name: '', symbol: '', dimension: 'count', decimalPlaces: 0 });
+      toast.success('تم حفظ تعريف الوحدة');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'تعذر حفظ الوحدة؛ تأكد من اتصالك بالخادم');
+    } finally {
+      setUnitBusy(false);
     }
   };
 
@@ -885,6 +921,50 @@ const Settings: React.FC = () => {
                           <tbody>{exchangeRateRows.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-mono">{item.baseCurrencyCode}/{item.quoteCurrencyCode}</td><td className="p-3">{item.rate}</td><td className="p-3">{new Date(item.effectiveAt).toLocaleString('ar')}</td><td className="p-3">{item.source}</td><td className="p-3">{item.approvedAt ? 'معتمد' : 'بانتظار الاعتماد'}</td><td className="p-3">{!item.approvedAt && <button type="button" disabled={currencyBusy} onClick={() => handleApproveExchangeRate(item.id)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white disabled:opacity-50">اعتماد</button>}</td></tr>)}</tbody>
                         </table>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'units' && (
+                  <div className="space-y-8">
+                    <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+                      <Ruler className="w-6 h-6 text-indigo-600" />
+                      <h2 className="text-xl font-bold">تعريف وحدات القياس</h2>
+                    </div>
+                    <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-7">
+                      تُعرّف الوحدات هنا أولاً، ثم تُربط بكل صنف في مرحلة إعداد وحدات الصنف. لا يؤدي إنشاء تعريف وحدة وحده إلى تغيير كميات المخزون الحالية.
+                    </div>
+                    <form onSubmit={handleSaveUnitDefinition} className="p-6 rounded-2xl border border-gray-200 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      <label className="text-sm space-y-1">رمز الوحدة
+                        <input required maxLength={20} pattern="[a-z][a-z0-9_-]{0,19}" value={unitDraft.code} onChange={(e) => setUnitDraft({ ...unitDraft, code: e.target.value.toLowerCase() })} placeholder="piece أو kg أو carton" className="w-full p-3 border rounded-xl font-mono" />
+                      </label>
+                      <label className="text-sm space-y-1">اسم الوحدة
+                        <input required value={unitDraft.name} onChange={(e) => setUnitDraft({ ...unitDraft, name: e.target.value })} placeholder="كيلوجرام" className="w-full p-3 border rounded-xl" />
+                      </label>
+                      <label className="text-sm space-y-1">الرمز المختصر
+                        <input value={unitDraft.symbol} onChange={(e) => setUnitDraft({ ...unitDraft, symbol: e.target.value })} placeholder="kg" className="w-full p-3 border rounded-xl" />
+                      </label>
+                      <label className="text-sm space-y-1">بُعد الوحدة
+                        <select value={unitDraft.dimension} onChange={(e) => setUnitDraft({ ...unitDraft, dimension: e.target.value })} className="w-full p-3 border rounded-xl">
+                          <option value="count">عدد</option>
+                          <option value="mass">كتلة / وزن</option>
+                          <option value="volume">حجم</option>
+                          <option value="length">طول</option>
+                          <option value="area">مساحة</option>
+                          <option value="time">زمن</option>
+                          <option value="service">خدمة</option>
+                        </select>
+                      </label>
+                      <label className="text-sm space-y-1">المنازل العشرية المسموحة
+                        <input type="number" min={0} max={6} value={unitDraft.decimalPlaces} onChange={(e) => setUnitDraft({ ...unitDraft, decimalPlaces: Number(e.target.value) })} className="w-full p-3 border rounded-xl" />
+                      </label>
+                      <div className="flex items-end"><button disabled={unitBusy} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ الوحدة</button></div>
+                    </form>
+                    <div className="overflow-x-auto border rounded-2xl">
+                      <table className="w-full text-sm text-right">
+                        <thead className="bg-gray-50"><tr><th className="p-3">الرمز</th><th className="p-3">الاسم</th><th className="p-3">البُعد</th><th className="p-3">الرمز المختصر</th><th className="p-3">الدقة</th><th className="p-3">الحالة</th></tr></thead>
+                        <tbody>{unitRows.map((item) => <tr key={item.code} className="border-t"><td className="p-3 font-mono">{item.code}</td><td className="p-3">{item.name}</td><td className="p-3">{item.dimension}</td><td className="p-3">{item.symbol || '—'}</td><td className="p-3">{item.decimalPlaces}</td><td className="p-3">{item.isActive ? 'نشطة' : 'موقوفة'}</td></tr>)}</tbody>
+                      </table>
                     </div>
                   </div>
                 )}

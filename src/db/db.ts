@@ -1102,6 +1102,8 @@ const RESCUE_STORES = [
   'heldOrders',
   'expenses',
   'syncOperations',
+  'unitDefinitions',
+  'productUnits',
 ] as const;
 
 async function rescueLegacyIndexedDB(): Promise<Record<string, any[]>> {
