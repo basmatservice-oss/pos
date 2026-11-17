@@ -1239,6 +1239,7 @@ export function createPosApp() {
             hasStock: Number(product.stockQuantity || 0) > 0,
             hasDependentAlternateUnits: existingUnits.some((row) => row.unitCode !== currentBaseCode),
           });
+          throw new RangeError('لا يمكن استبدال وحدة أساس مثبتة مباشرة؛ أنشئ صنفاً جديداً أو نفّذ ترحيلاً موثقاً حتى لا تتغير معاني المخزون');
         }
         if (existing && Math.abs(Number(existing.conversionToBase) - conversionToBase) > 1e-10 && hasMovementHistory) {
           throw new RangeError('لا يمكن تغيير معامل التحويل بعد وجود حركات مخزون تاريخية؛ أنشئ وحدة جديدة بدلاً من تعديل القديمة');
