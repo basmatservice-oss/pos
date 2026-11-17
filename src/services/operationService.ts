@@ -590,7 +590,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
   await db.transaction(
     'rw',
-    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches],
+    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
@@ -668,7 +668,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         }
 
         const retItem: ReturnItem = {
-          id: generateUUID(),
+          id: reqItem.id || generateUUID(),
           returnId: id,
           orderItemId: origItem.id,
           productId: origItem.productId,
@@ -687,6 +687,23 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           createdAt: now,
         };
         await db.returnItems.put(retItem);
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(origItem.productId),
+          branchId: branchId ?? origOrder?.branchId ?? null,
+          movementType: 'sale_return',
+          sourceType: 'return',
+          sourceId: String(id),
+          sourceLineId: retItem.id,
+          inputQuantity: qty,
+          unitCode: origItem.unitCode || null,
+          baseUnitCode: origItem.baseUnitCode || null,
+          conversionToBase: factor,
+          quantityDeltaBase: baseQty,
+          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+          totalCost: restored.totalCostRestored,
+          batchAllocations: restored.restoredAllocations,
+          reason: reason || null,
+        });
       }
 
       if (origOrder) {
