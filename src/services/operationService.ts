@@ -1599,7 +1599,6 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
       items: payload.items.map((item: any) => ({
         ...item,
         batchId: item.batchId || generateUUID(),
-        movementLineId: item.movementLineId || generateUUID(),
       })),
     };
   }
