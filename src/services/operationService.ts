@@ -36,6 +36,63 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+async function appendLocalInventoryMovement(
+  operationId: string,
+  syncStatus: 'synced' | 'pending',
+  input: {
+    productId: number;
+    branchId?: number | null;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    sourceLineId?: string | number | null;
+    inputQuantity?: number | null;
+    unitCode?: string | null;
+    baseUnitCode?: string | null;
+    conversionToBase?: number;
+    quantityDeltaBase: number;
+    unitCost?: number;
+    totalCost?: number;
+    batchAllocations?: any[] | string | null;
+    reason?: string | null;
+  }
+) {
+  const movementKey = [
+    input.movementType,
+    input.sourceType,
+    input.sourceId,
+    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
+  ].join(':');
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+
+  await db.inventoryMovements.put({
+    id: `${operationId}:${movementKey}`,
+    movementKey,
+    productId: Number(input.productId),
+    branchId: input.branchId ?? null,
+    movementType: input.movementType,
+    sourceType: input.sourceType,
+    sourceId: String(input.sourceId),
+    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+    operationId,
+    deviceId: getDeviceId(),
+    createdBy: null,
+    inputQuantity: input.inputQuantity ?? null,
+    unitCode: input.unitCode ?? null,
+    baseUnitCode: input.baseUnitCode ?? null,
+    conversionToBase: Number(input.conversionToBase || 1),
+    quantityDeltaBase: Number(input.quantityDeltaBase),
+    unitCost: Number(input.unitCost || 0),
+    totalCost: Math.abs(Number(input.totalCost || 0)),
+    batchAllocations: allocations,
+    reason: input.reason ?? null,
+    createdAt: new Date().toISOString(),
+    syncStatus,
+  });
+}
+
 function generateTempNumericId(): number {
   // 52 random bits remain within JavaScript's safe-integer range and SQLite INTEGER.
   return Number.parseInt(generateUUID().replace(/-/g, '').slice(0, 13), 16) || Date.now() * 1000;
@@ -263,7 +320,7 @@ async function recalculateLocalProductWeightedCost(
   }
 }
 
-async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
 
@@ -397,7 +454,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   );
 }
 
-async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) return;
   const now = new Date().toISOString();
@@ -474,7 +531,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
   );
 }
 
-async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
@@ -632,7 +689,8 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 async function applyPurchaseLocally(
   type: 'purchase' | 'purchase_update' | 'purchase_delete',
   payload: any,
-  syncStatus: 'synced' | 'pending'
+  syncStatus: 'synced' | 'pending',
+  operationId: string
 ) {
   const now = new Date().toISOString();
 
@@ -840,7 +898,7 @@ async function applyPurchaseLocally(
   );
 }
 
-async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
@@ -1141,7 +1199,7 @@ async function applyShiftLocally(
   }
 }
 
-async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const requestedTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date();
   const now = Number.isNaN(requestedTime.getTime()) ? new Date().toISOString() : requestedTime.toISOString();
   const { sessionId } = payload;
@@ -1272,23 +1330,24 @@ async function applyOperationLocally(
   type: SyncOperation['type'],
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any
+  serverResult?: any,
+  operationId = String(payload?.operationId || '')
 ) {
   (globalThis as any).__posApplyingOperation = true;
   try {
     switch (type) {
       case 'sale':
-        return await applySaleLocally(payload, syncStatus);
+        return await applySaleLocally(payload, syncStatus, operationId);
       case 'return':
-        return await applyReturnLocally(payload, syncStatus);
+        return await applyReturnLocally(payload, syncStatus, operationId);
       case 'order_void':
-        return await applyOrderVoidLocally(payload, syncStatus);
+        return await applyOrderVoidLocally(payload, syncStatus, operationId);
       case 'purchase':
       case 'purchase_update':
       case 'purchase_delete':
-        return await applyPurchaseLocally(type, payload, syncStatus);
+        return await applyPurchaseLocally(type, payload, syncStatus, operationId);
       case 'purchase_return':
-        return await applyPurchaseReturnLocally(payload, syncStatus);
+        return await applyPurchaseReturnLocally(payload, syncStatus, operationId);
       case 'expense':
       case 'expense_delete':
         return await applyExpenseLocally(type, payload, syncStatus);
@@ -1303,7 +1362,7 @@ async function applyOperationLocally(
       case 'shift_movement':
         return await applyShiftLocally(type, payload, syncStatus);
       case 'stocktake_approve':
-        return await applyStocktakeApproveLocally(payload, syncStatus);
+        return await applyStocktakeApproveLocally(payload, syncStatus, operationId);
       case 'entity_upsert':
       case 'entity_delete':
         return await applyEntityLocally(type, payload, syncStatus, serverResult);
@@ -1411,7 +1470,7 @@ async function dispatchOperationSequential(
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-      await applyOperationLocally(type, localPayload, 'synced', response.result);
+      await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
       await reconcileServerSnapshot();
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
@@ -1441,7 +1500,7 @@ async function dispatchOperationSequential(
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
         const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
         // Apply exactly once, using the server's authoritative item snapshots.
-        await applyOperationLocally(type, localPayload, 'synced', response.result);
+        await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
@@ -1470,7 +1529,7 @@ async function dispatchOperationSequential(
 
   // The server is unavailable (or returned a transient failure): keep the
   // operation in the durable queue and apply it once to the local database.
-  await applyOperationLocally(type, opRecord.payload, 'pending');
+  await applyOperationLocally(type, opRecord.payload, 'pending', undefined, operationId);
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
 
