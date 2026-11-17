@@ -56,7 +56,7 @@ export const syncService = {
       let pendingRecords = 0;
       for (const table of tables) {
         if ((db as any)[table]) {
-          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error']).count();
+          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error', 'conflict']).count();
           pendingRecords += c;
         }
       }
@@ -70,6 +70,8 @@ export const syncService = {
   async syncAll() {
     const token = getAuthToken();
     if (!token) return false;
+    // Prevent overlapping push/pull cycles from concurrent POS operations.
+    if (useSyncStore.getState().isSyncing) return false;
 
     const reachable = await apiService.checkServerReachability(2500);
     useSyncStore.getState().setOnlineStatus(reachable);
@@ -397,7 +399,7 @@ export const syncService = {
 
             const pendingLocal = await task.table
               .where('syncStatus')
-              .anyOf(['pending', 'error'])
+              .anyOf(['pending', 'error', 'conflict'])
               .toArray();
             const pendingIds = new Set(pendingLocal.map((r: any) => r.id || r.key));
 
