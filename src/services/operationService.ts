@@ -36,10 +36,9 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-let lastTempNumericId = 0;
 function generateTempNumericId(): number {
-  lastTempNumericId = Math.max(Date.now() * 1000, lastTempNumericId + 1);
-  return lastTempNumericId;
+  // 52 random bits remain within JavaScript's safe-integer range and SQLite INTEGER.
+  return Number.parseInt(generateUUID().replace(/-/g, '').slice(0, 13), 16) || Date.now() * 1000;
 }
 
 let isReconcilingServerSnapshot = false;
