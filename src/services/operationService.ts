@@ -1451,7 +1451,8 @@ async function applyEntityLocally(
   type: 'entity_upsert' | 'entity_delete',
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any
+  serverResult?: any,
+  operationId = String(payload?.operationId || '')
 ) {
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
@@ -1489,8 +1490,9 @@ async function applyEntityLocally(
       if (existingBatchCount === 0) {
         const openingQuantity = Number(finalRecord.stockQuantity);
         const createdAt = finalRecord.createdAt || new Date().toISOString();
+        const openingBatchId = `opening-${finalRecord.id}`;
         await db.inventoryBatches.put({
-          id: `opening-${finalRecord.id}`,
+          id: openingBatchId,
           productId: finalRecord.id,
           purchaseId: null,
           quantity: openingQuantity,
@@ -1506,6 +1508,28 @@ async function applyEntityLocally(
           createdAt,
           updatedAt: new Date().toISOString(),
         });
+        if (operationId) {
+          await appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(finalRecord.id),
+            branchId: finalRecord.branchId ?? null,
+            movementType: 'opening_balance',
+            sourceType: 'product',
+            sourceId: String(finalRecord.id),
+            sourceLineId: openingBatchId,
+            inputQuantity: openingQuantity,
+            unitCode: finalRecord.baseUnitCode || null,
+            baseUnitCode: finalRecord.baseUnitCode || null,
+            conversionToBase: 1,
+            quantityDeltaBase: openingQuantity,
+            unitCost: Number(finalRecord.costPrice || 0),
+            totalCost: openingQuantity * Number(finalRecord.costPrice || 0),
+            batchAllocations: [{
+              batchId: openingBatchId,
+              quantity: openingQuantity,
+              costPrice: Number(finalRecord.costPrice || 0),
+            }],
+          });
+        }
       }
     }
   }
@@ -1550,7 +1574,7 @@ async function applyOperationLocally(
         return await applyStocktakeApproveLocally(payload, syncStatus, operationId);
       case 'entity_upsert':
       case 'entity_delete':
-        return await applyEntityLocally(type, payload, syncStatus, serverResult);
+        return await applyEntityLocally(type, payload, syncStatus, serverResult, operationId);
     }
   } finally {
     (globalThis as any).__posApplyingOperation = false;
