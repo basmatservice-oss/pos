@@ -423,6 +423,10 @@ export const apiService = {
   },
   async getInventoryMovements(params?: {
     productId?: number;
+    branchId?: number;
+    sourceType?: string;
+    startDate?: string;
+    endDate?: string;
     afterCreatedAt?: string;
     afterId?: string;
     movementKeys?: string;
