@@ -134,12 +134,6 @@ jobs:
       - name: Install project dependencies and reconcile lockfile
         run: npm install --no-audit --no-fund
 
-      - name: Build React frontend
-        run: npm run build
-
-      - name: Build Express backend for Electron's Node runtime
-        run: npm run build:server
-
       - name: Rebuild native modules for Electron 22.3.27
         run: npx electron-builder install-app-deps
 
