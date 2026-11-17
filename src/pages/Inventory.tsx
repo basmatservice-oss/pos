@@ -961,8 +961,8 @@ export default function Inventory() {
                         ? (unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.symbol ||
                           unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name ||
                           product.baseUnitCode)
-                        : (product.unit === 'box' ? 'صندوق' : 'حبة')}
-                      {!product.baseUnitCode && product.unit === 'box' && ` (${product.conversionFactor} حبة)`}
+                        : 'حبة'}
+                      {!product.baseUnitCode && product.unit === 'box' && ` (البيع بالصندوق ×${product.conversionFactor})`}
                     </span>
                   </td>
                   {storeSettings.businessType === 'pharmacy' && (
