@@ -261,11 +261,11 @@ export const syncService = {
       .anyOf(['pending', 'error', 'conflict'])
       .toArray();
     const pendingKeys = [...new Set(pendingRows.map((movement) => movement.movementKey))];
-    for (let index = 0; index < pendingKeys.length; index += 100) {
+    for (let index = 0; index < pendingKeys.length; index += 50) {
       let response: any;
       try {
         response = await apiService.getInventoryMovements({
-          movementKeys: pendingKeys.slice(index, index + 100).join(','),
+          movementKeys: pendingKeys.slice(index, index + 50).join(','),
           limit: 500,
         });
       } catch (error: any) {
