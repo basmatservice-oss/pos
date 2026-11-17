@@ -427,6 +427,13 @@ function handleSale(
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new OperationError('كمية البيع يجب أن تكون رقماً موجباً', 400);
     }
+    const saleProduct = tx.select().from(products).where(eq(products.id, Number(item.productId))).get();
+    if (!saleProduct) {
+      throw new OperationError(`Product not found: ${item.productId}`, 404);
+    }
+    if (saleProduct.isActive === 0) {
+      throw new OperationError(`Product is inactive: ${item.productId}`, 409);
+    }
     const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
     const factor = unitSnapshot.conversionToBase;
     const baseQty = unitSnapshot.baseQuantity;
