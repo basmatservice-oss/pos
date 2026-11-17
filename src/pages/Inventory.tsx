@@ -11,6 +11,7 @@ import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
+import { apiService } from '../services/apiService';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 export default function Inventory() {
@@ -155,7 +156,7 @@ export default function Inventory() {
   const handleOpenUnitManager = (product: Product) => {
     setUnitEditorProduct(product);
     setUnitDraft({
-      unitCode: product.baseUnitCode || '',
+      unitCode: '',
       conversionToBase: '1',
       isBaseUnit: !product.baseUnitCode,
       sellingPrice: '',
