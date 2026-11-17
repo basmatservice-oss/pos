@@ -1208,6 +1208,54 @@ export function createPosApp() {
     }
   });
 
+  app.get('/api/inventoryMovements/reconciliation', async (_req, res) => {
+    try {
+      const [stockRows, ledgerRows] = await Promise.all([
+        db.select({
+          productId: products.id,
+          productName: products.name,
+          stockQuantity: products.stockQuantity,
+        }).from(products),
+        db.select({
+          productId: inventoryMovements.productId,
+          ledgerQuantity: sql<number>`COALESCE(SUM(${inventoryMovements.quantityDeltaBase}), 0)`,
+          movementCount: sql<number>`COUNT(*)`,
+        }).from(inventoryMovements).groupBy(inventoryMovements.productId),
+      ]);
+      const ledgerByProduct = new Map(
+        ledgerRows.map((row) => [row.productId, {
+          ledgerQuantity: Number(row.ledgerQuantity || 0),
+          movementCount: Number(row.movementCount || 0),
+        }])
+      );
+      const items = stockRows.map((product) => {
+        const ledger = ledgerByProduct.get(product.productId);
+        const stockQuantity = Number(product.stockQuantity || 0);
+        const ledgerQuantity = ledger?.ledgerQuantity || 0;
+        return {
+          productId: product.productId,
+          productName: product.productName,
+          stockQuantity,
+          ledgerQuantity,
+          difference: stockQuantity - ledgerQuantity,
+          movementCount: ledger?.movementCount || 0,
+        };
+      });
+      const mismatched = items.filter((item) => Math.abs(item.difference) > 1e-6);
+      res.json({
+        items: mismatched,
+        summary: {
+          productsChecked: items.length,
+          productsWithMovements: items.filter((item) => item.movementCount > 0).length,
+          mismatchedProducts: mismatched.length,
+          absoluteDifference: mismatched.reduce((sum, item) => sum + Math.abs(item.difference), 0),
+        },
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to reconcile inventory movement ledger' });
+    }
+  });
+
   // --- Inventory Batches & Alerts ---
   app.get('/api/inventoryBatches', async (_req, res) => {
     try {
