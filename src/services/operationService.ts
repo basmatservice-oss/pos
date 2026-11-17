@@ -36,10 +36,10 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-let tempNumericIdSequence = 0;
+let lastTempNumericId = 0;
 function generateTempNumericId(): number {
-  tempNumericIdSequence = (tempNumericIdSequence + 1) % 1000;
-  return Date.now() * 1000 + tempNumericIdSequence;
+  lastTempNumericId = Math.max(Date.now() * 1000, lastTempNumericId + 1);
+  return lastTempNumericId;
 }
 
 let isReconcilingServerSnapshot = false;
