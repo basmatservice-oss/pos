@@ -72,7 +72,11 @@ export interface InventoryBatch {
   purchaseId?: string | null;
   quantity: number;
   remainingQuantity?: number;
-  costPrice: number;
+  costPrice: number; // Base-currency FIFO cost.
+  originalCostPrice?: number | null;
+  currencyCode?: string | null;
+  exchangeRate?: number | null;
+  exchangeRateId?: string | null;
   purchaseDate: string;
   expiryDate?: string;
   batchNumber?: string;
@@ -435,7 +439,13 @@ export interface Purchase {
   id?: string;
   supplierId: number;
   supplierName: string;
-  totalAmount: number;
+  totalAmount: number; // Base-currency amount used by accounting.
+  currencyCode?: string | null;
+  baseCurrencyCode?: string | null;
+  exchangeRate?: number | null;
+  exchangeRateId?: string | null;
+  originalTotalAmount?: number | null;
+  originalPaidAmount?: number | null;
   paymentStatus: 'paid' | 'partial' | 'unpaid';
   paymentMethod?: 'cash' | 'card';
   paidAmount: number;
@@ -454,7 +464,12 @@ export interface PurchaseItem {
   productId: number;
   productName: string;
   quantity: number;
-  costPrice: number;
+  costPrice: number; // Base-currency unit cost.
+  originalCostPrice?: number | null;
+  originalTotal?: number | null;
+  currencyCode?: string | null;
+  exchangeRate?: number | null;
+  exchangeRateId?: string | null;
   total: number;
   syncStatus?: 'synced' | 'pending' | 'error';
 }
