@@ -98,6 +98,12 @@ const Settings: React.FC = () => {
     exchangeRate: 1, // Default exchange rate
   });
 
+  const [currencyRows, setCurrencyRows] = useState<any[]>([]);
+  const [exchangeRateRows, setExchangeRateRows] = useState<any[]>([]);
+  const [baseCurrencyCode, setBaseCurrencyCode] = useState('');
+  const [currencyDraft, setCurrencyDraft] = useState({ code: '', name: '', symbol: '', decimalPlaces: 2 });
+  const [rateDraft, setRateDraft] = useState({ baseCurrencyCode: '', quoteCurrencyCode: '', rate: '', effectiveAt: new Date().toISOString().slice(0, 16), source: '' });
+  const [currencyBusy, setCurrencyBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -344,6 +350,7 @@ const Settings: React.FC = () => {
 
   const tabs = [
     { id: 'general', label: 'العامة', icon: SettingsIcon },
+    { id: 'currencies', label: 'العملات والصرف', icon: Globe },
     { id: 'visual', label: 'المظهر', icon: Palette },
     { id: 'receipt', label: 'الفاتورة', icon: FileText },
     { id: 'hardware', label: 'الأجهزة', icon: Monitor },
@@ -477,6 +484,101 @@ const Settings: React.FC = () => {
       toast.error(err?.response?.data?.error || 'تعذر تغيير كلمة المرور');
     } finally {
       setIsChangingPass(false);
+    }
+  };
+
+  const loadCurrencyLedger = async () => {
+    try {
+      const [currencyList, rateList, baseConfig] = await Promise.all([
+        apiService.getCurrencies(),
+        apiService.getExchangeRates(),
+        apiService.getBaseCurrency(),
+      ]);
+      setCurrencyRows(Array.isArray(currencyList) ? currencyList : []);
+      setExchangeRateRows(Array.isArray(rateList) ? rateList : []);
+      setBaseCurrencyCode(baseConfig?.baseCurrencyCode || '');
+      if (Array.isArray(currencyList) && currencyList.length > 0) {
+        setRateDraft((prev) => ({
+          ...prev,
+          baseCurrencyCode: baseConfig?.baseCurrencyCode || prev.baseCurrencyCode || currencyList[0].code,
+          quoteCurrencyCode: prev.quoteCurrencyCode || currencyList.find((item: any) => item.code !== (baseConfig?.baseCurrencyCode || currencyList[0].code))?.code || '',
+        }));
+      }
+    } catch (error) {
+      const [cachedCurrencies, cachedRates, cachedBase] = await Promise.all([
+        db.currencies.toArray().catch(() => []),
+        db.exchangeRates.toArray().catch(() => []),
+        db.settings.where('key').equals('baseCurrencyCode').first(),
+      ]);
+      setCurrencyRows(cachedCurrencies);
+      setExchangeRateRows(cachedRates);
+      setBaseCurrencyCode(cachedBase?.value || '');
+      toast.error('تعذر الاتصال بالخادم؛ المعروض بيانات محفوظة محلياً للقراءة فقط');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'currencies') loadCurrencyLedger();
+  }, [activeTab]);
+
+  const handleSaveCurrency = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCurrencyBusy(true);
+    try {
+      const saved = await apiService.saveCurrency(currencyDraft);
+      setCurrencyRows((prev) => [...prev.filter((item) => item.code !== saved.code), saved]);
+      setCurrencyDraft({ code: '', name: '', symbol: '', decimalPlaces: 2 });
+      toast.success('تم حفظ العملة');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'تعذر حفظ العملة؛ تأكد من اتصالك بالخادم');
+    } finally {
+      setCurrencyBusy(false);
+    }
+  };
+
+  const handleSetBaseCurrency = async () => {
+    if (!baseCurrencyCode) return;
+    setCurrencyBusy(true);
+    try {
+      const saved = await apiService.setBaseCurrency(baseCurrencyCode);
+      setBaseCurrencyCode(saved.baseCurrencyCode);
+      toast.success('تم تعيين العملة الأساسية');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'تعذر تعيين العملة الأساسية');
+    } finally {
+      setCurrencyBusy(false);
+    }
+  };
+
+  const handleSaveExchangeRate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCurrencyBusy(true);
+    try {
+      await apiService.createExchangeRate({
+        ...rateDraft,
+        rate: Number(rateDraft.rate),
+        effectiveAt: new Date(rateDraft.effectiveAt).toISOString(),
+      });
+      await loadCurrencyLedger();
+      setRateDraft((prev) => ({ ...prev, rate: '', source: '' }));
+      toast.success('تم تسجيل السعر بانتظار اعتماد المدير');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'تعذر تسجيل سعر الصرف');
+    } finally {
+      setCurrencyBusy(false);
+    }
+  };
+
+  const handleApproveExchangeRate = async (id: string) => {
+    setCurrencyBusy(true);
+    try {
+      await apiService.approveExchangeRate(id);
+      await loadCurrencyLedger();
+      toast.success('تم اعتماد سعر الصرف');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'تعذر اعتماد سعر الصرف');
+    } finally {
+      setCurrencyBusy(false);
     }
   };
 
@@ -690,6 +792,98 @@ const Settings: React.FC = () => {
                           </div>
                           <span className="font-bold text-gray-700">تفعيل إشعارات النظام</span>
                         </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'currencies' && (
+                  <div className="space-y-8">
+                    <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+                      <Globe className="w-6 h-6 text-indigo-600" />
+                      <h2 className="text-xl font-bold">العملات وأسعار الصرف</h2>
+                    </div>
+
+                    <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-7">
+                      العملة الأساسية لا تُحدد تلقائياً. أسعار الصرف الجديدة لا تصبح متاحة لأجهزة نقاط البيع إلا بعد اعتمادها، وتُحفظ الأسعار المعتمدة كسجل تاريخي.
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <form onSubmit={handleSaveCurrency} className="p-6 rounded-2xl border border-gray-200 space-y-4">
+                        <h3 className="font-bold text-gray-800">إضافة عملة</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="text-sm space-y-1">رمز ISO 4217
+                            <input required maxLength={3} value={currencyDraft.code} onChange={(e) => setCurrencyDraft({ ...currencyDraft, code: e.target.value.toUpperCase() })} placeholder="USD" className="w-full p-3 border rounded-xl font-mono" />
+                          </label>
+                          <label className="text-sm space-y-1">اسم العملة
+                            <input required value={currencyDraft.name} onChange={(e) => setCurrencyDraft({ ...currencyDraft, name: e.target.value })} placeholder="الدولار الأمريكي" className="w-full p-3 border rounded-xl" />
+                          </label>
+                          <label className="text-sm space-y-1">الرمز الظاهر
+                            <input value={currencyDraft.symbol} onChange={(e) => setCurrencyDraft({ ...currencyDraft, symbol: e.target.value })} placeholder="$" className="w-full p-3 border rounded-xl" />
+                          </label>
+                          <label className="text-sm space-y-1">المنازل العشرية
+                            <input type="number" min={0} max={4} value={currencyDraft.decimalPlaces} onChange={(e) => setCurrencyDraft({ ...currencyDraft, decimalPlaces: Number(e.target.value) })} className="w-full p-3 border rounded-xl" />
+                          </label>
+                        </div>
+                        <button disabled={currencyBusy} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ العملة</button>
+                      </form>
+
+                      <div className="p-6 rounded-2xl border border-gray-200 space-y-4">
+                        <h3 className="font-bold text-gray-800">العملة الأساسية للنظام</h3>
+                        <select value={baseCurrencyCode} onChange={(e) => setBaseCurrencyCode(e.target.value)} className="w-full p-3 border rounded-xl">
+                          <option value="">اختر العملة الأساسية</option>
+                          {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code} — {item.name}</option>)}
+                        </select>
+                        <button type="button" disabled={currencyBusy || !baseCurrencyCode} onClick={handleSetBaseCurrency} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">اعتماد العملة الأساسية</button>
+                        <p className="text-xs text-gray-500">تغيير العملة الأساسية لا يعيد تحويل الفواتير أو تكاليف المخزون التاريخية.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-6 rounded-2xl border border-gray-200 space-y-4">
+                      <h3 className="font-bold text-gray-800">تسجيل سعر صرف جديد</h3>
+                      <form onSubmit={handleSaveExchangeRate} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <label className="text-sm space-y-1">من العملة
+                          <select required value={rateDraft.baseCurrencyCode} onChange={(e) => setRateDraft({ ...rateDraft, baseCurrencyCode: e.target.value })} className="w-full p-3 border rounded-xl">
+                            <option value="">اختر</option>
+                            {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-sm space-y-1">إلى العملة
+                          <select required value={rateDraft.quoteCurrencyCode} onChange={(e) => setRateDraft({ ...rateDraft, quoteCurrencyCode: e.target.value })} className="w-full p-3 border rounded-xl">
+                            <option value="">اختر</option>
+                            {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-sm space-y-1">السعر (وحدات العملة الثانية لكل وحدة من الأولى)
+                          <input required type="number" min="0.00000001" step="any" value={rateDraft.rate} onChange={(e) => setRateDraft({ ...rateDraft, rate: e.target.value })} className="w-full p-3 border rounded-xl" />
+                        </label>
+                        <label className="text-sm space-y-1">تاريخ ووقت السريان
+                          <input required type="datetime-local" value={rateDraft.effectiveAt} onChange={(e) => setRateDraft({ ...rateDraft, effectiveAt: e.target.value })} className="w-full p-3 border rounded-xl" />
+                        </label>
+                        <label className="text-sm space-y-1">مصدر السعر
+                          <input required value={rateDraft.source} onChange={(e) => setRateDraft({ ...rateDraft, source: e.target.value })} placeholder="مصدر موثق للسعر" className="w-full p-3 border rounded-xl" />
+                        </label>
+                        <div className="flex items-end"><button disabled={currencyBusy || !currencyRows.length} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">تسجيل السعر</button></div>
+                      </form>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="font-bold text-gray-800">سجل العملات</h3>
+                      <div className="overflow-x-auto border rounded-2xl">
+                        <table className="w-full text-sm text-right">
+                          <thead className="bg-gray-50"><tr><th className="p-3">الرمز</th><th className="p-3">الاسم</th><th className="p-3">المنازل</th><th className="p-3">الحالة</th></tr></thead>
+                          <tbody>{currencyRows.map((item) => <tr key={item.code} className="border-t"><td className="p-3 font-mono">{item.code}</td><td className="p-3">{item.name}</td><td className="p-3">{item.decimalPlaces}</td><td className="p-3">{item.isActive ? 'نشطة' : 'موقوفة'}</td></tr>)}</tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="font-bold text-gray-800">سجل أسعار الصرف والاعتماد</h3>
+                      <div className="overflow-x-auto border rounded-2xl">
+                        <table className="w-full text-sm text-right">
+                          <thead className="bg-gray-50"><tr><th className="p-3">زوج العملات</th><th className="p-3">السعر</th><th className="p-3">السريان</th><th className="p-3">المصدر</th><th className="p-3">الحالة</th><th className="p-3">الإجراء</th></tr></thead>
+                          <tbody>{exchangeRateRows.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-mono">{item.baseCurrencyCode}/{item.quoteCurrencyCode}</td><td className="p-3">{item.rate}</td><td className="p-3">{new Date(item.effectiveAt).toLocaleString('ar')}</td><td className="p-3">{item.source}</td><td className="p-3">{item.approvedAt ? 'معتمد' : 'بانتظار الاعتماد'}</td><td className="p-3">{!item.approvedAt && <button type="button" disabled={currencyBusy} onClick={() => handleApproveExchangeRate(item.id)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white disabled:opacity-50">اعتماد</button>}</td></tr>)}</tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
