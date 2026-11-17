@@ -2235,11 +2235,31 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       const existingBatch = tx.select({ id: inventoryBatches.id })
         .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1).get();
       if (existingBatch) delete productData.costPrice;
-      return tx.update(products)
+      const updatedProduct = tx.update(products)
         .set({ ...productData, isSynced: 0, updatedAt: now })
         .where(eq(products.id, existingProduct.id))
         .returning()
         .get();
+      if (!existingBatch && Number(existingProduct.stockQuantity || 0) > 0) {
+        tx.insert(inventoryBatches).values({
+          id: `opening-${existingProduct.id}`,
+          productId: existingProduct.id,
+          purchaseId: null,
+          quantity: Number(existingProduct.stockQuantity),
+          remainingQuantity: Number(existingProduct.stockQuantity),
+          costPrice: Number(existingProduct.costPrice || 0),
+          unitCode: existingProduct.baseUnitCode || null,
+          baseUnitCode: existingProduct.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(existingProduct.stockQuantity),
+          purchaseDate: existingProduct.createdAt || now,
+          branchId: existingProduct.branchId || null,
+          isSynced: 0,
+          createdAt: existingProduct.createdAt || now,
+          updatedAt: now,
+        }).run();
+      }
+      return updatedProduct;
     }
   }
 
