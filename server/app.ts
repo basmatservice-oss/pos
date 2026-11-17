@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
+import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
 import {
   products,
   categories,
@@ -657,35 +658,54 @@ export function createPosApp() {
 
   app.post('/api/products', requirePermission('add_product'), async (req, res) => {
     try {
-      const data = req.body;
+      const data = { ...req.body };
       const now = new Date().toISOString();
-      const [product] = await db
-        .insert(products)
-        .values({ ...data, isSynced: 0, updatedAt: now })
-        .onConflictDoUpdate({
-          target: products.id,
-          set: { ...data, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      let existingProduct: any;
+      if (data.id) {
+        const [foundProduct] = await db.select().from(products)
+          .where(eq(products.id, Number(data.id))).limit(1);
+        existingProduct = foundProduct;
+      }
+      let product: any;
+      if (existingProduct) {
+        delete data.stockQuantity;
+        delete data.baseUnitCode;
+        delete data.quantityPrecision;
+        const [existingBatch] = await db.select({ id: inventoryBatches.id })
+          .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1);
+        if (existingBatch) delete data.costPrice;
+        [product] = await db.update(products)
+          .set({ ...data, isSynced: 0, updatedAt: now })
+          .where(eq(products.id, existingProduct.id))
+          .returning();
+      } else {
+        [product] = await db.insert(products)
+          .values({ ...data, isSynced: 0, updatedAt: now })
+          .returning();
+      }
 
-      // Create initial batch if stockQuantity > 0 and no batches exist for this product
+      // New product opening stock is stored as a base-unit FIFO layer.
       if (product && Number(product.stockQuantity) > 0) {
         const existingBatches = await db
-          .select()
+          .select({ id: inventoryBatches.id })
           .from(inventoryBatches)
           .where(eq(inventoryBatches.productId, product.id));
         if (existingBatches.length === 0) {
           await db.insert(inventoryBatches).values({
-            id: crypto.randomUUID(),
+            id: `opening-${product.id}`,
             productId: product.id,
             purchaseId: null,
             quantity: Number(product.stockQuantity),
             remainingQuantity: Number(product.stockQuantity),
             costPrice: Number(product.costPrice || 0),
-            purchaseDate: now,
+            unitCode: product.baseUnitCode || null,
+            baseUnitCode: product.baseUnitCode || null,
+            conversionToBase: 1,
+            baseQuantity: Number(product.stockQuantity),
+            purchaseDate: product.createdAt || now,
             branchId: product.branchId || null,
             isSynced: 0,
-            createdAt: now,
+            createdAt: product.createdAt || now,
             updatedAt: now,
           });
         }
@@ -701,11 +721,38 @@ export function createPosApp() {
   app.put('/api/products/:id', requirePermission('edit_product'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const updateData = { ...req.body };
+      delete updateData.stockQuantity;
+      delete updateData.baseUnitCode;
+      delete updateData.quantityPrecision;
+      const [existingBatch] = await db.select({ id: inventoryBatches.id })
+        .from(inventoryBatches).where(eq(inventoryBatches.productId, id)).limit(1);
+      if (existingBatch) delete updateData.costPrice;
+      const now = new Date().toISOString();
       const [product] = await db
         .update(products)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
+        .set({ ...updateData, isSynced: 0, updatedAt: now })
         .where(eq(products.id, id))
         .returning();
+      if (product && !existingBatch && Number(product.stockQuantity || 0) > 0) {
+        await db.insert(inventoryBatches).values({
+          id: `opening-${product.id}`,
+          productId: product.id,
+          purchaseId: null,
+          quantity: Number(product.stockQuantity),
+          remainingQuantity: Number(product.stockQuantity),
+          costPrice: Number(product.costPrice || 0),
+          unitCode: product.baseUnitCode || null,
+          baseUnitCode: product.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(product.stockQuantity),
+          purchaseDate: product.createdAt || now,
+          branchId: product.branchId || null,
+          isSynced: 0,
+          createdAt: product.createdAt || now,
+          updatedAt: now,
+        }).onConflictDoNothing();
+      }
       res.json(product);
     } catch {
       res.status(500).json({ error: 'Failed to update product' });
@@ -1226,10 +1273,18 @@ export function createPosApp() {
           throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
         }
         const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
+        if (!currentBaseCode && !isBaseUnit) {
+          throw new RangeError('يجب تحديد وحدة الأساس أولاً قبل إضافة وحدات بديلة');
+        }
         const [orderMovement] = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, productId)).limit(1);
         const [purchaseMovement] = await tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, productId)).limit(1);
         const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
         const hasMovementHistory = Boolean(orderMovement || purchaseMovement || inventoryMovement);
+
+        if (isBaseUnit && !currentBaseCode &&
+            (hasMovementHistory || Number(product.stockQuantity || 0) > 0)) {
+          throw new RangeError('لا يمكن تعيين وحدة أساس لصنف له مخزون أو حركات سابقة؛ أنشئ الصنف بكمية صفر وحدد وحدة الأساس قبل إدخال المخزون، أو نفّذ ترحيلاً موثقاً');
+        }
 
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
           if (hasMovementHistory) {
@@ -1981,6 +2036,7 @@ export function createPosApp() {
       const { startDate, endDate, branchId } = req.query;
       const allOrders = await db.select().from(orders);
       const allOrderItems = await db.select().from(orderItems);
+      const allProducts = await db.select().from(products);
       const allReturns = await db.select().from(returns);
       const allPurchases = await db.select().from(purchases);
       const allPurchaseReturns = await db.select().from(purchaseReturns);
@@ -2029,8 +2085,9 @@ export function createPosApp() {
       const netSalesExclTax = round(grossSales - discounts - returnsExclTax);
       const netVatPayable = round(salesTax - returnsTax);
 
+      const productsById = new Map(allProducts.map((product) => [product.id, product]));
       const grossCogs = round(
-        fItems.reduce((s, i) => s + Number(i.costPriceAtTimeOfSale || 0) * Number(i.quantity || 0), 0)
+        fItems.reduce((sum, item) => sum + getHistoricalCostAmount(item, productsById.get(item.productId)), 0)
       );
       const returnedCogs = round(fReturns.reduce((s, r) => s + Number(r.totalCostReversed || 0), 0));
       const netCogs = round(grossCogs - returnedCogs);

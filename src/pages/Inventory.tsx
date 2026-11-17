@@ -19,6 +19,7 @@ export default function Inventory() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingHasInventoryBatches, setEditingHasInventoryBatches] = useState(false);
   const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
   const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
@@ -137,7 +138,7 @@ export default function Inventory() {
     sellingPrice: '',
     costInUSD: '',
     priceInUSD: '',
-    stockQuantity: '',
+    stockQuantity: '0',
     minStockLevel: '5',
     vatRate: storeSettings.taxRate.toString(),
     imageUrl: '',
@@ -218,8 +219,12 @@ export default function Inventory() {
     }
   };
 
-  const handleOpenModal = (product?: Product, initialBarcode?: string) => {
+  const handleOpenModal = async (product?: Product, initialBarcode?: string) => {
     if (product) {
+      const batchCount = product.id
+        ? await db.inventoryBatches.where('productId').equals(product.id).count()
+        : 0;
+      setEditingHasInventoryBatches(batchCount > 0);
       setEditingProduct(product);
       setFormData({
         barcode: product.barcode,
@@ -239,6 +244,7 @@ export default function Inventory() {
         conversionFactor: (product.conversionFactor || 1).toString()
       });
     } else {
+      setEditingHasInventoryBatches(false);
       setEditingProduct(null);
       setFormData({
         barcode: initialBarcode || '',
@@ -248,7 +254,7 @@ export default function Inventory() {
         sellingPrice: '',
         costInUSD: '',
         priceInUSD: '',
-        stockQuantity: '',
+        stockQuantity: '0',
         minStockLevel: '5',
         vatRate: storeSettings.taxRate.toString(),
         imageUrl: '',
@@ -514,6 +520,10 @@ export default function Inventory() {
 
     try {
       const now = new Date().toISOString();
+      if (!editingProduct && Number(formData.stockQuantity) > 0) {
+        toast.error('أنشئ الصنف أولاً بكمية صفر، ثم حدد وحدة الأساس وأدخل الرصيد الافتتاحي عبر الجرد');
+        return;
+      }
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
@@ -725,6 +735,11 @@ export default function Inventory() {
               }
             }
           }
+        }
+
+        if (newProducts.some((product) => Number(product.stockQuantity || 0) > 0)) {
+          toast.error('ملف الاستيراد يحتوي على أرصدة افتتاحية. استورد الأصناف بكمية صفر، ثم حدد وحدة الأساس وأدخل الكميات عبر الجرد حتى تُنشأ طبقات FIFO بوحدة صحيحة');
+          return;
         }
 
         if (newProducts.length > 0) {
@@ -1223,11 +1238,20 @@ export default function Inventory() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      {editingProduct ? 'الكمية الحالية' : 'الرصيد الافتتاحي'}
+                      ({editingProduct?.baseUnitCode
+                        ? unitDefinitions.find((unit) => unit.code === editingProduct.baseUnitCode)?.symbol || editingProduct.baseUnitCode
+                        : 'وحدة غير محددة'})
+                    </label>
+                    {!editingProduct && (
+                      <p className="text-xs text-amber-700 mb-1.5">يُنشأ الصنف بكمية صفر. حدد وحدة الأساس أولاً، ثم أدخل الرصيد عبر الجرد.</p>
+                    )}
                     <input 
                       type="number" 
                       required
                       min="0"
+                      disabled
                       value={formData.stockQuantity}
                       onChange={e => setFormData({...formData, stockQuantity: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
@@ -1245,7 +1269,7 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الوحدة الأساسية</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">وحدة العرض القديمة (للتوافق)</label>
                     <select 
                       required
                       value={formData.unit}
@@ -1306,19 +1330,20 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">التكلفة ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">تكلفة وحدة الأساس ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required
                       step="0.01"
                       min="0"
                       value={formData.costPrice}
+                      disabled={!!editingProduct && editingHasInventoryBatches}
                       onChange={e => setFormData({...formData, costPrice: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر البيع ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر بيع وحدة الأساس ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required

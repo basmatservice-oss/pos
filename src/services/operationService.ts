@@ -36,6 +36,28 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function generateTempNumericId(): number {
+  // 52 random bits remain within JavaScript's safe-integer range and SQLite INTEGER.
+  return Number.parseInt(generateUUID().replace(/-/g, '').slice(0, 13), 16) || Date.now() * 1000;
+}
+
+let isReconcilingServerSnapshot = false;
+let operationDispatchQueue: Promise<void> = Promise.resolve();
+
+async function reconcileServerSnapshot(): Promise<void> {
+  // syncAll owns the isSyncing lock. Setting it here first would make syncAll
+  // reject its own reconciliation attempt as an overlapping cycle.
+  isReconcilingServerSnapshot = true;
+  try {
+    const { syncService } = await import('./syncService');
+    await syncService.syncAll();
+  } catch {
+    // The operation is already committed; the next scheduled sync will reconcile it.
+  } finally {
+    isReconcilingServerSnapshot = false;
+  }
+}
+
 function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 0)): number {
   const originalQuantity = Number(item?.quantity || 0);
   const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
@@ -304,6 +326,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 
           await db.orderItems.add({
+            id: Number(item.id) || generateTempNumericId(),
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
@@ -472,7 +495,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const qty = Number(reqItem.quantity);
         if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية المرتجع يجب أن تكون رقماً موجباً');
         const origItem = reqItem.orderItemId
-          ? origItems.find((oi) => oi.id === reqItem.orderItemId)
+          ? origItems.find((oi) => oi.id === Number(reqItem.orderItemId))
           : origItems.find((oi) =>
               oi.productId === reqItem.productId &&
               Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qty
@@ -840,7 +863,8 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
             );
         if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
         const unitCode = batch?.unitCode || null;
-        if (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode)) {
+        if ((reqItem.batchId && !batch) ||
+            (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode))) {
           throw new Error('وحدة مرتجع المشتريات لا تطابق دفعتها الأصلية');
         }
         if (unitCode) {
@@ -1204,7 +1228,43 @@ async function applyEntityLocally(
     ) {
       await table.delete(payload.record.id).catch(() => {});
     }
+    if (tableName === 'products' && finalRecord.id !== undefined) {
+      const existingProduct = await db.products.get(finalRecord.id);
+      if (existingProduct) {
+        const batchCount = await db.inventoryBatches.where('productId').equals(existingProduct.id!).count();
+        if (syncStatus === 'pending' || !serverResult) {
+          finalRecord.stockQuantity = existingProduct.stockQuantity;
+          finalRecord.baseUnitCode = existingProduct.baseUnitCode;
+          finalRecord.quantityPrecision = existingProduct.quantityPrecision;
+          if (batchCount > 0) finalRecord.costPrice = existingProduct.costPrice;
+        }
+      }
+    }
     await table.put({ ...finalRecord, syncStatus });
+    if (tableName === 'products' && Number(finalRecord.stockQuantity || 0) > 0) {
+      const existingBatchCount = await db.inventoryBatches.where('productId').equals(finalRecord.id).count();
+      if (existingBatchCount === 0) {
+        const openingQuantity = Number(finalRecord.stockQuantity);
+        const createdAt = finalRecord.createdAt || new Date().toISOString();
+        await db.inventoryBatches.put({
+          id: `opening-${finalRecord.id}`,
+          productId: finalRecord.id,
+          purchaseId: null,
+          quantity: openingQuantity,
+          remainingQuantity: openingQuantity,
+          costPrice: Number(finalRecord.costPrice || 0),
+          unitCode: finalRecord.baseUnitCode || null,
+          baseUnitCode: finalRecord.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: openingQuantity,
+          purchaseDate: createdAt,
+          branchId: finalRecord.branchId,
+          syncStatus,
+          createdAt,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
   }
 }
 
@@ -1254,6 +1314,15 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'sale' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      items: payload.items.map((item: any) => ({
+        ...item,
+        id: Number(item.id) || generateTempNumericId(),
+      })),
+    };
+  }
   if ((type === 'purchase' || type === 'purchase_update') && Array.isArray(payload?.items)) {
     return {
       ...payload,
@@ -1295,7 +1364,7 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
   return payload;
 }
 
-export async function dispatchOperation(
+async function dispatchOperationSequential(
   type: SyncOperation['type'],
   rawPayload: any,
   branchId?: number
@@ -1306,6 +1375,13 @@ export async function dispatchOperation(
   const role = await getDeviceRole();
   const now = new Date().toISOString();
   const token = getAuthToken();
+  const unresolvedQueueCount = await db.syncOperations
+    .where('status')
+    .anyOf(['pending', 'error', 'syncing', 'conflict'])
+    .count();
+  const canExecuteImmediately = unresolvedQueueCount === 0 &&
+    !isReconcilingServerSnapshot &&
+    !Boolean((useSyncStore.getState() as any).isSyncing);
 
   const opRecord: SyncOperation = {
     id: operationId,
@@ -1319,12 +1395,12 @@ export async function dispatchOperation(
     updatedAt: now,
   };
 
-  if (role === 'server' && token) {
+  if (role === 'server' && token && canExecuteImmediately) {
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
-      import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
+      await reconcileServerSnapshot();
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (
@@ -1339,24 +1415,28 @@ export async function dispatchOperation(
   }
 
   await db.syncOperations.put(opRecord);
-  await applyOperationLocally(type, opRecord.payload, 'pending');
 
-  if (token) {
-    const reachable = await apiService.checkServerReachability(2000);
+  if (token && canExecuteImmediately) {
+    let reachable = false;
+    try {
+      reachable = await apiService.checkServerReachability(2000);
+    } catch {
+      reachable = false;
+    }
+
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
         const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
+        // Apply exactly once, using the server's authoritative item snapshots.
         await applyOperationLocally(type, localPayload, 'synced', response.result);
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
         });
         useSyncStore.getState().setLastSynced(new Date());
-        import('./syncService').then(({ syncService }) => {
-          syncService.updatePendingCount();
-          syncService.pullAll().catch(() => {});
-        });
+        await reconcileServerSnapshot();
+        import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
         return { synced: true, operationId, result: response.result };
       } catch (err: any) {
         if (
@@ -1376,6 +1456,24 @@ export async function dispatchOperation(
     }
   }
 
+  // The server is unavailable (or returned a transient failure): keep the
+  // operation in the durable queue and apply it once to the local database.
+  await applyOperationLocally(type, opRecord.payload, 'pending');
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
+
+}
+
+export function dispatchOperation(
+  type: SyncOperation['type'],
+  rawPayload: any,
+  branchId?: number
+): Promise<{ synced: boolean; operationId: string; result?: any }> {
+  // Serialize operations within this terminal. Without this queue, two rapid
+  // actions can both observe an empty durable queue and reach the server out of order.
+  const next = operationDispatchQueue.then(() =>
+    dispatchOperationSequential(type, rawPayload, branchId)
+  );
+  operationDispatchQueue = next.then(() => undefined, () => undefined);
+  return next;
 }

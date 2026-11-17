@@ -382,6 +382,7 @@ function handleSale(
     const insertedItem = tx
       .insert(orderItems)
       .values({
+        id: Number(item.id) || undefined,
         orderId: order.id,
         productId: Number(item.productId),
         productName: item.productName,
@@ -1390,7 +1391,8 @@ function handlePurchaseReturn(
         ) || purchaseBatches.find((b: any) =>
           b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
         );
-    if (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode)) {
+    if ((reqItem.batchId && !matchingBatch) ||
+        (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode))) {
       throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
     }
     const unitCode = matchingBatch?.unitCode || null;
@@ -1967,6 +1969,42 @@ function handleStocktakeApprove(
   const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
     ? ctx.now
     : requestedApprovalTime.toISOString();
+
+  // Include session and entry snapshots so an offline terminal can synchronize
+  // and approve a stocktake without a separate table-push round trip.
+  const existingSession = tx.select().from(stocktakingSessions)
+    .where(eq(stocktakingSessions.id, sessionId)).get();
+  if (existingSession?.status === 'approved') {
+    return { session: existingSession, alreadyApproved: true };
+  }
+  if (!existingSession && payload?.session && String(payload.session.id) === String(sessionId)) {
+    const { syncStatus: _sessionSyncStatus, updatedAt: _sessionUpdatedAt, ...sessionData } = payload.session;
+    tx.insert(stocktakingSessions).values({
+        ...sessionData,
+        isSynced: 0,
+        createdAt: sessionData.createdAt || approvedAt,
+    }).run();
+  }
+  if (Array.isArray(payload?.entries)) {
+    for (const entry of payload.entries) {
+      if (!entry || String(entry.sessionId) !== String(sessionId) || entry.id == null) continue;
+      const { syncStatus: _entrySyncStatus, updatedAt: _entryUpdatedAt, createdAt: _entryCreatedAt, ...entryData } = entry;
+      const existingEntry = tx.select().from(stocktakingEntries)
+        .where(eq(stocktakingEntries.id, entry.id)).get();
+      if (existingEntry) {
+        tx.update(stocktakingEntries)
+          .set({ ...entryData, isSynced: 0 })
+          .where(eq(stocktakingEntries.id, entry.id))
+          .run();
+      } else {
+        tx.insert(stocktakingEntries).values({
+          ...entryData,
+          isSynced: 0,
+        }).run();
+      }
+    }
+  }
+
   const session = tx
     .select()
     .from(stocktakingSessions)
@@ -2048,7 +2086,7 @@ function handleStocktakeApprove(
   }
 
   tx.update(stocktakingSessions)
-    .set({ status: 'approved', updatedAt: approvedAt, isSynced: 0 })
+    .set({ status: 'approved', isSynced: 0 })
     .where(eq(stocktakingSessions.id, sessionId))
     .run();
 
@@ -2220,6 +2258,48 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       .get();
   }
 
+  if (tableName === 'products') {
+    const productData: any = { ...clean };
+    const existingProduct = productData.id
+      ? tx.select().from(products).where(eq(products.id, Number(productData.id))).get()
+      : null;
+    if (existingProduct) {
+      // Stock is changed only by stock movements/stocktaking, never by a stale
+      // product form or a background entity sync.
+      delete productData.stockQuantity;
+      delete productData.baseUnitCode;
+      delete productData.quantityPrecision;
+      const existingBatch = tx.select({ id: inventoryBatches.id })
+        .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1).get();
+      if (existingBatch) delete productData.costPrice;
+      const updatedProduct = tx.update(products)
+        .set({ ...productData, isSynced: 0, updatedAt: now })
+        .where(eq(products.id, existingProduct.id))
+        .returning()
+        .get();
+      if (!existingBatch && Number(updatedProduct.stockQuantity || 0) > 0) {
+        tx.insert(inventoryBatches).values({
+          id: `opening-${updatedProduct.id}`,
+          productId: updatedProduct.id,
+          purchaseId: null,
+          quantity: Number(updatedProduct.stockQuantity),
+          remainingQuantity: Number(updatedProduct.stockQuantity),
+          costPrice: Number(updatedProduct.costPrice || 0),
+          unitCode: updatedProduct.baseUnitCode || null,
+          baseUnitCode: updatedProduct.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(updatedProduct.stockQuantity),
+          purchaseDate: updatedProduct.createdAt || now,
+          branchId: updatedProduct.branchId || null,
+          isSynced: 0,
+          createdAt: updatedProduct.createdAt || now,
+          updatedAt: now,
+        }).run();
+      }
+      return updatedProduct;
+    }
+  }
+
   if (tableName === 'offers') {
     const offData: any = { ...clean };
     if (Array.isArray(offData.applicableProducts)) {
@@ -2252,11 +2332,36 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
   const autoIncTables = new Set(['products', 'categories', 'customers', 'suppliers', 'expenses']);
   let savedRecord: any;
 
-  if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
-    const { id: _tmp, ...insertValues } = clean;
+  const existingRecord = clean.id !== undefined && clean.id !== null
+    ? tx.select().from(table).where(eq(table.id, clean.id)).get()
+    : null;
+
+  if (existingRecord) {
+    // A client may create and then edit the same temporary-ID entity while
+    // offline. Update that row instead of attempting a second primary-key insert.
+    const updateData: any = { ...clean };
+    delete updateData.createdAt;
+    if (tableName === 'customers') {
+      // Customer balances and loyalty points are derived from sales/payments.
+      // A stale terminal's entity snapshot must never overwrite them.
+      delete updateData.balance;
+      delete updateData.points;
+    } else if (tableName === 'suppliers') {
+      // Supplier balance is derived from purchases and supplier payments.
+      delete updateData.balance;
+    }
+    savedRecord = tx
+      .update(table)
+      .set({ ...updateData, isSynced: 0, updatedAt: now })
+      .where(eq(table.id, existingRecord.id))
+      .returning()
+      .get();
+  } else if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
+    // Keep the client-generated numeric ID so later offline operations can
+    // reference the same product/customer/category without remapping.
     savedRecord = tx
       .insert(table)
-      .values({ ...insertValues, isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
+      .values({ ...clean, id: Number(clean.id), isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
       .returning()
       .get();
   } else {
@@ -2280,16 +2385,20 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
     if (existingBatches.length === 0) {
       tx.insert(inventoryBatches)
         .values({
-          id: crypto.randomUUID(),
+          id: `opening-${savedRecord.id}`,
           productId: savedRecord.id,
           purchaseId: null,
           quantity: Number(savedRecord.stockQuantity),
           remainingQuantity: Number(savedRecord.stockQuantity),
           costPrice: Number(savedRecord.costPrice || 0),
-          purchaseDate: now,
+          unitCode: savedRecord.baseUnitCode || null,
+          baseUnitCode: savedRecord.baseUnitCode || null,
+          conversionToBase: 1,
+          baseQuantity: Number(savedRecord.stockQuantity),
+          purchaseDate: savedRecord.createdAt || now,
           branchId: savedRecord.branchId || null,
           isSynced: 0,
-          createdAt: now,
+          createdAt: savedRecord.createdAt || now,
           updatedAt: now,
         })
         .run();

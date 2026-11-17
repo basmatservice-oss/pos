@@ -20,7 +20,7 @@ export const syncService = {
     try {
       const pendingOps = await db.syncOperations
         .where('status')
-        .anyOf(['pending', 'error'])
+        .anyOf(['pending', 'error', 'conflict'])
         .count();
 
       const tables: string[] = [
@@ -56,7 +56,7 @@ export const syncService = {
       let pendingRecords = 0;
       for (const table of tables) {
         if ((db as any)[table]) {
-          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error']).count();
+          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error', 'conflict']).count();
           pendingRecords += c;
         }
       }
@@ -70,18 +70,24 @@ export const syncService = {
   async syncAll() {
     const token = getAuthToken();
     if (!token) return false;
-
-    const reachable = await apiService.checkServerReachability(2500);
-    useSyncStore.getState().setOnlineStatus(reachable);
-    if (!reachable) {
-      return false;
-    }
-
+    // Set the lock before the first await so concurrent POS operations cannot
+    // start overlapping push/pull cycles.
+    if (useSyncStore.getState().isSyncing) return false;
     useSyncStore.getState().setSyncing(true);
 
     try {
+      const reachable = await apiService.checkServerReachability(2500);
+      useSyncStore.getState().setOnlineStatus(reachable);
+      if (!reachable) return false;
+
       await this.pushOperationsQueue();
-      await this.pushAll();
+      const unresolvedOperations = await db.syncOperations
+        .where('status')
+        .anyOf(['pending', 'error', 'syncing', 'conflict'])
+        .count();
+      if (unresolvedOperations === 0) {
+        await this.pushAll();
+      }
       await this.pullAll();
       await this.pullCurrencyLedger();
       await this.pullUnitCatalog();
@@ -98,53 +104,49 @@ export const syncService = {
   },
 
   async pushOperationsQueue() {
-    const now = Date.now();
-    const queued = await db.syncOperations
-      .where('status')
-      .anyOf(['pending', 'error'])
-      .toArray();
+    const conflictCount = await db.syncOperations.where('status').equals('conflict').count();
+    if (conflictCount > 0) return;
 
-    const readyOps = queued
-      .filter((op) => !op.nextRetryAt || new Date(op.nextRetryAt).getTime() <= now)
+    const queuedOps = (await db.syncOperations
+      .where('status')
+      .anyOf(['pending', 'error', 'syncing'])
+      .toArray())
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    if (readyOps.length === 0) return;
-
-    for (let i = 0; i < readyOps.length; i += 20) {
-      const batch = readyOps.slice(i, i + 20);
-      const response = await apiService.executeOperationsBatch(
-        batch.map((op) => ({
-          id: op.id,
-          type: op.type,
-          payload: op.payload,
-          deviceId: op.deviceId,
-          branchId: op.branchId,
-        }))
-      );
-
-      const results = response?.results || [];
-      for (const res of results) {
-        const op = batch.find((b) => b.id === res.operationId);
-        if (!op) continue;
-
-        if (res.status === 'ok' || res.status === 'duplicate') {
-          await db.syncOperations.update(op.id, {
-            status: 'synced',
-            lastError: undefined,
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
-          const retryCount = (op.retryCount || 0) + 1;
-          const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
-          await db.syncOperations.update(op.id, {
-            status: retryCount >= 8 ? 'conflict' : 'error',
-            retryCount,
-            lastError: res.error || 'Unknown sync error',
-            nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
+    // Process one operation at a time. A delayed/failed/conflicted operation blocks
+    // later operations so dependent stock and financial movements cannot be reordered.
+    for (const op of queuedOps) {
+      if (op.nextRetryAt && new Date(op.nextRetryAt).getTime() > Date.now()) break;
+      const response = await apiService.executeOperationsBatch([{
+        id: op.id,
+        type: op.type,
+        payload: op.payload,
+        deviceId: op.deviceId,
+        branchId: op.branchId,
+      }]);
+      const result = (response?.results || []).find((row: any) => row.operationId === op.id);
+      if (result?.status === 'ok' || result?.status === 'duplicate') {
+        if (op.type === 'entity_upsert' && op.payload?.table && op.payload?.record) {
+          await this.reconcilePushedRecord(op.payload.table, op.payload.record, result?.result || op.payload.record);
         }
+        await db.syncOperations.update(op.id, {
+          status: 'synced',
+          lastError: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        continue;
       }
+
+      const retryCount = (op.retryCount || 0) + 1;
+      const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+      await db.syncOperations.update(op.id, {
+        status: retryCount >= 8 ? 'conflict' : 'error',
+        retryCount,
+        lastError: result?.error || 'Unknown sync error',
+        nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      break;
     }
   },
 
@@ -191,22 +193,14 @@ export const syncService = {
 
   async pushAll() {
     const tables: string[] = [
-      'categories',
-      'products',
-      'customers',
-      'suppliers',
+      // Products/customers/suppliers/categories/expenses are synchronized through
+      // idempotent operations. Pushing their full cached rows can overwrite newer
+      // stock, FIFO cost, or financial balances from another terminal.
       'employees',
-      'expenses',
-      'shifts',
-      'attendance',
       'branches',
-      'payroll',
       'offers',
-      'loyaltyTransactions',
       'settings',
       'auditLogs',
-      'stocktakingSessions',
-      'stocktakingEntries',
     ];
 
     for (const table of tables) {
@@ -257,9 +251,17 @@ export const syncService = {
       case 'categories':
         if (record.id && record.id > 1000000) return await apiService.createCategory(record);
         return await apiService.updateCategory(record.id, record);
-      case 'products':
+      case 'products': {
         if (record.id && record.id > 1000000) return await apiService.createProduct(record);
-        return await apiService.updateProduct(record.id, record);
+        const productPayload = { ...record };
+        // Stock and weighted cost are owned by stock movements/FIFO. Product
+        // metadata sync must never overwrite them from a stale terminal.
+        delete (productPayload as any).stockQuantity;
+        delete (productPayload as any).costPrice;
+        delete (productPayload as any).baseUnitCode;
+        delete (productPayload as any).quantityPrecision;
+        return await apiService.updateProduct(record.id, productPayload);
+      }
       case 'customers':
         if (record.id && record.id > 1000000) return await apiService.createCustomer(record);
         return await apiService.updateCustomer(record.id, record);
@@ -332,8 +334,18 @@ export const syncService = {
 
       const pendingOpsCount = await db.syncOperations
         .where('status')
-        .anyOf(['pending', 'error', 'syncing'])
+        .anyOf(['pending', 'error', 'syncing', 'conflict'])
         .count();
+
+      // Only optimistic rows still marked pending may be reconciled after the
+      // operation queue is clear. Keep error rows untouched: they may represent
+      // failed entity writes from pushAll and must remain retryable.
+      if (pendingOpsCount === 0) {
+        for (const table of db.tables) {
+          if (!table.schema.indexes.some((index: any) => index.name === 'syncStatus')) continue;
+          await table.where('syncStatus').equals('pending').modify({ syncStatus: 'synced' });
+        }
+      }
 
       const pullTasks: Array<{
         table: any;
@@ -394,7 +406,7 @@ export const syncService = {
 
             const pendingLocal = await task.table
               .where('syncStatus')
-              .anyOf(['pending', 'error'])
+              .anyOf(['pending', 'error', 'conflict'])
               .toArray();
             const pendingIds = new Set(pendingLocal.map((r: any) => r.id || r.key));
 

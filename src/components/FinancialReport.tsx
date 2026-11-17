@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { formatAmount } from '../utils/numberFormat.js';
+import { getHistoricalCostAmount } from '../utils/inventoryUnits.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, Purchase } from '../db/db';
 import {
@@ -160,16 +161,11 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
 
   const grossCOGS = orderItems
     .filter((item) => validOrderIds.has(item.orderId))
-    .reduce((sum, item) => {
-      const cost =
-        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
-          ? Number(item.costPriceAtTimeOfSale)
-          : Number(productMap.get(item.productId)?.costPrice || 0);
-      return sum + cost * Number(item.quantity || 0);
-    }, 0);
+    .reduce((sum, item) => sum + getHistoricalCostAmount(item, productMap.get(item.productId)), 0);
 
   const returnedCOGS = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
-  const totalCOGS = serverReport ? Number(serverReport.netCogs) : Math.max(0, grossCOGS - returnedCOGS);
+  // A return reverses COGS in its own accounting period, including returns of older sales.
+  const totalCOGS = serverReport ? Number(serverReport.netCogs) : grossCOGS - returnedCOGS;
   const totalExpenses = serverReport ? Number(serverReport.operatingExpenses) : filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const totalSalaries = serverReport ? Number(serverReport.payrollExpenses) : filteredPayrolls.reduce((sum, p) => sum + Number(p.netSalary || 0), 0);
 
