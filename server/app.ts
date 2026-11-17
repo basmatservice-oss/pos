@@ -1284,10 +1284,6 @@ export function createPosApp() {
   app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), async (req, res) => {
     try {
       const batchId = String(req.params.id);
-      const [existing] = await db.select().from(inventoryBatches)
-        .where(eq(inventoryBatches.id, batchId)).limit(1);
-      if (!existing) return res.status(404).json({ error: 'Inventory batch not found' });
-
       const now = new Date().toISOString();
       const updateData = { ...req.body };
       delete updateData.id;
@@ -1305,15 +1301,20 @@ export function createPosApp() {
       delete updateData.isSynced;
       delete updateData.createdAt;
       delete updateData.updatedAt;
-      const nextRemaining = Number(updateData.remainingQuantity ?? existing.remainingQuantity);
       delete updateData.remainingQuantity;
-      if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
-          nextRemaining > Number(existing.quantity) + 1e-9) {
-        return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
-      }
 
-      const batch = await db.transaction(async (tx: any) => {
-        const [updatedBatch] = await tx
+      const result = await db.transaction(async (tx: any) => {
+        const [existing] = await tx.select().from(inventoryBatches)
+          .where(eq(inventoryBatches.id, batchId)).limit(1);
+        if (!existing) return { status: 404 as const };
+
+        const nextRemaining = Number(req.body.remainingQuantity ?? existing.remainingQuantity);
+        if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
+            nextRemaining > Number(existing.quantity) + 1e-9) {
+          return { status: 400 as const };
+        }
+
+        const [batch] = await tx
           .update(inventoryBatches)
           .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
           .where(eq(inventoryBatches.id, batchId))
@@ -1346,9 +1347,16 @@ export function createPosApp() {
             createdAt: now,
           }, tx);
         }
-        return updatedBatch;
+        return { batch };
       });
-      res.json(batch);
+
+      if ('status' in result && result.status === 404) {
+        return res.status(404).json({ error: 'Inventory batch not found' });
+      }
+      if ('status' in result && result.status === 400) {
+        return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
+      }
+      res.json(result.batch);
     } catch {
       res.status(500).json({ error: 'Failed to update inventory batch' });
     }
