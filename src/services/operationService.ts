@@ -1329,6 +1329,7 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
       items: payload.items.map((item: any) => ({
         ...item,
         batchId: item.batchId || generateUUID(),
+        movementLineId: item.movementLineId || generateUUID(),
       })),
     };
   }
@@ -1338,8 +1339,19 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
   if (type === 'shift_movement' && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
-  if ((type === 'purchase_return' || type === 'return') && !payload?.id) {
-    return { ...payload, id: generateUUID() };
+  if (type === 'return' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      id: payload.id || generateUUID(),
+      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
+    };
+  }
+  if (type === 'purchase_return' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      id: payload.id || generateUUID(),
+      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
+    };
   }
   return payload;
 }
