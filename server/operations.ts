@@ -841,7 +841,7 @@ function handleOrderVoid(
   return { order: updatedOrder };
 }
 
-function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, purchaseDate: string) {
+function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, purchaseDate: string, exchangeRateIdInput?: unknown) {
   if (currencyCodeInput == null || String(currencyCodeInput).trim() === '') {
     // Backward compatibility: legacy purchases retain their existing base-currency semantics.
     return null;
@@ -865,17 +865,30 @@ function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, pu
   }
 
   const purchaseTimestamp = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
-  const eligibleRates = tx.select().from(exchangeRates).all().filter((rate: any) => {
-    if (!rate.approvedAt || !Number.isFinite(Number(rate.rate)) || Number(rate.rate) <= 0) return false;
+  const matchesPairAndDate = (rate: any) => {
+    if (!rate?.approvedAt || !Number.isFinite(Number(rate.rate)) || Number(rate.rate) <= 0) return false;
     const effectiveTimestamp = new Date(rate.effectiveAt).getTime();
     if (!Number.isFinite(effectiveTimestamp) || effectiveTimestamp > purchaseTimestamp) return false;
     return (
       (rate.baseCurrencyCode === currencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
       (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === currencyCode)
     );
-  }).sort((a: any, b: any) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime());
+  };
 
-  const selectedRate = eligibleRates[0];
+  let selectedRate: any;
+  if (exchangeRateIdInput) {
+    selectedRate = tx.select().from(exchangeRates).where(eq(exchangeRates.id, String(exchangeRateIdInput))).get();
+    if (!matchesPairAndDate(selectedRate)) {
+      throw new OperationError('سعر الصرف المحدد غير معتمد أو لا يطابق العملات أو تاريخ الفاتورة', 400);
+    }
+  } else {
+    const eligibleRates = tx.select().from(exchangeRates).all().filter(matchesPairAndDate)
+      .sort((a: any, b: any) => {
+        const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
+        return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+    selectedRate = eligibleRates[0];
+  }
   if (!selectedRate) {
     throw new OperationError('لا يوجد سعر صرف معتمد وساري بتاريخ فاتورة الشراء لهذه العملات', 400);
   }
@@ -906,7 +919,7 @@ function handlePurchaseCreate(
   }
 
   const purchaseDate = purchase.date ? new Date(purchase.date).toISOString() : ctx.now;
-  const currencySnapshot = resolvePurchaseCurrencySnapshot(tx, purchase.currencyCode, purchaseDate);
+  const currencySnapshot = resolvePurchaseCurrencySnapshot(tx, purchase.currencyCode, purchaseDate, purchase.exchangeRateId);
   const rawOriginalTotalAmount = Number(purchase.totalAmount ?? 0);
   const rawOriginalPaidAmount = Number(purchase.paidAmount ?? 0);
   if (currencySnapshot && (!Number.isFinite(rawOriginalTotalAmount) || rawOriginalTotalAmount < 0 || !Number.isFinite(rawOriginalPaidAmount) || rawOriginalPaidAmount < 0)) {
