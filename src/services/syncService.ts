@@ -143,13 +143,18 @@ export const syncService = {
 
       const retryCount = (op.retryCount || 0) + 1;
       const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+      const failedStatus = retryCount >= 8 ? 'conflict' : 'error';
       await db.syncOperations.update(op.id, {
-        status: retryCount >= 8 ? 'conflict' : 'error',
+        status: failedStatus,
         retryCount,
         lastError: result?.error || 'Unknown sync error',
         nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      await db.inventoryMovements
+        .where('operationId')
+        .equals(op.id)
+        .modify({ syncStatus: failedStatus });
       break;
     }
   },
