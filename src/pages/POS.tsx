@@ -507,7 +507,6 @@ export default function POS() {
       };
 
       const orderItemsPayload: OrderItem[] = items.map((item, idx) => {
-        const factor = item.selectedUnit === 'box' ? item.conversionFactor || 1 : 1;
         const unitPrice = getItemPrice(item);
         const line = summary.lines[idx];
 
@@ -815,7 +814,7 @@ export default function POS() {
                             </select>
                           );
                         }
-                        if (item.unit === 'box') {
+                        if (item.unit === 'box' && !item.selectedUnitCode) {
                           return (
                             <select
                               value={item.selectedUnit}
