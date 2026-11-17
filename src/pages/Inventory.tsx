@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, Supplier } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
-import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera } from 'lucide-react';
+import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
@@ -18,6 +18,9 @@ export default function Inventory() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
+  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '' });
+  const [unitSaving, setUnitSaving] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
   const { user } = useAuth();
@@ -75,6 +78,14 @@ export default function Inventory() {
       useInventoryStore.getState().updateProducts(liveProducts);
     }
   }, [liveProducts]);
+
+  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.where('isActive').equals(1).toArray()) || [];
+  const productUnitRows = useLiveQuery(
+    () => unitEditorProduct?.id
+      ? db.productUnits.where('productId').equals(unitEditorProduct.id).toArray()
+      : Promise.resolve([]),
+    [unitEditorProduct?.id]
+  ) || [];
 
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   
@@ -140,6 +151,52 @@ export default function Inventory() {
       setFormData(prev => ({ ...prev, vatRate: storeSettings.taxRate.toString() }));
     }
   }, [storeSettings.taxRate, editingProduct, isModalOpen]);
+
+  const handleOpenUnitManager = (product: Product) => {
+    setUnitEditorProduct(product);
+    setUnitDraft({
+      unitCode: product.baseUnitCode || '',
+      conversionToBase: '1',
+      isBaseUnit: !product.baseUnitCode,
+      sellingPrice: '',
+    });
+  };
+
+  const handleSaveProductUnit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unitEditorProduct?.id || !unitDraft.unitCode) return;
+    const conversionToBase = unitDraft.isBaseUnit ? 1 : Number(unitDraft.conversionToBase);
+    if (!Number.isFinite(conversionToBase) || conversionToBase <= 0) {
+      toast.error('معامل التحويل يجب أن يكون أكبر من صفر');
+      return;
+    }
+    setUnitSaving(true);
+    try {
+      const saved = await apiService.saveProductUnit({
+        productId: unitEditorProduct.id,
+        unitCode: unitDraft.unitCode,
+        conversionToBase,
+        isBaseUnit: unitDraft.isBaseUnit,
+        sellingPrice: unitDraft.sellingPrice === '' ? null : Number(unitDraft.sellingPrice),
+      });
+      await db.productUnits.put({ ...saved, syncStatus: 'synced' });
+      if (saved.isBaseUnit) {
+        const definition = unitDefinitions.find((item) => item.code === saved.unitCode);
+        await db.products.update(unitEditorProduct.id, {
+          baseUnitCode: saved.unitCode,
+          quantityPrecision: definition?.decimalPlaces ?? 0,
+          syncStatus: 'synced',
+        });
+        setUnitEditorProduct((prev) => prev ? { ...prev, baseUnitCode: saved.unitCode, quantityPrecision: definition?.decimalPlaces ?? 0 } : prev);
+      }
+      toast.success('تم حفظ وحدة الصنف');
+      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '' });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || error?.message || 'تعذر حفظ وحدة الصنف');
+    } finally {
+      setUnitSaving(false);
+    }
+  };
 
   const handleOpenModal = (product?: Product, initialBarcode?: string) => {
     if (product) {
@@ -919,6 +976,13 @@ export default function Inventory() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
                     <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => handleOpenUnitManager(product)}
+                        className="text-amber-700 hover:text-amber-900 p-2 bg-amber-50 rounded-lg"
+                        title="إدارة وحدات الصنف"
+                      >
+                        <Ruler className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => openPrintBarcode(product)}
                         className="text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg"
@@ -1425,6 +1489,59 @@ export default function Inventory() {
               >
                 إلغاء العملية
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {unitEditorProduct && (
+        <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">وحدات الصنف</h3>
+                <p className="text-sm text-gray-500 mt-1">{unitEditorProduct.name}</p>
+              </div>
+              <button type="button" onClick={() => setUnitEditorProduct(null)} className="p-2 rounded-lg bg-gray-100"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveProductUnit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="text-sm space-y-1">الوحدة
+                <select required value={unitDraft.unitCode} onChange={(e) => setUnitDraft({ ...unitDraft, unitCode: e.target.value })} className="w-full p-3 border rounded-xl">
+                  <option value="">اختر وحدة</option>
+                  {unitDefinitions.map((unit) => <option key={unit.code} value={unit.code}>{unit.name} ({unit.code})</option>)}
+                </select>
+              </label>
+              <label className="text-sm space-y-1">معامل التحويل إلى وحدة الأساس
+                <input required type="number" min="0.0000001" step="any" value={unitDraft.isBaseUnit ? '1' : unitDraft.conversionToBase} disabled={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, conversionToBase: e.target.value })} className="w-full p-3 border rounded-xl disabled:bg-gray-100" />
+              </label>
+              <label className="text-sm space-y-1">سعر البيع لهذه الوحدة (اختياري)
+                <input type="number" min="0" step="0.01" value={unitDraft.sellingPrice} onChange={(e) => setUnitDraft({ ...unitDraft, sellingPrice: e.target.value })} className="w-full p-3 border rounded-xl" />
+              </label>
+              <label className="flex items-center gap-2 text-sm self-end p-3 border rounded-xl">
+                <input type="checkbox" checked={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, isBaseUnit: e.target.checked, conversionToBase: '1' })} />
+                هذه وحدة الأساس للصنف (معاملها 1)
+              </label>
+              <div className="md:col-span-2 flex items-center gap-3">
+                <button disabled={unitSaving || !unitDraft.unitCode} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ الوحدة</button>
+                <span className="text-xs text-gray-500">مثال: 1 كرتونة = 12 قطعة، يكون معامل الكرتونة 12 إذا كانت القطعة هي وحدة الأساس.</span>
+              </div>
+            </form>
+            <div className="px-6 pb-6">
+              <h4 className="font-bold text-gray-800 mb-3">الوحدات المسجلة</h4>
+              <div className="overflow-x-auto border rounded-xl">
+                <table className="w-full text-sm text-right">
+                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th></tr></thead>
+                  <tbody>{productUnitRows.map((unit) => (
+                    <tr key={unit.id} className="border-t">
+                      <td className="p-3">{unitDefinitions.find((definition) => definition.code === unit.unitCode)?.name || unit.unitCode}</td>
+                      <td className="p-3 tabular-nums">{unit.conversionToBase}</td>
+                      <td className="p-3">{unit.isBaseUnit ? 'أساس' : 'بديلة'}</td>
+                      <td className="p-3 tabular-nums">{unit.sellingPrice ?? '—'}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              {!unitEditorProduct.baseUnitCode && <p className="text-xs text-amber-700 mt-3">لم تُحدد وحدة أساس بعد. ابدأ بتسجيل الوحدة الأساسية ومعامل تحويل يساوي 1.</p>}
             </div>
           </div>
         </div>
