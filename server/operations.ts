@@ -1380,7 +1380,7 @@ function handlePurchaseReturn(
       : purchaseBatches.find((b: any) =>
           b.productId === prodId &&
           (!reqItem.unitCode || b.unitCode === reqItem.unitCode) &&
-          Number(b.remainingQuantity || 0) >= qtyToReturn * Number(b.conversionToBase || 1)
+          Number(b.remainingQuantity ?? b.quantity ?? 0) >= qtyToReturn * Number(b.conversionToBase || 1)
         ) || purchaseBatches.find((b: any) =>
           b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
         );
@@ -1404,7 +1404,7 @@ function handlePurchaseReturn(
     const baseQty = qtyToReturn * factor;
 
     if (matchingBatch) {
-      if (Number(matchingBatch.remainingQuantity || 0) < baseQty) {
+      if (Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) < baseQty) {
         throw new OperationError(
           `الكمية المتبقية في دفعة المنتج ${reqItem.productName} (${matchingBatch.remainingQuantity}) أقل من كمية المرتجع (${qtyToReturn})`,
           400
@@ -1412,13 +1412,13 @@ function handlePurchaseReturn(
       }
       tx.update(inventoryBatches)
         .set({
-          remainingQuantity: Number(matchingBatch.remainingQuantity) - baseQty,
+          remainingQuantity: Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty,
           updatedAt: ctx.now,
           isSynced: 0,
         })
         .where(eq(inventoryBatches.id, matchingBatch.id))
         .run();
-      matchingBatch.remainingQuantity = Number(matchingBatch.remainingQuantity) - baseQty;
+      matchingBatch.remainingQuantity = Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty;
     } else {
       const product = tx.select().from(products).where(eq(products.id, prodId)).get();
       if (!product || Number(product.stockQuantity || 0) < baseQty) {
