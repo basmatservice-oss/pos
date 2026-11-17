@@ -1330,7 +1330,7 @@ export async function dispatchOperation(
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
-      import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
+      import('./syncService').then(({ syncService }) => syncService.syncAll().catch(() => {}));
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (
@@ -1367,7 +1367,7 @@ export async function dispatchOperation(
         useSyncStore.getState().setLastSynced(new Date());
         import('./syncService').then(({ syncService }) => {
           syncService.updatePendingCount();
-          syncService.pullAll().catch(() => {});
+          syncService.syncAll().catch(() => {});
         });
         return { synced: true, operationId, result: response.result };
       } catch (err: any) {
