@@ -412,6 +412,19 @@ async function applyPurchaseLocally(
     }
   }
 
+  if (serverItems.length > 0) {
+    resolvedItems = resolvedItems.map((item, index) => {
+      const serverItem = serverItems[index] || serverItems.find(
+        (candidate) => candidate.productId === item.productId && Number(candidate.quantity) === Number(item.quantity)
+      );
+      return {
+        ...item,
+        ...(serverItem || {}),
+        batchId: item.batchId || serverItem?.batchId,
+      };
+    });
+  }
+
   await db.transaction(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
@@ -542,10 +555,14 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         const qty = Number(reqItem.quantity || 0);
         if (qty <= 0) continue;
         const batch = reqItem.batchId
-          ? batches.find((b) => b.id === reqItem.batchId)
-          : batches.find((b) => b.productId === reqItem.productId);
-        const conversionToBase = Number(batch?.conversionToBase || reqItem.conversionToBase || 1);
+          ? batches.find((b) => b.id === reqItem.batchId && b.productId === Number(reqItem.productId))
+          : batches.find((b) => b.productId === Number(reqItem.productId));
+        if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
+        const conversionToBase = Number(batch?.conversionToBase || 1);
         const baseQuantity = qty * conversionToBase;
+        if (batch && Number(batch.remainingQuantity ?? batch.quantity) < baseQuantity) {
+          throw new Error('الكمية المتبقية في دفعة الشراء لا تكفي لتنفيذ المرتجع');
+        }
         const cost = Number(reqItem.costPrice || 0);
         const lineTotal = roundMoney(qty * cost);
         totalReturn = roundMoney(totalReturn + lineTotal);
@@ -553,16 +570,19 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         if (batch && batch.id) {
           const curRem = Number(batch.remainingQuantity ?? batch.quantity);
           await db.inventoryBatches.update(batch.id, {
-            remainingQuantity: Math.max(0, curRem - baseQuantity),
+            remainingQuantity: curRem - baseQuantity,
             updatedAt: now,
             syncStatus,
           });
         }
 
         const prod = await db.products.get(Number(reqItem.productId));
+        if (!batch && (!prod || Number(prod.stockQuantity || 0) < baseQuantity)) {
+          throw new Error('المخزون المتاح لا يكفي لتنفيذ مرتجع المشتريات');
+        }
         if (prod) {
           await db.products.update(prod.id!, {
-            stockQuantity: Math.max(0, prod.stockQuantity - baseQuantity),
+            stockQuantity: prod.stockQuantity - baseQuantity,
             updatedAt: now,
             syncStatus,
           });
