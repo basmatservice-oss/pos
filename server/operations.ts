@@ -2694,6 +2694,24 @@ function handleEntityDelete(tx: any, payload: any) {
   if (!table) {
     throw new OperationError(`Unsupported entity table: ${tableName}`, 400);
   }
+
+  if (tableName === 'products') {
+    const productId = Number(id);
+    const product = tx.select().from(products).where(eq(products.id, productId)).get();
+    if (product) {
+      const batch = tx.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.productId, productId)).limit(1).get();
+      const movement = tx.select().from(inventoryMovements)
+        .where(eq(inventoryMovements.productId, productId)).limit(1).get();
+      if (Number(product.stockQuantity || 0) > 1e-9 || batch || movement) {
+        throw new OperationError(
+          'لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.',
+          409
+        );
+      }
+    }
+  }
+
   tx.delete(table).where(eq(table.id, id)).run();
   return { table: tableName, deleted: id };
 }
