@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { apiService } from '../services/apiService';
 import ConfirmationModal from '../components/ConfirmationModal';
+import InventoryMovementHistory from '../components/InventoryMovementHistory';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -1128,7 +1129,7 @@ export default function Inventory() {
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b border-gray-100">
               <h3 className="text-xl font-bold text-gray-900">
                 {editingProduct ? 'تعديل منتج' : 'إضافة منتج جديد'}
@@ -1395,6 +1396,14 @@ export default function Inventory() {
                 </button>
               </div>
             </form>
+            {editingProduct?.id !== undefined && (
+              <div className="px-6 pb-6">
+                <InventoryMovementHistory
+                  productId={Number(editingProduct.id)}
+                  currency={storeSettings.currency}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
