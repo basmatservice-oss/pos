@@ -101,17 +101,16 @@ export const syncService = {
     const conflictCount = await db.syncOperations.where('status').equals('conflict').count();
     if (conflictCount > 0) return;
 
-    const now = Date.now();
-    const readyOps = (await db.syncOperations
+    const queuedOps = (await db.syncOperations
       .where('status')
-      .anyOf(['pending', 'error'])
+      .anyOf(['pending', 'error', 'syncing'])
       .toArray())
-      .filter((op) => !op.nextRetryAt || new Date(op.nextRetryAt).getTime() <= now)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    // Process one operation at a time. A failed/conflicted operation blocks later
-    // operations so dependent stock and financial movements cannot be reordered.
-    for (const op of readyOps) {
+    // Process one operation at a time. A delayed/failed/conflicted operation blocks
+    // later operations so dependent stock and financial movements cannot be reordered.
+    for (const op of queuedOps) {
+      if (op.nextRetryAt && new Date(op.nextRetryAt).getTime() > Date.now()) break;
       const response = await apiService.executeOperationsBatch([{
         id: op.id,
         type: op.type,
