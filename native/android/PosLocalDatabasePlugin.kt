@@ -39,8 +39,10 @@ class PosLocalDatabasePlugin : Plugin() {
         val entity = call.getString("entity")?.trim().orEmpty()
         val recordId = call.getString("recordId")?.trim().orEmpty()
         val record = call.getObject("record")
-        if (entity.isBlank() || recordId.isBlank() || record == null) {
-            call.reject("entity و recordId و record حقول مطلوبة")
+        val syncState = call.getString("syncState") ?: "local"
+        if (entity.isBlank() || recordId.isBlank() || record == null ||
+            syncState !in setOf("local", "pending", "synced", "error")) {
+            call.reject("entity و recordId و record وحالة مزامنة صحيحة مطلوبة")
             return
         }
         try {
@@ -49,7 +51,7 @@ class PosLocalDatabasePlugin : Plugin() {
                 put("record_id", recordId)
                 put("json", record.toString())
                 put("updated_at", System.currentTimeMillis())
-                put("sync_state", call.getString("syncState") ?: "local")
+                put("sync_state", syncState)
             }
             helper.writableDatabase.insertWithOnConflict(
                 "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
