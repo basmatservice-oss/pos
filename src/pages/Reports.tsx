@@ -303,7 +303,8 @@ export default function Reports() {
     });
 
     const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
-    const totalCost = Math.max(0, grossCost - returnedCost);
+    // Returns reverse COGS in the return period, even when the original sale was in an earlier period.
+    const totalCost = grossCost - returnedCost;
 
     const grossProfit = totalRevenueExclVat - totalCost;
     const netProfit = grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
@@ -383,7 +384,17 @@ export default function Reports() {
     const totalRetailValue = products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity) * p.sellingPrice, 0);
     const totalReceivables = customers.reduce((sum, c) => sum + Number(c.balance || 0), 0);
     const totalPayables = suppliers.reduce((sum, s) => sum + Number(s.balance || 0), 0);
-    const lowStockItems = products.filter((p) => p.stockQuantity <= (p.minStockLevel || 10));
+    const lowStockItems = products
+      .filter((product) => product.stockQuantity <= (product.minStockLevel || 10))
+      .map((product) => {
+        const baseUnitCode = product.baseUnitCode || (product.unit === 'box' ? 'piece' : product.unit);
+        return {
+          ...product,
+          baseUnitLabel: baseUnitCode
+            ? unitNames.get(baseUnitCode) || (baseUnitCode === 'piece' ? 'قطعة' : baseUnitCode)
+            : 'وحدة أساس',
+        };
+      });
 
     const totalPurchases = purchases
       .filter((p) => isWithinInterval(new Date(p.date), { start: startDate, end: endDate }))
@@ -883,7 +894,7 @@ export default function Reports() {
                       <div>
                         <p className="text-sm font-bold text-slate-900">{product.name}</p>
                         <p className="text-xs text-rose-600 font-bold tabular-nums">
-                          المتبقي: {product.stockQuantity} {product.unit || 'حبة'}
+                          المتبقي: {formatQuantity(product.stockQuantity)} {product.baseUnitLabel}
                         </p>
                       </div>
                       <span className="px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-xs font-bold whitespace-nowrap">
