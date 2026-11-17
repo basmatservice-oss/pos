@@ -44,6 +44,33 @@ export interface AuditLog {
   syncStatus: 'synced' | 'pending' | 'error';
 }
 
+export interface UnitDefinition {
+  code: string;
+  name: string;
+  symbol?: string;
+  dimension: string;
+  decimalPlaces: number;
+  isFractional: number;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
+
+export interface ProductUnit {
+  id: string;
+  productId: number;
+  unitCode: string;
+  conversionToBase: number;
+  isBaseUnit: number;
+  sellingPrice?: number;
+  barcode?: string;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
+
 export interface Product {
   id?: number;
   barcode: string;
@@ -55,8 +82,10 @@ export interface Product {
   priceInUSD?: number;
   stockQuantity: number;
   minStockLevel?: number;
-  unit: 'piece' | 'box';
+  unit: 'piece' | 'box'; // Legacy fields retained for compatibility.
   conversionFactor: number;
+  baseUnitCode?: string;
+  quantityPrecision?: number;
   vatRate: number;
   imageUrl?: string;
   branchId?: number;
@@ -77,6 +106,10 @@ export interface InventoryBatch {
   currencyCode?: string | null;
   exchangeRate?: number | null;
   exchangeRateId?: string | null;
+  unitCode?: string | null;
+  baseUnitCode?: string | null;
+  conversionToBase?: number | null;
+  baseQuantity?: number | null;
   purchaseDate: string;
   expiryDate?: string;
   batchNumber?: string;
@@ -131,6 +164,10 @@ export interface OrderItem {
   returnedQuantity?: number;
   unit?: 'piece' | 'box';
   conversionFactor?: number;
+  unitCode?: string;
+  baseUnitCode?: string;
+  conversionToBase?: number;
+  baseQuantity?: number;
   unitPrice: number;
   costPriceAtTimeOfSale: number;
   discountAmount?: number;
@@ -173,6 +210,10 @@ export interface ReturnItem {
   productName: string;
   quantity: number;
   unitPrice: number;
+  unitCode?: string;
+  baseUnitCode?: string;
+  conversionToBase?: number;
+  baseQuantity?: number;
   costPrice: number;
   taxAmount: number;
   total: number;
@@ -470,6 +511,10 @@ export interface PurchaseItem {
   currencyCode?: string | null;
   exchangeRate?: number | null;
   exchangeRateId?: string | null;
+  unitCode?: string | null;
+  baseUnitCode?: string | null;
+  conversionToBase?: number | null;
+  baseQuantity?: number | null;
   total: number;
   syncStatus?: 'synced' | 'pending' | 'error';
 }
@@ -501,6 +546,10 @@ export interface PurchaseReturnItem {
   quantity: number;
   costPrice: number;
   total: number;
+  unitCode?: string;
+  baseUnitCode?: string;
+  conversionToBase?: number;
+  baseQuantity?: number;
   batchId?: string;
   syncStatus: 'synced' | 'pending' | 'error';
   createdAt?: string;
@@ -537,6 +586,8 @@ export interface StocktakingEntry {
   barcode: string;
   systemQuantity: number;
   actualQuantity: number;
+  unitCode?: string;
+  baseUnitCode?: string;
   scannedBy: string;
   scannedAt: string;
   syncStatus: 'synced' | 'pending' | 'error';
@@ -623,6 +674,8 @@ export class POSDatabase extends Dexie {
   syncOperations!: Table<SyncOperation, string>;
   inventoryAlerts!: Table<InventoryAlert, string>;
   heldOrders!: Table<HeldOrder, string>;
+  unitDefinitions!: Table<UnitDefinition, string>;
+  productUnits!: Table<ProductUnit, string>;
   currencies!: Table<Currency, string>;
   exchangeRates!: Table<ExchangeRate, string>;
 
@@ -967,6 +1020,47 @@ export class POSDatabase extends Dexie {
       syncOperations: 'id, type, status, createdAt, nextRetryAt',
       inventoryAlerts: 'id, productId, resolved, createdAt',
       heldOrders: 'id, createdAt, customerId',
+      currencies: 'code, isActive, syncStatus',
+      exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
+    })
+
+    this.version(23).stores({
+      products: '++id, barcode, categoryId, name, branchId, syncStatus',
+      categories: '++id, name, branchId, syncStatus',
+      orders: 'id, receiptNumber, createdAt, status, branchId, syncStatus, customerId, createdBy, operationId',
+      orderItems: '++id, orderId, productId, syncStatus',
+      returns: 'id, returnNumber, originalOrderId, createdAt, branchId, syncStatus',
+      returnItems: 'id, returnId, orderItemId, productId, syncStatus',
+      accounts: 'code, type, name',
+      shifts: '++id, status, startTime, branchId, syncStatus',
+      shiftMovements: 'id, shiftId, type, branchId, createdAt, syncStatus',
+      customers: '++id, name, phone, branchId, syncStatus',
+      customerPayments: 'id, customerId, orderId, shiftId, createdAt, syncStatus',
+      expenses: '++id, date, category, shiftId, branchId, syncStatus',
+      suppliers: '++id, name, phone, syncStatus',
+      supplierPayments: 'id, supplierId, purchaseId, shiftId, createdAt, syncStatus',
+      employees: '++id, name, role, status, branchId, syncStatus, pinCode, username',
+      settings: '++id, key, syncStatus',
+      purchases: 'id, supplierId, date, branchId, syncStatus, operationId',
+      purchaseItems: '++id, purchaseId, productId, syncStatus',
+      purchaseReturns: 'id, returnNumber, originalPurchaseId, supplierId, createdAt, branchId, syncStatus',
+      purchaseReturnItems: 'id, purchaseReturnId, productId, syncStatus',
+      attendance: '++id, employeeId, date, branchId, syncStatus',
+      loyaltyTransactions: '++id, customerId, orderId, date, syncStatus',
+      branches: '++id, name, status, syncStatus',
+      payroll: '++id, employeeId, periodStart, status, branchId, syncStatus',
+      offers: '++id, name, type, status, branchId, syncStatus',
+      auditLogs: '++id, date, type, userName, syncStatus',
+      journalEntries: '++id, date, referenceId, referenceType, status, syncStatus',
+      transactions: '++id, orderId, purchaseId, returnId, journalEntryId, accountId, syncStatus',
+      stocktakingSessions: 'id, status, createdAt, branchId, syncStatus',
+      stocktakingEntries: '++id, sessionId, productId, barcode, syncStatus',
+      inventoryBatches: '++id, productId, purchaseId, purchaseDate, syncStatus',
+      syncOperations: 'id, type, status, createdAt, nextRetryAt',
+      inventoryAlerts: 'id, productId, resolved, createdAt',
+      heldOrders: 'id, createdAt, customerId',
+      unitDefinitions: 'code, dimension, isActive, syncStatus',
+      productUnits: 'id, productId, unitCode, isActive, syncStatus',
       currencies: 'code, isActive, syncStatus',
       exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
     });
