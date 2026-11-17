@@ -365,7 +365,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches],
     async () => {
       const origOrder = await db.orders.get(targetOrderId);
       if (!origOrder || origOrder.status === 'void') return;
@@ -376,6 +376,18 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
       const origItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
       for (const oi of origItems) {
         const baseQty = getBaseMovementQuantity(oi);
+        const factor = Number(oi.conversionToBase ?? oi.conversionFactor ?? 1);
+        const fallbackBaseCost = factor > 0
+          ? Number(oi.costPriceAtTimeOfSale || 0) / factor
+          : Number(oi.costPriceAtTimeOfSale || 0);
+        await restoreLocalInventoryFIFO(
+          oi.productId,
+          baseQty,
+          parseLocalBatchAllocations(oi.batchAllocations),
+          fallbackBaseCost,
+          origOrder.branchId,
+          syncStatus
+        );
         const product = await db.products.get(oi.productId);
         if (product) {
           await db.products.update(product.id!, {
@@ -383,6 +395,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
             updatedAt: now,
             syncStatus,
           });
+          await recalculateLocalProductWeightedCost(product.id!, syncStatus);
         }
       }
 
