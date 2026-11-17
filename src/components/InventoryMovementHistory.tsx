@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { apiService } from '../services/apiService';
 import { db } from '../db/db';
 
 type Props = {
@@ -39,6 +41,30 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
     );
   }, [productId]) || [];
   const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLatest = async () => {
+      try {
+        const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
+        if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
+        await db.transaction('rw', db.inventoryMovements, async () => {
+          const keys = response.items.map((movement: any) => movement.movementKey);
+          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
+          const serverIds = new Set(response.items.map((movement: any) => movement.id));
+          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
+          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+          await db.inventoryMovements.bulkPut(
+            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+          );
+        });
+      } catch {
+        // The locally cached ledger remains available while the POS is offline.
+      }
+    };
+    loadLatest();
+    return () => { cancelled = true; };
+  }, [productId]);
 
   return (
     <section className="mt-6 border-t border-gray-200 pt-5" dir="rtl">
