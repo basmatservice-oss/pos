@@ -681,6 +681,10 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       "createdAt" text NOT NULL
     );
     DROP INDEX IF EXISTS "idx_inventory_movement_operation_key";
+    DELETE FROM "InventoryMovement"
+      WHERE rowid NOT IN (
+        SELECT MIN(rowid) FROM "InventoryMovement" GROUP BY "movementKey"
+      );
     CREATE UNIQUE INDEX IF NOT EXISTS "idx_inventory_movement_key"
       ON "InventoryMovement" ("movementKey");
     CREATE INDEX IF NOT EXISTS "idx_inventory_movement_product_date"
