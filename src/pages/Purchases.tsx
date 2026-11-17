@@ -49,10 +49,6 @@ export default function Purchases() {
   const baseCurrencySetting = useLiveQuery(() => db.settings.where('key').equals('baseCurrencyCode').first());
 
 
-  useEffect(() => {
-    if (baseCurrencySetting?.value && !purchaseCurrencyCode) setPurchaseCurrencyCode(String(baseCurrencySetting.value).toUpperCase());
-  }, [baseCurrencySetting?.value, purchaseCurrencyCode]);
-
   const purchases = useMemo(() => {
     return [...allPurchases].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -88,6 +84,12 @@ export default function Purchases() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [purchaseDate, setPurchaseDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [purchaseCurrencyCode, setPurchaseCurrencyCode] = useState('');
+
+  useEffect(() => {
+    if (baseCurrencySetting?.value && !purchaseCurrencyCode) setPurchaseCurrencyCode(String(baseCurrencySetting.value).toUpperCase());
+  }, [baseCurrencySetting?.value, purchaseCurrencyCode]);
+
+
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
 
   // Confirm Delete Modal State
@@ -245,7 +247,7 @@ export default function Purchases() {
         productId: item.product.id!,
         productName: item.product.name,
         quantity: item.quantity,
-        costPrice: item.originalCostPrice ?? item.costPrice,
+        costPrice: item.costPrice,
         total: item.quantity * item.costPrice,
       }));
 
@@ -300,7 +302,7 @@ export default function Purchases() {
       return {
         product: product || ({ id: item.productId, name: item.productName, costPrice: item.costPrice } as any),
         quantity: item.quantity,
-        costPrice: item.costPrice,
+        costPrice: item.originalCostPrice ?? item.costPrice,
       };
     });
     setCart(cartItems);
