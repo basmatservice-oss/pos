@@ -84,7 +84,17 @@ function resolveMovementUnit(tx: any, productId: number, item: any, quantity: nu
 
     const definition = tx.select().from(unitDefinitions)
       .where(eq(unitDefinitions.code, unitCode)).get();
-    if (!definition || !definition.isActive) throw new OperationError('تعريف وحدة القياس غير موجود أو غير نشط', 409);
+    const baseDefinition = tx.select().from(unitDefinitions)
+      .where(eq(unitDefinitions.code, baseUnitCode)).get();
+    if (!definition || !definition.isActive || !baseDefinition || !baseDefinition.isActive) {
+      throw new OperationError('تعريف وحدة القياس أو وحدة الأساس غير موجود أو غير نشط', 409);
+    }
+    if (definition.dimension !== baseDefinition.dimension) {
+      throw new OperationError('لا يمكن التحويل بين وحدات ذات أبعاد مختلفة', 409);
+    }
+    if (Math.abs(Number(baseUnit.conversionToBase) - 1) > 1e-10) {
+      throw new OperationError('معامل وحدة الأساس يجب أن يساوي 1', 409);
+    }
 
     const factor = Number(selectedUnit.conversionToBase);
     if (!Number.isFinite(factor) || factor <= 0 || (selectedUnit.isBaseUnit === 1 && Math.abs(factor - 1) > 1e-10)) {
