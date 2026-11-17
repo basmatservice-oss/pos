@@ -453,9 +453,9 @@ export default function Reports() {
     const rows = stats.filteredOrders.map((order) => [
       order.receiptNumber,
       format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm'),
-      formatAmount(Number(order.netAmount || 0) - Number(order.taxAmount || 0)),
-      formatAmount(Number(order.taxAmount || 0)),
-      formatAmount(Number(order.netAmount || 0)),
+      (Number(order.netAmount || 0) - Number(order.taxAmount || 0)).toFixed(2),
+      Number(order.taxAmount || 0).toFixed(2),
+      Number(order.netAmount || 0).toFixed(2),
       order.paymentMethod,
       order.status,
     ]);
