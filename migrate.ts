@@ -526,6 +526,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Order', 'shiftId', 'text');
   ensureColumn(sqlite, 'Order', 'deviceId', 'text');
   ensureColumn(sqlite, 'Order', 'operationId', 'text');
+  ensureColumn(sqlite, 'Order', 'updatedAt', 'text');
 
   ensureColumn(sqlite, 'OrderItem', 'returnedQuantity', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'OrderItem', 'unit', "text DEFAULT 'piece'");
