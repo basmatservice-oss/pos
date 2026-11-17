@@ -658,35 +658,51 @@ export function createPosApp() {
 
   app.post('/api/products', requirePermission('add_product'), async (req, res) => {
     try {
-      const data = req.body;
+      const data = { ...req.body };
       const now = new Date().toISOString();
-      const [product] = await db
-        .insert(products)
-        .values({ ...data, isSynced: 0, updatedAt: now })
-        .onConflictDoUpdate({
-          target: products.id,
-          set: { ...data, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      const existingProduct = data.id
+        ? await db.select().from(products).where(eq(products.id, Number(data.id))).get()
+        : undefined;
+      let product: any;
+      if (existingProduct) {
+        delete data.stockQuantity;
+        delete data.baseUnitCode;
+        delete data.quantityPrecision;
+        const [existingBatch] = await db.select({ id: inventoryBatches.id })
+          .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1);
+        if (existingBatch) delete data.costPrice;
+        [product] = await db.update(products)
+          .set({ ...data, isSynced: 0, updatedAt: now })
+          .where(eq(products.id, existingProduct.id))
+          .returning();
+      } else {
+        [product] = await db.insert(products)
+          .values({ ...data, isSynced: 0, updatedAt: now })
+          .returning();
+      }
 
-      // Create initial batch if stockQuantity > 0 and no batches exist for this product
+      // New product opening stock is stored as a base-unit FIFO layer.
       if (product && Number(product.stockQuantity) > 0) {
         const existingBatches = await db
-          .select()
+          .select({ id: inventoryBatches.id })
           .from(inventoryBatches)
           .where(eq(inventoryBatches.productId, product.id));
         if (existingBatches.length === 0) {
           await db.insert(inventoryBatches).values({
-            id: crypto.randomUUID(),
+            id: `opening-${product.id}`,
             productId: product.id,
             purchaseId: null,
             quantity: Number(product.stockQuantity),
             remainingQuantity: Number(product.stockQuantity),
             costPrice: Number(product.costPrice || 0),
-            purchaseDate: now,
+            unitCode: product.baseUnitCode || null,
+            baseUnitCode: product.baseUnitCode || null,
+            conversionToBase: 1,
+            baseQuantity: Number(product.stockQuantity),
+            purchaseDate: product.createdAt || now,
             branchId: product.branchId || null,
             isSynced: 0,
-            createdAt: now,
+            createdAt: product.createdAt || now,
             updatedAt: now,
           });
         }
@@ -702,9 +718,16 @@ export function createPosApp() {
   app.put('/api/products/:id', requirePermission('edit_product'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const updateData = { ...req.body };
+      delete updateData.stockQuantity;
+      delete updateData.baseUnitCode;
+      delete updateData.quantityPrecision;
+      const [existingBatch] = await db.select({ id: inventoryBatches.id })
+        .from(inventoryBatches).where(eq(inventoryBatches.productId, id)).limit(1);
+      if (existingBatch) delete updateData.costPrice;
       const [product] = await db
         .update(products)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
+        .set({ ...updateData, isSynced: 0, updatedAt: new Date().toISOString() })
         .where(eq(products.id, id))
         .returning();
       res.json(product);
