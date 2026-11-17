@@ -135,7 +135,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const exportCsv = () => {
     const textCell = (value: unknown) => {
       const raw = String(value ?? '');
-      const safe = /^[=+@\\-\\t\\r]/.test(raw) ? `'${raw}` : raw;
+      const safe = /^[=+@\\-]/.test(raw) ? `'${raw}` : raw;
       return `"${safe.replace(/"/g, '""')}"`;
     };
     const rows = [
@@ -156,7 +156,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
     ];
     const csv = '\uFEFF' + rows.map((row) => row.map((value, index) =>
       typeof value === 'number' ? String(value) : textCell(value)
-    ).join(',')).join('\\r\\n');
+    ).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
