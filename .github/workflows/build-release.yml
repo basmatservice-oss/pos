@@ -66,7 +66,19 @@ jobs:
           const agpPattern = /com\.android\.tools\.build:gradle:[0-9.]+/;
           if (!agpPattern.test(rootGradle)) throw new Error('Android Gradle Plugin declaration not found');
           rootGradle = rootGradle.replace(agpPattern, 'com.android.tools.build:gradle:8.9.1');
+          if (!rootGradle.includes('kotlin-gradle-plugin')) {
+            const dependenciesBlock = /dependencies\\s*\\{/;
+            if (!dependenciesBlock.test(rootGradle)) throw new Error('Gradle buildscript dependencies block not found for Kotlin plugin');
+            rootGradle = rootGradle.replace(dependenciesBlock, match => match + "\\n        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0'");
+          }
           fs.writeFileSync(rootGradleFile, rootGradle);
+
+          const appGradleFile = 'android/app/build.gradle';
+          let appGradle = fs.readFileSync(appGradleFile, 'utf8');
+          if (!appGradle.includes("org.jetbrains.kotlin.android") && !appGradle.includes("kotlin-android")) {
+            appGradle += "\\napply plugin: 'org.jetbrains.kotlin.android'\\n";
+          }
+          fs.writeFileSync(appGradleFile, appGradle);
 
           const manifestFile = 'android/app/src/main/AndroidManifest.xml';
           let manifest = fs.readFileSync(manifestFile, 'utf8');
