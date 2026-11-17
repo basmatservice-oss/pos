@@ -1036,7 +1036,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
 
   await db.transaction(
     'rw',
-    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions],
+    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions, db.inventoryMovements],
     async () => {
       const origPurchase = await db.purchases.get(String(originalPurchaseId));
       const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
@@ -1098,7 +1098,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         }
 
         const itemDoc: PurchaseReturnItem = {
-          id: generateUUID(),
+          id: reqItem.id || generateUUID(),
           purchaseReturnId: id,
           productId: Number(reqItem.productId),
           productName: reqItem.productName || '',
@@ -1114,6 +1114,26 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
           createdAt: now,
         };
         await db.purchaseReturnItems.put(itemDoc);
+        const baseUnitCost = conversionToBase > 0 ? cost / conversionToBase : cost;
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(reqItem.productId),
+          branchId: branchId ?? origPurchase?.branchId ?? null,
+          movementType: 'purchase_return',
+          sourceType: 'purchase_return',
+          sourceId: String(id),
+          sourceLineId: itemDoc.id,
+          inputQuantity: qty,
+          unitCode: itemDoc.unitCode || null,
+          baseUnitCode: itemDoc.baseUnitCode || null,
+          conversionToBase,
+          quantityDeltaBase: -baseQuantity,
+          unitCost: baseUnitCost,
+          totalCost: baseQuantity * baseUnitCost,
+          batchAllocations: batch
+            ? [{ batchId: batch.id, quantity: baseQuantity, costPrice: baseUnitCost }]
+            : null,
+          reason: reason || null,
+        });
       }
 
       if (origPurchase) {
