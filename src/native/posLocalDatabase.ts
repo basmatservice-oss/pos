@@ -21,6 +21,12 @@ export interface PosQueuedOperation {
 export interface PosLocalDatabasePlugin {
   initialize(): Promise<{ ready: boolean; schemaVersion: number; database: string }>;
   putRecord(options: PosLocalRecord): Promise<{ saved: boolean; recordId: string }>;
+  saveRecordAndEnqueueOperation(options: PosLocalRecord & PosQueuedOperation): Promise<{
+    saved: boolean;
+    queued: boolean;
+    duplicate: boolean;
+    operationId: string;
+  }>;
   getRecords(options: { entity: string }): Promise<{ records: Array<{ record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number }> }>;
