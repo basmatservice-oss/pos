@@ -164,11 +164,14 @@ export default function Inventory() {
     });
   };
 
-  const handleSelectProductUnit = (unitCode: string) => {
-    const existing = productUnitRows.find((row) => row.unitCode === unitCode);
+  const handleSelectProductUnit = async (unitCode: string) => {
+    if (!unitEditorProduct?.id) return;
+    const existing = productUnitRows.find((row) => row.unitCode === unitCode) ||
+      await db.productUnits.where('productId').equals(unitEditorProduct.id)
+        .filter((row) => row.unitCode === unitCode).first();
     const isBaseUnit = existing
       ? existing.isBaseUnit === 1
-      : !unitEditorProduct?.baseUnitCode || unitEditorProduct.baseUnitCode === unitCode;
+      : !unitEditorProduct.baseUnitCode || unitEditorProduct.baseUnitCode === unitCode;
     setUnitDraft({
       unitCode,
       conversionToBase: String(existing?.conversionToBase ?? 1),
