@@ -2240,22 +2240,22 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
         .where(eq(products.id, existingProduct.id))
         .returning()
         .get();
-      if (!existingBatch && Number(existingProduct.stockQuantity || 0) > 0) {
+      if (!existingBatch && Number(updatedProduct.stockQuantity || 0) > 0) {
         tx.insert(inventoryBatches).values({
-          id: `opening-${existingProduct.id}`,
-          productId: existingProduct.id,
+          id: `opening-${updatedProduct.id}`,
+          productId: updatedProduct.id,
           purchaseId: null,
-          quantity: Number(existingProduct.stockQuantity),
-          remainingQuantity: Number(existingProduct.stockQuantity),
-          costPrice: Number(existingProduct.costPrice || 0),
-          unitCode: existingProduct.baseUnitCode || null,
-          baseUnitCode: existingProduct.baseUnitCode || null,
+          quantity: Number(updatedProduct.stockQuantity),
+          remainingQuantity: Number(updatedProduct.stockQuantity),
+          costPrice: Number(updatedProduct.costPrice || 0),
+          unitCode: updatedProduct.baseUnitCode || null,
+          baseUnitCode: updatedProduct.baseUnitCode || null,
           conversionToBase: 1,
-          baseQuantity: Number(existingProduct.stockQuantity),
-          purchaseDate: existingProduct.createdAt || now,
-          branchId: existingProduct.branchId || null,
+          baseQuantity: Number(updatedProduct.stockQuantity),
+          purchaseDate: updatedProduct.createdAt || now,
+          branchId: updatedProduct.branchId || null,
           isSynced: 0,
-          createdAt: existingProduct.createdAt || now,
+          createdAt: updatedProduct.createdAt || now,
           updatedAt: now,
         }).run();
       }
