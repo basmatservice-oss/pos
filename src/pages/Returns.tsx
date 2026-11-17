@@ -24,6 +24,7 @@ export default function Returns() {
   const { user } = useAuth();
 
   const returnsHistory = useLiveQuery(() => db.returns.toArray()) || [];
+  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   const sortedReturns = useMemo(
     () => [...returnsHistory].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [returnsHistory]
@@ -258,9 +259,11 @@ export default function Returns() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() =>
-                              handleQuantityChange(index, (returnQuantities[index] || 0) - 1, item.maxReturnable)
-                            }
+                            onClick={() => {
+                              const precision = unitDefinitions.find((unit) => unit.code === item.unitCode)?.decimalPlaces ?? 0;
+                              const step = 10 ** -precision;
+                              handleQuantityChange(index, (returnQuantities[index] || 0) - step, item.maxReturnable);
+                            }}
                             className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
                           >
                             -
@@ -269,17 +272,20 @@ export default function Returns() {
                             type="number"
                             min="0"
                             max={item.maxReturnable}
+                            step="any"
                             value={returnQuantities[index] || 0}
                             onChange={(e) =>
-                              handleQuantityChange(index, parseInt(e.target.value, 10) || 0, item.maxReturnable)
+                              handleQuantityChange(index, Number(e.target.value) || 0, item.maxReturnable)
                             }
                             className="w-16 text-center border border-slate-200 rounded-lg py-1 tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
                           />
                           <button
                             type="button"
-                            onClick={() =>
-                              handleQuantityChange(index, (returnQuantities[index] || 0) + 1, item.maxReturnable)
-                            }
+                            onClick={() => {
+                              const precision = unitDefinitions.find((unit) => unit.code === item.unitCode)?.decimalPlaces ?? 0;
+                              const step = 10 ** -precision;
+                              handleQuantityChange(index, (returnQuantities[index] || 0) + step, item.maxReturnable);
+                            }}
                             className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
                           >
                             +
