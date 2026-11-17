@@ -227,7 +227,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
             disabled={filtered.length === 0}
             className="px-3 py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
           >
-            تصدير CSV
+            تصدير النتائج CSV
           </button>
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
