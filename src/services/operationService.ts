@@ -699,6 +699,9 @@ async function applyPurchaseLocally(
         }
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
+        for (const productId of new Set(oldItems.map((item) => item.productId))) {
+          await recalculateLocalProductWeightedCost(productId, syncStatus);
+        }
         if (oldPurchase && oldPurchase.supplierId) {
           const oldRemaining = oldPurchase.totalAmount - oldPurchase.paidAmount;
           const sup = await db.suppliers.get(oldPurchase.supplierId);
@@ -770,10 +773,10 @@ async function applyPurchaseLocally(
         if (prod) {
           await db.products.update(prod.id!, {
             stockQuantity: prod.stockQuantity + baseQuantity,
-            costPrice: baseUnitCost,
             updatedAt: now,
             syncStatus,
           });
+          await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
       }
 
@@ -842,6 +845,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
             updatedAt: now,
             syncStatus,
           });
+          await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
 
         const itemDoc: PurchaseReturnItem = {
