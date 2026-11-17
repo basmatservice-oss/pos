@@ -48,6 +48,188 @@ function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 
   return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 }
 
+type LocalBatchAllocation = { batchId: string | null; quantity: number; costPrice: number };
+
+function parseLocalBatchAllocations(value: unknown): LocalBatchAllocation[] {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((row: any) => row && Number(row.quantity) > 0)
+      .map((row: any) => ({
+        batchId: row.batchId == null ? null : String(row.batchId),
+        quantity: Number(row.quantity),
+        costPrice: Number(row.costPrice || 0),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function consumeLocalInventoryFIFO(
+  productId: number,
+  quantityInBaseUnits: number,
+  fallbackCost: number,
+  syncStatus: 'synced' | 'pending'
+): Promise<{ allocations: LocalBatchAllocation[]; totalCost: number; averageUnitCost: number }> {
+  const now = new Date().toISOString();
+  const batches = await db.inventoryBatches.where('productId').equals(productId).toArray();
+  batches.sort((a, b) =>
+    String(a.purchaseDate || a.createdAt || '').localeCompare(String(b.purchaseDate || b.createdAt || '')) ||
+    String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+  );
+
+  let remaining = quantityInBaseUnits;
+  let totalCost = 0;
+  const allocations: LocalBatchAllocation[] = [];
+  for (const batch of batches) {
+    if (remaining <= 1e-9) break;
+    const available = Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0));
+    if (available <= 0) continue;
+    const take = Math.min(remaining, available);
+    const costPrice = Number(batch.costPrice ?? fallbackCost);
+    await db.inventoryBatches.update(batch.id!, {
+      remainingQuantity: available - take,
+      updatedAt: now,
+      syncStatus,
+    });
+    allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
+    totalCost += take * costPrice;
+    remaining -= take;
+  }
+
+  if (remaining > 1e-9) {
+    const costPrice = Number(fallbackCost || 0);
+    allocations.push({ batchId: null, quantity: remaining, costPrice });
+    totalCost += remaining * costPrice;
+  }
+
+  return {
+    allocations,
+    totalCost: roundMoney(totalCost),
+    averageUnitCost: quantityInBaseUnits > 0 ? totalCost / quantityInBaseUnits : Number(fallbackCost || 0),
+  };
+}
+
+async function restoreLocalInventoryFIFO(
+  productId: number,
+  quantityInBaseUnits: number,
+  sourceAllocations: LocalBatchAllocation[],
+  fallbackCost: number,
+  branchId: number | undefined,
+  syncStatus: 'synced' | 'pending'
+): Promise<{
+  restoredAllocations: LocalBatchAllocation[];
+  remainingAllocations: LocalBatchAllocation[];
+  totalCostRestored: number;
+}> {
+  const now = new Date().toISOString();
+  const product = await db.products.get(productId);
+  if (!product) throw new Error(`الصنف رقم ${productId} غير موجود`);
+
+  let remaining = quantityInBaseUnits;
+  let totalCostRestored = 0;
+  const restoredAllocations: LocalBatchAllocation[] = [];
+  const remainingAllocations = sourceAllocations
+    .filter((allocation) => allocation && Number(allocation.quantity) > 0)
+    .map((allocation) => ({ ...allocation, quantity: Number(allocation.quantity) }));
+
+  const createReturnBatch = async (quantity: number, costPrice: number) => {
+    if (quantity <= 0) return;
+    const batchId = generateUUID();
+    await db.inventoryBatches.put({
+      id: batchId,
+      productId,
+      purchaseId: null,
+      quantity,
+      remainingQuantity: quantity,
+      costPrice,
+      unitCode: product.baseUnitCode || null,
+      baseUnitCode: product.baseUnitCode || null,
+      conversionToBase: 1,
+      baseQuantity: quantity,
+      purchaseDate: now,
+      branchId,
+      syncStatus,
+      createdAt: now,
+      updatedAt: now,
+    });
+    restoredAllocations.push({ batchId, quantity, costPrice });
+  };
+
+  for (let i = remainingAllocations.length - 1; i >= 0 && remaining > 1e-9; i--) {
+    const allocation = remainingAllocations[i];
+    const take = Math.min(remaining, allocation.quantity);
+    if (take <= 0) continue;
+    const costPrice = Number(allocation.costPrice ?? fallbackCost);
+    let restoredToOriginal = 0;
+
+    if (allocation.batchId) {
+      const batch = await db.inventoryBatches.get(allocation.batchId);
+      if (batch) {
+        const capacity = Math.max(
+          0,
+          Number(batch.quantity || 0) - Number(batch.remainingQuantity ?? 0)
+        );
+        restoredToOriginal = Math.min(take, capacity);
+        if (restoredToOriginal > 0) {
+          await db.inventoryBatches.update(batch.id!, {
+            remainingQuantity: Number(batch.remainingQuantity ?? 0) + restoredToOriginal,
+            updatedAt: now,
+            syncStatus,
+          });
+          restoredAllocations.push({
+            batchId: String(batch.id),
+            quantity: restoredToOriginal,
+            costPrice,
+          });
+        }
+      }
+    }
+
+    const missing = take - restoredToOriginal;
+    if (missing > 1e-9) await createReturnBatch(missing, costPrice);
+    totalCostRestored += take * costPrice;
+    allocation.quantity -= take;
+    remaining -= take;
+  }
+
+  if (remaining > 1e-9) {
+    await createReturnBatch(remaining, Number(fallbackCost || 0));
+    totalCostRestored += remaining * Number(fallbackCost || 0);
+  }
+
+  return {
+    restoredAllocations,
+    remainingAllocations: remainingAllocations.filter((allocation) => allocation.quantity > 1e-9),
+    totalCostRestored: roundMoney(totalCostRestored),
+  };
+}
+
+async function recalculateLocalProductWeightedCost(
+  productId: number,
+  syncStatus: 'synced' | 'pending'
+): Promise<void> {
+  const batches = await db.inventoryBatches.where('productId').equals(productId).toArray();
+  let totalQuantity = 0;
+  let totalValue = 0;
+  for (const batch of batches) {
+    const remaining = Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0));
+    if (remaining <= 0) continue;
+    totalQuantity += remaining;
+    totalValue += remaining * Number(batch.costPrice || 0);
+  }
+  if (totalQuantity <= 0) return;
+  const product = await db.products.get(productId);
+  if (product) {
+    await db.products.update(productId, {
+      costPrice: roundMoney(totalValue / totalQuantity),
+      updatedAt: new Date().toISOString(),
+      syncStatus,
+    });
+  }
+}
+
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
