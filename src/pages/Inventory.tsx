@@ -164,6 +164,20 @@ export default function Inventory() {
     });
   };
 
+  const handleSelectProductUnit = (unitCode: string) => {
+    const existing = productUnitRows.find((row) => row.unitCode === unitCode);
+    const isBaseUnit = existing
+      ? existing.isBaseUnit === 1
+      : !unitEditorProduct?.baseUnitCode || unitEditorProduct.baseUnitCode === unitCode;
+    setUnitDraft({
+      unitCode,
+      conversionToBase: String(existing?.conversionToBase ?? 1),
+      isBaseUnit,
+      sellingPrice: existing?.sellingPrice == null ? '' : String(existing.sellingPrice),
+      barcode: existing?.barcode || '',
+    });
+  };
+
   const handleSaveProductUnit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!unitEditorProduct?.id || !unitDraft.unitCode) return;
@@ -1515,7 +1529,7 @@ export default function Inventory() {
             </div>
             <form onSubmit={handleSaveProductUnit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="text-sm space-y-1">الوحدة
-                <select required value={unitDraft.unitCode} onChange={(e) => setUnitDraft({ ...unitDraft, unitCode: e.target.value })} className="w-full p-3 border rounded-xl">
+                <select required value={unitDraft.unitCode} onChange={(e) => handleSelectProductUnit(e.target.value)} className="w-full p-3 border rounded-xl">
                   <option value="">اختر وحدة</option>
                   {unitDefinitions.map((unit) => <option key={unit.code} value={unit.code}>{unit.name} ({unit.code})</option>)}
                 </select>
