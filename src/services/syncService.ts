@@ -84,6 +84,7 @@ export const syncService = {
       await this.pushAll();
       await this.pullAll();
       await this.pullCurrencyLedger();
+      await this.pullUnitCatalog();
 
       useSyncStore.getState().setLastSynced(new Date());
       await this.updatePendingCount();
@@ -168,6 +169,22 @@ export const syncService = {
         const setting = { key: 'baseCurrencyCode', value: baseConfig.baseCurrencyCode, syncStatus: 'synced' as const, updatedAt: new Date().toISOString() };
         if (existing?.id !== undefined) await db.settings.update(existing.id, setting);
         else await db.settings.add(setting);
+      }
+    });
+  },
+
+  // Unit catalog is server-authoritative. Product unit definitions are cached for offline selection.
+  async pullUnitCatalog() {
+    const [unitRows, productUnitRows] = await Promise.all([
+      apiService.getUnitDefinitions(),
+      apiService.getProductUnits(),
+    ]);
+    await db.transaction('rw', db.unitDefinitions, db.productUnits, async () => {
+      for (const unit of unitRows || []) {
+        await db.unitDefinitions.put({ ...unit, syncStatus: 'synced' });
+      }
+      for (const unit of productUnitRows || []) {
+        await db.productUnits.put({ ...unit, syncStatus: 'synced' });
       }
     });
   },
