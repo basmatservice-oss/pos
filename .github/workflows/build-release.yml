@@ -63,7 +63,7 @@ jobs:
 
           const rootGradleFile = 'android/build.gradle';
           let rootGradle = fs.readFileSync(rootGradleFile, 'utf8');
-          const agpPattern = /com\\.android\\.tools\\.build:gradle:[0-9.]+/;
+          const agpPattern = /com\.android\.tools\.build:gradle:[0-9.]+/;
           if (!agpPattern.test(rootGradle)) throw new Error('Android Gradle Plugin declaration not found');
           rootGradle = rootGradle.replace(agpPattern, 'com.android.tools.build:gradle:8.9.1');
           fs.writeFileSync(rootGradleFile, rootGradle);
