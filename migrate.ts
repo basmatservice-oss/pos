@@ -136,7 +136,11 @@ function backfillInventoryMovementLedger(sqlite: Database.Database) {
         ? 'purchase_receipt'
         : isStocktake ? 'stocktake_increase' : 'opening_balance';
       const sourceType = isPurchase ? 'purchase' : isStocktake ? 'stocktake' : 'product';
-      const sourceId = isPurchase ? String(batch.purchaseId) : isStocktake ? String(batch.id) : String(batch.productId);
+      const batchId = String(batch.id);
+      const stocktakeSessionId = isStocktake
+        ? batchId.slice('stocktake-'.length, batchId.length - String(batch.productId).length - 1)
+        : null;
+      const sourceId = isPurchase ? String(batch.purchaseId) : isStocktake ? String(stocktakeSessionId) : String(batch.productId);
       const operationId = `legacy:batch:${batch.id}`;
       const factor = Number(batch.conversionToBase || 1);
       save({
