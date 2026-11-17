@@ -700,6 +700,7 @@ function handleReturn(
     tx.update(orderItems)
       .set({
         returnedQuantity: alreadyReturned + qtyToReturn,
+        batchAllocations: JSON.stringify(restored.remainingAllocations),
         isSynced: 0,
       })
       .where(eq(orderItems.id, origItem.id))
