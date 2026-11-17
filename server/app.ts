@@ -7,7 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql, asc, desc, gt, or, inArray } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gt, gte, lte, or, inArray } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
@@ -1143,12 +1143,24 @@ export function createPosApp() {
         ? req.query.movementKeys.split(',').filter(Boolean).slice(0, 200)
         : [];
       const latest = req.query.latest === 'true';
+      const branchId = Number(req.query.branchId);
+      const sourceType = typeof req.query.sourceType === 'string' ? req.query.sourceType : '';
+      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
       const filters: any[] = [];
 
       if (movementKeys.length > 0) {
         filters.push(inArray(inventoryMovements.movementKey, movementKeys));
-      } else if (Number.isSafeInteger(productId) && productId > 0) {
-        filters.push(eq(inventoryMovements.productId, productId));
+      } else {
+        if (Number.isSafeInteger(productId) && productId > 0) {
+          filters.push(eq(inventoryMovements.productId, productId));
+        }
+        if (Number.isSafeInteger(branchId) && branchId > 0) {
+          filters.push(eq(inventoryMovements.branchId, branchId));
+        }
+        if (sourceType) filters.push(eq(inventoryMovements.sourceType, sourceType));
+        if (startDate) filters.push(gte(inventoryMovements.createdAt, startDate));
+        if (endDate) filters.push(lte(inventoryMovements.createdAt, `${endDate}T23:59:59.999`));
       }
       if (movementKeys.length === 0 && afterCreatedAt && afterId) {
         filters.push(or(
