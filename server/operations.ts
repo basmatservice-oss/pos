@@ -2043,7 +2043,7 @@ function handleStocktakeApprove(
   }
 
   tx.update(stocktakingSessions)
-    .set({ status: 'approved', isSynced: 0 })
+    .set({ status: 'approved', updatedAt: approvedAt, isSynced: 0 })
     .where(eq(stocktakingSessions.id, sessionId))
     .run();
 
