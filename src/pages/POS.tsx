@@ -27,7 +27,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Customer, HeldOrder } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { useAuth } from '../context/AuthContext';
-import { useCartStore, getItemPrice } from '../store/useCartStore';
+import { useCartStore, getItemPrice, type CartUnitSelection } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
@@ -175,6 +175,57 @@ export default function POS() {
   } = useInventoryStore();
 
   const liveProducts = useLiveQuery(() => db.products.toArray());
+  const liveProductUnits = useLiveQuery(() => db.productUnits.where('isActive').equals(1).toArray()) || [];
+  const liveUnitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
+
+  const getUnitSelection = (productId: number, unitCode: string): CartUnitSelection | undefined => {
+    const row = liveProductUnits.find((unit) => unit.productId === productId && unit.unitCode === unitCode && unit.isActive === 1);
+    if (!row) return undefined;
+    const definition = liveUnitDefinitions.find((unit) => unit.code === unitCode);
+    const label = definition
+      ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
+      : unitCode;
+    return {
+      unitCode: row.unitCode,
+      conversionToBase: Number(row.conversionToBase),
+      label,
+      sellingPrice: row.sellingPrice == null ? null : Number(row.sellingPrice),
+    };
+  };
+
+  const handleAddProduct = (product: (typeof allProducts)[number]) => {
+    const rows = liveProductUnits.filter((unit) => unit.productId === product.id && unit.isActive === 1);
+    const base = rows.find((unit) => unit.isBaseUnit === 1) ||
+      rows.find((unit) => unit.unitCode === product.baseUnitCode);
+    if (base) {
+      addItem(product, base.unitCode, getUnitSelection(product.id!, base.unitCode));
+    } else {
+      addItem(product);
+    }
+  };
+
+  const addProductByBarcode = (barcode: string) => {
+    const alternate = liveProductUnits.find((unit) => unit.barcode === barcode && unit.isActive === 1);
+    if (alternate) {
+      const product = allProducts.find((item) => item.id === alternate.productId);
+      if (product) {
+        addItem(product, alternate.unitCode, getUnitSelection(product.id!, alternate.unitCode));
+        return product;
+      }
+    }
+    const product = getProductByBarcode(barcode) || allProducts.find((item) => item.barcode === barcode);
+    if (product) handleAddProduct(product);
+    return product || null;
+  };
+
+  const handleCartUnitChange = (cartItemId: string, unitCode: string) => {
+    const item = items.find((row) => row.cartItemId === cartItemId);
+    if (!item) return;
+    const selection = getUnitSelection(item.id!, unitCode);
+    if (selection) updateItemUnit(cartItemId, unitCode, selection);
+    else updateItemUnit(cartItemId, unitCode as 'piece' | 'box');
+  };
+
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
@@ -217,16 +268,15 @@ export default function POS() {
   useEffect(() => {
     const handleGlobalScan = (e: any) => {
       const barcode = e.detail;
-      const product = getProductByBarcode(barcode);
+      const product = addProductByBarcode(String(barcode));
       if (product) {
-        addItem(product);
         toast.success(`تم العثور على: ${product.name}`);
       }
     };
 
     window.addEventListener('barcode-scanned' as any, handleGlobalScan);
     return () => window.removeEventListener('barcode-scanned' as any, handleGlobalScan);
-  }, [getProductByBarcode, addItem]);
+  }, [getProductByBarcode, addItem, allProducts, liveProductUnits, liveUnitDefinitions]);
 
   useEffect(() => {
     let isMounted = true;
@@ -255,9 +305,8 @@ export default function POS() {
                 const now = Date.now();
                 if (lastScannedRef.current.code !== decodedText || now - lastScannedRef.current.time > 2000) {
                   lastScannedRef.current = { code: decodedText, time: now };
-                  const product = getProductByBarcode(decodedText);
+                  const product = addProductByBarcode(decodedText);
                   if (product) {
-                    addItem(product);
                     toast.success(`تم العثور على: ${product.name}`);
                   } else {
                     toast.error('المنتج غير موجود');
@@ -287,7 +336,7 @@ export default function POS() {
       isMounted = false;
       stopScanner();
     };
-  }, [isScannerOpen, getProductByBarcode, addItem]);
+  }, [isScannerOpen, getProductByBarcode, addItem, allProducts, liveProductUnits, liveUnitDefinitions]);
 
   const handleBarcodeSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -300,9 +349,8 @@ export default function POS() {
     }
     lastScannedTimeRef.current[barcode] = now;
 
-    const product = getProductByBarcode(barcode);
+    const product = addProductByBarcode(barcode);
     if (product) {
-      addItem(product);
       if (searchInputRef.current) {
         searchInputRef.current.value = '';
         setSearchQuery('');
@@ -310,7 +358,7 @@ export default function POS() {
     } else {
       const dbProduct = await db.products.where('barcode').equals(barcode).first();
       if (dbProduct) {
-        addItem(dbProduct);
+        handleAddProduct(dbProduct);
         if (searchInputRef.current) {
           searchInputRef.current.value = '';
           setSearchQuery('');
@@ -463,6 +511,9 @@ export default function POS() {
         const unitPrice = getItemPrice(item);
         const line = summary.lines[idx];
 
+        const factor = item.selectedUnitCode
+          ? Number(item.selectedConversionToBase || 1)
+          : item.selectedUnit === 'box' ? Number(item.conversionFactor || 1) : 1;
         return {
           orderId,
           productId: item.id!,
@@ -470,7 +521,11 @@ export default function POS() {
           quantity: item.cartQuantity,
           returnedQuantity: 0,
           unit: item.selectedUnit || 'piece',
-          conversionFactor: item.conversionFactor || 1,
+          conversionFactor: factor,
+          unitCode: item.selectedUnitCode,
+          baseUnitCode: item.baseUnitCode || null,
+          conversionToBase: factor,
+          baseQuantity: item.cartQuantity * factor,
           unitPrice,
           costPriceAtTimeOfSale: roundMoney((item.costPriceAtTimeOfSale ?? item.costPrice ?? 0) * factor),
           discountAmount: line.discountExclTax,
@@ -619,7 +674,7 @@ export default function POS() {
             {filteredProducts.map((product) => (
               <button
                 key={product.id}
-                onClick={() => addItem(product)}
+                onClick={() => handleAddProduct(product)}
                 className="bg-white border border-slate-200 rounded-2xl p-3.5 flex flex-col items-center text-center hover:border-indigo-500 transition-colors active:scale-98 group"
               >
                 <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center mb-2.5 group-hover:bg-indigo-50 transition-colors relative overflow-hidden">
@@ -741,16 +796,39 @@ export default function POS() {
                       <p className="text-xs text-slate-500 tabular-nums">
                         {getItemPrice(item).toFixed(2)} {storeSettings.currency} / للوحدة (شامل الضريبة)
                       </p>
-                      {item.unit === 'box' && (
-                        <select
-                          value={item.selectedUnit}
-                          onChange={(e) => updateItemUnit(item.cartItemId, e.target.value as 'piece' | 'box')}
-                          className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
-                        >
-                          <option value="piece">حبة</option>
-                          <option value="box">صندوق ({item.conversionFactor} حبة)</option>
-                        </select>
-                      )}
+                      {(() => {
+                        const unitRows = liveProductUnits.filter((unit) => unit.productId === item.id && unit.isActive === 1);
+                        if (unitRows.length > 1) {
+                          return (
+                            <select
+                              value={item.selectedUnitCode || item.selectedUnit}
+                              onChange={(e) => handleCartUnitChange(item.cartItemId, e.target.value)}
+                              className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
+                            >
+                              {unitRows.map((unit) => {
+                                const definition = liveUnitDefinitions.find((row) => row.code === unit.unitCode);
+                                const label = definition
+                                  ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
+                                  : unit.unitCode;
+                                return <option key={unit.id} value={unit.unitCode}>{label} — ×{unit.conversionToBase}</option>;
+                              })}
+                            </select>
+                          );
+                        }
+                        if (item.unit === 'box') {
+                          return (
+                            <select
+                              value={item.selectedUnit}
+                              onChange={(e) => updateItemUnit(item.cartItemId, e.target.value as 'piece' | 'box')}
+                              className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
+                            >
+                              <option value="piece">حبة</option>
+                              <option value="box">صندوق ({item.conversionFactor} حبة)</option>
+                            </select>
+                          );
+                        }
+                        return item.selectedUnitLabel ? <span className="text-xs text-slate-500">{item.selectedUnitLabel}</span> : null;
+                      })()}
                       {item.discount > 0 && (
                         <p className="text-[11px] text-rose-600 font-bold tabular-nums">
                           خصم: {item.discountType === 'percentage' ? `${item.discount}%` : `${item.discount} ${storeSettings.currency}`}
