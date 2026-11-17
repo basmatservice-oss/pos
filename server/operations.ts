@@ -96,9 +96,24 @@ function resolveMovementUnit(tx: any, productId: number, item: any, quantity: nu
       throw new OperationError('معامل وحدة الأساس يجب أن يساوي 1', 409);
     }
 
-    const factor = Number(selectedUnit.conversionToBase);
+    // Honor the conversion snapshot captured on the terminal. Offline transactions
+    // must not be reinterpreted if an administrator updates the unit later.
+    const hasSnapshotFactor = item?.conversionToBase !== null && item?.conversionToBase !== undefined;
+    const factor = hasSnapshotFactor ? Number(item.conversionToBase) : Number(selectedUnit.conversionToBase);
     if (!Number.isFinite(factor) || factor <= 0 || (selectedUnit.isBaseUnit === 1 && Math.abs(factor - 1) > 1e-10)) {
       throw new OperationError('معامل تحويل وحدة الصنف غير صالح', 409);
+    }
+    if (item?.baseUnitCode && String(item.baseUnitCode).toLowerCase() !== baseUnitCode) {
+      throw new OperationError('تغيرت وحدة الأساس بعد تسجيل الحركة على الجهاز؛ يلزم تسوية الحركة قبل المزامنة', 409);
+    }
+    const suppliedBaseQuantity = item?.baseQuantity;
+    if (suppliedBaseQuantity !== null && suppliedBaseQuantity !== undefined) {
+      const expectedBaseQuantity = quantity * factor;
+      const tolerance = Math.max(1e-7, Math.abs(expectedBaseQuantity) * 1e-9);
+      if (!Number.isFinite(Number(suppliedBaseQuantity)) ||
+          Math.abs(Number(suppliedBaseQuantity) - expectedBaseQuantity) > tolerance) {
+        throw new OperationError('لقطة كمية الأساس لا تتوافق مع الكمية ومعامل التحويل', 409);
+      }
     }
 
     const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
