@@ -214,6 +214,51 @@ export const syncService = {
       }
     }
 
+    const saveMovementRows = async (items: any[]) => {
+      if (items.length === 0) return;
+      await db.transaction('rw', db.inventoryMovements, async () => {
+        const movementKeys = items.map((movement: any) => movement.movementKey);
+        const localMatches = await db.inventoryMovements
+          .where('movementKey')
+          .anyOf(movementKeys)
+          .toArray();
+        const serverIds = new Set(items.map((movement: any) => movement.id));
+        const staleLocalIds = localMatches
+          .filter((movement) => !serverIds.has(movement.id))
+          .map((movement) => movement.id);
+        if (staleLocalIds.length > 0) {
+          await db.inventoryMovements.bulkDelete(staleLocalIds);
+        }
+        await db.inventoryMovements.bulkPut(
+          items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+        );
+      });
+    };
+
+    // Reconcile pending rows by immutable source key first. This also handles
+    // a movement that was backfilled before a device's cursor was established.
+    const pendingRows = await db.inventoryMovements
+      .where('syncStatus')
+      .anyOf(['pending', 'error', 'conflict'])
+      .toArray();
+    const pendingKeys = [...new Set(pendingRows.map((movement) => movement.movementKey))];
+    for (let index = 0; index < pendingKeys.length; index += 100) {
+      let response: any;
+      try {
+        response = await apiService.getInventoryMovements({
+          movementKeys: pendingKeys.slice(index, index + 100).join(','),
+          limit: 500,
+        });
+      } catch (error: any) {
+        if (error?.response?.status === 404) return;
+        throw error;
+      }
+      if (!response || !Array.isArray(response.items)) {
+        throw new Error('Invalid inventory movement reconciliation response');
+      }
+      await saveMovementRows(response.items);
+    }
+
     for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
       let response: any;
       try {
@@ -232,29 +277,14 @@ export const syncService = {
       }
 
       await db.transaction('rw', db.inventoryMovements, db.settings, async () => {
-        if (response.items.length > 0) {
-          const movementKeys = response.items.map((movement: any) => movement.movementKey);
-          const localMatches = await db.inventoryMovements
-            .where('movementKey')
-            .anyOf(movementKeys)
-            .toArray();
-          const serverIds = new Set(response.items.map((movement: any) => movement.id));
-          const staleLocalIds = localMatches
-            .filter((movement) => !serverIds.has(movement.id))
-            .map((movement) => movement.id);
-          if (staleLocalIds.length > 0) {
-            await db.inventoryMovements.bulkDelete(staleLocalIds);
-          }
-          await db.inventoryMovements.bulkPut(
-            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-          );
-        }
+        await saveMovementRows(response.items);
         if (response.nextCursor?.createdAt && response.nextCursor?.id) {
           const setting = {
             ...(cursorSetting || {}),
             key: INVENTORY_MOVEMENT_CURSOR_KEY,
             value: JSON.stringify(response.nextCursor),
             syncStatus: 'synced' as const,
+            createdAt: cursorSetting?.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
           if (cursorSetting?.id !== undefined) {
