@@ -250,7 +250,7 @@ export const syncService = {
       case 'categories':
         if (record.id && record.id > 1000000) return await apiService.createCategory(record);
         return await apiService.updateCategory(record.id, record);
-      case 'products':
+      case 'products': {
         if (record.id && record.id > 1000000) return await apiService.createProduct(record);
         const productPayload = { ...record };
         // Existing stock and FIFO weighted cost are owned by movement operations.
@@ -259,6 +259,7 @@ export const syncService = {
         const productBatchCount = await db.inventoryBatches.where('productId').equals(record.id).count();
         if (productBatchCount > 0) delete (productPayload as any).costPrice;
         return await apiService.updateProduct(record.id, productPayload);
+      }
       case 'customers':
         if (record.id && record.id > 1000000) return await apiService.createCustomer(record);
         return await apiService.updateCustomer(record.id, record);
