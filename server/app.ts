@@ -1160,7 +1160,7 @@ export function createPosApp() {
         }
         if (sourceType) filters.push(eq(inventoryMovements.sourceType, sourceType));
         if (startDate) filters.push(gte(inventoryMovements.createdAt, startDate));
-        if (endDate) filters.push(lte(inventoryMovements.createdAt, `${endDate}T23:59:59.999`));
+        if (endDate) filters.push(lte(inventoryMovements.createdAt, `${endDate}T23:59:59.999Z`));
       }
       if (movementKeys.length === 0 && afterCreatedAt && afterId) {
         filters.push(or(
