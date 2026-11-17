@@ -423,6 +423,9 @@ export const syncService = {
       // failed entity writes from pushAll and must remain retryable.
       if (pendingOpsCount === 0) {
         for (const table of db.tables) {
+          // The movement ledger is reconciled by its cursor endpoint. Keep local
+          // movements pending until the matching server movement is actually pulled.
+          if (table.name === 'inventoryMovements') continue;
           if (!table.schema.indexes.some((index: any) => index.name === 'syncStatus')) continue;
           await table.where('syncStatus').equals('pending').modify({ syncStatus: 'synced' });
         }
