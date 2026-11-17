@@ -123,7 +123,8 @@ async function restoreLocalInventoryFIFO(
   sourceAllocations: LocalBatchAllocation[],
   fallbackCost: number,
   branchId: number | undefined,
-  syncStatus: 'synced' | 'pending'
+  syncStatus: 'synced' | 'pending',
+  batchIdPrefix: string
 ): Promise<{
   restoredAllocations: LocalBatchAllocation[];
   remainingAllocations: LocalBatchAllocation[];
@@ -135,6 +136,7 @@ async function restoreLocalInventoryFIFO(
 
   let remaining = quantityInBaseUnits;
   let totalCostRestored = 0;
+  let createdBatchIndex = 0;
   const restoredAllocations: LocalBatchAllocation[] = [];
   const remainingAllocations = sourceAllocations
     .filter((allocation) => allocation && Number(allocation.quantity) > 0)
@@ -142,7 +144,7 @@ async function restoreLocalInventoryFIFO(
 
   const createReturnBatch = async (quantity: number, costPrice: number) => {
     if (quantity <= 0) return;
-    const batchId = generateUUID();
+    const batchId = `${batchIdPrefix}-${createdBatchIndex++}`;
     await db.inventoryBatches.put({
       id: batchId,
       productId,
@@ -400,7 +402,8 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
           parseLocalBatchAllocations(oi.batchAllocations),
           fallbackBaseCost,
           origOrder.branchId,
-          syncStatus
+          syncStatus,
+          `void-${targetOrderId}-${oi.id}`
         );
         const product = await db.products.get(oi.productId);
         if (product) {
@@ -500,7 +503,8 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           parseLocalBatchAllocations(origItem.batchAllocations),
           fallbackBaseCost,
           branchId ?? origOrder?.branchId,
-          syncStatus
+          syncStatus,
+          `return-${id}-${origItem.id}`
         );
 
         totalSub += lineSub;
