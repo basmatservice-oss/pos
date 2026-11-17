@@ -78,59 +78,59 @@ class PosLocalDatabasePlugin : Plugin() {
             call.reject("بيانات السجل والعملية مطلوبة للحفظ الذري")
             return
         }
+
         val db = helper.writableDatabase
         try {
+            var response: JSObject
             db.beginTransaction()
             try {
                 val existing = db.query(
                     "pos_outbox", arrayOf("operation_id"), "operation_id = ?",
                     arrayOf(operationId), null, null, null
                 ).use { it.moveToFirst() }
+
                 if (existing) {
-                    db.setTransactionSuccessful()
-                    call.resolve(
-                        JSObject().put("saved", false).put("queued", true)
-                            .put("duplicate", true).put("operationId", operationId)
+                    response = JSObject().put("saved", false).put("queued", true)
+                        .put("duplicate", true).put("operationId", operationId)
+                } else {
+                    val recordValues = ContentValues().apply {
+                        put("entity", entity)
+                        put("record_id", recordId)
+                        put("json", record.toString())
+                        put("updated_at", System.currentTimeMillis())
+                        put("sync_state", "pending")
+                    }
+                    val recordResult = db.insertWithOnConflict(
+                        "pos_records", null, recordValues, SQLiteDatabase.CONFLICT_REPLACE
                     )
-                    return
-                }
+                    if (recordResult == -1L) throw IllegalStateException("Local record could not be saved")
 
-                val recordValues = ContentValues().apply {
-                    put("entity", entity)
-                    put("record_id", recordId)
-                    put("json", record.toString())
-                    put("updated_at", System.currentTimeMillis())
-                    put("sync_state", "pending")
-                }
-                db.insertWithOnConflict(
-                    "pos_records", null, recordValues, SQLiteDatabase.CONFLICT_REPLACE
-                )
+                    val operationValues = ContentValues().apply {
+                        put("operation_id", operationId)
+                        put("type", type)
+                        put("payload", payload.toString())
+                        put("device_id", call.getString("deviceId") ?: "")
+                        put("tenant_id", call.getString("tenantId") ?: "")
+                        put("branch_id", call.getString("branchId") ?: "")
+                        put("actor", call.getString("actor") ?: "")
+                        put("schema_version", call.getInt("schemaVersion") ?: 1)
+                        put("created_at", System.currentTimeMillis())
+                        put("status", "pending")
+                    }
+                    val inserted = db.insertWithOnConflict(
+                        "pos_outbox", null, operationValues, SQLiteDatabase.CONFLICT_IGNORE
+                    )
+                    if (inserted == -1L) throw IllegalStateException("Operation could not be queued")
 
-                val operationValues = ContentValues().apply {
-                    put("operation_id", operationId)
-                    put("type", type)
-                    put("payload", payload.toString())
-                    put("device_id", call.getString("deviceId") ?: "")
-                    put("tenant_id", call.getString("tenantId") ?: "")
-                    put("branch_id", call.getString("branchId") ?: "")
-                    put("actor", call.getString("actor") ?: "")
-                    put("schema_version", call.getInt("schemaVersion") ?: 1)
-                    put("created_at", System.currentTimeMillis())
-                    put("status", "pending")
-                }
-                val inserted = db.insertWithOnConflict(
-                    "pos_outbox", null, operationValues, SQLiteDatabase.CONFLICT_IGNORE
-                )
-                if (inserted == -1L) throw IllegalStateException("Operation could not be queued")
-
-                db.setTransactionSuccessful()
-                call.resolve(
-                    JSObject().put("saved", true).put("queued", true)
+                    response = JSObject().put("saved", true).put("queued", true)
                         .put("duplicate", false).put("operationId", operationId)
-                )
+                }
+                db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
             }
+            // Resolve only after SQLite has committed the transaction.
+            call.resolve(response)
         } catch (error: Exception) {
             call.reject("تعذر حفظ السجل وعملية المزامنة بصورة ذرية", error)
         }
