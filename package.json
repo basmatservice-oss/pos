@@ -1,30 +1,37 @@
 {
-  "name": "react-example",
+  "name": "smart-pos-studio",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "tsx server.ts",
-    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "dev:electron": "concurrently \"npm:dev\" \"wait-on http://localhost:3000/api/health && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist release",
     "start": "tsx server.ts",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/server.js --external:@prisma/client --external:better-sqlite3 --external:sqlite3 --external:vite",
-    "package": "npm run build && npm run build:server && electron-builder",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=esm --outfile=dist/server.js --external:better-sqlite3 --external:sqlite3 --external:vite",
+    "package:win": "npm run build && npm run build:server && electron-builder --win nsis --x64 --publish never",
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android",
     "lint": "tsc --noEmit",
     "test:unit": "node --test tests/*.test.js"
   },
   "dependencies": {
+    "@capacitor/android": "7.4.3",
+    "@capacitor/core": "7.4.3",
     "@google/genai": "^1.29.0",
-    "@supabase/supabase-js": "^2.99.1",
+    "@supabase/supabase-js": "2.39.8",
     "@tailwindcss/vite": "^4.1.14",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.0.4",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "8.7.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "date-fns": "^4.1.0",
@@ -48,14 +55,15 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1",
+    "sqlite3": "5.1.7",
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
-    "uuid": "^13.0.0",
+    "uuid": "9.0.1",
     "vite": "^6.2.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@capacitor/cli": "7.4.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
@@ -69,12 +77,12 @@
     "cross-env": "^7.0.3",
     "drizzle-kit": "^0.31.10",
     "electron": "22.3.27",
-    "electron-builder": "^24.13.3",
-    "electron-serve": "^3.0.1",
+    "electron-builder": "24.13.3",
+    "electron-rebuild": "^3.2.9",
     "esbuild": "^0.27.4",
+    "rimraf": "^6.0.1",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0",
     "wait-on": "^9.0.4"
   },
   "build": {
@@ -83,6 +91,7 @@
     "directories": {
       "output": "release"
     },
+    "asar": true,
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -90,14 +99,24 @@
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/better-sqlite3/**/*"
+      "dist/**/*",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/sqlite3/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Smart-POS-Setup-${version}-win-x64.${ext}"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }
