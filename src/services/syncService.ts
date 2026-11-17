@@ -199,7 +199,7 @@ export const syncService = {
   // This avoids pulling the full ledger on every sync while preserving every historical row.
   async pullInventoryMovements() {
     if (!getAuthToken()) return;
-    const cursorSetting = await db.settings.where('key').equals(INVENTORY_MOVEMENT_CURSOR_KEY).first();
+    let cursorSetting = await db.settings.where('key').equals(INVENTORY_MOVEMENT_CURSOR_KEY).first();
     let cursor: { createdAt: string; id: string } | null = null;
     if (cursorSetting?.value) {
       try {
@@ -235,8 +235,10 @@ export const syncService = {
           };
           if (cursorSetting?.id !== undefined) {
             await db.settings.put({ ...setting, id: cursorSetting.id });
+            cursorSetting = { ...setting, id: cursorSetting.id };
           } else {
-            await db.settings.add(setting);
+            const id = await db.settings.add(setting);
+            cursorSetting = { ...setting, id };
           }
         }
       });
