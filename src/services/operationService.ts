@@ -36,6 +36,17 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 0)): number {
+  const originalQuantity = Number(item?.quantity || 0);
+  const storedBaseQuantity = Number(item?.baseQuantity);
+  if (originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
+    return storedBaseQuantity * (quantity / originalQuantity);
+  }
+  const factor = Number(item?.conversionToBase ?? item?.selectedConversionToBase ??
+    (item?.unit === 'box' || item?.selectedUnit === 'box' ? item?.conversionFactor : 1) ?? 1);
+  return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
+}
+
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
@@ -54,10 +65,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             syncStatus,
           }))
         );
-        for (const item of items) {
-          const factor =
-            item.unit === 'box' || item.selectedUnit === 'box' ? Number(item.conversionFactor || 1) : 1;
-          const baseQty = Number(item.quantity) * factor;
+        for (let index = 0; index < items.length; index++) {
+          const item = items[index];
+          const baseQty = Number(_serverItems[index]?.baseQuantity ?? getBaseMovementQuantity(item));
           const product = await db.products.get(item.productId);
           if (product) {
             await db.products.update(product.id!, {
@@ -76,7 +86,11 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             quantity: item.quantity,
             returnedQuantity: 0,
             unit: item.unit || item.selectedUnit || 'piece',
-            conversionFactor: item.conversionFactor || 1,
+            conversionFactor: item.conversionToBase ?? item.selectedConversionToBase ?? item.conversionFactor ?? 1,
+            unitCode: item.unitCode || item.selectedUnitCode || null,
+            baseUnitCode: item.baseUnitCode || null,
+            conversionToBase: item.conversionToBase ?? item.selectedConversionToBase ?? item.conversionFactor ?? 1,
+            baseQuantity: getBaseMovementQuantity(item),
             unitPrice: item.unitPrice,
             costPriceAtTimeOfSale: item.costPriceAtTimeOfSale,
             discountAmount: item.discountAmount || 0,
@@ -86,9 +100,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             syncStatus,
           });
 
-          const factor =
-            item.unit === 'box' || item.selectedUnit === 'box' ? Number(item.conversionFactor || 1) : 1;
-          const baseQty = Number(item.quantity) * factor;
+          const baseQty = getBaseMovementQuantity(item);
           const product = await db.products.get(item.productId);
           if (product) {
             await db.products.update(product.id!, {
@@ -152,11 +164,11 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
 
       const origItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
       for (const oi of origItems) {
-        const factor = Number(oi.conversionFactor || 1);
+        const baseQty = getBaseMovementQuantity(oi);
         const product = await db.products.get(oi.productId);
         if (product) {
           await db.products.update(product.id!, {
-            stockQuantity: product.stockQuantity + Number(oi.quantity || 0) * factor,
+            stockQuantity: product.stockQuantity + baseQty,
             updatedAt: now,
             syncStatus,
           });
@@ -240,11 +252,11 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           });
         }
 
-        const factor = Number(origItem.conversionFactor || 1);
+        const baseQty = getBaseMovementQuantity(origItem, qty);
         const product = await db.products.get(origItem.productId);
         if (product) {
           await db.products.update(product.id!, {
-            stockQuantity: product.stockQuantity + qty * factor,
+            stockQuantity: product.stockQuantity + baseQty,
             updatedAt: now,
             syncStatus,
           });
@@ -258,6 +270,10 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           productName: origItem.productName,
           quantity: qty,
           unitPrice: origItem.unitPrice,
+          unitCode: origItem.unitCode || null,
+          baseUnitCode: origItem.baseUnitCode || null,
+          conversionToBase: origItem.conversionToBase ?? origItem.conversionFactor ?? 1,
+          baseQuantity: baseQty,
           costPrice: origItem.costPriceAtTimeOfSale || 0,
           taxAmount: lineTax,
           total: lineTotal,
@@ -337,6 +353,10 @@ async function applyPurchaseLocally(
         return {
           ...item,
           costPrice: Number(serverItem?.costPrice ?? item.costPrice),
+          unitCode: serverItem?.unitCode ?? item.unitCode ?? null,
+          baseUnitCode: serverItem?.baseUnitCode ?? item.baseUnitCode ?? null,
+          conversionToBase: Number(serverItem?.conversionToBase ?? item.conversionToBase ?? 1),
+          baseQuantity: Number(serverItem?.baseQuantity ?? item.baseQuantity ?? getBaseMovementQuantity(item)),
           originalCostPrice: serverItem?.originalCostPrice ?? item.costPrice,
           originalTotal: serverItem?.originalTotal ?? roundMoney(Number(item.quantity) * Number(item.costPrice)),
           currencyCode: serverItem?.currencyCode ?? resolvedPurchase.currencyCode,
@@ -404,7 +424,7 @@ async function applyPurchaseLocally(
           const prod = await db.products.get(item.productId);
           if (prod) {
             await db.products.update(prod.id!, {
-              stockQuantity: prod.stockQuantity - item.quantity,
+              stockQuantity: prod.stockQuantity - getBaseMovementQuantity(item),
               updatedAt: now,
               syncStatus,
             });
@@ -444,6 +464,10 @@ async function applyPurchaseLocally(
             productName: item.productName,
             quantity: item.quantity,
             costPrice: item.costPrice,
+            unitCode: item.unitCode || null,
+            baseUnitCode: item.baseUnitCode || null,
+            conversionToBase: item.conversionToBase ?? 1,
+            baseQuantity: item.baseQuantity ?? getBaseMovementQuantity(item),
             originalCostPrice: item.originalCostPrice ?? null,
             originalTotal: item.originalTotal ?? null,
             currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
@@ -453,14 +477,21 @@ async function applyPurchaseLocally(
             syncStatus,
           });
         }
+        const conversionToBase = Number(item.conversionToBase || 1);
+        const baseQuantity = Number(item.baseQuantity ?? getBaseMovementQuantity(item));
+        const baseUnitCost = conversionToBase > 0 ? Number(item.costPrice || 0) / conversionToBase : Number(item.costPrice || 0);
         await db.inventoryBatches.put({
           id: item.batchId || generateUUID(),
           productId: item.productId,
           purchaseId: resolvedPurchase.id,
-          quantity: item.quantity,
-          remainingQuantity: item.quantity,
-          costPrice: item.costPrice,
-          originalCostPrice: item.originalCostPrice ?? null,
+          quantity: baseQuantity,
+          remainingQuantity: baseQuantity,
+          costPrice: baseUnitCost,
+          originalCostPrice: item.originalCostPrice == null ? null : Number(item.originalCostPrice) / conversionToBase,
+          unitCode: item.unitCode || null,
+          baseUnitCode: item.baseUnitCode || null,
+          conversionToBase,
+          baseQuantity,
           currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
           exchangeRate: item.exchangeRate ?? resolvedPurchase.exchangeRate ?? null,
           exchangeRateId: item.exchangeRateId ?? resolvedPurchase.exchangeRateId ?? null,
@@ -471,8 +502,8 @@ async function applyPurchaseLocally(
         const prod = await db.products.get(item.productId);
         if (prod) {
           await db.products.update(prod.id!, {
-            stockQuantity: prod.stockQuantity + item.quantity,
-            costPrice: item.costPrice,
+            stockQuantity: prod.stockQuantity + baseQuantity,
+            costPrice: baseUnitCost,
             updatedAt: now,
             syncStatus,
           });
@@ -510,19 +541,19 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       for (const reqItem of items) {
         const qty = Number(reqItem.quantity || 0);
         if (qty <= 0) continue;
+        const batch = reqItem.batchId
+          ? batches.find((b) => b.id === reqItem.batchId)
+          : batches.find((b) => b.productId === reqItem.productId);
+        const conversionToBase = Number(batch?.conversionToBase || reqItem.conversionToBase || 1);
+        const baseQuantity = qty * conversionToBase;
         const cost = Number(reqItem.costPrice || 0);
         const lineTotal = roundMoney(qty * cost);
         totalReturn = roundMoney(totalReturn + lineTotal);
 
-        const batch = reqItem.batchId
-          ? batches.find((b) => b.id === reqItem.batchId)
-          : batches.find((b) => b.productId === reqItem.productId && (b.remainingQuantity ?? b.quantity) >= qty) ||
-            batches.find((b) => b.productId === reqItem.productId);
-
         if (batch && batch.id) {
           const curRem = Number(batch.remainingQuantity ?? batch.quantity);
           await db.inventoryBatches.update(batch.id, {
-            remainingQuantity: Math.max(0, curRem - qty),
+            remainingQuantity: Math.max(0, curRem - baseQuantity),
             updatedAt: now,
             syncStatus,
           });
@@ -531,7 +562,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         const prod = await db.products.get(Number(reqItem.productId));
         if (prod) {
           await db.products.update(prod.id!, {
-            stockQuantity: Math.max(0, prod.stockQuantity - qty),
+            stockQuantity: Math.max(0, prod.stockQuantity - baseQuantity),
             updatedAt: now,
             syncStatus,
           });
@@ -545,6 +576,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
           quantity: qty,
           costPrice: cost,
           total: lineTotal,
+          unitCode: batch?.unitCode || reqItem.unitCode || null,
+          baseUnitCode: batch?.baseUnitCode || reqItem.baseUnitCode || null,
+          conversionToBase,
+          baseQuantity,
           batchId: batch?.id ? String(batch.id) : undefined,
           syncStatus,
           createdAt: now,
