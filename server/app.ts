@@ -1214,6 +1214,14 @@ export function createPosApp() {
       if (!/^[A-Z]{3}$/.test(code)) return res.status(400).json({ error: 'A valid 3-letter currency code is required' });
       const [currency] = await db.select().from(currencies).where(eq(currencies.code, code));
       if (!currency || !currency.isActive) return res.status(400).json({ error: 'Base currency must exist and be active' });
+      const [existingBase] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
+      if (existingBase?.value && existingBase.value !== code) {
+        const [existingPurchase] = await db.select({ id: purchases.id }).from(purchases).limit(1);
+        const [existingOrder] = await db.select({ id: orders.id }).from(orders).limit(1);
+        if (existingPurchase || existingOrder) {
+          return res.status(409).json({ error: 'لا يمكن تغيير العملة الأساسية بعد تسجيل حركات مالية؛ يلزم إجراء تحويل محاسبي مستقل' });
+        }
+      }
       const now = new Date().toISOString();
       const [saved] = await db.insert(settings).values({ key: 'baseCurrencyCode', value: code, isSynced: 0, createdAt: now, updatedAt: now })
         .onConflictDoUpdate({ target: settings.key, set: { value: code, isSynced: 0, updatedAt: now } }).returning();
