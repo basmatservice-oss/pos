@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
-import { formatAmount } from '../utils/numberFormat.js';
+import { formatAmount, formatQuantity } from '../utils/numberFormat.js';
+import { getHistoricalBaseQuantity, getHistoricalCostAmount } from '../utils/inventoryUnits.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Purchase, PurchaseItem } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
@@ -43,7 +44,6 @@ import { toast } from 'react-hot-toast';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
-import { useInventoryStore } from '../store/useInventoryStore';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
 import { useAuth } from '../context/AuthContext';
@@ -57,6 +57,7 @@ export default function Reports() {
   const returns = useLiveQuery(() => db.returns.toArray()) || [];
   const inventoryBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
   const products = useLiveQuery(() => db.products.toArray()) || [];
+  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) || [];
   const payrolls = useLiveQuery(() => db.payroll.toArray()) || [];
   const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
@@ -190,7 +191,6 @@ export default function Reports() {
   };
 
   const stats = useMemo(() => {
-    const { idMap: productIdMap } = useInventoryStore.getState();
     const today = new Date();
     let startDate = startOfDay(today);
     let endDate = endOfDay(today);
@@ -296,13 +296,10 @@ export default function Reports() {
     const filteredOrderIds = new Set(filteredOrders.map((o) => o.id));
     const filteredOrderItems = orderItems.filter((item) => filteredOrderIds.has(item.orderId));
 
+    const productsById = new Map(products.map((product) => [product.id, product]));
     let grossCost = 0;
     filteredOrderItems.forEach((item) => {
-      const unitCost =
-        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
-          ? Number(item.costPriceAtTimeOfSale)
-          : Number(productIdMap.get(item.productId)?.costPrice || 0);
-      grossCost += unitCost * Number(item.quantity || 0);
+      grossCost += getHistoricalCostAmount(item, productsById.get(item.productId));
     });
 
     const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
@@ -342,12 +339,19 @@ export default function Reports() {
       };
     });
 
-    const productSales: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    const unitNames = new Map(unitDefinitions.map((unit) => [unit.code, unit.name]));
+    const productSales: Record<string, { name: string; quantity: number; unitLabel: string; revenue: number }> = {};
     filteredOrderItems.forEach((item) => {
+      const product = productsById.get(item.productId);
+      const baseUnitQuantity = getHistoricalBaseQuantity(item, product);
+      const baseUnitCode = item.baseUnitCode || product?.baseUnitCode || (product?.unit === 'box' ? 'piece' : product?.unit);
+      const unitLabel = baseUnitCode
+        ? unitNames.get(baseUnitCode) || (baseUnitCode === 'piece' ? 'قطعة' : baseUnitCode)
+        : 'وحدة أساس';
       if (!productSales[item.productId]) {
-        productSales[item.productId] = { name: item.productName, quantity: 0, revenue: 0 };
+        productSales[item.productId] = { name: item.productName, quantity: 0, unitLabel, revenue: 0 };
       }
-      productSales[item.productId].quantity += Number(item.quantity || 0);
+      productSales[item.productId].quantity += baseUnitQuantity;
       productSales[item.productId].revenue += Number(item.total || 0) - Number(item.taxAmount || 0);
     });
 
@@ -435,6 +439,7 @@ export default function Reports() {
     returns,
     inventoryBatches,
     products,
+    unitDefinitions,
     expenses,
     payrolls,
     journalEntries,
@@ -847,7 +852,7 @@ export default function Reports() {
                         </div>
                         <div>
                           <p className="text-sm font-bold text-slate-900">{product.name}</p>
-                          <p className="text-xs text-slate-500 tabular-nums">{product.quantity} وحدة مباعة</p>
+                          <p className="text-xs text-slate-500 tabular-nums">{formatQuantity(product.quantity)} {product.unitLabel} مباعة بوحدة الأساس</p>
                         </div>
                       </div>
                       <p className="text-sm font-black text-emerald-600 tabular-nums">
