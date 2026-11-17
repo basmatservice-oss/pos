@@ -427,7 +427,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
   await db.transaction(
     'rw',
-    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions],
+    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
@@ -461,21 +461,37 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
         const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
         const lineTotal = roundMoney(Number(origItem.total) * ratio);
-        const lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
+        const baseQty = getBaseMovementQuantity(origItem, qty);
+        const factor = Number(origItem.conversionToBase ?? origItem.conversionFactor ?? 1);
+        const fallbackBaseCost = factor > 0
+          ? Number(origItem.costPriceAtTimeOfSale || 0) / factor
+          : Number(origItem.costPriceAtTimeOfSale || 0);
+        const restored = await restoreLocalInventoryFIFO(
+          origItem.productId,
+          baseQty,
+          parseLocalBatchAllocations(origItem.batchAllocations),
+          fallbackBaseCost,
+          branchId ?? origOrder?.branchId,
+          syncStatus
+        );
 
         totalSub += lineSub;
         totalTax += lineTax;
         totalRefund += lineTotal;
-        totalCostReversed += lineCost;
+        totalCostReversed += restored.totalCostRestored;
 
+        const nextReturnedQuantity = Number(origItem.returnedQuantity || 0) + qty;
+        const remainingAllocationsJson = JSON.stringify(restored.remainingAllocations);
         if (origItem.id) {
           await db.orderItems.update(origItem.id, {
-            returnedQuantity: Number(origItem.returnedQuantity || 0) + qty,
+            returnedQuantity: nextReturnedQuantity,
+            batchAllocations: remainingAllocationsJson,
             syncStatus,
           });
         }
+        origItem.returnedQuantity = nextReturnedQuantity;
+        origItem.batchAllocations = remainingAllocationsJson;
 
-        const baseQty = getBaseMovementQuantity(origItem, qty);
         const product = await db.products.get(origItem.productId);
         if (product) {
           await db.products.update(product.id!, {
@@ -483,6 +499,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
             updatedAt: now,
             syncStatus,
           });
+          await recalculateLocalProductWeightedCost(product.id!, syncStatus);
         }
 
         const retItem: ReturnItem = {
@@ -500,6 +517,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           costPrice: origItem.costPriceAtTimeOfSale || 0,
           taxAmount: lineTax,
           total: lineTotal,
+          batchAllocations: JSON.stringify(restored.restoredAllocations),
           syncStatus,
           createdAt: now,
         };
