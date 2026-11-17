@@ -1123,7 +1123,7 @@ export class POSDatabase extends Dexie {
       stocktakingSessions: 'id, status, createdAt, branchId, syncStatus',
       stocktakingEntries: '++id, sessionId, productId, barcode, syncStatus',
       inventoryBatches: '++id, productId, purchaseId, purchaseDate, syncStatus',
-      inventoryMovements: 'id, productId, branchId, createdAt, movementType, sourceType, sourceId, operationId, syncStatus',
+      inventoryMovements: 'id, movementKey, productId, branchId, createdAt, movementType, sourceType, sourceId, operationId, syncStatus',
       syncOperations: 'id, type, status, createdAt, nextRetryAt',
       inventoryAlerts: 'id, productId, resolved, createdAt',
       heldOrders: 'id, createdAt, customerId',
