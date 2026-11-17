@@ -856,12 +856,24 @@ export function createPosApp() {
     }
   });
 
-  app.delete('/api/products/:id', requirePermission('delete_product'), async (req, res) => {
+  app.delete('/api/products/:id', async (req, res) => {
     try {
-      await db.delete(products).where(eq(products.id, parseInt(req.params.id)));
-      res.json({ message: 'Product deleted' });
-    } catch {
-      res.status(500).json({ error: 'Failed to delete product' });
+      const productId = Number(req.params.id);
+      const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const [batch] = await db.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.productId, productId)).limit(1);
+      const [movement] = await db.select().from(inventoryMovements)
+        .where(eq(inventoryMovements.productId, productId)).limit(1);
+      if (Number(product.stockQuantity || 0) > 1e-9 || batch || movement) {
+        return res.status(409).json({
+          error: 'Product has stock or inventory history. Deactivate it instead of deleting it.',
+        });
+      }
+      await db.delete(products).where(eq(products.id, productId));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
