@@ -40,6 +40,27 @@ export function getHistoricalCostAmount(item: any, product?: any): number {
   const quantity = Number(item?.quantity ?? 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return 0;
 
+  // Prefer the original FIFO allocation snapshot when available; it remains
+  // historically accurate even after the product's weighted cost has changed.
+  let allocations: any = item?.batchAllocations;
+  if (typeof allocations === 'string') {
+    try {
+      allocations = JSON.parse(allocations);
+    } catch {
+      allocations = null;
+    }
+  }
+  if (Array.isArray(allocations) && allocations.length > 0) {
+    const allocatedCost = allocations.reduce((sum: number, row: any) => {
+      const allocatedQuantity = Number(row?.quantity);
+      const allocatedUnitCost = Number(row?.costPrice);
+      if (!Number.isFinite(allocatedQuantity) || allocatedQuantity < 0 ||
+          !Number.isFinite(allocatedUnitCost) || allocatedUnitCost < 0) return NaN;
+      return sum + allocatedQuantity * allocatedUnitCost;
+    }, 0);
+    if (Number.isFinite(allocatedCost)) return allocatedCost;
+  }
+
   const snapshot = item?.costPriceAtTimeOfSale;
   if (snapshot !== null && snapshot !== undefined) {
     const unitCost = Number(snapshot);
