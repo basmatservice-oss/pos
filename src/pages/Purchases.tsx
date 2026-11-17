@@ -43,6 +43,8 @@ export default function Purchases() {
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   const allPurchases = useLiveQuery(() => db.purchases.toArray()) || [];
   const allBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
+  const productUnits = useLiveQuery(() => db.productUnits.where('isActive').equals(1).toArray()) || [];
+  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const currencyRows = useLiveQuery(() => db.currencies.toArray()) || [];
   const approvedExchangeRates = useLiveQuery(() => db.exchangeRates.toArray()) || [];
@@ -79,7 +81,15 @@ export default function Purchases() {
 
   // New / Edit Purchase State
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [cart, setCart] = useState<{ product: Product; quantity: number; costPrice: number }[]>([]);
+  const [cart, setCart] = useState<{
+    product: Product;
+    quantity: number;
+    costPrice: number;
+    unitCode?: string;
+    baseUnitCode?: string;
+    conversionToBase: number;
+    unitLabel?: string;
+  }[]>([]);
   const [paidAmount, setPaidAmount] = useState<string>('0');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [purchaseDate, setPurchaseDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -106,6 +116,9 @@ export default function Purchases() {
       costPrice: number;
       returnQty: number;
       batchId?: string;
+      unitCode?: string;
+      baseUnitCode?: string;
+      conversionToBase?: number;
     }>
   >([]);
   const [returnRefundMethod, setReturnRefundMethod] = useState<'credit_adjustment' | 'cash' | 'card'>(
@@ -137,26 +150,65 @@ export default function Purchases() {
     if (e) e.preventDefault();
     if (!searchQuery) return;
 
-    const product = await db.products.where('barcode').equals(searchQuery).first();
+    const alternateUnit = productUnits.find((unit) => unit.barcode === searchQuery && unit.isActive === 1);
+    const product = alternateUnit
+      ? products.find((row) => row.id === alternateUnit.productId)
+      : await db.products.where('barcode').equals(searchQuery).first();
     if (product) {
-      addToCart(product);
+      addToCart(product, alternateUnit?.unitCode);
       setSearchQuery('');
     } else {
       toast.error('المنتج غير موجود');
     }
   };
 
-  const addToCart = (product: Product) => {
-    const existing = cart.find((item) => item.product.id === product.id);
+  const addToCart = (product: Product, requestedUnitCode?: string) => {
+    const rows = productUnits.filter((unit) => unit.productId === product.id && unit.isActive === 1);
+    const selected = requestedUnitCode
+      ? rows.find((unit) => unit.unitCode === requestedUnitCode)
+      : rows.find((unit) => unit.isBaseUnit === 1) || rows.find((unit) => unit.unitCode === product.baseUnitCode);
+    const unitCode = selected?.unitCode;
+    const factor = Number(selected?.conversionToBase || 1);
+    const definition = unitCode ? unitDefinitions.find((unit) => unit.code === unitCode) : undefined;
+    const unitLabel = definition
+      ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
+      : unitCode;
+    const existing = cart.find((item) => item.product.id === product.id && item.unitCode === unitCode);
     if (existing) {
-      setCart(
-        cart.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        )
-      );
+      setCart(cart.map((item) =>
+        item.product.id === product.id && item.unitCode === unitCode
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      ));
     } else {
-      setCart([...cart, { product, quantity: 1, costPrice: selectedPurchaseRate ? product.costPrice / selectedPurchaseRate : product.costPrice }]);
+      const baseCostInDocumentCurrency = selectedPurchaseRate
+        ? product.costPrice / selectedPurchaseRate
+        : product.costPrice;
+      setCart([...cart, {
+        product,
+        quantity: 1,
+        costPrice: baseCostInDocumentCurrency * factor,
+        unitCode,
+        baseUnitCode: product.baseUnitCode || undefined,
+        conversionToBase: factor,
+        unitLabel,
+      }]);
     }
+  };
+
+  const updatePurchaseCartUnit = (productId: number, unitCode: string) => {
+    const row = productUnits.find((unit) => unit.productId === productId && unit.unitCode === unitCode && unit.isActive === 1);
+    if (!row) return;
+    const definition = unitDefinitions.find((unit) => unit.code === unitCode);
+    const factor = Number(row.conversionToBase || 1);
+    setCart(cart.map((item) => item.product.id === productId ? {
+      ...item,
+      unitCode,
+      baseUnitCode: item.product.baseUnitCode || undefined,
+      conversionToBase: factor,
+      unitLabel: definition ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}` : unitCode,
+      costPrice: (selectedPurchaseRate ? item.product.costPrice / selectedPurchaseRate : item.product.costPrice) * factor,
+    } : item));
   };
 
   const removeFromCart = (productId: number) => {
@@ -266,6 +318,10 @@ export default function Purchases() {
         productName: item.product.name,
         quantity: item.quantity,
         costPrice: item.costPrice,
+        unitCode: item.unitCode,
+        baseUnitCode: item.baseUnitCode,
+        conversionToBase: item.conversionToBase || 1,
+        baseQuantity: item.quantity * Number(item.conversionToBase || 1),
         total: item.quantity * item.costPrice,
       }));
 
@@ -321,6 +377,10 @@ export default function Purchases() {
         product: product || ({ id: item.productId, name: item.productName, costPrice: item.costPrice } as any),
         quantity: item.quantity,
         costPrice: item.originalCostPrice ?? item.costPrice,
+        unitCode: item.unitCode || undefined,
+        baseUnitCode: item.baseUnitCode || undefined,
+        conversionToBase: Number(item.conversionToBase || 1),
+        unitLabel: item.unitCode ? unitDefinitions.find((unit) => unit.code === item.unitCode)?.name : undefined,
       };
     });
     setCart(cartItems);
@@ -333,17 +393,21 @@ export default function Purchases() {
 
     const mapped = items.map((item) => {
       const matchingBatch = batches.find((b) => b.productId === item.productId);
-      const remainingBatchQty = matchingBatch
+      const factor = Number(item.conversionToBase ?? matchingBatch?.conversionToBase ?? 1);
+      const remainingBaseQty = matchingBatch
         ? Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity)
-        : item.quantity;
+        : Number(item.baseQuantity ?? item.quantity * factor);
       return {
         productId: item.productId,
         productName: item.productName,
         purchasedQty: item.quantity,
-        remainingBatchQty,
+        remainingBatchQty: factor > 0 ? remainingBaseQty / factor : remainingBaseQty,
         costPrice: item.costPrice,
         returnQty: 0,
         batchId: matchingBatch?.id ? String(matchingBatch.id) : undefined,
+        unitCode: item.unitCode || matchingBatch?.unitCode || undefined,
+        baseUnitCode: item.baseUnitCode || matchingBatch?.baseUnitCode || undefined,
+        conversionToBase: factor,
       };
     });
 
@@ -397,6 +461,10 @@ export default function Purchases() {
             quantity: s.returnQty,
             costPrice: s.costPrice,
             batchId: s.batchId,
+            unitCode: s.unitCode,
+            baseUnitCode: s.baseUnitCode,
+            conversionToBase: s.conversionToBase || 1,
+            baseQuantity: s.returnQty * Number(s.conversionToBase || 1),
           })),
         },
         user?.branchId
@@ -539,9 +607,12 @@ export default function Purchases() {
                 {cart.map((item) => (
                   <div key={item.product.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                     <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
-                        {item.product.name}
-                      </h4>
+                      <div>
+                        <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
+                          {item.product.name}
+                        </h4>
+                        {item.unitLabel && <p className="text-[10px] text-slate-500">{item.unitLabel} — التحويل ×{item.conversionToBase}</p>}
+                      </div>
                       <button
                         onClick={() => removeFromCart(item.product.id!)}
                         className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg"
@@ -549,12 +620,31 @@ export default function Purchases() {
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    {productUnits.filter((unit) => unit.productId === item.product.id && unit.isActive === 1).length > 1 && (
+                      <label className="block mb-2">
+                        <span className="text-[11px] text-slate-500 block mb-0.5">وحدة الشراء</span>
+                        <select
+                          value={item.unitCode || ''}
+                          onChange={(e) => updatePurchaseCartUnit(item.product.id!, e.target.value)}
+                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        >
+                          {productUnits.filter((unit) => unit.productId === item.product.id && unit.isActive === 1).map((unit) => {
+                            const definition = unitDefinitions.find((row) => row.code === unit.unitCode);
+                            const label = definition
+                              ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
+                              : unit.unitCode;
+                            return <option key={unit.id} value={unit.unitCode}>{label} — ×{unit.conversionToBase}</option>;
+                          })}
+                        </select>
+                      </label>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[11px] text-slate-500 block mb-0.5">الكمية</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0.000001"
+                          step="any"
                           value={item.quantity}
                           onChange={(e) =>
                             updateCartItem(item.product.id!, 'quantity', Number(e.target.value))
