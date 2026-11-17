@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
+import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import {
   products,
   categories,
@@ -1158,15 +1159,7 @@ export function createPosApp() {
 
   app.post('/api/unit-definitions', requirePermission('manage_settings'), async (req, res) => {
     try {
-      const code = String(req.body?.code || '').trim().toLowerCase();
-      const name = String(req.body?.name || '').trim();
-      const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
-      const dimension = String(req.body?.dimension || '').trim().toLowerCase();
-      const decimalPlaces = Number(req.body?.decimalPlaces ?? 0);
-      const allowedDimensions = new Set(['count', 'mass', 'volume', 'length', 'area', 'time', 'service']);
-      if (!/^[a-z][a-z0-9_-]{0,19}$/.test(code) || !name || !allowedDimensions.has(dimension) || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 6) {
-        return res.status(400).json({ error: 'رمز الوحدة والاسم والبُعد ودقة الكمية غير صالحة' });
-      }
+      const { code, name, symbol, dimension, decimalPlaces, isFractional } = normalizeUnitDefinition(req.body);
       const [existingDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, code));
       if (existingDefinition && existingDefinition.dimension !== dimension) {
         const linkedUnits = await db.select().from(productUnits).where(eq(productUnits.unitCode, code));
@@ -1174,7 +1167,7 @@ export function createPosApp() {
       }
       const now = new Date().toISOString();
       const [saved] = await db.insert(unitDefinitions).values({
-        code, name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0,
+        code, name, symbol, dimension, decimalPlaces, isFractional,
         isActive: 1, createdAt: now, updatedAt: now,
       }).onConflictDoUpdate({
         target: unitDefinitions.code,
@@ -1198,18 +1191,7 @@ export function createPosApp() {
 
   app.post('/api/product-units', requirePermission('edit_product'), async (req, res) => {
     try {
-      const productId = Number(req.body?.productId);
-      const unitCode = String(req.body?.unitCode || '').trim().toLowerCase();
-      const conversionToBase = Number(req.body?.conversionToBase);
-      const isBaseUnit = req.body?.isBaseUnit === true || req.body?.isBaseUnit === 1 ? 1 : 0;
-      const sellingPrice = req.body?.sellingPrice == null || req.body.sellingPrice === '' ? null : Number(req.body.sellingPrice);
-      const barcode = req.body?.barcode == null ? null : String(req.body.barcode).trim();
-      if (!Number.isInteger(productId) || productId <= 0 || !unitCode || !Number.isFinite(conversionToBase) || conversionToBase <= 0 || (sellingPrice != null && (!Number.isFinite(sellingPrice) || sellingPrice < 0))) {
-        return res.status(400).json({ error: 'بيانات وحدة الصنف أو معامل التحويل غير صالحة' });
-      }
-      if (isBaseUnit && Math.abs(conversionToBase - 1) > 1e-10) {
-        return res.status(400).json({ error: 'معامل تحويل وحدة الأساس يجب أن يساوي 1' });
-      }
+      const { productId, unitCode, conversionToBase, isBaseUnit, sellingPrice, barcode } = normalizeProductUnit(req.body);
 
       const saved = await db.transaction(async (tx) => {
         const [product] = await tx.select().from(products).where(eq(products.id, productId));
@@ -1228,18 +1210,14 @@ export function createPosApp() {
         }
         const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
-          if (Number(product.stockQuantity || 0) > 0) {
-            throw new Error('لا يمكن تغيير وحدة الأساس بعد وجود مخزون؛ يلزم تحويل مخزني موثق');
-          }
-          if (existingUnits.some((row) => row.unitCode !== currentBaseCode)) {
-            throw new Error('لا يمكن تغيير وحدة الأساس بعد تعريف وحدات بديلة؛ أعد تعريف معاملات التحويل أولاً');
-          }
+          assertBaseUnitChangeAllowed({
+            hasStock: Number(product.stockQuantity || 0) > 0,
+            hasDependentAlternateUnits: existingUnits.some((row) => row.unitCode !== currentBaseCode),
+          });
         }
         if (currentBaseCode && currentBaseCode !== unitCode) {
           const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));
-          if (baseDefinition && baseDefinition.dimension !== unit.dimension) {
-            throw new Error('لا يمكن تحويل الصنف بين وحدات ذات أبعاد مختلفة');
-          }
+          if (baseDefinition) assertCompatibleUnitDimensions(baseDefinition.dimension, unit.dimension);
         }
 
         const now = new Date().toISOString();
@@ -1272,7 +1250,7 @@ export function createPosApp() {
       res.status(201).json(saved);
     } catch (error: any) {
       const message = error?.message || 'Failed to save product unit';
-      const status = /غير موجود|غير نشط/.test(message) ? 404 : /لا يمكن|يجب/.test(message) ? 409 : 400;
+      const status = /غير موجود|غير نشط/.test(message) ? 404 : error instanceof RangeError ? 409 : 400;
       res.status(status).json({ error: message });
     }
   });
