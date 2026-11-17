@@ -1390,7 +1390,8 @@ function handlePurchaseReturn(
         ) || purchaseBatches.find((b: any) =>
           b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
         );
-    if (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode)) {
+    if ((reqItem.batchId && !matchingBatch) ||
+        (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode))) {
       throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
     }
     const unitCode = matchingBatch?.unitCode || null;
