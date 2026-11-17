@@ -72,7 +72,7 @@ Never merge by blindly copying integer primary keys. Use stable UUIDs and explic
 
 ## Implementation progress
 
-- Added `native/android/PosLocalDatabasePlugin.kt`: a Kotlin Capacitor plugin backed by app-private SQLite. It provides record persistence, metadata, a durable operation outbox, idempotent operation IDs, ordered pending-operation reads, acknowledgements and retry-error state.
+- Added `native/android/PosLocalDatabasePlugin.kt`: a Kotlin Capacitor plugin backed by app-private SQLite. It provides record persistence, metadata, a durable operation outbox, idempotent operation IDs, ordered pending-operation reads, acknowledgements and retry-error state. The outbox envelope now includes device, tenant/store, branch, actor and schema-version metadata; database schema version 2 migrates existing version-1 outboxes additively.
 - Added `native/android/MainActivity.kt` to register the plugin, and `src/native/posLocalDatabase.ts` as its typed React/TypeScript bridge.
 - Updated the Android packaging workflow to copy and register the native sources after Capacitor generates the Android project.
 - This is persistence infrastructure only. The React repositories, authentication, business-operation engine, and sync service are not yet routed through this database. Android standalone mode must remain unavailable until those integrations are complete. The existing Dexie database is still the active application store.
