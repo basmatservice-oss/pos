@@ -382,6 +382,7 @@ function handleSale(
     const insertedItem = tx
       .insert(orderItems)
       .values({
+        id: item.id || crypto.randomUUID(),
         orderId: order.id,
         productId: Number(item.productId),
         productName: item.productName,
