@@ -53,9 +53,10 @@ class PosLocalDatabasePlugin : Plugin() {
                 put("updated_at", System.currentTimeMillis())
                 put("sync_state", syncState)
             }
-            helper.writableDatabase.insertWithOnConflict(
+            val inserted = helper.writableDatabase.insertWithOnConflict(
                 "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
             )
+            if (inserted == -1L) throw IllegalStateException("Local record could not be saved")
             call.resolve(JSObject().put("saved", true).put("recordId", recordId))
         } catch (error: Exception) {
             call.reject("تعذر حفظ السجل المحلي", error)
