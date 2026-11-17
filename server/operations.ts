@@ -2703,7 +2703,7 @@ function handleEntityDelete(tx: any, payload: any) {
         .where(eq(inventoryBatches.productId, productId)).limit(1).get();
       const movement = tx.select().from(inventoryMovements)
         .where(eq(inventoryMovements.productId, productId)).limit(1).get();
-      if (Number(product.stockQuantity || 0) > 1e-9 || batch || movement) {
+      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
         throw new OperationError(
           'لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.',
           409
