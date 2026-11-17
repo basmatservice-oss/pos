@@ -57,6 +57,7 @@ export const products = sqliteTable('Product', {
   branchId: integer('branchId'),
   expiryDate: text('expiryDate'),
   batchNumber: text('batchNumber'),
+  isActive: integer('isActive').notNull().default(1),
   isSynced: integer('isSynced').default(0),
   updatedAt: text('updatedAt').notNull(),
   createdAt: text('createdAt').default(new Date().toISOString()),
