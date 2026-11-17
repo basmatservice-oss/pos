@@ -1278,6 +1278,11 @@ export function createPosApp() {
         const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
         const hasMovementHistory = Boolean(orderMovement || purchaseMovement || inventoryMovement);
 
+        if (isBaseUnit && !currentBaseCode &&
+            (hasMovementHistory || Number(product.stockQuantity || 0) > 0)) {
+          throw new RangeError('يجب تعريف وحدة الأساس قبل إدخال المخزون؛ صفّر المخزون عبر الجرد ثم عرّف الوحدة وأعد إدخاله');
+        }
+
         if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
           if (hasMovementHistory) {
             throw new RangeError('لا يمكن تغيير وحدة الأساس بعد وجود حركات مخزون تاريخية');
