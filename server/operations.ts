@@ -1292,7 +1292,7 @@ function handlePurchaseCreate(
       movementType: 'purchase_receipt',
       sourceType: 'purchase',
       sourceId: String(purchase.id),
-      sourceLineId: item.movementLineId || pItem.id,
+      sourceLineId: batchId,
       inputQuantity: qty,
       unitCode: unitSnapshot.unitCode,
       baseUnitCode: unitSnapshot.baseUnitCode,
@@ -2246,9 +2246,10 @@ function handleStocktakeApprove(
 
     if (diff > 0) {
       const unitCost = Number(product.costPrice || 0);
+      const stocktakeBatchId = `stocktake-${sessionId}-${product.id}`;
       tx.insert(inventoryBatches)
         .values({
-          id: `stocktake-${sessionId}-${product.id}`,
+          id: stocktakeBatchId,
           productId: product.id,
           purchaseId: null,
           quantity: diff,
@@ -2275,7 +2276,7 @@ function handleStocktakeApprove(
         movementType: 'stocktake_increase',
         sourceType: 'stocktake',
         sourceId: String(sessionId),
-        sourceLineId: entry.id,
+        sourceLineId: stocktakeBatchId,
         inputQuantity: diff,
         unitCode: entry.unitCode || null,
         baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
@@ -2284,7 +2285,7 @@ function handleStocktakeApprove(
         unitCost,
         totalCost: diff * unitCost,
         batchAllocations: [{
-          batchId: `stocktake-${sessionId}-${product.id}`,
+          batchId: stocktakeBatchId,
           quantity: diff,
           costPrice: unitCost,
         }],
