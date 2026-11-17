@@ -31,6 +31,7 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  inventoryMovements,
   productUnits,
   unitDefinitions,
   processedOperations,
@@ -48,6 +49,70 @@ import { getBasePerDocumentUnit } from '../src/utils/currencyConversion.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function appendInventoryMovement(
+  tx: any,
+  ctx: { operationId: string; deviceId: string; actor: string; now: string },
+  input: {
+    productId: number;
+    branchId?: number | null;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    sourceLineId?: string | number | null;
+    inputQuantity?: number | null;
+    unitCode?: string | null;
+    baseUnitCode?: string | null;
+    conversionToBase?: number;
+    quantityDeltaBase: number;
+    unitCost?: number;
+    totalCost?: number;
+    batchAllocations?: any[] | string | null;
+    reason?: string | null;
+  }
+) {
+  const movementKey = [
+    input.movementType,
+    input.sourceType,
+    input.sourceId,
+    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
+  ].join(':');
+  const id = crypto.createHash('sha256')
+    .update(`${ctx.operationId}:${movementKey}`)
+    .digest('hex');
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+
+  tx.insert(inventoryMovements)
+    .values({
+      id,
+      movementKey,
+      productId: Number(input.productId),
+      branchId: input.branchId ?? null,
+      movementType: input.movementType,
+      sourceType: input.sourceType,
+      sourceId: String(input.sourceId),
+      sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+      operationId: ctx.operationId,
+      deviceId: ctx.deviceId,
+      createdBy: ctx.actor,
+      inputQuantity: input.inputQuantity ?? null,
+      unitCode: input.unitCode ?? null,
+      baseUnitCode: input.baseUnitCode ?? null,
+      conversionToBase: Number(input.conversionToBase || 1),
+      quantityDeltaBase: Number(input.quantityDeltaBase),
+      unitCost: Number(input.unitCost || 0),
+      totalCost: Math.abs(Number(input.totalCost || 0)),
+      batchAllocations: allocations,
+      reason: input.reason ?? null,
+      createdAt: ctx.now,
+    })
+    .onConflictDoNothing()
+    .run();
+
+  return id;
 }
 
 type MovementUnitSnapshot = {
