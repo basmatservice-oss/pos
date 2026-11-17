@@ -1082,7 +1082,7 @@ async function applyShiftLocally(
 }
 
 async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  const now = new Date().toISOString();
+  const now = payload?.approvedAt ? new Date(payload.approvedAt).toISOString() : new Date().toISOString();
   const { sessionId } = payload;
   await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
