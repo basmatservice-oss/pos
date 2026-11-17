@@ -1,6 +1,31 @@
-import Dexie, { Table } from 'dexie';
+import\n\n Dexie, { Table } from 'dexie';
 
 // --- Interfaces ---
+
+export interface Currency {
+  code: string;
+  name: string;
+  symbol?: string;
+  decimalPlaces: number;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
+
+export interface ExchangeRate {
+  id: string;
+  baseCurrencyCode: string;
+  quoteCurrencyCode: string;
+  rate: number;
+  effectiveAt: string;
+  source: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy?: string;
+  createdAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
 
 export interface AuditLog {
   id?: string | number;
