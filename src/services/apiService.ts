@@ -421,6 +421,16 @@ export const apiService = {
   async createStocktakingEntry(entry: any) {
     return requestWithRetry(() => axios.post(`${API_BASE}/stocktakingEntries`, entry).then((r) => r.data));
   },
+  async getInventoryMovements(params?: {
+    productId?: number;
+    afterCreatedAt?: string;
+    afterId?: string;
+    limit?: number;
+  }) {
+    return requestWithRetry(() =>
+      axios.get(`${API_BASE}/inventoryMovements`, { params }).then((r) => r.data)
+    );
+  },
   async getInventoryBatches() {
     return requestWithRetry(() => axios.get(`${API_BASE}/inventoryBatches`).then((r) => r.data));
   },
