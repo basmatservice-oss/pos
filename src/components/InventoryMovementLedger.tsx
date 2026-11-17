@@ -32,24 +32,39 @@ const amount = (value: number) =>
 export default function InventoryMovementLedger({ currency }: Props) {
   const [search, setSearch] = useState('');
   const [movementType, setMovementType] = useState('all');
+  const [sourceType, setSourceType] = useState('all');
+  const [branchId, setBranchId] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   const movements = useLiveQuery(
     () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
     []
   ) || [];
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
   const units = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
+  const branches = useLiveQuery(() => db.branches.toArray(), []) || [];
 
   useEffect(() => {
     let cancelled = false;
     const loadLatest = async () => {
       try {
-        const response = await apiService.getInventoryMovements({ latest: true, limit: 500 });
+        const response = await apiService.getInventoryMovements({
+          latest: true,
+          limit: 500,
+          branchId: branchId === 'all' ? undefined : Number(branchId),
+          sourceType: sourceType === 'all' ? undefined : sourceType,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+        });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
         await db.transaction('rw', db.inventoryMovements, async () => {
           const keys = response.items.map((movement: any) => movement.movementKey);
           const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
           const serverIds = new Set(response.items.map((movement: any) => movement.id));
-          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
+          const staleIds = localRows
+            .filter((movement) => !serverIds.has(movement.id))
+            .map((movement) => movement.id);
           if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
           await db.inventoryMovements.bulkPut(
             response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
@@ -61,17 +76,26 @@ export default function InventoryMovementLedger({ currency }: Props) {
     };
     loadLatest();
     return () => { cancelled = true; };
-  }, []);
+  }, [branchId, sourceType, startDate, endDate]);
 
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const movementTypes = useMemo(
     () => [...new Set(movements.map((movement) => movement.movementType))].sort(),
     [movements]
   );
+  const sourceTypes = useMemo(
+    () => [...new Set(movements.map((movement) => movement.sourceType))].sort(),
+    [movements]
+  );
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return movements.filter((movement) => {
       if (movementType !== 'all' && movement.movementType !== movementType) return false;
+      if (sourceType !== 'all' && movement.sourceType !== sourceType) return false;
+      if (branchId !== 'all' && String(movement.branchId ?? '') !== branchId) return false;
+      const movementDate = String(movement.createdAt || '').slice(0, 10);
+      if (startDate && movementDate < startDate) return false;
+      if (endDate && movementDate > endDate) return false;
       if (!query) return true;
       const productName = productMap.get(movement.productId)?.name || '';
       return [
@@ -82,25 +106,61 @@ export default function InventoryMovementLedger({ currency }: Props) {
         movement.reason || '',
       ].some((value) => String(value).toLowerCase().includes(query));
     });
-  }, [movements, movementType, productMap, search]);
+  }, [movements, movementType, sourceType, branchId, startDate, endDate, productMap, search]);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col min-h-0">
-      <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center gap-3">
-        <div className="flex-1">
-          <h3 className="font-bold text-gray-900">سجل حركة المخزون</h3>
-          <p className="text-xs text-gray-500 mt-1">آخر 500 حركة محفوظة، مع تكلفة الحركة وقت وقوعها</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2">
+      <div className="p-4 border-b border-gray-100 space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex-1">
+            <h3 className="font-bold text-gray-900">سجل حركة المخزون</h3>
+            <p className="text-xs text-gray-500 mt-1">أحدث الحركات المتاحة محلياً ومن الخادم</p>
+          </div>
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="بحث بالصنف أو المرجع..."
-              className="w-full sm:w-64 pr-9 pl-3 py-2 border border-gray-200 rounded-xl text-sm"
+              className="w-full md:w-64 pr-9 pl-3 py-2 border border-gray-200 rounded-xl text-sm"
             />
           </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+            aria-label="من تاريخ"
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+            aria-label="إلى تاريخ"
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white"
+          />
+          <select
+            value={branchId}
+            onChange={(event) => setBranchId(event.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white"
+          >
+            <option value="all">كل الفروع</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={String(branch.id)}>{branch.name}</option>
+            ))}
+          </select>
+          <select
+            value={sourceType}
+            onChange={(event) => setSourceType(event.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white"
+          >
+            <option value="all">كل المصادر</option>
+            {sourceTypes.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
           <select
             value={movementType}
             onChange={(event) => setMovementType(event.target.value)}
@@ -136,13 +196,14 @@ export default function InventoryMovementLedger({ currency }: Props) {
               {filtered.map((movement) => {
                 const delta = Number(movement.quantityDeltaBase || 0);
                 const unit = units.find((row) => row.code === movement.baseUnitCode);
+                const branch = branches.find((row) => row.id === movement.branchId);
                 return (
                   <tr key={movement.id} className="border-t border-gray-100 hover:bg-gray-50/70">
                     <td className="p-3 whitespace-nowrap text-gray-600">{new Date(movement.createdAt).toLocaleString()}</td>
                     <td className="p-3 font-semibold text-gray-900">{productMap.get(movement.productId)?.name || `#${movement.productId}`}</td>
                     <td className="p-3">{MOVEMENT_LABELS[movement.movementType] || movement.movementType}</td>
                     <td className="p-3 text-gray-600">{movement.sourceType} / {movement.sourceId}</td>
-                    <td className="p-3 text-gray-600">{movement.branchId ?? '—'}</td>
+                    <td className="p-3 text-gray-600">{branch?.name || movement.branchId || '—'}</td>
                     <td className={`p-3 font-bold tabular-nums ${delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                       {delta > 0 ? '+' : ''}{quantity(delta)} {unit?.symbol || movement.baseUnitCode || ''}
                     </td>
