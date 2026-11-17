@@ -359,6 +359,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
             });
           }
           const product = await db.products.get(item.productId);
+          if (product?.isActive === 0) {
+            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
+          }
           if (product) {
             assertLocalBaseUnitMatches(product, item);
             await db.products.update(product.id!, {
@@ -391,6 +394,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
         for (const item of items) {
           const baseQty = getBaseMovementQuantity(item);
           const product = await db.products.get(item.productId);
+          if (product?.isActive === 0) {
+            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
+          }
           if (product) assertLocalBaseUnitMatches(product, item);
           const factor = Number(item.conversionToBase ?? item.selectedConversionToBase ??
             (item.unit === 'box' || item.selectedUnit === 'box' ? item.conversionFactor : 1) ?? 1);
