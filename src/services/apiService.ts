@@ -425,6 +425,7 @@ export const apiService = {
     productId?: number;
     afterCreatedAt?: string;
     afterId?: string;
+    movementKeys?: string;
     limit?: number;
   }) {
     return requestWithRetry(() =>
