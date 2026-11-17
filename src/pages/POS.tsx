@@ -213,6 +213,10 @@ export default function POS() {
     const alternate = liveProductUnits.find((unit) => unit.barcode === barcode && unit.isActive === 1);
     if (alternate) {
       const product = allProducts.find((item) => item.id === alternate.productId);
+      if (product?.isActive === 0) {
+        toast.error('هذا الصنف موقوف ولا يمكن بيعه');
+        return null;
+      }
       if (product) {
         addItem(product, alternate.unitCode, getUnitSelection(product.id!, alternate.unitCode));
         return product;
