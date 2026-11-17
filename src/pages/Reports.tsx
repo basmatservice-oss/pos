@@ -863,7 +863,7 @@ export default function Reports() {
                         </div>
                         <div>
                           <p className="text-sm font-bold text-slate-900">{product.name}</p>
-                          <p className="text-xs text-slate-500 tabular-nums">{formatQuantity(product.quantity)} {product.unitLabel} مباعة بوحدة الأساس</p>
+                          <p className="text-xs text-slate-500 tabular-nums">{formatQuantity(product.quantity, { maximumFractionDigits: 6 })} {product.unitLabel} مباعة بوحدة الأساس</p>
                         </div>
                       </div>
                       <p className="text-sm font-black text-emerald-600 tabular-nums">
@@ -894,7 +894,7 @@ export default function Reports() {
                       <div>
                         <p className="text-sm font-bold text-slate-900">{product.name}</p>
                         <p className="text-xs text-rose-600 font-bold tabular-nums">
-                          المتبقي: {formatQuantity(product.stockQuantity)} {product.baseUnitLabel}
+                          المتبقي: {formatQuantity(product.stockQuantity, { maximumFractionDigits: 6 })} {product.baseUnitLabel}
                         </p>
                       </div>
                       <span className="px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-xs font-bold whitespace-nowrap">
