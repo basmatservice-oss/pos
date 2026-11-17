@@ -233,16 +233,22 @@ export const syncService = {
           items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
         );
         for (const movement of items) {
-          const operation = movement.operationId
-            ? await db.syncOperations.get(movement.operationId)
-            : undefined;
-          if (operation && operation.status !== 'synced') {
-            await db.syncOperations.update(operation.id, {
-              status: 'synced',
-              lastError: undefined,
-              nextRetryAt: undefined,
-              updatedAt: new Date().toISOString(),
-            });
+          // A historical backfill may have a legacy operationId, while a local
+          // pending row for the same immutable source key carries the real one.
+          const localOperationIds = localMatches
+            .filter((local) => local.movementKey === movement.movementKey)
+            .map((local) => local.operationId);
+          const operationIds = [...new Set([movement.operationId, ...localOperationIds].filter(Boolean))];
+          for (const operationId of operationIds) {
+            const operation = await db.syncOperations.get(operationId);
+            if (operation && operation.status !== 'synced') {
+              await db.syncOperations.update(operation.id, {
+                status: 'synced',
+                lastError: undefined,
+                nextRetryAt: undefined,
+                updatedAt: new Date().toISOString(),
+              });
+            }
           }
         }
       });
