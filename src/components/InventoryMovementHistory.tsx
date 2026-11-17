@@ -37,6 +37,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
       b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
     );
   }, [productId]) || [];
+  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
 
   return (
     <section className="mt-6 border-t border-gray-200 pt-5" dir="rtl">
@@ -83,7 +84,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
                       {movement.sourceType} / {movement.sourceId}
                     </td>
                     <td className={`p-3 font-semibold tabular-nums ${delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {delta > 0 ? '+' : ''}{quantity(delta)} {movement.baseUnitCode || ''}
+                      {delta > 0 ? '+' : ''}{quantity(delta)} {unitDefinitions.find((unit) => unit.code === movement.baseUnitCode)?.symbol || movement.baseUnitCode || ''}
                     </td>
                     <td className="p-3 tabular-nums">{amount(movement.unitCost)} {currency}</td>
                     <td className="p-3 tabular-nums">{amount(movement.totalCost)} {currency}</td>
