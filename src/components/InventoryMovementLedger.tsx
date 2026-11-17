@@ -36,11 +36,13 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const [branchId, setBranchId] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [serverMovements, setServerMovements] = useState<any[] | null>(null);
 
-  const movements = useLiveQuery(
+  const localMovements = useLiveQuery(
     () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
     []
   ) || [];
+  const movements = serverMovements ?? localMovements;
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
   const units = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
   const branches = useLiveQuery(() => db.branches.toArray(), []) || [];
@@ -48,6 +50,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
   useEffect(() => {
     let cancelled = false;
     const loadLatest = async () => {
+      setServerMovements(null);
       try {
         const response = await apiService.getInventoryMovements({
           latest: true,
@@ -57,7 +60,9 @@ export default function InventoryMovementLedger({ currency }: Props) {
           startDate: startDate || undefined,
           endDate: endDate || undefined,
         });
-        if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
+        if (cancelled || !Array.isArray(response?.items)) return;
+        setServerMovements(response.items);
+        if (response.items.length === 0) return;
         await db.transaction('rw', db.inventoryMovements, async () => {
           const keys = response.items.map((movement: any) => movement.movementKey);
           const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
