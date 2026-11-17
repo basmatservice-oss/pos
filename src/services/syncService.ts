@@ -216,7 +216,7 @@ export const syncService = {
 
     const saveMovementRows = async (items: any[]) => {
       if (items.length === 0) return;
-      await db.transaction('rw', db.inventoryMovements, async () => {
+      await db.transaction('rw', db.inventoryMovements, db.syncOperations, async () => {
         const movementKeys = items.map((movement: any) => movement.movementKey);
         const localMatches = await db.inventoryMovements
           .where('movementKey')
@@ -232,6 +232,19 @@ export const syncService = {
         await db.inventoryMovements.bulkPut(
           items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
         );
+        for (const movement of items) {
+          const operation = movement.operationId
+            ? await db.syncOperations.get(movement.operationId)
+            : undefined;
+          if (operation && operation.status !== 'synced') {
+            await db.syncOperations.update(operation.id, {
+              status: 'synced',
+              lastError: undefined,
+              nextRetryAt: undefined,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
       });
     };
 
