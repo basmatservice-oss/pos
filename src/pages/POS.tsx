@@ -222,7 +222,7 @@ export default function POS() {
         return product;
       }
     }
-    const product = getProductByBarcode(barcode) || allProducts.find((item) => item.barcode === barcode);
+    const product = allProducts.find((item) => item.barcode === barcode) || getProductByBarcode(barcode);
     if (product?.isActive === 0) {
       toast.error('هذا الصنف موقوف ولا يمكن بيعه');
       return null;
