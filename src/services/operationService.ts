@@ -851,12 +851,57 @@ async function applyPurchaseLocally(
 
   await db.transaction(
     'rw',
-    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
+    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.inventoryMovements],
     async () => {
       if (type === 'purchase_delete' || type === 'purchase_update') {
         const pid = type === 'purchase_delete' ? payload.id : resolvedPurchase.id;
         const oldPurchase = await db.purchases.get(pid);
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
+        const oldBatches = await db.inventoryBatches.where('purchaseId').equals(pid).toArray();
+        if (oldBatches.length > 0) {
+          for (const batch of oldBatches) {
+            const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
+            await appendLocalInventoryMovement(operationId, syncStatus, {
+              productId: Number(batch.productId),
+              branchId: batch.branchId ?? oldPurchase?.branchId ?? null,
+              movementType: 'purchase_reversal',
+              sourceType: 'purchase',
+              sourceId: String(pid),
+              sourceLineId: batch.id,
+              inputQuantity: baseQty,
+              unitCode: batch.unitCode || null,
+              baseUnitCode: batch.baseUnitCode || null,
+              conversionToBase: Number(batch.conversionToBase || 1),
+              quantityDeltaBase: -baseQty,
+              unitCost: Number(batch.costPrice || 0),
+              totalCost: baseQty * Number(batch.costPrice || 0),
+              batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
+              reason: 'purchase_delete_or_update',
+            });
+          }
+        } else {
+          for (const item of oldItems) {
+            const baseQty = getBaseMovementQuantity(item);
+            const factor = Number(item.conversionToBase || 1);
+            const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
+            await appendLocalInventoryMovement(operationId, syncStatus, {
+              productId: Number(item.productId),
+              branchId: oldPurchase?.branchId ?? null,
+              movementType: 'purchase_reversal',
+              sourceType: 'purchase',
+              sourceId: String(pid),
+              sourceLineId: item.id,
+              inputQuantity: Number(item.quantity || 0),
+              unitCode: item.unitCode || null,
+              baseUnitCode: item.baseUnitCode || null,
+              conversionToBase: factor,
+              quantityDeltaBase: -baseQty,
+              unitCost,
+              totalCost: baseQty * unitCost,
+              reason: 'legacy_purchase_without_batch',
+            });
+          }
+        }
         for (const item of oldItems) {
           const prod = await db.products.get(item.productId);
           if (prod) {
@@ -921,8 +966,9 @@ async function applyPurchaseLocally(
         const conversionToBase = Number(item.conversionToBase || 1);
         const baseQuantity = Number(item.baseQuantity ?? getBaseMovementQuantity(item));
         const baseUnitCost = conversionToBase > 0 ? Number(item.costPrice || 0) / conversionToBase : Number(item.costPrice || 0);
+        const batchId = item.batchId || generateUUID();
         await db.inventoryBatches.put({
-          id: item.batchId || generateUUID(),
+          id: batchId,
           productId: item.productId,
           purchaseId: resolvedPurchase.id,
           quantity: baseQuantity,
@@ -950,6 +996,22 @@ async function applyPurchaseLocally(
           });
           await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(item.productId),
+          branchId: resolvedPurchase.branchId ?? null,
+          movementType: 'purchase_receipt',
+          sourceType: 'purchase',
+          sourceId: String(resolvedPurchase.id),
+          sourceLineId: item.movementLineId,
+          inputQuantity: Number(item.quantity || 0),
+          unitCode: item.unitCode || null,
+          baseUnitCode: item.baseUnitCode || null,
+          conversionToBase,
+          quantityDeltaBase: baseQuantity,
+          unitCost: baseUnitCost,
+          totalCost: baseQuantity * baseUnitCost,
+          batchAllocations: [{ batchId, quantity: baseQuantity, costPrice: baseUnitCost }],
+        });
       }
 
       const remaining = Number(resolvedPurchase.totalAmount || 0) - Number(resolvedPurchase.paidAmount || 0);
