@@ -1420,6 +1420,54 @@ function handlePurchaseDelete(
   assertPurchaseMutable(tx, purchaseId);
 
   const oldItems = tx.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId)).all();
+  const oldBatches = tx.select().from(inventoryBatches)
+    .where(eq(inventoryBatches.purchaseId, purchaseId))
+    .all();
+  if (oldBatches.length > 0) {
+    for (const batch of oldBatches) {
+      const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
+      appendInventoryMovement(tx, ctx, {
+        productId: Number(batch.productId),
+        branchId: batch.branchId ?? existing.branchId ?? null,
+        movementType: 'purchase_reversal',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+        sourceLineId: batch.id,
+        inputQuantity: baseQty,
+        unitCode: batch.unitCode || null,
+        baseUnitCode: batch.baseUnitCode || null,
+        conversionToBase: Number(batch.conversionToBase || 1),
+        quantityDeltaBase: -baseQty,
+        unitCost: Number(batch.costPrice || 0),
+        totalCost: baseQty * Number(batch.costPrice || 0),
+        batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
+        reason: 'purchase_delete_or_update',
+      });
+    }
+  } else {
+    for (const item of oldItems) {
+      const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
+      const factor = Number(item.conversionToBase || 1);
+      const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
+      appendInventoryMovement(tx, ctx, {
+        productId: Number(item.productId),
+        branchId: existing.branchId ?? null,
+        movementType: 'purchase_reversal',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+        sourceLineId: item.id,
+        inputQuantity: Number(item.quantity || 0),
+        unitCode: item.unitCode || null,
+        baseUnitCode: item.baseUnitCode || null,
+        conversionToBase: factor,
+        quantityDeltaBase: -baseQty,
+        unitCost,
+        totalCost: baseQty * unitCost,
+        reason: 'legacy_purchase_without_batch',
+      });
+    }
+  }
+
   for (const item of oldItems) {
     const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
     tx.update(products)
