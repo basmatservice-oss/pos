@@ -83,6 +83,7 @@ export const syncService = {
       await this.pushOperationsQueue();
       await this.pushAll();
       await this.pullAll();
+      await this.pullCurrencyLedger();
 
       useSyncStore.getState().setLastSynced(new Date());
       await this.updatePendingCount();
@@ -144,6 +145,31 @@ export const syncService = {
         }
       }
     }
+  },
+
+  // Currency/rate records are server-authoritative. Devices only cache approved rates;
+  // they never push or invent exchange rates while disconnected.
+  async pullCurrencyLedger() {
+    const [currencyRows, rateRows, baseConfig] = await Promise.all([
+      apiService.getCurrencies(),
+      apiService.getExchangeRates(),
+      apiService.getBaseCurrency(),
+    ]);
+
+    await db.transaction('rw', db.currencies, db.exchangeRates, db.settings, async () => {
+      for (const currency of currencyRows || []) {
+        await db.currencies.put({ ...currency, syncStatus: 'synced' });
+      }
+      for (const rate of (rateRows || []).filter((item: any) => Boolean(item.approvedAt))) {
+        await db.exchangeRates.put({ ...rate, syncStatus: 'synced' });
+      }
+      if (baseConfig?.baseCurrencyCode) {
+        const existing = await db.settings.where('key').equals('baseCurrencyCode').first();
+        const setting = { key: 'baseCurrencyCode', value: baseConfig.baseCurrencyCode, syncStatus: 'synced' as const, updatedAt: new Date().toISOString() };
+        if (existing?.id !== undefined) await db.settings.update(existing.id, setting);
+        else await db.settings.add(setting);
+      }
+    });
   },
 
   async pushAll() {

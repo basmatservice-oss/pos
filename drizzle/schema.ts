@@ -1,5 +1,30 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
+// Currency master data and immutable, effective-dated exchange-rate snapshots.
+export const currencies = sqliteTable('Currency', {
+  code: text('code').primaryKey(), // ISO 4217 code; normalized to uppercase by the service layer.
+  name: text('name').notNull(),
+  symbol: text('symbol'),
+  decimalPlaces: integer('decimalPlaces').notNull().default(2),
+  isActive: integer('isActive').notNull().default(1),
+  createdAt: text('createdAt').notNull(),
+  updatedAt: text('updatedAt').notNull(),
+});
+
+export const exchangeRates = sqliteTable('ExchangeRate', {
+  id: text('id').primaryKey(),
+  baseCurrencyCode: text('baseCurrencyCode').notNull(),
+  quoteCurrencyCode: text('quoteCurrencyCode').notNull(),
+  rate: real('rate').notNull(), // units of quote currency for one unit of base currency
+  effectiveAt: text('effectiveAt').notNull(),
+  source: text('source').notNull(),
+  approvedBy: text('approvedBy'),
+  approvedAt: text('approvedAt'),
+  createdBy: text('createdBy'),
+  createdAt: text('createdAt').notNull(),
+  isSynced: integer('isSynced').notNull().default(0),
+});
+
 export const products = sqliteTable('Product', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   barcode: text('barcode').unique(),

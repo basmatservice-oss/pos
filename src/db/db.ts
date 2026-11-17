@@ -2,6 +2,31 @@ import Dexie, { Table } from 'dexie';
 
 // --- Interfaces ---
 
+export interface Currency {
+  code: string;
+  name: string;
+  symbol?: string;
+  decimalPlaces: number;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
+
+export interface ExchangeRate {
+  id: string;
+  baseCurrencyCode: string;
+  quoteCurrencyCode: string;
+  rate: number;
+  effectiveAt: string;
+  source: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy?: string;
+  createdAt: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+}
+
 export interface AuditLog {
   id?: string | number;
   date: string;
@@ -583,6 +608,8 @@ export class POSDatabase extends Dexie {
   syncOperations!: Table<SyncOperation, string>;
   inventoryAlerts!: Table<InventoryAlert, string>;
   heldOrders!: Table<HeldOrder, string>;
+  currencies!: Table<Currency, string>;
+  exchangeRates!: Table<ExchangeRate, string>;
 
   constructor() {
     super('RetailPOSDB');
@@ -888,6 +915,45 @@ export class POSDatabase extends Dexie {
       syncOperations: 'id, type, status, createdAt, nextRetryAt',
       inventoryAlerts: 'id, productId, resolved, createdAt',
       heldOrders: 'id, createdAt, customerId',
+    });
+
+    this.version(22).stores({
+      products: '++id, barcode, categoryId, name, branchId, syncStatus',
+      categories: '++id, name, branchId, syncStatus',
+      orders: 'id, receiptNumber, createdAt, status, branchId, syncStatus, customerId, createdBy, operationId',
+      orderItems: '++id, orderId, productId, syncStatus',
+      returns: 'id, returnNumber, originalOrderId, createdAt, branchId, syncStatus',
+      returnItems: 'id, returnId, orderItemId, productId, syncStatus',
+      accounts: 'code, type, name',
+      shifts: '++id, status, startTime, branchId, syncStatus',
+      shiftMovements: 'id, shiftId, type, branchId, createdAt, syncStatus',
+      customers: '++id, name, phone, branchId, syncStatus',
+      customerPayments: 'id, customerId, orderId, shiftId, createdAt, syncStatus',
+      expenses: '++id, date, category, shiftId, branchId, syncStatus',
+      suppliers: '++id, name, phone, syncStatus',
+      supplierPayments: 'id, supplierId, purchaseId, shiftId, createdAt, syncStatus',
+      employees: '++id, name, role, status, branchId, syncStatus, pinCode, username',
+      settings: '++id, key, syncStatus',
+      purchases: 'id, supplierId, date, branchId, syncStatus, operationId',
+      purchaseItems: '++id, purchaseId, productId, syncStatus',
+      purchaseReturns: 'id, returnNumber, originalPurchaseId, supplierId, createdAt, branchId, syncStatus',
+      purchaseReturnItems: 'id, purchaseReturnId, productId, syncStatus',
+      attendance: '++id, employeeId, date, branchId, syncStatus',
+      loyaltyTransactions: '++id, customerId, orderId, date, syncStatus',
+      branches: '++id, name, status, syncStatus',
+      payroll: '++id, employeeId, periodStart, status, branchId, syncStatus',
+      offers: '++id, name, type, status, branchId, syncStatus',
+      auditLogs: '++id, date, type, userName, syncStatus',
+      journalEntries: '++id, date, referenceId, referenceType, status, syncStatus',
+      transactions: '++id, orderId, purchaseId, returnId, journalEntryId, accountId, syncStatus',
+      stocktakingSessions: 'id, status, createdAt, branchId, syncStatus',
+      stocktakingEntries: '++id, sessionId, productId, barcode, syncStatus',
+      inventoryBatches: '++id, productId, purchaseId, purchaseDate, syncStatus',
+      syncOperations: 'id, type, status, createdAt, nextRetryAt',
+      inventoryAlerts: 'id, productId, resolved, createdAt',
+      heldOrders: 'id, createdAt, customerId',
+      currencies: 'code, isActive, syncStatus',
+      exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
     });
   }
 }

@@ -473,6 +473,32 @@ export const apiService = {
       .then((r) => r.data);
   },
 
+  // --- Currency and historical exchange-rate ledger ---
+  async getCurrencies() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/currencies`).then((r) => r.data));
+  },
+  async saveCurrency(currency: { code: string; name: string; symbol?: string; decimalPlaces?: number }) {
+    return axios.post(`${API_BASE}/currencies`, currency).then((r) => r.data);
+  },
+  async setCurrencyActive(code: string, isActive: boolean) {
+    return axios.put(`${API_BASE}/currencies/${encodeURIComponent(code)}/status`, { isActive }).then((r) => r.data);
+  },
+  async getBaseCurrency() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/currencies/base`).then((r) => r.data));
+  },
+  async setBaseCurrency(code: string) {
+    return axios.put(`${API_BASE}/currencies/base`, { code }).then((r) => r.data);
+  },
+  async getExchangeRates(base?: string, quote?: string) {
+    return requestWithRetry(() => axios.get(`${API_BASE}/exchange-rates`, { params: { base, quote } }).then((r) => r.data));
+  },
+  async createExchangeRate(rate: { baseCurrencyCode: string; quoteCurrencyCode: string; rate: number; effectiveAt: string; source: string }) {
+    return axios.post(`${API_BASE}/exchange-rates`, rate).then((r) => r.data);
+  },
+  async approveExchangeRate(id: string) {
+    return axios.post(`${API_BASE}/exchange-rates/${encodeURIComponent(id)}/approve`).then((r) => r.data);
+  },
+
   // --- Sync Queue ---
   async getSyncQueue() {
     return requestWithRetry(() => axios.get(`${API_BASE}/sync-queue`).then((r) => r.data));
