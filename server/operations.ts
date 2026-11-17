@@ -377,7 +377,7 @@ export function executeBusinessOperation(
         break;
       }
       case 'entity_upsert': {
-        result = handleEntityUpsert(tx, payload, now);
+        result = handleEntityUpsert(tx, payload, { operationId, deviceId, actor, now });
         break;
       }
       case 'entity_delete': {
@@ -2386,7 +2386,8 @@ function getEntityTable(tableName: string) {
   return map[tableName];
 }
 
-function handleEntityUpsert(tx: any, payload: any, now: string) {
+function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; deviceId: string; actor: string; now: string }) {
+  const now = ctx.now;
   const { table: tableName, record } = payload;
   const table = getEntityTable(tableName);
   if (!table || !record) {
@@ -2529,6 +2530,26 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
           createdAt: updatedProduct.createdAt || now,
           updatedAt: now,
         }).run();
+        appendInventoryMovement(tx, ctx, {
+          productId: updatedProduct.id,
+          branchId: updatedProduct.branchId || null,
+          movementType: 'opening_balance',
+          sourceType: 'product',
+          sourceId: String(updatedProduct.id),
+          sourceLineId: `opening-${updatedProduct.id}`,
+          inputQuantity: Number(updatedProduct.stockQuantity),
+          unitCode: updatedProduct.baseUnitCode || null,
+          baseUnitCode: updatedProduct.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: Number(updatedProduct.stockQuantity),
+          unitCost: Number(updatedProduct.costPrice || 0),
+          totalCost: Number(updatedProduct.stockQuantity) * Number(updatedProduct.costPrice || 0),
+          batchAllocations: [{
+            batchId: `opening-${updatedProduct.id}`,
+            quantity: Number(updatedProduct.stockQuantity),
+            costPrice: Number(updatedProduct.costPrice || 0),
+          }],
+        });
       }
       return updatedProduct;
     }
@@ -2636,6 +2657,26 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
           updatedAt: now,
         })
         .run();
+      appendInventoryMovement(tx, ctx, {
+        productId: savedRecord.id,
+        branchId: savedRecord.branchId || null,
+        movementType: 'opening_balance',
+        sourceType: 'product',
+        sourceId: String(savedRecord.id),
+        sourceLineId: `opening-${savedRecord.id}`,
+        inputQuantity: Number(savedRecord.stockQuantity),
+        unitCode: savedRecord.baseUnitCode || null,
+        baseUnitCode: savedRecord.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: Number(savedRecord.stockQuantity),
+        unitCost: Number(savedRecord.costPrice || 0),
+        totalCost: Number(savedRecord.stockQuantity) * Number(savedRecord.costPrice || 0),
+        batchAllocations: [{
+          batchId: `opening-${savedRecord.id}`,
+          quantity: Number(savedRecord.stockQuantity),
+          costPrice: Number(savedRecord.costPrice || 0),
+        }],
+      });
     }
   }
 
