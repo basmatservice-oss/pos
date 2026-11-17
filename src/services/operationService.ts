@@ -37,12 +37,12 @@ function roundMoney(n: number): number {
 }
 
 let isReconcilingServerSnapshot = false;
+let operationDispatchQueue: Promise<void> = Promise.resolve();
 
 async function reconcileServerSnapshot(): Promise<void> {
-  const syncState = useSyncStore.getState() as any;
-  const wasSyncing = Boolean(syncState.isSyncing);
+  // syncAll owns the isSyncing lock. Setting it here first would make syncAll
+  // reject its own reconciliation attempt as an overlapping cycle.
   isReconcilingServerSnapshot = true;
-  if (!wasSyncing) syncState.setSyncing(true);
   try {
     const { syncService } = await import('./syncService');
     await syncService.syncAll();
@@ -50,7 +50,6 @@ async function reconcileServerSnapshot(): Promise<void> {
     // The operation is already committed; the next scheduled sync will reconcile it.
   } finally {
     isReconcilingServerSnapshot = false;
-    if (!wasSyncing) useSyncStore.getState().setSyncing(false);
   }
 }
 
@@ -1360,7 +1359,7 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
   return payload;
 }
 
-export async function dispatchOperation(
+async function dispatchOperationSequential(
   type: SyncOperation['type'],
   rawPayload: any,
   branchId?: number
@@ -1458,4 +1457,18 @@ export async function dispatchOperation(
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
 
+}
+
+export function dispatchOperation(
+  type: SyncOperation['type'],
+  rawPayload: any,
+  branchId?: number
+): Promise<{ synced: boolean; operationId: string; result?: any }> {
+  // Serialize operations within this terminal. Without this queue, two rapid
+  // actions can both observe an empty durable queue and reach the server out of order.
+  const next = operationDispatchQueue.then(() =>
+    dispatchOperationSequential(type, rawPayload, branchId)
+  );
+  operationDispatchQueue = next.then(() => undefined, () => undefined);
+  return next;
 }
