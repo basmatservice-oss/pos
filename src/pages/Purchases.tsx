@@ -174,7 +174,7 @@ export default function Purchases() {
   const baseCurrencyCode = String(baseCurrencySetting?.value || '').toUpperCase();
   const selectedPurchaseRate = useMemo(() => {
     if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return purchaseCurrencyCode === baseCurrencyCode && baseCurrencyCode ? 1 : null;
-    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999`).getTime();
+    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
     const matches = approvedExchangeRates.filter((rate) => {
       if (!rate.approvedAt || new Date(rate.effectiveAt).getTime() > cutoff) return false;
       return (
