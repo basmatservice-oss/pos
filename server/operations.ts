@@ -14,6 +14,8 @@ import {
   expenses,
   employees,
   settings,
+  currencies,
+  exchangeRates,
   attendance,
   loyaltyTransactions,
   branches,
@@ -838,6 +840,60 @@ function handleOrderVoid(
   return { order: updatedOrder };
 }
 
+function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, purchaseDate: string) {
+  if (currencyCodeInput == null || String(currencyCodeInput).trim() === '') {
+    // Backward compatibility: legacy purchases retain their existing base-currency semantics.
+    return null;
+  }
+
+  const currencyCode = String(currencyCodeInput).trim().toUpperCase();
+  const [baseSetting] = tx.select().from(settings).where(eq(settings.key, 'baseCurrencyCode')).all();
+  const baseCurrencyCode = String(baseSetting?.value || '').trim().toUpperCase();
+  if (!baseCurrencyCode) {
+    throw new OperationError('يجب تعيين العملة الأساسية قبل تسجيل فاتورة بعملة أجنبية', 400);
+  }
+
+  const currency = tx.select().from(currencies).where(eq(currencies.code, currencyCode)).get();
+  const baseCurrency = tx.select().from(currencies).where(eq(currencies.code, baseCurrencyCode)).get();
+  if (!currency || !currency.isActive || !baseCurrency || !baseCurrency.isActive) {
+    throw new OperationError('عملة الفاتورة أو العملة الأساسية غير مسجلة أو غير نشطة', 400);
+  }
+
+  if (currencyCode === baseCurrencyCode) {
+    return { currencyCode, baseCurrencyCode, exchangeRate: 1, exchangeRateId: null };
+  }
+
+  const purchaseTimestamp = new Date(purchaseDate).getTime();
+  const eligibleRates = tx.select().from(exchangeRates).all().filter((rate: any) => {
+    if (!rate.approvedAt || !Number.isFinite(Number(rate.rate)) || Number(rate.rate) <= 0) return false;
+    const effectiveTimestamp = new Date(rate.effectiveAt).getTime();
+    if (!Number.isFinite(effectiveTimestamp) || effectiveTimestamp > purchaseTimestamp) return false;
+    return (
+      (rate.baseCurrencyCode === currencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
+      (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === currencyCode)
+    );
+  }).sort((a: any, b: any) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime());
+
+  const selectedRate = eligibleRates[0];
+  if (!selectedRate) {
+    throw new OperationError('لا يوجد سعر صرف معتمد وساري بتاريخ فاتورة الشراء لهذه العملات', 400);
+  }
+
+  const rawRate = Number(selectedRate.rate);
+  const basePerDocumentUnit =
+    selectedRate.baseCurrencyCode === currencyCode ? rawRate : 1 / rawRate;
+  if (!Number.isFinite(basePerDocumentUnit) || basePerDocumentUnit <= 0) {
+    throw new OperationError('سعر الصرف المعتمد غير صالح', 400);
+  }
+
+  return {
+    currencyCode,
+    baseCurrencyCode,
+    exchangeRate: Math.round(basePerDocumentUnit * 1e10) / 1e10,
+    exchangeRateId: selectedRate.id,
+  };
+}
+
 function handlePurchaseCreate(
   tx: any,
   payload: any,
@@ -849,8 +905,15 @@ function handlePurchaseCreate(
   }
 
   const purchaseDate = purchase.date ? new Date(purchase.date).toISOString() : ctx.now;
-  const totalAmount = roundMoney(Number(purchase.totalAmount || 0));
-  const paidAmount = roundMoney(Number(purchase.paidAmount || 0));
+  const currencySnapshot = resolvePurchaseCurrencySnapshot(tx, purchase.currencyCode, purchaseDate);
+  const originalTotalAmount = roundMoney(Number(purchase.totalAmount || 0));
+  const originalPaidAmount = roundMoney(Number(purchase.paidAmount || 0));
+  if (currencySnapshot && (!Number.isFinite(originalTotalAmount) || originalTotalAmount < 0 || !Number.isFinite(originalPaidAmount) || originalPaidAmount < 0)) {
+    throw new OperationError('إجمالي الفاتورة والمدفوع يجب أن يكونا أرقاماً موجبة أو صفراً', 400);
+  }
+  const conversionRate = currencySnapshot?.exchangeRate ?? 1;
+  const totalAmount = roundMoney(originalTotalAmount * conversionRate);
+  const paidAmount = roundMoney(originalPaidAmount * conversionRate);
   const paymentMethod = purchase.paymentMethod === 'card' ? 'card' : 'cash';
   const remaining = roundMoney(totalAmount - paidAmount);
   const paymentStatus = remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
@@ -862,6 +925,12 @@ function handlePurchaseCreate(
       supplierId: purchase.supplierId || null,
       supplierName: purchase.supplierName || null,
       totalAmount,
+      currencyCode: currencySnapshot?.currencyCode || null,
+      baseCurrencyCode: currencySnapshot?.baseCurrencyCode || null,
+      exchangeRate: currencySnapshot?.exchangeRate ?? null,
+      exchangeRateId: currencySnapshot?.exchangeRateId || null,
+      originalTotalAmount: currencySnapshot ? originalTotalAmount : null,
+      originalPaidAmount: currencySnapshot ? originalPaidAmount : null,
       paidAmount,
       returnedAmount: 0,
       paymentStatus,
@@ -880,8 +949,12 @@ function handlePurchaseCreate(
   const savedItems: any[] = [];
   for (const item of items) {
     const qty = Number(item.quantity || 0);
-    const cost = Number(item.costPrice || 0);
+    const originalCost = Number(item.costPrice || 0);
     if (qty <= 0) continue;
+    if (!Number.isFinite(originalCost) || originalCost < 0) {
+      throw new OperationError('تكلفة الصنف في فاتورة الشراء غير صالحة', 400);
+    }
+    const cost = roundMoney(originalCost * conversionRate);
 
     const pItem = tx
       .insert(purchaseItems)
@@ -891,6 +964,11 @@ function handlePurchaseCreate(
         productName: item.productName,
         quantity: qty,
         costPrice: cost,
+        originalCostPrice: currencySnapshot ? originalCost : null,
+        originalTotal: currencySnapshot ? roundMoney(qty * originalCost) : null,
+        currencyCode: currencySnapshot?.currencyCode || null,
+        exchangeRate: currencySnapshot?.exchangeRate ?? null,
+        exchangeRateId: currencySnapshot?.exchangeRateId || null,
         total: roundMoney(qty * cost),
         isSynced: 0,
         createdAt: ctx.now,
@@ -907,6 +985,10 @@ function handlePurchaseCreate(
         quantity: qty,
         remainingQuantity: qty,
         costPrice: cost,
+        originalCostPrice: currencySnapshot ? originalCost : null,
+        currencyCode: currencySnapshot?.currencyCode || null,
+        exchangeRate: currencySnapshot?.exchangeRate ?? null,
+        exchangeRateId: currencySnapshot?.exchangeRateId || null,
         purchaseDate,
         branchId: purchase.branchId || null,
         isSynced: 0,
