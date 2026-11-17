@@ -7,7 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, asc, gt, or } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
@@ -43,6 +43,7 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  inventoryMovements,
   inventoryAlerts,
   syncQueue,
   currencies,
@@ -1019,6 +1020,49 @@ export function createPosApp() {
         return res.status(error.statusCode).json({ error: error.message });
       }
       res.status(500).json({ error: 'Failed to process return' });
+    }
+  });
+
+  // --- Immutable Inventory Movement Ledger ---
+  app.get('/api/inventoryMovements', async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(String(req.query.limit || '500'), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(2000, parsedLimit)) : 500;
+      const productId = Number(req.query.productId);
+      const afterCreatedAt = typeof req.query.afterCreatedAt === 'string' ? req.query.afterCreatedAt : '';
+      const afterId = typeof req.query.afterId === 'string' ? req.query.afterId : '';
+      const filters: any[] = [];
+
+      if (Number.isSafeInteger(productId) && productId > 0) {
+        filters.push(eq(inventoryMovements.productId, productId));
+      }
+      if (afterCreatedAt && afterId) {
+        filters.push(or(
+          gt(inventoryMovements.createdAt, afterCreatedAt),
+          and(
+            eq(inventoryMovements.createdAt, afterCreatedAt),
+            gt(inventoryMovements.id, afterId)
+          )
+        ));
+      }
+
+      let query: any = db.select().from(inventoryMovements);
+      if (filters.length === 1) query = query.where(filters[0]);
+      else if (filters.length > 1) query = query.where(and(...filters));
+
+      const rows = await query
+        .orderBy(asc(inventoryMovements.createdAt), asc(inventoryMovements.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const last = items[items.length - 1];
+      res.json({
+        items,
+        hasMore,
+        nextCursor: last ? { createdAt: last.createdAt, id: last.id } : null,
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch inventory movements' });
     }
   });
 
