@@ -120,6 +120,9 @@ export const syncService = {
       }]);
       const result = (response?.results || []).find((row: any) => row.operationId === op.id);
       if (result?.status === 'ok' || result?.status === 'duplicate') {
+        if (op.type === 'entity_upsert' && op.payload?.table && op.payload?.record && result?.result) {
+          await this.reconcilePushedRecord(op.payload.table, op.payload.record, result.result);
+        }
         await db.syncOperations.update(op.id, {
           status: 'synced',
           lastError: undefined,
