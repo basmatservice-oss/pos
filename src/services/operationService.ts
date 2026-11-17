@@ -472,7 +472,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const qty = Number(reqItem.quantity);
         if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية المرتجع يجب أن تكون رقماً موجباً');
         const origItem = reqItem.orderItemId
-          ? origItems.find((oi) => oi.id === reqItem.orderItemId)
+          ? origItems.find((oi) => oi.id === Number(reqItem.orderItemId))
           : origItems.find((oi) =>
               oi.productId === reqItem.productId &&
               Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qty
