@@ -1,9 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, XCircle, CheckCircle2, Clock, AlertCircle, Trash2, Database, Cloud, AlertTriangle, Server, ServerOff } from 'lucide-react';
+import {
+  RefreshCw,
+  XCircle,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  Trash2,
+  Database,
+  Cloud,
+  AlertTriangle,
+  Server,
+  ServerOff,
+  Activity,
+  HardDrive,
+  ShieldCheck,
+  MonitorSmartphone,
+} from 'lucide-react';
 import { db, SyncOperation, InventoryAlert } from '../db/db';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
+import { formatNumber, formatQty } from '../utils/format';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -16,6 +33,26 @@ interface SyncItem {
   updatedAt?: string;
 }
 
+interface SystemStatusInfo {
+  ip: string;
+  port: number;
+  uptimeSeconds: number;
+  dbPath: string;
+  dbSizeBytes: number;
+  walMode: string;
+  integrity: string;
+  lastAutoBackup: string | null;
+  connectedCount: number;
+  connectedTerminals: Array<{
+    socketId: string;
+    ip: string;
+    deviceName: string;
+    userName: string;
+    connectedAt: string;
+  }>;
+  serverTime: string;
+}
+
 export default function SyncStatus() {
   const { isOnline } = useSyncStore();
   const [activeTab, setActiveTab] = useState<'local' | 'alerts' | 'supabase'>('local');
@@ -23,6 +60,7 @@ export default function SyncStatus() {
   const [localItems, setLocalItems] = useState<SyncItem[]>([]);
   const [inventoryAlerts, setInventoryAlerts] = useState<InventoryAlert[]>([]);
   const [supabaseItems, setSupabaseItems] = useState<any[]>([]);
+  const [systemStatus, setSystemStatus] = useState<SystemStatusInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -32,8 +70,20 @@ export default function SyncStatus() {
     return () => clearInterval(interval);
   }, [activeTab]);
 
+  const fetchSystemStatus = async () => {
+    try {
+      const status = await apiService.getSystemStatus();
+      if (status && typeof status === 'object') {
+        setSystemStatus(status);
+      }
+    } catch {
+      setSystemStatus(null);
+    }
+  };
+
   const fetchData = async () => {
     try {
+      await fetchSystemStatus();
       if (activeTab === 'local') {
         await fetchLocalQueue();
       } else if (activeTab === 'alerts') {
@@ -260,6 +310,98 @@ export default function SyncStatus() {
         </button>
       </div>
 
+      {/* Live Server Health & Connected LAN Terminals */}
+      {systemStatus && (
+        <div className="mb-6 space-y-4 shrink-0 tabular-nums">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                <Activity className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500">عنوان السيرفر (LAN)</p>
+                <p className="text-sm font-black text-slate-900 font-mono" dir="ltr">
+                  {systemStatus.ip}:{systemStatus.port}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  التشغيل: {Math.floor(systemStatus.uptimeSeconds / 60)} دقيقة
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500">سلامة قاعدة البيانات</p>
+                <p className="text-sm font-black text-emerald-700">
+                  {systemStatus.integrity === 'ok' ? 'سليمة (OK)' : systemStatus.integrity}
+                </p>
+                <p className="text-[11px] text-slate-500 uppercase">الوضع: {systemStatus.walMode}</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <HardDrive className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500">حجم قاعدة البيانات</p>
+                <p className="text-sm font-black text-slate-900">
+                  {systemStatus.dbSizeBytes >= 1024 * 1024
+                    ? `${formatNumber(systemStatus.dbSizeBytes / (1024 * 1024), 2)} MB`
+                    : `${formatNumber(systemStatus.dbSizeBytes / 1024, 1)} KB`}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  آخر نسخة: {systemStatus.lastAutoBackup ? format(new Date(systemStatus.lastAutoBackup), 'MM/dd HH:mm') : 'غير متوفر'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <MonitorSmartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500">الأجهزة المتصلة بالشبكة</p>
+                <p className="text-lg font-black text-slate-900">
+                  {formatQty(systemStatus.connectedCount, 0)} أجهزة
+                </p>
+                <p className="text-[11px] text-slate-400">متصلة لحظياً عبر Socket.io</p>
+              </div>
+            </div>
+          </div>
+
+          {systemStatus.connectedTerminals && systemStatus.connectedTerminals.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <MonitorSmartphone className="w-4 h-4 text-indigo-600" />
+                  نقاط البيع والأجهزة المتصلة حالياً بالخادم
+                </span>
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  مباشر
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {systemStatus.connectedTerminals.map((term) => (
+                  <div key={term.socketId} className="px-4 py-2.5 flex items-center justify-between text-xs border-l border-slate-100">
+                    <div>
+                      <p className="font-bold text-slate-900">{term.deviceName || 'نقطة بيع'}</p>
+                      <p className="text-slate-500">{term.userName || 'مستخدم'} • <span className="font-mono" dir="ltr">{term.ip}</span></p>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      {format(new Date(term.connectedAt), 'HH:mm:ss')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 mb-6 shrink-0">
         <button
           onClick={() => setActiveTab('local')}
@@ -411,8 +553,8 @@ export default function SyncStatus() {
                   {inventoryAlerts.map((a) => (
                     <tr key={a.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 font-bold text-gray-900">{a.productName}</td>
-                      <td className="px-6 py-4 font-black text-rose-600" dir="ltr">
-                        {a.resultingQty} ({a.changeQty >= 0 ? `+${a.changeQty}` : a.changeQty})
+                      <td className="px-6 py-4 font-black text-rose-600 tabular-nums" dir="ltr">
+                        {formatQty(a.resultingQty)} ({a.changeQty >= 0 ? `+${formatQty(a.changeQty)}` : formatQty(a.changeQty)})
                       </td>
                       <td className="px-6 py-4 text-gray-600">{a.reason || '-'}</td>
                       <td className="px-6 py-4 text-gray-500">{format(new Date(a.createdAt), 'dd/MM HH:mm', { locale: ar })}</td>

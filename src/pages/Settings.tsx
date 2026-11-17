@@ -32,13 +32,19 @@ import {
   Printer,
   MonitorSmartphone,
   Camera,
-  Ruler
+  Calendar,
+  TrendingUp,
+  Plus,
+  Unlock,
+  CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db } from '../db/db';
+import { db, ExchangeRateRecord, FiscalPeriod } from '../db/db';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
 import { useAuth } from '../context/AuthContext';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { formatNumber } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import toast from 'react-hot-toast';
 
@@ -54,6 +60,17 @@ const Settings: React.FC = () => {
   const [backupsList, setBackupsList] = useState<{ filename: string; size: number; createdAt: string }[]>([]);
   const [verifyingFile, setVerifyingFile] = useState<string | null>(null);
   const [clearModalMode, setClearModalMode] = useState<'none' | 'data' | 'system'>('none');
+  const [periodConfirm, setPeriodConfirm] = useState<{ period: FiscalPeriod; action: 'close' | 'reopen' } | null>(null);
+  const [newFxCurrency, setNewFxCurrency] = useState('USD');
+  const [newFxRate, setNewFxRate] = useState('');
+  const [newFxNotes, setNewFxNotes] = useState('');
+  const [newPeriodName, setNewPeriodName] = useState('');
+  const [newPeriodStart, setNewPeriodStart] = useState('');
+  const [newPeriodEnd, setNewPeriodEnd] = useState('');
+
+  const fxHistory = useLiveQuery(() => db.exchangeRateHistory.reverse().toArray(), []) || [];
+  const fiscalPeriodsList = useLiveQuery(() => db.fiscalPeriods.toArray(), []) || [];
+
   const [settings, setSettings] = useState<any>({
     businessName: 'متجري الذكي',
     businessAddress: '',
@@ -72,6 +89,9 @@ const Settings: React.FC = () => {
     fontSize: '14px',
     shadowIntensity: 'medium',
     currency: 'ر.س',
+    baseCurrency: 'ر.س',
+    currencyDecimals: 2,
+    quantityDecimals: 3,
     taxRate: 15,
     language: 'ar',
     enableNotifications: true,
@@ -96,18 +116,13 @@ const Settings: React.FC = () => {
     isOnlineMode: false,
     serverUrl: 'http://localhost:3000',
     deviceRole: 'server',
-    exchangeRate: 1, // Default exchange rate
+    exchangeRate: 1,
+    allowNegativeStock: true,
+    offlineStockPolicy: 'allow_with_alert',
+    inventoryValuationMethod: 'fifo',
+    targetProfitMargin: 25,
   });
 
-  const [currencyRows, setCurrencyRows] = useState<any[]>([]);
-  const [exchangeRateRows, setExchangeRateRows] = useState<any[]>([]);
-  const [baseCurrencyCode, setBaseCurrencyCode] = useState('');
-  const [currencyDraft, setCurrencyDraft] = useState({ code: '', name: '', symbol: '', decimalPlaces: 2 });
-  const [rateDraft, setRateDraft] = useState({ baseCurrencyCode: '', quoteCurrencyCode: '', rate: '', effectiveAt: new Date().toISOString().slice(0, 16), source: '' });
-  const [currencyBusy, setCurrencyBusy] = useState(false);
-  const [unitRows, setUnitRows] = useState<any[]>([]);
-  const [unitDraft, setUnitDraft] = useState({ code: '', name: '', symbol: '', dimension: 'count', decimalPlaces: 0 });
-  const [unitBusy, setUnitBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -354,8 +369,7 @@ const Settings: React.FC = () => {
 
   const tabs = [
     { id: 'general', label: 'العامة', icon: SettingsIcon },
-    { id: 'currencies', label: 'العملات والصرف', icon: Globe },
-    { id: 'units', label: 'وحدات القياس', icon: Ruler },
+    { id: 'accounting', label: 'السياسات والفترات', icon: TrendingUp },
     { id: 'visual', label: 'المظهر', icon: Palette },
     { id: 'receipt', label: 'الفاتورة', icon: FileText },
     { id: 'hardware', label: 'الأجهزة', icon: Monitor },
@@ -492,132 +506,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const loadCurrencyLedger = async () => {
-    try {
-      const [currencyList, rateList, baseConfig] = await Promise.all([
-        apiService.getCurrencies(),
-        apiService.getExchangeRates(),
-        apiService.getBaseCurrency(),
-      ]);
-      setCurrencyRows(Array.isArray(currencyList) ? currencyList : []);
-      setExchangeRateRows(Array.isArray(rateList) ? rateList : []);
-      setBaseCurrencyCode(baseConfig?.baseCurrencyCode || '');
-      if (Array.isArray(currencyList) && currencyList.length > 0) {
-        setRateDraft((prev) => ({
-          ...prev,
-          baseCurrencyCode: baseConfig?.baseCurrencyCode || prev.baseCurrencyCode || currencyList[0].code,
-          quoteCurrencyCode: prev.quoteCurrencyCode || currencyList.find((item: any) => item.code !== (baseConfig?.baseCurrencyCode || currencyList[0].code))?.code || '',
-        }));
-      }
-    } catch (error) {
-      const [cachedCurrencies, cachedRates, cachedBase] = await Promise.all([
-        db.currencies.toArray().catch(() => []),
-        db.exchangeRates.toArray().catch(() => []),
-        db.settings.where('key').equals('baseCurrencyCode').first(),
-      ]);
-      setCurrencyRows(cachedCurrencies);
-      setExchangeRateRows(cachedRates);
-      setBaseCurrencyCode(cachedBase?.value || '');
-      toast.error('تعذر الاتصال بالخادم؛ المعروض بيانات محفوظة محلياً للقراءة فقط');
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'currencies') loadCurrencyLedger();
-  }, [activeTab]);
-
-  const handleSaveCurrency = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCurrencyBusy(true);
-    try {
-      const saved = await apiService.saveCurrency(currencyDraft);
-      setCurrencyRows((prev) => [...prev.filter((item) => item.code !== saved.code), saved]);
-      setCurrencyDraft({ code: '', name: '', symbol: '', decimalPlaces: 2 });
-      toast.success('تم حفظ العملة');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'تعذر حفظ العملة؛ تأكد من اتصالك بالخادم');
-    } finally {
-      setCurrencyBusy(false);
-    }
-  };
-
-  const handleSetBaseCurrency = async () => {
-    if (!baseCurrencyCode) return;
-    setCurrencyBusy(true);
-    try {
-      const saved = await apiService.setBaseCurrency(baseCurrencyCode);
-      setBaseCurrencyCode(saved.baseCurrencyCode);
-      toast.success('تم تعيين العملة الأساسية');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'تعذر تعيين العملة الأساسية');
-    } finally {
-      setCurrencyBusy(false);
-    }
-  };
-
-  const handleSaveExchangeRate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCurrencyBusy(true);
-    try {
-      await apiService.createExchangeRate({
-        ...rateDraft,
-        rate: Number(rateDraft.rate),
-        effectiveAt: new Date(rateDraft.effectiveAt).toISOString(),
-      });
-      await loadCurrencyLedger();
-      setRateDraft((prev) => ({ ...prev, rate: '', source: '' }));
-      toast.success('تم تسجيل السعر بانتظار اعتماد المدير');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'تعذر تسجيل سعر الصرف');
-    } finally {
-      setCurrencyBusy(false);
-    }
-  };
-
-  const handleApproveExchangeRate = async (id: string) => {
-    setCurrencyBusy(true);
-    try {
-      await apiService.approveExchangeRate(id);
-      await loadCurrencyLedger();
-      toast.success('تم اعتماد سعر الصرف');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'تعذر اعتماد سعر الصرف');
-    } finally {
-      setCurrencyBusy(false);
-    }
-  };
-
-  const loadUnitCatalog = async () => {
-    try {
-      const rows = await apiService.getUnitDefinitions();
-      setUnitRows(Array.isArray(rows) ? rows : []);
-      await db.unitDefinitions.bulkPut((rows || []).map((unit: any) => ({ ...unit, syncStatus: 'synced' })));
-    } catch {
-      setUnitRows(await db.unitDefinitions.toArray().catch(() => []));
-      toast.error('تعذر الاتصال بالخادم؛ بيانات الوحدات المحلية للقراءة فقط');
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'units') loadUnitCatalog();
-  }, [activeTab]);
-
-  const handleSaveUnitDefinition = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUnitBusy(true);
-    try {
-      const saved = await apiService.saveUnitDefinition(unitDraft);
-      await db.unitDefinitions.put({ ...saved, syncStatus: 'synced' });
-      setUnitRows((prev) => [...prev.filter((item) => item.code !== saved.code), saved]);
-      setUnitDraft({ code: '', name: '', symbol: '', dimension: 'count', decimalPlaces: 0 });
-      toast.success('تم حفظ تعريف الوحدة');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'تعذر حفظ الوحدة؛ تأكد من اتصالك بالخادم');
-    } finally {
-      setUnitBusy(false);
-    }
-  };
-
   const handleLoadBackups = async () => {
     try {
       const list = await apiService.listBackups();
@@ -640,6 +528,74 @@ const Settings: React.FC = () => {
       toast.error('فشل فحص سلامة النسخة الاحتياطية');
     } finally {
       setVerifyingFile(null);
+    }
+  };
+
+  const handleAddFxRate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rateNum = Number(newFxRate);
+    if (!rateNum || rateNum <= 0) {
+      toast.error('يرجى إدخال سعر صرف صحيح أكبر من صفر');
+      return;
+    }
+    try {
+      const saved = await apiService.addExchangeRate({
+        currency: newFxCurrency.trim().toUpperCase() || 'USD',
+        rate: rateNum,
+        source: 'manual',
+        notes: newFxNotes || undefined,
+      });
+      await db.exchangeRateHistory.put({ ...saved, syncStatus: 'synced' } as ExchangeRateRecord);
+      if ((newFxCurrency.trim().toUpperCase() || 'USD') === 'USD') {
+        setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
+      }
+      setNewFxRate('');
+      setNewFxNotes('');
+      toast.success('تم تسجيل سعر الصرف وتحديث السجل');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'تعذر حفظ سعر الصرف');
+    }
+  };
+
+  const handleCreateFiscalPeriod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPeriodName.trim() || !newPeriodStart || !newPeriodEnd) {
+      toast.error('يرجى إدخال اسم الفترة وتاريخ البداية والنهاية');
+      return;
+    }
+    if (newPeriodEnd < newPeriodStart) {
+      toast.error('تاريخ النهاية يجب أن يكون بعد تاريخ البداية');
+      return;
+    }
+    try {
+      const saved = await apiService.saveFiscalPeriod({
+        name: newPeriodName.trim(),
+        startDate: newPeriodStart,
+        endDate: newPeriodEnd,
+      });
+      await db.fiscalPeriods.put({ ...saved, syncStatus: 'synced' } as FiscalPeriod);
+      setNewPeriodName('');
+      setNewPeriodStart('');
+      setNewPeriodEnd('');
+      toast.success('تم إنشاء الفترة المالية بنجاح');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'تعذر إنشاء الفترة المالية');
+    }
+  };
+
+  const executePeriodAction = async () => {
+    if (!periodConfirm) return;
+    const { period, action } = periodConfirm;
+    setPeriodConfirm(null);
+    try {
+      const updated =
+        action === 'close'
+          ? await apiService.closeFiscalPeriod(period.id)
+          : await apiService.reopenFiscalPeriod(period.id);
+      await db.fiscalPeriods.put({ ...updated, syncStatus: 'synced' } as FiscalPeriod);
+      toast.success(action === 'close' ? 'تم إغلاق الفترة المالية' : 'تم إعادة فتح الفترة المالية');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'تعذر تنفيذ الإجراء على الفترة المالية');
     }
   };
 
@@ -833,138 +789,254 @@ const Settings: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'currencies' && (
-                  <div className="space-y-8">
+                {activeTab === 'accounting' && (
+                  <div className="space-y-10">
                     <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
-                      <Globe className="w-6 h-6 text-indigo-600" />
-                      <h2 className="text-xl font-bold">العملات وأسعار الصرف</h2>
+                      <TrendingUp className="w-6 h-6 text-indigo-600" />
+                      <h2 className="text-xl font-bold">السياسات المحاسبية والمخزنية والفترات المالية</h2>
                     </div>
 
-                    <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-7">
-                      العملة الأساسية لا تُحدد تلقائياً. أسعار الصرف الجديدة لا تصبح متاحة لأجهزة نقاط البيع إلا بعد اعتمادها، وتُحفظ الأسعار المعتمدة كسجل تاريخي.
-                    </div>
+                    {/* Valuation & Stock Policy */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                        <label className="text-sm font-bold text-gray-800 block">طريقة تقييم المخزون وتكلفة المبيعات</label>
+                        <select
+                          value={settings.inventoryValuationMethod || 'fifo'}
+                          onChange={(e) => setSettings({ ...settings, inventoryValuationMethod: e.target.value })}
+                          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="fifo">الوارد أولاً صادر أولاً (FIFO)</option>
+                          <option value="weighted_average">المتوسط المرجح للتكلفة (Weighted Average)</option>
+                        </select>
+                        <p className="text-xs text-gray-500">تُستخدم في حساب تكلفة المبيعات (COGS) عند البيع والمرتجعات.</p>
+                      </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <form onSubmit={handleSaveCurrency} className="p-6 rounded-2xl border border-gray-200 space-y-4">
-                        <h3 className="font-bold text-gray-800">إضافة عملة</h3>
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className="text-sm space-y-1">رمز ISO 4217
-                            <input required maxLength={3} value={currencyDraft.code} onChange={(e) => setCurrencyDraft({ ...currencyDraft, code: e.target.value.toUpperCase() })} placeholder="USD" className="w-full p-3 border rounded-xl font-mono" />
-                          </label>
-                          <label className="text-sm space-y-1">اسم العملة
-                            <input required value={currencyDraft.name} onChange={(e) => setCurrencyDraft({ ...currencyDraft, name: e.target.value })} placeholder="الدولار الأمريكي" className="w-full p-3 border rounded-xl" />
-                          </label>
-                          <label className="text-sm space-y-1">الرمز الظاهر
-                            <input value={currencyDraft.symbol} onChange={(e) => setCurrencyDraft({ ...currencyDraft, symbol: e.target.value })} placeholder="$" className="w-full p-3 border rounded-xl" />
-                          </label>
-                          <label className="text-sm space-y-1">المنازل العشرية
-                            <input type="number" min={0} max={4} value={currencyDraft.decimalPlaces} onChange={(e) => setCurrencyDraft({ ...currencyDraft, decimalPlaces: Number(e.target.value) })} className="w-full p-3 border rounded-xl" />
-                          </label>
+                      <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                        <label className="text-sm font-bold text-gray-800 block">سياسة البيع عند نفاذ المخزون / الأوفلاين</label>
+                        <select
+                          value={settings.offlineStockPolicy || 'allow_with_alert'}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              offlineStockPolicy: e.target.value,
+                              allowNegativeStock: e.target.value !== 'block',
+                            })
+                          }
+                          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="allow_with_alert">السماح مع تسجيل تنبيه مخزون سالب</option>
+                          <option value="manager_override">السماح بتجاوز المدير فقط</option>
+                          <option value="block">منع البيع تماماً عند نفاذ الرصيد</option>
+                        </select>
+                        <p className="text-xs text-gray-500">تُطبق على مبيعات الكاشير ومزامنة الفواتير المؤجلة.</p>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                        <label className="text-sm font-bold text-gray-800 block">هامش الربح المستهدف (%)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={95}
+                          step={0.5}
+                          value={settings.targetProfitMargin ?? 25}
+                          onChange={(e) => setSettings({ ...settings, targetProfitMargin: Number(e.target.value) })}
+                          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <p className="text-xs text-gray-500">يُستخدم في اقتراح تسعير البيع الجديد عند تغير سعر الصرف أو تكلفة الاستيراد.</p>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-700 block">الخانات العشرية للعملة</label>
+                          <select
+                            value={Number(settings.currencyDecimals ?? 2)}
+                            onChange={(e) => setSettings({ ...settings, currencyDecimals: Number(e.target.value) })}
+                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl font-bold outline-none"
+                          >
+                            <option value={0}>0</option>
+                            <option value={2}>2 (1,000.00)</option>
+                            <option value={3}>3 (1,000.000)</option>
+                          </select>
                         </div>
-                        <button disabled={currencyBusy} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ العملة</button>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-700 block">الخانات العشرية للكميات</label>
+                          <select
+                            value={Number(settings.quantityDecimals ?? 3)}
+                            onChange={(e) => setSettings({ ...settings, quantityDecimals: Number(e.target.value) })}
+                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl font-bold outline-none"
+                          >
+                            <option value={0}>0 (أعداد صحيحة)</option>
+                            <option value={2}>2</option>
+                            <option value={3}>3 (أوزان وكسور)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Exchange Rate History & Updater */}
+                    <div className="p-6 bg-indigo-50/40 rounded-3xl border border-indigo-100 space-y-5">
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">سجل وتحديث أسعار الصرف</h3>
+                          <p className="text-xs text-gray-500">كل تعديل يوثق بتاريخ السريان ويُستخدم في المشتريات بالعملة الأجنبية.</p>
+                        </div>
+                        <span className="px-3 py-1 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700">
+                          السعر الحالي (USD): {formatNumber(settings.exchangeRate || 1, 4, 2)} {settings.currency}
+                        </span>
+                      </div>
+
+                      <form onSubmit={handleAddFxRate} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <input
+                          type="text"
+                          value={newFxCurrency}
+                          onChange={(e) => setNewFxCurrency(e.target.value)}
+                          placeholder="العملة (USD)"
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold"
+                        />
+                        <input
+                          type="number"
+                          step="0.0001"
+                          value={newFxRate}
+                          onChange={(e) => setNewFxRate(e.target.value)}
+                          placeholder="السعر مقابل العملة الأساسية"
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold"
+                        />
+                        <input
+                          type="text"
+                          value={newFxNotes}
+                          onChange={(e) => setNewFxNotes(e.target.value)}
+                          placeholder="ملاحظة (اختياري)"
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 flex items-center justify-center gap-1.5"
+                        >
+                          <Plus className="w-4 h-4" />
+                          اعتماد سعر جديد
+                        </button>
                       </form>
 
-                      <div className="p-6 rounded-2xl border border-gray-200 space-y-4">
-                        <h3 className="font-bold text-gray-800">العملة الأساسية للنظام</h3>
-                        <select value={baseCurrencyCode} onChange={(e) => setBaseCurrencyCode(e.target.value)} className="w-full p-3 border rounded-xl">
-                          <option value="">اختر العملة الأساسية</option>
-                          {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code} — {item.name}</option>)}
-                        </select>
-                        <button type="button" disabled={currencyBusy || !baseCurrencyCode} onClick={handleSetBaseCurrency} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">اعتماد العملة الأساسية</button>
-                        <p className="text-xs text-gray-500">تغيير العملة الأساسية لا يعيد تحويل الفواتير أو تكاليف المخزون التاريخية.</p>
-                      </div>
+                      {fxHistory.length > 0 && (
+                        <div className="bg-white rounded-2xl border border-indigo-100 overflow-hidden max-h-56 overflow-y-auto">
+                          <table className="w-full text-xs text-right">
+                            <thead className="bg-gray-50 text-gray-600">
+                              <tr>
+                                <th className="p-3">العملة</th>
+                                <th className="p-3">السعر</th>
+                                <th className="p-3">تاريخ السريان</th>
+                                <th className="p-3">بواسطة</th>
+                                <th className="p-3">ملاحظات</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {fxHistory.slice(0, 10).map((fx) => (
+                                <tr key={fx.id}>
+                                  <td className="p-3 font-bold">{fx.currency}</td>
+                                  <td className="p-3 font-mono font-bold text-indigo-700">{formatNumber(fx.rate, 4, 2)}</td>
+                                  <td className="p-3 text-gray-500">{new Date(fx.effectiveFrom).toLocaleString('ar-SA')}</td>
+                                  <td className="p-3 text-gray-600">{fx.createdBy || '-'}</td>
+                                  <td className="p-3 text-gray-500">{fx.notes || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="p-6 rounded-2xl border border-gray-200 space-y-4">
-                      <h3 className="font-bold text-gray-800">تسجيل سعر صرف جديد</h3>
-                      <form onSubmit={handleSaveExchangeRate} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        <label className="text-sm space-y-1">من العملة
-                          <select required value={rateDraft.baseCurrencyCode} onChange={(e) => setRateDraft({ ...rateDraft, baseCurrencyCode: e.target.value })} className="w-full p-3 border rounded-xl">
-                            <option value="">اختر</option>
-                            {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
-                          </select>
-                        </label>
-                        <label className="text-sm space-y-1">إلى العملة
-                          <select required value={rateDraft.quoteCurrencyCode} onChange={(e) => setRateDraft({ ...rateDraft, quoteCurrencyCode: e.target.value })} className="w-full p-3 border rounded-xl">
-                            <option value="">اختر</option>
-                            {currencyRows.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
-                          </select>
-                        </label>
-                        <label className="text-sm space-y-1">السعر (وحدات العملة الثانية لكل وحدة من الأولى)
-                          <input required type="number" min="0.00000001" step="any" value={rateDraft.rate} onChange={(e) => setRateDraft({ ...rateDraft, rate: e.target.value })} className="w-full p-3 border rounded-xl" />
-                        </label>
-                        <label className="text-sm space-y-1">تاريخ ووقت السريان
-                          <input required type="datetime-local" value={rateDraft.effectiveAt} onChange={(e) => setRateDraft({ ...rateDraft, effectiveAt: e.target.value })} className="w-full p-3 border rounded-xl" />
-                        </label>
-                        <label className="text-sm space-y-1">مصدر السعر
-                          <input required value={rateDraft.source} onChange={(e) => setRateDraft({ ...rateDraft, source: e.target.value })} placeholder="مصدر موثق للسعر" className="w-full p-3 border rounded-xl" />
-                        </label>
-                        <div className="flex items-end"><button disabled={currencyBusy || !currencyRows.length} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">تسجيل السعر</button></div>
+                    {/* Fiscal Periods Management */}
+                    <div className="p-6 bg-gray-50 rounded-3xl border border-gray-200 space-y-5">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-indigo-600" />
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">إدارة الفترات المالية وإقفال الدفاتر</h3>
+                          <p className="text-xs text-gray-500">إغلاق الفترة يمنع تعديل أو ترحيل قيود مالية في تواريخها لضمان ثبات الميزانية.</p>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleCreateFiscalPeriod} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <input
+                          type="text"
+                          value={newPeriodName}
+                          onChange={(e) => setNewPeriodName(e.target.value)}
+                          placeholder="اسم الفترة (مثلاً: الربع الأول 2026)"
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold"
+                        />
+                        <input
+                          type="date"
+                          value={newPeriodStart}
+                          onChange={(e) => setNewPeriodStart(e.target.value)}
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm"
+                        />
+                        <input
+                          type="date"
+                          value={newPeriodEnd}
+                          onChange={(e) => setNewPeriodEnd(e.target.value)}
+                          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 flex items-center justify-center gap-1.5"
+                        >
+                          <Plus className="w-4 h-4" />
+                          إنشاء فترة مالية
+                        </button>
                       </form>
-                    </div>
 
-                    <div className="space-y-3">
-                      <h3 className="font-bold text-gray-800">سجل العملات</h3>
-                      <div className="overflow-x-auto border rounded-2xl">
-                        <table className="w-full text-sm text-right">
-                          <thead className="bg-gray-50"><tr><th className="p-3">الرمز</th><th className="p-3">الاسم</th><th className="p-3">المنازل</th><th className="p-3">الحالة</th></tr></thead>
-                          <tbody>{currencyRows.map((item) => <tr key={item.code} className="border-t"><td className="p-3 font-mono">{item.code}</td><td className="p-3">{item.name}</td><td className="p-3">{item.decimalPlaces}</td><td className="p-3">{item.isActive ? 'نشطة' : 'موقوفة'}</td></tr>)}</tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <h3 className="font-bold text-gray-800">سجل أسعار الصرف والاعتماد</h3>
-                      <div className="overflow-x-auto border rounded-2xl">
-                        <table className="w-full text-sm text-right">
-                          <thead className="bg-gray-50"><tr><th className="p-3">زوج العملات</th><th className="p-3">السعر</th><th className="p-3">السريان</th><th className="p-3">المصدر</th><th className="p-3">الحالة</th><th className="p-3">الإجراء</th></tr></thead>
-                          <tbody>{exchangeRateRows.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-mono">{item.baseCurrencyCode}/{item.quoteCurrencyCode}</td><td className="p-3">{item.rate}</td><td className="p-3">{new Date(item.effectiveAt).toLocaleString('ar')}</td><td className="p-3">{item.source}</td><td className="p-3">{item.approvedAt ? 'معتمد' : 'بانتظار الاعتماد'}</td><td className="p-3">{!item.approvedAt && <button type="button" disabled={currencyBusy} onClick={() => handleApproveExchangeRate(item.id)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white disabled:opacity-50">اعتماد</button>}</td></tr>)}</tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'units' && (
-                  <div className="space-y-8">
-                    <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
-                      <Ruler className="w-6 h-6 text-indigo-600" />
-                      <h2 className="text-xl font-bold">تعريف وحدات القياس</h2>
-                    </div>
-                    <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-7">
-                      تُعرّف الوحدات هنا أولاً، ثم تُربط بكل صنف في مرحلة إعداد وحدات الصنف. لا يؤدي إنشاء تعريف وحدة وحده إلى تغيير كميات المخزون الحالية.
-                    </div>
-                    <form onSubmit={handleSaveUnitDefinition} className="p-6 rounded-2xl border border-gray-200 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      <label className="text-sm space-y-1">رمز الوحدة
-                        <input required maxLength={20} pattern="[a-z][a-z0-9_-]{0,19}" value={unitDraft.code} onChange={(e) => setUnitDraft({ ...unitDraft, code: e.target.value.toLowerCase() })} placeholder="piece أو kg أو carton" className="w-full p-3 border rounded-xl font-mono" />
-                      </label>
-                      <label className="text-sm space-y-1">اسم الوحدة
-                        <input required value={unitDraft.name} onChange={(e) => setUnitDraft({ ...unitDraft, name: e.target.value })} placeholder="كيلوجرام" className="w-full p-3 border rounded-xl" />
-                      </label>
-                      <label className="text-sm space-y-1">الرمز المختصر
-                        <input value={unitDraft.symbol} onChange={(e) => setUnitDraft({ ...unitDraft, symbol: e.target.value })} placeholder="kg" className="w-full p-3 border rounded-xl" />
-                      </label>
-                      <label className="text-sm space-y-1">بُعد الوحدة
-                        <select value={unitDraft.dimension} onChange={(e) => setUnitDraft({ ...unitDraft, dimension: e.target.value })} className="w-full p-3 border rounded-xl">
-                          <option value="count">عدد</option>
-                          <option value="mass">كتلة / وزن</option>
-                          <option value="volume">حجم</option>
-                          <option value="length">طول</option>
-                          <option value="area">مساحة</option>
-                          <option value="time">زمن</option>
-                          <option value="service">خدمة</option>
-                        </select>
-                      </label>
-                      <label className="text-sm space-y-1">المنازل العشرية المسموحة
-                        <input type="number" min={0} max={6} value={unitDraft.decimalPlaces} onChange={(e) => setUnitDraft({ ...unitDraft, decimalPlaces: Number(e.target.value) })} className="w-full p-3 border rounded-xl" />
-                      </label>
-                      <div className="flex items-end"><button disabled={unitBusy} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ الوحدة</button></div>
-                    </form>
-                    <div className="overflow-x-auto border rounded-2xl">
-                      <table className="w-full text-sm text-right">
-                        <thead className="bg-gray-50"><tr><th className="p-3">الرمز</th><th className="p-3">الاسم</th><th className="p-3">البُعد</th><th className="p-3">الرمز المختصر</th><th className="p-3">الدقة</th><th className="p-3">الحالة</th></tr></thead>
-                        <tbody>{unitRows.map((item) => <tr key={item.code} className="border-t"><td className="p-3 font-mono">{item.code}</td><td className="p-3">{item.name}</td><td className="p-3">{item.dimension}</td><td className="p-3">{item.symbol || '—'}</td><td className="p-3">{item.decimalPlaces}</td><td className="p-3">{item.isActive ? 'نشطة' : 'موقوفة'}</td></tr>)}</tbody>
-                      </table>
+                      {fiscalPeriodsList.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-4">لا توجد فترات مالية معرفة حالياً.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {fiscalPeriodsList.map((period) => (
+                            <div
+                              key={period.id}
+                              className="flex flex-wrap items-center justify-between gap-3 p-4 bg-white rounded-2xl border border-gray-200"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${
+                                    period.status === 'closed'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  }`}
+                                >
+                                  {period.status === 'closed' ? <Lock className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                  {period.status === 'closed' ? 'مغلقة' : 'مفتوحة'}
+                                </span>
+                                <div>
+                                  <p className="font-bold text-sm text-gray-900">{period.name}</p>
+                                  <p className="text-xs text-gray-500">
+                                    من {period.startDate} إلى {period.endDate}
+                                    {period.closedBy ? ` — أُغلقت بواسطة ${period.closedBy}` : ''}
+                                  </p>
+                                </div>
+                              </div>
+                              <div>
+                                {period.status === 'open' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPeriodConfirm({ period, action: 'close' })}
+                                    className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 flex items-center gap-1.5"
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                    إغلاق الفترة
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPeriodConfirm({ period, action: 'reopen' })}
+                                    className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 flex items-center gap-1.5"
+                                  >
+                                    <Unlock className="w-3.5 h-3.5" />
+                                    إعادة فتح
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1779,6 +1851,20 @@ const Settings: React.FC = () => {
         variant="danger"
         onCancel={() => setClearModalMode('none')}
         onConfirm={executeConfirmedClear}
+      />
+
+      <ConfirmationModal
+        isOpen={Boolean(periodConfirm)}
+        title={periodConfirm?.action === 'close' ? 'إغلاق الفترة المالية' : 'إعادة فتح الفترة المالية'}
+        message={
+          periodConfirm?.action === 'close'
+            ? `سيمنع إغلاق الفترة "${periodConfirm?.period.name}" أي عمليات بيع أو شراء أو قيود ضمن تواريخها (${periodConfirm?.period.startDate} - ${periodConfirm?.period.endDate}). هل تريد المتابعة؟`
+            : `هل تريد إعادة فتح الفترة "${periodConfirm?.period.name}" والسماح بالترحيل ضمن تواريخها؟`
+        }
+        confirmLabel={periodConfirm?.action === 'close' ? 'إغلاق الفترة' : 'إعادة فتح'}
+        variant={periodConfirm?.action === 'close' ? 'danger' : 'primary'}
+        onCancel={() => setPeriodConfirm(null)}
+        onConfirm={executePeriodAction}
       />
     </div>
   );

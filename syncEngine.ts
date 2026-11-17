@@ -247,3 +247,10 @@ export function startSyncEngine() {
   if (syncTimer) return;
   syncTimer = setInterval(processSyncQueue, 15000);
 }
+
+export function stopSyncEngine() {
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
+  }
+}

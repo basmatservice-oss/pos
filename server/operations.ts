@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import {
   products,
   categories,
@@ -14,8 +14,6 @@ import {
   expenses,
   employees,
   settings,
-  currencies,
-  exchangeRates,
   attendance,
   loyaltyTransactions,
   branches,
@@ -31,10 +29,11 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
-  inventoryMovements,
-  productUnits,
-  unitDefinitions,
+  inventoryAlerts,
   processedOperations,
+  serviceRecipes,
+  exchangeRateHistory,
+  fiscalPeriods,
 } from '../drizzle/schema.js';
 import {
   postJournalEntry,
@@ -42,183 +41,74 @@ import {
   consumeInventoryFIFO,
   restoreInventoryFIFO,
   recalculateProductWeightedCost,
+  recordInventoryMovement,
   BatchAllocation,
 } from './accounting.js';
 import { hashSecret, sanitizeEmployee } from './auth.js';
-import { getBasePerDocumentUnit } from '../src/utils/currencyConversion.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function appendInventoryMovement(
+function roundQty(n: number): number {
+  return Math.round((Number(n) || 0) * 10000) / 10000;
+}
+
+function getSettingValue(tx: any, key: string, fallback = ''): string {
+  const row = tx.select().from(settings).where(eq(settings.key, key)).get();
+  return row && row.value !== undefined && row.value !== null ? String(row.value) : fallback;
+}
+
+function getStockPolicy(tx: any, payload: any, userRole?: string): { allowNegative: boolean; policy: string } {
+  const policy = getSettingValue(tx, 'offlineStockPolicy', '');
+  const legacyAllow = getSettingValue(tx, 'allowNegativeStock', 'true');
+  const effectivePolicy = policy || (legacyAllow === 'false' ? 'block' : 'allow_with_alert');
+  const isPrivilegedOverride =
+    (Boolean(payload?.managerOverride) || Boolean(payload?.allowNegativeOverride)) &&
+    (userRole === 'admin' || userRole === 'manager');
+
+  if (effectivePolicy === 'block' && !isPrivilegedOverride) {
+    return { allowNegative: false, policy: effectivePolicy };
+  }
+  if (effectivePolicy === 'manager_override' && !isPrivilegedOverride) {
+    return { allowNegative: false, policy: effectivePolicy };
+  }
+  return { allowNegative: true, policy: effectivePolicy };
+}
+
+function getValuationMethod(tx: any): 'fifo' | 'weighted_average' {
+  const val = getSettingValue(tx, 'inventoryValuationMethod', 'fifo');
+  return val === 'weighted_average' ? 'weighted_average' : 'fifo';
+}
+
+function assertOpenFiscalPeriod(
   tx: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string },
-  input: {
-    productId: number;
-    branchId?: number | null;
-    movementType: string;
-    sourceType: string;
-    sourceId: string;
-    sourceLineId?: string | number | null;
-    inputQuantity?: number | null;
-    unitCode?: string | null;
-    baseUnitCode?: string | null;
-    conversionToBase?: number;
-    quantityDeltaBase: number;
-    unitCost?: number;
-    totalCost?: number;
-    batchAllocations?: any[] | string | null;
-    reason?: string | null;
-  }
+  dateIso: string,
+  payload?: any,
+  userRole?: string
 ) {
-  const movementKey = [
-    input.movementType,
-    input.sourceType,
-    input.sourceId,
-    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
-  ].join(':');
-  const id = `${ctx.operationId}:${movementKey}`;
-  const allocations = typeof input.batchAllocations === 'string'
-    ? input.batchAllocations
-    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+  const allPeriods = tx.select().from(fiscalPeriods).all();
+  if (!allPeriods || allPeriods.length === 0) return;
 
-  tx.insert(inventoryMovements)
-    .values({
-      id,
-      movementKey,
-      productId: Number(input.productId),
-      branchId: input.branchId ?? null,
-      movementType: input.movementType,
-      sourceType: input.sourceType,
-      sourceId: String(input.sourceId),
-      sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
-      operationId: ctx.operationId,
-      deviceId: ctx.deviceId,
-      createdBy: ctx.actor,
-      inputQuantity: input.inputQuantity ?? null,
-      unitCode: input.unitCode ?? null,
-      baseUnitCode: input.baseUnitCode ?? null,
-      conversionToBase: Number(input.conversionToBase || 1),
-      quantityDeltaBase: Number(input.quantityDeltaBase),
-      unitCost: Number(input.unitCost || 0),
-      totalCost: Math.abs(Number(input.totalCost || 0)),
-      batchAllocations: allocations,
-      reason: input.reason ?? null,
-      createdAt: ctx.now,
-    })
-    .onConflictDoNothing()
-    .run();
+  const targetDay = String(dateIso || new Date().toISOString()).slice(0, 10);
+  const closedMatch = allPeriods.find((p: any) => {
+    if (p.status !== 'closed') return false;
+    const start = String(p.startDate || '').slice(0, 10);
+    const end = String(p.endDate || '').slice(0, 10);
+    return start && end && targetDay >= start && targetDay <= end;
+  });
 
-  return id;
-}
-
-type MovementUnitSnapshot = {
-  unitCode: string | null;
-  baseUnitCode: string | null;
-  conversionToBase: number;
-  baseQuantity: number;
-  legacyUnit: string;
-};
-
-function resolveMovementUnit(tx: any, productId: number, item: any, quantity: number): MovementUnitSnapshot {
-  const product = tx.select().from(products).where(eq(products.id, productId)).get();
-  if (!product) throw new OperationError(`الصنف رقم ${productId} غير موجود`, 404);
-
-  const unitCode = String(item?.unitCode || '').trim().toLowerCase();
-  if (unitCode) {
-    const selectedUnit = tx.select().from(productUnits)
-      .where(and(
-        eq(productUnits.productId, productId),
-        eq(productUnits.unitCode, unitCode),
-        eq(productUnits.isActive, 1)
-      )).get();
-    if (!selectedUnit) throw new OperationError('وحدة الإدخال غير مرتبطة بهذا الصنف أو أنها غير نشطة', 409);
-
-    const baseUnitCode = String(product.baseUnitCode || '').trim().toLowerCase();
-    const baseUnit = baseUnitCode ? tx.select().from(productUnits)
-      .where(and(
-        eq(productUnits.productId, productId),
-        eq(productUnits.unitCode, baseUnitCode),
-        eq(productUnits.isBaseUnit, 1),
-        eq(productUnits.isActive, 1)
-      )).get() : null;
-    if (!baseUnit) throw new OperationError('يجب ضبط وحدة الأساس للصنف قبل استخدام وحداته البديلة', 409);
-
-    const definition = tx.select().from(unitDefinitions)
-      .where(eq(unitDefinitions.code, unitCode)).get();
-    const baseDefinition = tx.select().from(unitDefinitions)
-      .where(eq(unitDefinitions.code, baseUnitCode)).get();
-    if (!definition || !definition.isActive || !baseDefinition || !baseDefinition.isActive) {
-      throw new OperationError('تعريف وحدة القياس أو وحدة الأساس غير موجود أو غير نشط', 409);
+  if (closedMatch) {
+    const isAdminOverride =
+      Boolean(payload?.allowClosedPeriodOverride) &&
+      (userRole === 'admin' || userRole === 'manager');
+    if (!isAdminOverride) {
+      throw new OperationError(
+        `الفترة المالية (${closedMatch.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`,
+        403
+      );
     }
-    if (definition.dimension !== baseDefinition.dimension) {
-      throw new OperationError('لا يمكن التحويل بين وحدات ذات أبعاد مختلفة', 409);
-    }
-    if (Math.abs(Number(baseUnit.conversionToBase) - 1) > 1e-10 ||
-        (selectedUnit.isBaseUnit === 1 && unitCode !== baseUnitCode)) {
-      throw new OperationError('تعريف وحدة الأساس للصنف غير متسق', 409);
-    }
-
-    // Honor the conversion snapshot captured on the terminal. Offline transactions
-    // must not be reinterpreted if an administrator updates the unit later.
-    const hasSnapshotFactor = item?.conversionToBase !== null && item?.conversionToBase !== undefined;
-    const factor = hasSnapshotFactor ? Number(item.conversionToBase) : Number(selectedUnit.conversionToBase);
-    if (!Number.isFinite(factor) || factor <= 0 || (selectedUnit.isBaseUnit === 1 && Math.abs(factor - 1) > 1e-10)) {
-      throw new OperationError('معامل تحويل وحدة الصنف غير صالح', 409);
-    }
-    if (item?.baseUnitCode && String(item.baseUnitCode).toLowerCase() !== baseUnitCode) {
-      throw new OperationError('تغيرت وحدة الأساس بعد تسجيل الحركة على الجهاز؛ يلزم تسوية الحركة قبل المزامنة', 409);
-    }
-    const suppliedBaseQuantity = item?.baseQuantity;
-    if (suppliedBaseQuantity !== null && suppliedBaseQuantity !== undefined) {
-      const expectedBaseQuantity = quantity * factor;
-      const tolerance = Math.max(1e-7, Math.abs(expectedBaseQuantity) * 1e-9);
-      if (!Number.isFinite(Number(suppliedBaseQuantity)) ||
-          Math.abs(Number(suppliedBaseQuantity) - expectedBaseQuantity) > tolerance) {
-        throw new OperationError('لقطة كمية الأساس لا تتوافق مع الكمية ومعامل التحويل', 409);
-      }
-    }
-
-    const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
-    const scale = 10 ** precision;
-    if (Math.abs(quantity * scale - Math.round(quantity * scale)) > 1e-7) {
-      throw new OperationError(`الكمية لا تتوافق مع دقة وحدة ${definition.name}`, 400);
-    }
-
-    return {
-      unitCode,
-      baseUnitCode,
-      conversionToBase: factor,
-      baseQuantity: quantity * factor,
-      legacyUnit: unitCode,
-    };
   }
-
-  // Older terminals still send the legacy piece/box fields. Keep their historical semantics.
-  const legacyUnit = String(item?.unit || item?.selectedUnit || 'piece');
-  const factor = legacyUnit === 'box' ? Number(item?.conversionFactor || 1) : 1;
-  if (!Number.isFinite(factor) || factor <= 0) {
-    throw new OperationError('معامل تحويل الوحدة القديمة غير صالح', 400);
-  }
-  return {
-    unitCode: null,
-    baseUnitCode: product.baseUnitCode || null,
-    conversionToBase: factor,
-    baseQuantity: quantity * factor,
-    legacyUnit,
-  };
-}
-
-function getHistoricalBaseQuantity(item: any, quantity: number): number {
-  const originalQuantity = Number(item?.quantity || 0);
-  const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
-  const storedBaseQuantity = Number(item?.baseQuantity);
-  if (hasStoredBaseQuantity && originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
-    return storedBaseQuantity * (quantity / originalQuantity);
-  }
-  const factor = Number(item?.conversionToBase ?? item?.conversionFactor ?? 1);
-  return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 }
 
 export class OperationError extends Error {
@@ -233,6 +123,7 @@ export interface OperationMeta {
   operationId?: string;
   deviceId?: string;
   userName?: string;
+  userRole?: string;
   branchId?: number;
 }
 
@@ -245,6 +136,7 @@ export function executeBusinessOperation(
   const operationId = meta.operationId || payload?.operationId || crypto.randomUUID();
   const deviceId = meta.deviceId || payload?.deviceId || 'server';
   const actor = meta.userName || payload?.createdBy || 'System';
+  const userRole = meta.userRole;
   const now = new Date().toISOString();
 
   return dbInstance.transaction((tx: any) => {
@@ -267,34 +159,35 @@ export function executeBusinessOperation(
 
     switch (type) {
       case 'sale': {
-        result = handleSale(tx, payload, { operationId, deviceId, actor, now });
+        result = handleSale(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'return': {
-        result = handleReturn(tx, payload, { operationId, deviceId, actor, now });
+        result = handleReturn(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'order_void': {
-        result = handleOrderVoid(tx, payload, { operationId, deviceId, actor, now });
+        result = handleOrderVoid(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'purchase': {
-        result = handlePurchaseCreate(tx, payload, { operationId, deviceId, actor, now });
+        result = handlePurchaseCreate(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'purchase_update': {
-        result = handlePurchaseUpdate(tx, payload, { operationId, deviceId, actor, now });
+        result = handlePurchaseUpdate(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'purchase_delete': {
-        result = handlePurchaseDelete(tx, payload, { operationId, deviceId, actor, now });
+        result = handlePurchaseDelete(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'purchase_return': {
-        result = handlePurchaseReturn(tx, payload, { operationId, deviceId, actor, now });
+        result = handlePurchaseReturn(tx, payload, { operationId, deviceId, actor, userRole, now });
         break;
       }
       case 'expense': {
+        assertOpenFiscalPeriod(tx, payload?.date || now, payload, userRole);
         result = handleExpenseCreate(tx, payload, { actor, now });
         break;
       }
@@ -302,6 +195,7 @@ export function executeBusinessOperation(
         const expId = Number(payload.id);
         const existing = tx.select().from(expenses).where(eq(expenses.id, expId)).get();
         if (existing) {
+          assertOpenFiscalPeriod(tx, existing.date || now, payload, userRole);
           tx.delete(expenses).where(eq(expenses.id, expId)).run();
           reverseJournalEntriesByReference(tx, String(expId), 'حذف مصروف', actor);
           tx.insert(auditLogs)
@@ -325,14 +219,17 @@ export function executeBusinessOperation(
         break;
       }
       case 'customer_payment': {
+        assertOpenFiscalPeriod(tx, now, payload, userRole);
         result = handleCustomerPayment(tx, payload, { operationId, actor, now });
         break;
       }
       case 'supplier_payment': {
+        assertOpenFiscalPeriod(tx, now, payload, userRole);
         result = handleSupplierPayment(tx, payload, { operationId, actor, now });
         break;
       }
       case 'payroll': {
+        assertOpenFiscalPeriod(tx, payload?.paymentDate || now, payload, userRole);
         result = handlePayrollCreate(tx, payload, { actor, now });
         break;
       }
@@ -369,15 +266,17 @@ export function executeBusinessOperation(
         break;
       }
       case 'shift_movement': {
+        assertOpenFiscalPeriod(tx, now, payload, userRole);
         result = handleShiftMovement(tx, payload, { operationId, actor, now });
         break;
       }
       case 'stocktake_approve': {
+        assertOpenFiscalPeriod(tx, now, payload, userRole);
         result = handleStocktakeApprove(tx, payload, { operationId, deviceId, actor, now });
         break;
       }
       case 'entity_upsert': {
-        result = handleEntityUpsert(tx, payload, { operationId, deviceId, actor, now });
+        result = handleEntityUpsert(tx, payload, now);
         break;
       }
       case 'entity_delete': {
@@ -403,10 +302,32 @@ export function executeBusinessOperation(
   });
 }
 
+function resolveProductUnitFactor(product: any, item: any): number {
+  if (Number(item.conversionFactor) > 0 && item.unit && item.unit !== 'piece') {
+    return Number(item.conversionFactor);
+  }
+  const unitName = String(item.unit || item.selectedUnit || 'piece');
+  if (product?.unitsJson) {
+    try {
+      const units = JSON.parse(product.unitsJson);
+      if (Array.isArray(units)) {
+        const matched = units.find((u: any) => u?.name === unitName);
+        if (matched && Number(matched.conversionFactor) > 0) {
+          return Number(matched.conversionFactor);
+        }
+      }
+    } catch {}
+  }
+  if (unitName === 'box') {
+    return Number(item.conversionFactor || product?.conversionFactor || 1);
+  }
+  return Number(item.conversionFactor || 1) || 1;
+}
+
 function handleSale(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0 } = payload;
   if (!order || !order.id) {
@@ -419,80 +340,153 @@ function handleSale(
   }
 
   const createdAt = order.createdAt ? new Date(order.createdAt).toISOString() : ctx.now;
+  assertOpenFiscalPeriod(tx, createdAt, payload, ctx.userRole);
+
+  const { allowNegative } = getStockPolicy(tx, payload, ctx.userRole);
+  const valuationMethod = getValuationMethod(tx);
+
   let totalCogs = 0;
   const savedItems: any[] = [];
 
   for (const item of items) {
-    const qty = Number(item.quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      throw new OperationError('كمية البيع يجب أن تكون رقماً موجباً', 400);
-    }
-    const saleProduct = tx.select().from(products).where(eq(products.id, Number(item.productId))).get();
-    if (!saleProduct) {
-      throw new OperationError(`Product not found: ${item.productId}`, 404);
-    }
-    if (saleProduct.isActive === 0) {
-      throw new OperationError(`Product is inactive: ${item.productId}`, 409);
-    }
-    const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
-    const factor = unitSnapshot.conversionToBase;
-    const baseQty = unitSnapshot.baseQuantity;
-    const fifo = consumeInventoryFIFO(tx, {
-      productId: Number(item.productId),
-      quantityInBaseUnits: baseQty,
-      operationId: ctx.operationId,
-      deviceId: ctx.deviceId,
-      productName: item.productName,
-      allowNegative: true,
-    });
+    const qty = roundQty(Number(item.quantity || 0));
+    if (qty <= 0) continue;
 
-    const unitCostForSale = roundMoney(fifo.averageUnitCost * factor);
-    totalCogs = roundMoney(totalCogs + fifo.totalCost);
+    const prod = tx.select().from(products).where(eq(products.id, Number(item.productId))).get();
+    if (!prod) {
+      throw new OperationError(`الصنف غير موجود (ID: ${item.productId})`, 404);
+    }
+
+    const factor = resolveProductUnitFactor(prod, item);
+    const baseQty = roundQty(qty * factor);
+    const itemType = String(item.itemType || prod.itemType || 'stock');
+
+    let unitCostForSale = 0;
+    let batchAllocJson = JSON.stringify([]);
+
+    if (itemType === 'service') {
+      unitCostForSale = 0;
+      batchAllocJson = JSON.stringify({ kind: 'service' });
+    } else if (itemType === 'service_with_materials' || itemType === 'bundle') {
+      const recipes = tx
+        .select()
+        .from(serviceRecipes)
+        .where(eq(serviceRecipes.parentProductId, Number(prod.id)))
+        .all();
+
+      if (recipes.length > 0) {
+        let recipeTotalCost = 0;
+        const ingredientAllocations: Array<{
+          ingredientProductId: number;
+          ingredientName?: string;
+          quantityConsumed: number;
+          allocations: BatchAllocation[];
+        }> = [];
+
+        for (const rec of recipes) {
+          const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
+          if (ingQty <= 0) continue;
+          const ingFifo = consumeInventoryFIFO(tx, {
+            productId: Number(rec.ingredientProductId),
+            quantityInBaseUnits: ingQty,
+            operationId: ctx.operationId,
+            deviceId: ctx.deviceId,
+            productName: rec.ingredientName || item.productName,
+            allowNegative,
+            valuationMethod,
+            movementType: 'service_consumption',
+            sourceType: 'order',
+            sourceId: order.id,
+            movementKeySuffix: `rec-${savedItems.length}-${rec.id || rec.ingredientProductId}`,
+            branchId: order.branchId || null,
+            createdBy: ctx.actor,
+            createdAt,
+          });
+          recipeTotalCost += ingFifo.totalCost;
+          ingredientAllocations.push({
+            ingredientProductId: Number(rec.ingredientProductId),
+            ingredientName: rec.ingredientName,
+            quantityConsumed: ingQty,
+            allocations: ingFifo.allocations,
+          });
+        }
+
+        unitCostForSale = roundQty(qty > 0 ? recipeTotalCost / qty : 0);
+        totalCogs = roundMoney(totalCogs + recipeTotalCost);
+        batchAllocJson = JSON.stringify({
+          kind: 'recipe',
+          ingredients: ingredientAllocations,
+        });
+      } else if (itemType === 'bundle') {
+        const fifo = consumeInventoryFIFO(tx, {
+          productId: Number(prod.id),
+          quantityInBaseUnits: baseQty,
+          operationId: ctx.operationId,
+          deviceId: ctx.deviceId,
+          productName: item.productName || prod.name,
+          allowNegative,
+          valuationMethod,
+          movementType: 'sale',
+          sourceType: 'order',
+          sourceId: order.id,
+          movementKeySuffix: String(savedItems.length),
+          branchId: order.branchId || null,
+          createdBy: ctx.actor,
+          createdAt,
+        });
+        unitCostForSale = roundQty(fifo.averageUnitCost * factor);
+        totalCogs = roundMoney(totalCogs + fifo.totalCost);
+        batchAllocJson = JSON.stringify(fifo.allocations);
+      } else {
+        unitCostForSale = 0;
+        batchAllocJson = JSON.stringify({ kind: 'service' });
+      }
+    } else {
+      const fifo = consumeInventoryFIFO(tx, {
+        productId: Number(prod.id),
+        quantityInBaseUnits: baseQty,
+        operationId: ctx.operationId,
+        deviceId: ctx.deviceId,
+        productName: item.productName || prod.name,
+        allowNegative,
+        valuationMethod,
+        movementType: 'sale',
+        sourceType: 'order',
+        sourceId: order.id,
+        movementKeySuffix: String(savedItems.length),
+        branchId: order.branchId || null,
+        createdBy: ctx.actor,
+        createdAt,
+      });
+      unitCostForSale = roundQty(fifo.averageUnitCost * factor);
+      totalCogs = roundMoney(totalCogs + fifo.totalCost);
+      batchAllocJson = JSON.stringify(fifo.allocations);
+    }
 
     const insertedItem = tx
       .insert(orderItems)
       .values({
-        id: Number(item.id) || undefined,
         orderId: order.id,
-        productId: Number(item.productId),
-        productName: item.productName,
+        productId: Number(prod.id),
+        productName: item.productName || prod.name,
         quantity: qty,
         returnedQuantity: 0,
-        unit: unitSnapshot.legacyUnit,
+        unit: item.unit || item.selectedUnit || prod.unit || 'piece',
         conversionFactor: factor,
-        unitCode: unitSnapshot.unitCode,
-        baseUnitCode: unitSnapshot.baseUnitCode,
-        conversionToBase: factor,
-        baseQuantity: baseQty,
+        itemType,
         unitPrice: Number(item.unitPrice || 0),
         costPriceAtTimeOfSale: unitCostForSale,
         discountAmount: Number(item.discountAmount || 0),
         subTotal: Number(item.subTotal || 0),
         taxAmount: Number(item.taxAmount || 0),
         total: Number(item.total || 0),
-        batchAllocations: JSON.stringify(fifo.allocations),
+        batchAllocations: batchAllocJson,
         isSynced: 0,
         createdAt,
       })
       .returning()
       .get();
 
-    appendInventoryMovement(tx, ctx, {
-      productId: Number(item.productId),
-      branchId: order.branchId ?? null,
-      movementType: 'sale',
-      sourceType: 'order',
-      sourceId: String(order.id),
-      sourceLineId: insertedItem.id,
-      inputQuantity: qty,
-      unitCode: unitSnapshot.unitCode,
-      baseUnitCode: unitSnapshot.baseUnitCode,
-      conversionToBase: factor,
-      quantityDeltaBase: -baseQty,
-      unitCost: fifo.averageUnitCost,
-      totalCost: fifo.totalCost,
-      batchAllocations: fifo.allocations,
-    });
     savedItems.push(insertedItem);
   }
 
@@ -534,6 +528,8 @@ function handleSale(
       cardAmount,
       returnedAmount: 0,
       paymentMethod,
+      currency: order.currency || getSettingValue(tx, 'currency', 'ر.س'),
+      exchangeRate: Number(order.exchangeRate || 1),
       customerId: order.customerId || null,
       customerName: order.customerName || null,
       branchId: order.branchId || null,
@@ -653,7 +649,7 @@ function handleSale(
       action: 'بيع',
       operationName: 'فاتورة مبيعات',
       details: `فاتورة رقم ${savedOrder.receiptNumber} (${paymentMethod})`,
-      quantity: savedItems.reduce((s, i) => s + Number(i.quantity), 0),
+      quantity: roundQty(savedItems.reduce((s, i) => s + Number(i.quantity), 0)),
       value: netAmount,
       branchId: order.branchId || null,
       entityId: order.id,
@@ -667,7 +663,7 @@ function handleSale(
 function handleReturn(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const {
     id,
@@ -678,11 +674,17 @@ function handleReturn(
     reason,
     shiftId,
     branchId,
+    returnDate,
   } = payload;
 
   if (!originalOrderId || !Array.isArray(items) || items.length === 0) {
     throw new OperationError('Invalid return payload: missing originalOrderId or items', 400);
   }
+
+  const effectiveReturnDate = returnDate ? new Date(returnDate).toISOString() : ctx.now;
+  // Cross-period return protection: validates return posting date (current period),
+  // never touches closed-period original sales journal entries.
+  assertOpenFiscalPeriod(tx, effectiveReturnDate, payload, ctx.userRole);
 
   const origOrder = tx.select().from(orders).where(eq(orders.id, originalOrderId)).get();
   if (!origOrder) {
@@ -712,43 +714,38 @@ function handleReturn(
   let totalDiscount = 0;
   let totalTax = 0;
   let totalRefund = 0;
-  let totalCostReversed = 0;
+  let totalResalableCostReversed = 0;
+  let totalDamagedCostReversed = 0;
   const savedReturnItems: any[] = [];
 
   for (const reqItem of items) {
-    const qtyToReturn = Number(reqItem.quantity || 0);
-    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
-      throw new OperationError('كمية المرتجع يجب أن تكون رقماً موجباً', 400);
-    }
+    const qtyToReturn = roundQty(Number(reqItem.quantity || 0));
+    if (qtyToReturn <= 0) continue;
 
-    const origItem = reqItem.orderItemId
-      ? origItems.find((oi: any) => oi.id === Number(reqItem.orderItemId))
-      : origItems.find((oi: any) =>
-          oi.productId === Number(reqItem.productId) &&
-          Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qtyToReturn
-        );
+    // Strict orderItemId matching when provided (prevents duplicate-product line mixups)
+    let origItem: any = null;
+    if (reqItem.orderItemId !== undefined && reqItem.orderItemId !== null) {
+      origItem = origItems.find((oi: any) => oi.id === Number(reqItem.orderItemId));
+    } else {
+      origItem =
+        origItems.find(
+          (oi: any) =>
+            oi.productId === Number(reqItem.productId) &&
+            roundQty(Number(oi.quantity) - Number(oi.returnedQuantity || 0)) >= qtyToReturn - 1e-6
+        ) || origItems.find((oi: any) => oi.productId === Number(reqItem.productId));
+    }
 
     if (!origItem) {
-      throw new OperationError(`Item ${reqItem.productName || reqItem.productId} not found in original order`, 400);
+      throw new OperationError(
+        `Item ${reqItem.productName || reqItem.productId} not found in original order`,
+        400
+      );
     }
 
-    if (origItem.unitCode) {
-      const unitDefinition = tx.select().from(unitDefinitions)
-        .where(eq(unitDefinitions.code, origItem.unitCode)).get();
-      if (!unitDefinition || !unitDefinition.isActive) {
-        throw new OperationError('تعريف وحدة المرتجع الأصلية غير متاح', 409);
-      }
-      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
-      const scale = 10 ** precision;
-      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
-        throw new OperationError('كمية المرتجع لا تتوافق مع دقة وحدة البيع الأصلية', 400);
-      }
-    }
+    const alreadyReturned = roundQty(Number(origItem.returnedQuantity || 0));
+    const remainingReturnable = roundQty(Number(origItem.quantity) - alreadyReturned);
 
-    const alreadyReturned = Number(origItem.returnedQuantity || 0);
-    const remainingReturnable = Number(origItem.quantity) - alreadyReturned;
-
-    if (qtyToReturn > remainingReturnable) {
+    if (qtyToReturn > remainingReturnable + 1e-6) {
       throw new OperationError(
         `لا يمكن إرجاع كمية (${qtyToReturn}) أكبر من المتبقي القابل للإرجاع (${remainingReturnable}) للمنتج ${origItem.productName}`,
         400
@@ -761,83 +758,135 @@ function handleReturn(
     const lineTotal = roundMoney(Number(origItem.total) * ratio);
     const lineDisc = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
 
-    const factor = Number(origItem.conversionToBase ?? origItem.conversionFactor ?? 1);
-    const baseQty = getHistoricalBaseQuantity(origItem, qtyToReturn);
-    let allocations: BatchAllocation[] = [];
+    const condition: 'resalable' | 'damaged' =
+      reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
+    const itemType = String(origItem.itemType || 'stock');
+
+    const factor = Number(origItem.conversionFactor || 1);
+    const baseQty = roundQty(qtyToReturn * factor);
+    let parsedAlloc: any = [];
     try {
-      allocations = origItem.batchAllocations ? JSON.parse(origItem.batchAllocations) : [];
+      parsedAlloc = origItem.batchAllocations ? JSON.parse(origItem.batchAllocations) : [];
     } catch {}
 
     const baseCostFallback =
-      factor > 0 ? Number(origItem.costPriceAtTimeOfSale || 0) / factor : Number(origItem.costPriceAtTimeOfSale || 0);
+      factor > 0
+        ? Number(origItem.costPriceAtTimeOfSale || 0) / factor
+        : Number(origItem.costPriceAtTimeOfSale || 0);
 
-    const restored = restoreInventoryFIFO(tx, {
-      productId: Number(origItem.productId),
-      quantityInBaseUnits: baseQty,
-      allocations,
-      fallbackCost: baseCostFallback,
-      branchId: branchId ?? origOrder.branchId,
-      batchIdPrefix: `return-${id}-${origItem.id}`,
-    });
+    let lineCostReversed = 0;
+    let restoredAllocJson = JSON.stringify([]);
+
+    if (itemType === 'service' || (parsedAlloc && parsedAlloc.kind === 'service')) {
+      lineCostReversed = 0;
+    } else if (condition === 'damaged') {
+      // Damaged returns do NOT re-enter sellable stock/batches; cost is written off to 5400
+      lineCostReversed = roundMoney(qtyToReturn * Number(origItem.costPriceAtTimeOfSale || 0));
+      totalDamagedCostReversed = roundMoney(totalDamagedCostReversed + lineCostReversed);
+
+      const prod = tx.select().from(products).where(eq(products.id, Number(origItem.productId))).get();
+      tx.insert(inventoryAlerts)
+        .values({
+          id: crypto.randomUUID(),
+          productId: Number(origItem.productId),
+          productName: origItem.productName,
+          previousQty: Number(prod?.stockQuantity || 0),
+          changeQty: 0,
+          resultingQty: Number(prod?.stockQuantity || 0),
+          operationId: ctx.operationId,
+          deviceId: ctx.deviceId,
+          reason: `damaged_return (${qtyToReturn})`,
+          resolved: 0,
+          createdAt: effectiveReturnDate,
+        })
+        .run();
+    } else if (parsedAlloc && parsedAlloc.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+      const restoredIngredients: any[] = [];
+      for (const ing of parsedAlloc.ingredients) {
+        const ingRestoreQty = roundQty(Number(ing.quantityConsumed || 0) * ratio);
+        if (ingRestoreQty <= 0) continue;
+        const ingRestored = restoreInventoryFIFO(tx, {
+          productId: Number(ing.ingredientProductId),
+          quantityInBaseUnits: ingRestoreQty,
+          allocations: Array.isArray(ing.allocations) ? ing.allocations : [],
+          fallbackCost: 0,
+          branchId: branchId ?? origOrder.branchId,
+          operationId: ctx.operationId,
+          movementType: 'sale_return',
+          sourceType: 'return',
+          sourceId: returnId,
+          movementKeySuffix: `rec-${savedReturnItems.length}-${ing.ingredientProductId}`,
+          reason: reason || 'مرتجع مبيعات',
+          createdBy: ctx.actor,
+          createdAt: effectiveReturnDate,
+        });
+        lineCostReversed = roundMoney(lineCostReversed + ingRestored.totalCostRestored);
+        restoredIngredients.push({
+          ingredientProductId: ing.ingredientProductId,
+          restoredAllocations: ingRestored.restoredAllocations,
+        });
+      }
+      totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCostReversed);
+      restoredAllocJson = JSON.stringify({ kind: 'recipe', ingredients: restoredIngredients });
+    } else {
+      const allocations: BatchAllocation[] = Array.isArray(parsedAlloc) ? parsedAlloc : [];
+      const restored = restoreInventoryFIFO(tx, {
+        productId: Number(origItem.productId),
+        quantityInBaseUnits: baseQty,
+        allocations,
+        fallbackCost: baseCostFallback,
+        branchId: branchId ?? origOrder.branchId,
+        operationId: ctx.operationId,
+        movementType: 'sale_return',
+        sourceType: 'return',
+        sourceId: returnId,
+        movementKeySuffix: String(savedReturnItems.length),
+        reason: reason || 'مرتجع مبيعات',
+        createdBy: ctx.actor,
+        createdAt: effectiveReturnDate,
+      });
+      lineCostReversed = restored.totalCostRestored;
+      totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCostReversed);
+      restoredAllocJson = JSON.stringify(restored.restoredAllocations);
+    }
 
     totalSub = roundMoney(totalSub + lineSub);
     totalDiscount = roundMoney(totalDiscount + lineDisc);
     totalTax = roundMoney(totalTax + lineTax);
     totalRefund = roundMoney(totalRefund + lineTotal);
-    totalCostReversed = roundMoney(totalCostReversed + restored.totalCostRestored);
+
+    const newReturnedQty = roundQty(alreadyReturned + qtyToReturn);
+    origItem.returnedQuantity = newReturnedQty; // keep in-memory copy updated inside loop
 
     tx.update(orderItems)
       .set({
-        returnedQuantity: alreadyReturned + qtyToReturn,
-        batchAllocations: JSON.stringify(restored.remainingAllocations),
+        returnedQuantity: newReturnedQty,
         isSynced: 0,
       })
       .where(eq(orderItems.id, origItem.id))
       .run();
-    origItem.returnedQuantity = alreadyReturned + qtyToReturn;
-    origItem.batchAllocations = JSON.stringify(restored.remainingAllocations);
 
     const retItem = tx
       .insert(returnItems)
       .values({
-        id: reqItem.id || crypto.randomUUID(),
+        id: crypto.randomUUID(),
         returnId,
         orderItemId: origItem.id,
         productId: Number(origItem.productId),
         productName: origItem.productName,
         quantity: qtyToReturn,
+        condition,
         unitPrice: Number(origItem.unitPrice),
-        unitCode: origItem.unitCode || null,
-        baseUnitCode: origItem.baseUnitCode || null,
-        conversionToBase: factor,
-        baseQuantity: baseQty,
         costPrice: Number(origItem.costPriceAtTimeOfSale || 0),
         taxAmount: lineTax,
         total: lineTotal,
-        batchAllocations: JSON.stringify(restored.restoredAllocations),
+        batchAllocations: restoredAllocJson,
         isSynced: 0,
-        createdAt: ctx.now,
+        createdAt: effectiveReturnDate,
       })
       .returning()
       .get();
 
-    appendInventoryMovement(tx, ctx, {
-      productId: Number(origItem.productId),
-      branchId: branchId ?? origOrder.branchId ?? null,
-      movementType: 'sale_return',
-      sourceType: 'return',
-      sourceId: String(returnId),
-      sourceLineId: retItem.id,
-      inputQuantity: qtyToReturn,
-      unitCode: origItem.unitCode || null,
-      baseUnitCode: origItem.baseUnitCode || null,
-      conversionToBase: factor,
-      quantityDeltaBase: baseQty,
-      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
-      totalCost: restored.totalCostRestored,
-      batchAllocations: restored.restoredAllocations,
-      reason: reason || null,
-    });
     savedReturnItems.push(retItem);
   }
 
@@ -857,7 +906,7 @@ function handleReturn(
     .all();
 
   const isFullyReturned = updatedOrigItems.every(
-    (oi: any) => Number(oi.returnedQuantity || 0) >= Number(oi.quantity)
+    (oi: any) => roundQty(Number(oi.returnedQuantity || 0)) >= roundQty(Number(oi.quantity)) - 1e-6
   );
 
   tx.update(orders)
@@ -869,6 +918,8 @@ function handleReturn(
     })
     .where(eq(orders.id, originalOrderId))
     .run();
+
+  const totalCostReversed = roundMoney(totalResalableCostReversed + totalDamagedCostReversed);
 
   const savedReturn = tx
     .insert(returns)
@@ -882,6 +933,8 @@ function handleReturn(
       branchId: branchId ?? origOrder.branchId ?? null,
       shiftId: shiftId || origOrder.shiftId || null,
       refundMethod: effectiveRefundMethod,
+      currency: origOrder.currency || getSettingValue(tx, 'currency', 'ر.س'),
+      exchangeRate: Number(origOrder.exchangeRate || 1),
       subTotal: totalSub,
       discountAmount: totalDiscount,
       taxAmount: totalTax,
@@ -892,7 +945,7 @@ function handleReturn(
       deviceId: ctx.deviceId,
       operationId: ctx.operationId,
       isSynced: 0,
-      createdAt: ctx.now,
+      createdAt: effectiveReturnDate,
       updatedAt: ctx.now,
     })
     .returning()
@@ -918,7 +971,7 @@ function handleReturn(
 
   const netExclTax = roundMoney(totalRefund - totalTax);
   postJournalEntry(tx, {
-    date: ctx.now,
+    date: effectiveReturnDate,
     referenceId: returnId,
     referenceType: 'return',
     description: `مرتجع مبيعات ${retNum} للفاتورة ${origOrder.receiptNumber}`,
@@ -933,15 +986,30 @@ function handleReturn(
     branchId: branchId ?? origOrder.branchId,
   });
 
-  if (totalCostReversed > 0) {
+  if (totalResalableCostReversed > 0) {
     postJournalEntry(tx, {
-      date: ctx.now,
+      date: effectiveReturnDate,
       referenceId: returnId,
       referenceType: 'return',
-      description: `عكس تكلفة مرتجع ${retNum}`,
+      description: `عكس تكلفة مرتجع صالح لإعادة البيع ${retNum}`,
       lines: [
-        { accountCode: '1200', debit: totalCostReversed, credit: 0, orderId: originalOrderId, returnId },
-        { accountCode: '5100', debit: 0, credit: totalCostReversed, orderId: originalOrderId, returnId },
+        { accountCode: '1200', debit: totalResalableCostReversed, credit: 0, orderId: originalOrderId, returnId },
+        { accountCode: '5100', debit: 0, credit: totalResalableCostReversed, orderId: originalOrderId, returnId },
+      ],
+      createdBy: ctx.actor,
+      branchId: branchId ?? origOrder.branchId,
+    });
+  }
+
+  if (totalDamagedCostReversed > 0) {
+    postJournalEntry(tx, {
+      date: effectiveReturnDate,
+      referenceId: returnId,
+      referenceType: 'return',
+      description: `تسوية تكلفة مرتجع تالف ${retNum}`,
+      lines: [
+        { accountCode: '5400', debit: totalDamagedCostReversed, credit: 0, orderId: originalOrderId, returnId },
+        { accountCode: '5100', debit: 0, credit: totalDamagedCostReversed, orderId: originalOrderId, returnId },
       ],
       createdBy: ctx.actor,
       branchId: branchId ?? origOrder.branchId,
@@ -951,13 +1019,13 @@ function handleReturn(
   tx.insert(auditLogs)
     .values({
       id: crypto.randomUUID(),
-      date: ctx.now,
+      date: effectiveReturnDate,
       type: 'return',
       userName: ctx.actor,
       action: 'مرتجع',
       operationName: 'مرتجع مبيعات',
       details: `مرتجع ${retNum} على الفاتورة ${origOrder.receiptNumber} (${reason || 'بدون سبب'})`,
-      quantity: savedReturnItems.reduce((s, i) => s + Number(i.quantity), 0),
+      quantity: roundQty(savedReturnItems.reduce((s, i) => s + Number(i.quantity), 0)),
       value: totalRefund,
       branchId: branchId ?? origOrder.branchId ?? null,
       entityId: returnId,
@@ -971,7 +1039,7 @@ function handleReturn(
 function handleOrderVoid(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) {
@@ -986,6 +1054,8 @@ function handleOrderVoid(
   if (origOrder.status === 'void') {
     return { order: origOrder, alreadyVoid: true };
   }
+
+  assertOpenFiscalPeriod(tx, origOrder.createdAt || ctx.now, payload, ctx.userRole);
 
   if (
     Number(origOrder.returnedAmount || 0) > 0 ||
@@ -1002,40 +1072,61 @@ function handleOrderVoid(
     .all();
 
   for (const oi of origItems) {
-    const factor = Number(oi.conversionToBase ?? oi.conversionFactor ?? 1);
-    const baseQty = getHistoricalBaseQuantity(oi, Number(oi.quantity || 0));
+    const itemType = String(oi.itemType || 'stock');
+    if (itemType === 'service') continue;
+
+    const factor = Number(oi.conversionFactor || 1);
+    const baseQty = roundQty(Number(oi.quantity || 0) * factor);
     if (baseQty <= 0) continue;
 
-    let allocations: BatchAllocation[] = [];
+    let parsedAlloc: any = [];
     try {
-      allocations = oi.batchAllocations ? JSON.parse(oi.batchAllocations) : [];
+      parsedAlloc = oi.batchAllocations ? JSON.parse(oi.batchAllocations) : [];
     } catch {}
+
+    if (parsedAlloc && parsedAlloc.kind === 'service') continue;
+
+    if (parsedAlloc && parsedAlloc.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+      for (const ing of parsedAlloc.ingredients) {
+        const ingQty = roundQty(Number(ing.quantityConsumed || 0));
+        if (ingQty <= 0) continue;
+        restoreInventoryFIFO(tx, {
+          productId: Number(ing.ingredientProductId),
+          quantityInBaseUnits: ingQty,
+          allocations: Array.isArray(ing.allocations) ? ing.allocations : [],
+          fallbackCost: 0,
+          branchId: origOrder.branchId,
+          operationId: ctx.operationId,
+          movementType: 'sale_void',
+          sourceType: 'order_void',
+          sourceId: targetOrderId,
+          movementKeySuffix: `rec-${oi.id}-${ing.ingredientProductId}`,
+          reason: String(payload?.reason || 'إلغاء فاتورة مبيعات'),
+          createdBy: ctx.actor,
+          createdAt: ctx.now,
+        });
+      }
+      continue;
+    }
+
+    const allocations: BatchAllocation[] = Array.isArray(parsedAlloc) ? parsedAlloc : [];
     const baseCostFallback =
       factor > 0 ? Number(oi.costPriceAtTimeOfSale || 0) / factor : Number(oi.costPriceAtTimeOfSale || 0);
 
-    const restored = restoreInventoryFIFO(tx, {
+    restoreInventoryFIFO(tx, {
       productId: Number(oi.productId),
       quantityInBaseUnits: baseQty,
       allocations,
       fallbackCost: baseCostFallback,
       branchId: origOrder.branchId,
-      batchIdPrefix: `void-${targetOrderId}-${oi.id}`,
-    });
-    appendInventoryMovement(tx, ctx, {
-      productId: Number(oi.productId),
-      branchId: origOrder.branchId ?? null,
+      operationId: ctx.operationId,
       movementType: 'sale_void',
       sourceType: 'order_void',
       sourceId: targetOrderId,
-      sourceLineId: oi.id,
-      inputQuantity: Number(oi.quantity || 0),
-      unitCode: oi.unitCode || null,
-      baseUnitCode: oi.baseUnitCode || null,
-      conversionToBase: factor,
-      quantityDeltaBase: baseQty,
-      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
-      totalCost: restored.totalCostRestored,
-      batchAllocations: restored.restoredAllocations,
+      movementKeySuffix: String(oi.id),
+      reason: String(payload?.reason || 'إلغاء فاتورة مبيعات'),
+      createdBy: ctx.actor,
+      createdAt: ctx.now,
     });
   }
 
@@ -1089,7 +1180,7 @@ function handleOrderVoid(
       action: 'إلغاء فاتورة',
       operationName: 'إلغاء فاتورة مبيعات',
       details: `إلغاء فاتورة رقم ${origOrder.receiptNumber} (${reason})`,
-      quantity: origItems.reduce((s: number, i: any) => s + Number(i.quantity || 0), 0),
+      quantity: roundQty(origItems.reduce((s: number, i: any) => s + Number(i.quantity || 0), 0)),
       value: Number(origOrder.netAmount || 0),
       branchId: origOrder.branchId || null,
       entityId: targetOrderId,
@@ -1101,77 +1192,10 @@ function handleOrderVoid(
   return { order: updatedOrder };
 }
 
-function resolvePurchaseCurrencySnapshot(tx: any, currencyCodeInput: unknown, purchaseDate: string, exchangeRateIdInput?: unknown) {
-  if (currencyCodeInput == null || String(currencyCodeInput).trim() === '') {
-    // Backward compatibility: legacy purchases retain their existing base-currency semantics.
-    return null;
-  }
-
-  const currencyCode = String(currencyCodeInput).trim().toUpperCase();
-  const [baseSetting] = tx.select().from(settings).where(eq(settings.key, 'baseCurrencyCode')).all();
-  const baseCurrencyCode = String(baseSetting?.value || '').trim().toUpperCase();
-  if (!baseCurrencyCode) {
-    throw new OperationError('يجب تعيين العملة الأساسية قبل تسجيل فاتورة بعملة أجنبية', 400);
-  }
-
-  const currency = tx.select().from(currencies).where(eq(currencies.code, currencyCode)).get();
-  const baseCurrency = tx.select().from(currencies).where(eq(currencies.code, baseCurrencyCode)).get();
-  if (!currency || !currency.isActive || !baseCurrency || !baseCurrency.isActive) {
-    throw new OperationError('عملة الفاتورة أو العملة الأساسية غير مسجلة أو غير نشطة', 400);
-  }
-
-  if (currencyCode === baseCurrencyCode) {
-    return { currencyCode, baseCurrencyCode, exchangeRate: 1, exchangeRateId: null };
-  }
-
-  const purchaseTimestamp = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
-  const matchesPairAndDate = (rate: any) => {
-    if (!rate?.approvedAt || !Number.isFinite(Number(rate.rate)) || Number(rate.rate) <= 0) return false;
-    const effectiveTimestamp = new Date(rate.effectiveAt).getTime();
-    if (!Number.isFinite(effectiveTimestamp) || effectiveTimestamp > purchaseTimestamp) return false;
-    return (
-      (rate.baseCurrencyCode === currencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
-      (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === currencyCode)
-    );
-  };
-
-  let selectedRate: any;
-  if (exchangeRateIdInput) {
-    selectedRate = tx.select().from(exchangeRates).where(eq(exchangeRates.id, String(exchangeRateIdInput))).get();
-    if (!matchesPairAndDate(selectedRate)) {
-      throw new OperationError('سعر الصرف المحدد غير معتمد أو لا يطابق العملات أو تاريخ الفاتورة', 400);
-    }
-  } else {
-    const eligibleRates = tx.select().from(exchangeRates).all().filter(matchesPairAndDate)
-      .sort((a: any, b: any) => {
-        const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
-        return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      });
-    selectedRate = eligibleRates[0];
-  }
-  if (!selectedRate) {
-    throw new OperationError('لا يوجد سعر صرف معتمد وساري بتاريخ فاتورة الشراء لهذه العملات', 400);
-  }
-
-  let basePerDocumentUnit: number;
-  try {
-    basePerDocumentUnit = getBasePerDocumentUnit(selectedRate, currencyCode, baseCurrencyCode);
-  } catch {
-    throw new OperationError('سعر الصرف المعتمد غير صالح أو لا يطابق زوج العملات', 400);
-  }
-
-  return {
-    currencyCode,
-    baseCurrencyCode,
-    exchangeRate: Math.round(basePerDocumentUnit * 1e10) / 1e10,
-    exchangeRateId: selectedRate.id,
-  };
-}
-
 function handlePurchaseCreate(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const { purchase, items = [] } = payload;
   if (!purchase || !purchase.id) {
@@ -1179,22 +1203,44 @@ function handlePurchaseCreate(
   }
 
   const purchaseDate = purchase.date ? new Date(purchase.date).toISOString() : ctx.now;
-  const currencySnapshot = resolvePurchaseCurrencySnapshot(tx, purchase.currencyCode, purchaseDate, purchase.exchangeRateId);
-  const rawOriginalTotalAmount = Number(purchase.totalAmount ?? 0);
-  const rawOriginalPaidAmount = Number(purchase.paidAmount ?? 0);
-  if (currencySnapshot && (!Number.isFinite(rawOriginalTotalAmount) || rawOriginalTotalAmount < 0 || !Number.isFinite(rawOriginalPaidAmount) || rawOriginalPaidAmount < 0)) {
-    throw new OperationError('إجمالي الفاتورة والمدفوع يجب أن يكونا أرقاماً موجبة أو صفراً', 400);
-  }
-  const originalTotalAmount = roundMoney(rawOriginalTotalAmount);
-  const originalPaidAmount = roundMoney(rawOriginalPaidAmount);
-  const conversionRate = currencySnapshot?.exchangeRate ?? 1;
-  const totalAmount = roundMoney(originalTotalAmount * conversionRate);
-  const paidAmount = roundMoney(originalPaidAmount * conversionRate);
-  if (currencySnapshot && originalPaidAmount > originalTotalAmount + 0.01) {
-    throw new OperationError('المبلغ المدفوع لا يمكن أن يتجاوز إجمالي فاتورة الشراء', 400);
-  }
+  assertOpenFiscalPeriod(tx, purchaseDate, payload, ctx.userRole);
+
+  const fxRate = Number(purchase.exchangeRate || 1) > 0 ? Number(purchase.exchangeRate || 1) : 1;
+  const currency = purchase.currency || getSettingValue(tx, 'currency', 'ر.س');
+  const shippingCost = roundMoney(Number(purchase.shippingCost || 0));
+  const customsCost = roundMoney(Number(purchase.customsCost || 0));
+  const otherCosts = roundMoney(Number(purchase.otherCosts || 0));
+  const extraLandedCost = roundMoney(shippingCost + customsCost + otherCosts);
+  const extraCostsPaymentMethod = String(purchase.extraCostsPaymentMethod || 'cash');
+
+  const normalizedItems = items
+    .map((item: any) => {
+      const qty = roundQty(Number(item.quantity || 0));
+      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
+      const rawUnitCost = Number(item.costPrice || 0);
+      const baseUnitPricePerPurchaseUnit = item.pricesInForeignCurrency
+        ? rawUnitCost * fxRate
+        : rawUnitCost;
+      const lineTotal = roundMoney(qty * baseUnitPricePerPurchaseUnit);
+      return {
+        ...item,
+        qty,
+        factor,
+        baseUnitPricePerPurchaseUnit,
+        lineTotal,
+      };
+    })
+    .filter((i: any) => i.qty > 0);
+
+  const itemsGoodsSum = roundMoney(normalizedItems.reduce((s: number, i: any) => s + i.lineTotal, 0));
+  const goodsTotal =
+    Number(purchase.totalAmount || 0) > 0 ? roundMoney(Number(purchase.totalAmount)) : itemsGoodsSum;
+
+  const paidAmount = roundMoney(Number(purchase.paidAmount || 0));
   const paymentMethod = purchase.paymentMethod === 'card' ? 'card' : 'cash';
-  const remaining = roundMoney(totalAmount - paidAmount);
+  const invoicePayable =
+    extraCostsPaymentMethod === 'supplier' ? roundMoney(goodsTotal + extraLandedCost) : goodsTotal;
+  const remaining = roundMoney(invoicePayable - paidAmount);
   const paymentStatus = remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
   const savedPurchase = tx
@@ -1203,17 +1249,16 @@ function handlePurchaseCreate(
       id: purchase.id,
       supplierId: purchase.supplierId || null,
       supplierName: purchase.supplierName || null,
-      totalAmount,
-      currencyCode: currencySnapshot?.currencyCode || null,
-      baseCurrencyCode: currencySnapshot?.baseCurrencyCode || null,
-      exchangeRate: currencySnapshot?.exchangeRate ?? null,
-      exchangeRateId: currencySnapshot?.exchangeRateId || null,
-      originalTotalAmount: currencySnapshot ? originalTotalAmount : null,
-      originalPaidAmount: currencySnapshot ? originalPaidAmount : null,
+      totalAmount: goodsTotal,
       paidAmount,
       returnedAmount: 0,
       paymentStatus,
       paymentMethod,
+      currency,
+      exchangeRate: fxRate,
+      shippingCost,
+      customsCost,
+      otherCosts,
       date: purchaseDate,
       branchId: purchase.branchId || null,
       deviceId: ctx.deviceId,
@@ -1225,23 +1270,27 @@ function handlePurchaseCreate(
     .returning()
     .get();
 
+  // Proportional landed cost allocation with penny reconciliation
+  let remainingExtra = extraLandedCost;
   const savedItems: any[] = [];
-  for (const item of items) {
-    const qty = Number(item.quantity || 0);
-    const originalCost = Number(item.costPrice || 0);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      throw new OperationError('كمية الشراء يجب أن تكون رقماً موجباً', 400);
+
+  for (let idx = 0; idx < normalizedItems.length; idx++) {
+    const item = normalizedItems[idx];
+    const isLast = idx === normalizedItems.length - 1;
+    let allocatedExtra = 0;
+    if (extraLandedCost > 0) {
+      if (isLast) {
+        allocatedExtra = roundMoney(remainingExtra);
+      } else if (itemsGoodsSum > 0) {
+        allocatedExtra = roundMoney((item.lineTotal / itemsGoodsSum) * extraLandedCost);
+        remainingExtra = roundMoney(remainingExtra - allocatedExtra);
+      }
     }
-    if (!Number.isFinite(originalCost) || originalCost < 0) {
-      throw new OperationError('تكلفة الصنف في فاتورة الشراء غير صالحة', 400);
-    }
-    const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
-    const factor = unitSnapshot.conversionToBase;
-    const baseQty = unitSnapshot.baseQuantity;
-    const cost = roundMoney(originalCost * conversionRate);
-    // Keep fractional base-unit cost precision so multiplying by the conversion factor
-    // reproduces the entered purchase-unit cost without rounding loss.
-    const baseUnitCost = factor > 0 ? cost / factor : cost;
+
+    const baseQty = roundQty(item.qty * item.factor);
+    const landedTotal = roundMoney(item.lineTotal + allocatedExtra);
+    const landedCostPerBaseUnit =
+      baseQty > 0 ? Math.round((landedTotal / baseQty) * 10000) / 10000 : 0;
 
     const pItem = tx
       .insert(purchaseItems)
@@ -1249,18 +1298,14 @@ function handlePurchaseCreate(
         purchaseId: purchase.id,
         productId: Number(item.productId),
         productName: item.productName,
-        quantity: qty,
-        costPrice: cost,
-        unitCode: unitSnapshot.unitCode,
-        baseUnitCode: unitSnapshot.baseUnitCode,
-        conversionToBase: factor,
-        baseQuantity: baseQty,
-        originalCostPrice: currencySnapshot ? originalCost : null,
-        originalTotal: currencySnapshot ? roundMoney(qty * originalCost) : null,
-        currencyCode: currencySnapshot?.currencyCode || null,
-        exchangeRate: currencySnapshot?.exchangeRate ?? null,
-        exchangeRateId: currencySnapshot?.exchangeRateId || null,
-        total: roundMoney(qty * cost),
+        quantity: item.qty,
+        unit: item.unit || 'piece',
+        conversionFactor: item.factor,
+        costPrice: item.baseUnitPricePerPurchaseUnit,
+        landedCostPerBaseUnit,
+        total: item.lineTotal,
+        expiryDate: item.expiryDate || null,
+        batchNumber: item.batchNumber || null,
         isSynced: 0,
         createdAt: ctx.now,
       })
@@ -1268,24 +1313,19 @@ function handlePurchaseCreate(
       .get();
     savedItems.push(pItem);
 
-    const batchId = item.batchId ? String(item.batchId) : crypto.randomUUID();
     tx.insert(inventoryBatches)
       .values({
-        id: batchId,
+        id: item.batchId ? String(item.batchId) : crypto.randomUUID(),
         productId: Number(item.productId),
         purchaseId: purchase.id,
         quantity: baseQty,
         remainingQuantity: baseQty,
-        costPrice: baseUnitCost,
-        originalCostPrice: currencySnapshot ? originalCost / factor : null,
-        unitCode: unitSnapshot.unitCode,
-        baseUnitCode: unitSnapshot.baseUnitCode,
-        conversionToBase: factor,
-        baseQuantity: baseQty,
-        currencyCode: currencySnapshot?.currencyCode || null,
-        exchangeRate: currencySnapshot?.exchangeRate ?? null,
-        exchangeRateId: currencySnapshot?.exchangeRateId || null,
+        costPrice: landedCostPerBaseUnit,
+        currency,
+        exchangeRate: fxRate,
         purchaseDate,
+        expiryDate: item.expiryDate || null,
+        batchNumber: item.batchNumber || null,
         branchId: purchase.branchId || null,
         isSynced: 0,
         createdAt: ctx.now,
@@ -1293,33 +1333,36 @@ function handlePurchaseCreate(
       })
       .run();
 
-    appendInventoryMovement(tx, ctx, {
-      productId: Number(item.productId),
-      branchId: purchase.branchId || null,
-      movementType: 'purchase_receipt',
-      sourceType: 'purchase',
-      sourceId: String(purchase.id),
-      sourceLineId: batchId,
-      inputQuantity: qty,
-      unitCode: unitSnapshot.unitCode,
-      baseUnitCode: unitSnapshot.baseUnitCode,
-      conversionToBase: factor,
-      quantityDeltaBase: baseQty,
-      unitCost: baseUnitCost,
-      totalCost: baseQty * baseUnitCost,
-      batchAllocations: [{ batchId, quantity: baseQty, costPrice: baseUnitCost }],
-    });
+    const prodUpdates: any = {
+      stockQuantity: sql`${products.stockQuantity} + ${baseQty}`,
+      updatedAt: ctx.now,
+      isSynced: 0,
+    };
+    if (item.expiryDate) prodUpdates.expiryDate = item.expiryDate;
+    if (item.batchNumber) prodUpdates.batchNumber = item.batchNumber;
 
     tx.update(products)
-      .set({
-        stockQuantity: sql`${products.stockQuantity} + ${baseQty}`,
-        updatedAt: ctx.now,
-        isSynced: 0,
-      })
+      .set(prodUpdates)
       .where(eq(products.id, Number(item.productId)))
       .run();
 
     recalculateProductWeightedCost(tx, Number(item.productId));
+
+    recordInventoryMovement(tx, {
+      movementKey: `purchase:${purchase.id}:${ctx.operationId}:in:${Number(item.productId)}:${idx}`,
+      productId: Number(item.productId),
+      movementType: 'purchase_receipt',
+      sourceType: 'purchase',
+      sourceId: purchase.id,
+      quantityDeltaBase: baseQty,
+      unitCost: landedCostPerBaseUnit,
+      totalCost: landedTotal,
+      branchId: purchase.branchId || null,
+      operationId: ctx.operationId,
+      reason: `شراء من ${purchase.supplierName || 'مورد'}`,
+      createdBy: ctx.actor,
+      createdAt: purchaseDate,
+    });
   }
 
   if (purchase.supplierId && remaining > 0) {
@@ -1333,15 +1376,39 @@ function handlePurchaseCreate(
       .run();
   }
 
-  if (totalAmount > 0) {
+  const totalInventoryCapitalized = roundMoney(goodsTotal + extraLandedCost);
+  if (totalInventoryCapitalized > 0) {
+    const creditLines: Array<{ accountCode: string; debit: number; credit: number; purchaseId: string }> = [];
+    if (extraCostsPaymentMethod === 'supplier') {
+      creditLines.push({
+        accountCode: '2100',
+        debit: 0,
+        credit: totalInventoryCapitalized,
+        purchaseId: purchase.id,
+      });
+    } else {
+      if (goodsTotal > 0) {
+        creditLines.push({ accountCode: '2100', debit: 0, credit: goodsTotal, purchaseId: purchase.id });
+      }
+      if (extraLandedCost > 0) {
+        const extraCreditAcc = extraCostsPaymentMethod === 'card' ? '1020' : '1010';
+        creditLines.push({
+          accountCode: extraCreditAcc,
+          debit: 0,
+          credit: extraLandedCost,
+          purchaseId: purchase.id,
+        });
+      }
+    }
+
     postJournalEntry(tx, {
       date: purchaseDate,
       referenceId: purchase.id,
       referenceType: 'purchase',
-      description: `فاتورة مشتريات من المورد: ${purchase.supplierName || ''}`,
+      description: `فاتورة مشتريات من المورد: ${purchase.supplierName || ''}${extraLandedCost > 0 ? ' (شاملة مصاريف الشحن والجمارك)' : ''}`,
       lines: [
-        { accountCode: '1200', debit: totalAmount, credit: 0, purchaseId: purchase.id },
-        { accountCode: '2100', debit: 0, credit: totalAmount, purchaseId: purchase.id },
+        { accountCode: '1200', debit: totalInventoryCapitalized, credit: 0, purchaseId: purchase.id },
+        ...creditLines,
       ],
       createdBy: ctx.actor,
       branchId: purchase.branchId,
@@ -1373,8 +1440,8 @@ function handlePurchaseCreate(
       action: 'شراء',
       operationName: 'فاتورة مشتريات',
       details: `فاتورة مشتريات من المورد ${purchase.supplierName || ''}`,
-      quantity: savedItems.reduce((s, i) => s + Number(i.quantity), 0),
-      value: totalAmount,
+      quantity: roundQty(savedItems.reduce((s, i) => s + Number(i.quantity), 0)),
+      value: totalInventoryCapitalized,
       branchId: purchase.branchId || null,
       entityId: purchase.id,
       entityName: purchase.supplierName || purchase.id,
@@ -1414,7 +1481,7 @@ function assertPurchaseMutable(tx: any, purchaseId: string) {
 function handlePurchaseDelete(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const purchaseId = String(payload.id);
   const existing = tx.select().from(purchases).where(eq(purchases.id, purchaseId)).get();
@@ -1422,59 +1489,15 @@ function handlePurchaseDelete(
     return { deleted: purchaseId, notFound: true };
   }
 
+  assertOpenFiscalPeriod(tx, existing.date || ctx.now, payload, ctx.userRole);
   assertPurchaseMutable(tx, purchaseId);
 
   const oldItems = tx.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId)).all();
-  const oldBatches = tx.select().from(inventoryBatches)
-    .where(eq(inventoryBatches.purchaseId, purchaseId))
-    .all();
-  if (oldBatches.length > 0) {
-    for (const batch of oldBatches) {
-      const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
-      appendInventoryMovement(tx, ctx, {
-        productId: Number(batch.productId),
-        branchId: batch.branchId ?? existing.branchId ?? null,
-        movementType: 'purchase_reversal',
-        sourceType: 'purchase',
-        sourceId: purchaseId,
-        sourceLineId: batch.id,
-        inputQuantity: baseQty,
-        unitCode: batch.unitCode || null,
-        baseUnitCode: batch.baseUnitCode || null,
-        conversionToBase: Number(batch.conversionToBase || 1),
-        quantityDeltaBase: -baseQty,
-        unitCost: Number(batch.costPrice || 0),
-        totalCost: baseQty * Number(batch.costPrice || 0),
-        batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
-        reason: 'purchase_delete_or_update',
-      });
-    }
-  } else {
-    for (const item of oldItems) {
-      const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
-      const factor = Number(item.conversionToBase || 1);
-      const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
-      appendInventoryMovement(tx, ctx, {
-        productId: Number(item.productId),
-        branchId: existing.branchId ?? null,
-        movementType: 'purchase_reversal',
-        sourceType: 'purchase',
-        sourceId: purchaseId,
-        sourceLineId: item.id,
-        inputQuantity: Number(item.quantity || 0),
-        unitCode: item.unitCode || null,
-        baseUnitCode: item.baseUnitCode || null,
-        conversionToBase: factor,
-        quantityDeltaBase: -baseQty,
-        unitCost,
-        totalCost: baseQty * unitCost,
-        reason: 'legacy_purchase_without_batch',
-      });
-    }
-  }
-
-  for (const item of oldItems) {
-    const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
+  for (let idx = 0; idx < oldItems.length; idx++) {
+    const item = oldItems[idx];
+    const factor = Number(item.conversionFactor || 1);
+    const baseQty = roundQty(Number(item.quantity || 0) * factor);
+    const unitCost = Number(item.landedCostPerBaseUnit || item.costPrice || 0);
     tx.update(products)
       .set({
         stockQuantity: sql`${products.stockQuantity} - ${baseQty}`,
@@ -1483,6 +1506,22 @@ function handlePurchaseDelete(
       })
       .where(eq(products.id, item.productId))
       .run();
+
+    recordInventoryMovement(tx, {
+      movementKey: `purchase_reversal:${purchaseId}:${ctx.operationId}:out:${item.productId}:${idx}`,
+      productId: Number(item.productId),
+      movementType: 'purchase_reversal',
+      sourceType: 'purchase',
+      sourceId: purchaseId,
+      quantityDeltaBase: -baseQty,
+      unitCost,
+      totalCost: roundMoney(baseQty * unitCost),
+      branchId: existing.branchId || null,
+      operationId: ctx.operationId,
+      reason: 'عكس / تعديل فاتورة مشتريات',
+      createdBy: ctx.actor,
+      createdAt: ctx.now,
+    });
   }
 
   tx.delete(inventoryBatches).where(eq(inventoryBatches.purchaseId, purchaseId)).run();
@@ -1490,6 +1529,9 @@ function handlePurchaseDelete(
     recalculateProductWeightedCost(tx, item.productId);
   }
 
+  const extraLandedCost = roundMoney(
+    Number(existing.shippingCost || 0) + Number(existing.customsCost || 0) + Number(existing.otherCosts || 0)
+  );
   const oldRemaining = roundMoney(Number(existing.totalAmount || 0) - Number(existing.paidAmount || 0));
   if (existing.supplierId && oldRemaining > 0) {
     tx.update(suppliers)
@@ -1503,6 +1545,7 @@ function handlePurchaseDelete(
   }
 
   reverseJournalEntriesByReference(tx, purchaseId, 'حذف فاتورة مشتريات', ctx.actor);
+  void extraLandedCost;
 
   tx.delete(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId)).run();
   tx.delete(purchases).where(eq(purchases.id, purchaseId)).run();
@@ -1513,18 +1556,19 @@ function handlePurchaseDelete(
 function handlePurchaseUpdate(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
   const { purchase } = payload;
-  handlePurchaseDelete(tx, { id: purchase.id }, ctx);
+  handlePurchaseDelete(tx, { id: purchase.id, allowClosedPeriodOverride: payload.allowClosedPeriodOverride }, ctx);
   return handlePurchaseCreate(tx, payload, ctx);
 }
 
 function handlePurchaseReturn(
   tx: any,
   payload: any,
-  ctx: { operationId: string; deviceId: string; actor: string; now: string }
+  ctx: { operationId: string; deviceId: string; actor: string; userRole?: string; now: string }
 ) {
+  assertOpenFiscalPeriod(tx, ctx.now, payload, ctx.userRole);
   const {
     id,
     returnNumber,
@@ -1562,42 +1606,16 @@ function handlePurchaseReturn(
 
   for (const reqItem of items) {
     const qtyToReturn = Number(reqItem.quantity || 0);
-    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
-      throw new OperationError('كمية مرتجع المشتريات يجب أن تكون رقماً موجباً', 400);
-    }
+    if (qtyToReturn <= 0) continue;
     const prodId = Number(reqItem.productId);
 
     const matchingBatch = reqItem.batchId
-      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId) && b.productId === prodId)
-      : purchaseBatches.find((b: any) =>
-          b.productId === prodId &&
-          (!reqItem.unitCode || b.unitCode === reqItem.unitCode) &&
-          Number(b.remainingQuantity ?? b.quantity ?? 0) >= qtyToReturn * Number(b.conversionToBase || 1)
-        ) || purchaseBatches.find((b: any) =>
-          b.productId === prodId && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
-        );
-    if ((reqItem.batchId && !matchingBatch) ||
-        (reqItem.unitCode && (!matchingBatch || matchingBatch.unitCode !== reqItem.unitCode))) {
-      throw new OperationError('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية المطابقة', 409);
-    }
-    const unitCode = matchingBatch?.unitCode || null;
-    if (unitCode) {
-      const unitDefinition = tx.select().from(unitDefinitions)
-        .where(eq(unitDefinitions.code, unitCode)).get();
-      if (!unitDefinition || !unitDefinition.isActive) {
-        throw new OperationError('تعريف وحدة مرتجع المشتريات غير متاح', 409);
-      }
-      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
-      const scale = 10 ** precision;
-      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
-        throw new OperationError('كمية مرتجع المشتريات لا تتوافق مع دقة وحدة الشراء الأصلية', 400);
-      }
-    }
-    const factor = Number(matchingBatch?.conversionToBase || 1);
-    const baseQty = qtyToReturn * factor;
+      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId))
+      : purchaseBatches.find((b: any) => b.productId === prodId && Number(b.remainingQuantity) >= qtyToReturn) ||
+        purchaseBatches.find((b: any) => b.productId === prodId);
 
     if (matchingBatch) {
-      if (Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) < baseQty) {
+      if (Number(matchingBatch.remainingQuantity || 0) < qtyToReturn) {
         throw new OperationError(
           `الكمية المتبقية في دفعة المنتج ${reqItem.productName} (${matchingBatch.remainingQuantity}) أقل من كمية المرتجع (${qtyToReturn})`,
           400
@@ -1605,23 +1623,22 @@ function handlePurchaseReturn(
       }
       tx.update(inventoryBatches)
         .set({
-          remainingQuantity: Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty,
+          remainingQuantity: Number(matchingBatch.remainingQuantity) - qtyToReturn,
           updatedAt: ctx.now,
           isSynced: 0,
         })
         .where(eq(inventoryBatches.id, matchingBatch.id))
         .run();
-      matchingBatch.remainingQuantity = Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity ?? 0) - baseQty;
     } else {
       const product = tx.select().from(products).where(eq(products.id, prodId)).get();
-      if (!product || Number(product.stockQuantity || 0) < baseQty) {
+      if (!product || Number(product.stockQuantity || 0) < qtyToReturn) {
         throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
       }
     }
 
     tx.update(products)
       .set({
-        stockQuantity: sql`${products.stockQuantity} - ${baseQty}`,
+        stockQuantity: sql`${products.stockQuantity} - ${qtyToReturn}`,
         updatedAt: ctx.now,
         isSynced: 0,
       })
@@ -1630,31 +1647,20 @@ function handlePurchaseReturn(
 
     recalculateProductWeightedCost(tx, prodId);
 
-    const sourcePurchaseItems = tx.select().from(purchaseItems)
-      .where(eq(purchaseItems.purchaseId, String(originalPurchaseId))).all();
-    const sourceItem = sourcePurchaseItems.find((row: any) =>
-      row.productId === prodId && (!matchingBatch?.unitCode || row.unitCode === matchingBatch.unitCode)
-    );
-    const cost = matchingBatch
-      ? Number(matchingBatch.costPrice || 0) * factor
-      : Number(sourceItem?.costPrice ?? reqItem.costPrice ?? 0);
+    const cost = Number(reqItem.costPrice ?? matchingBatch?.costPrice ?? 0);
     const lineTotal = roundMoney(qtyToReturn * cost);
     totalReturn = roundMoney(totalReturn + lineTotal);
 
     const insertedItem = tx
       .insert(purchaseReturnItems)
       .values({
-        id: reqItem.id || crypto.randomUUID(),
+        id: crypto.randomUUID(),
         purchaseReturnId: returnId,
         productId: prodId,
         productName: reqItem.productName || '',
         quantity: qtyToReturn,
         costPrice: cost,
         total: lineTotal,
-        unitCode: matchingBatch?.unitCode || null,
-        baseUnitCode: matchingBatch?.baseUnitCode || null,
-        conversionToBase: factor,
-        baseQuantity: baseQty,
         batchId: matchingBatch?.id || null,
         isSynced: 0,
         createdAt: ctx.now,
@@ -1662,27 +1668,23 @@ function handlePurchaseReturn(
       .returning()
       .get();
 
-    const baseUnitCost = factor > 0 ? cost / factor : cost;
-    appendInventoryMovement(tx, ctx, {
+    savedItems.push(insertedItem);
+
+    recordInventoryMovement(tx, {
+      movementKey: `purchase_return:${returnId}:out:${prodId}:${savedItems.length}`,
       productId: prodId,
-      branchId: branchId ?? origPurchase.branchId ?? null,
       movementType: 'purchase_return',
       sourceType: 'purchase_return',
-      sourceId: String(returnId),
-      sourceLineId: insertedItem.id,
-      inputQuantity: qtyToReturn,
-      unitCode: matchingBatch?.unitCode || null,
-      baseUnitCode: matchingBatch?.baseUnitCode || null,
-      conversionToBase: factor,
-      quantityDeltaBase: -baseQty,
-      unitCost: baseUnitCost,
-      totalCost: baseQty * baseUnitCost,
-      batchAllocations: matchingBatch
-        ? [{ batchId: matchingBatch.id, quantity: baseQty, costPrice: baseUnitCost }]
-        : null,
-      reason: reason || null,
+      sourceId: returnId,
+      quantityDeltaBase: -qtyToReturn,
+      unitCost: cost,
+      totalCost: lineTotal,
+      branchId: branchId ?? origPurchase.branchId ?? null,
+      operationId: ctx.operationId,
+      reason: reason || 'مرتجع مشتريات للمورد',
+      createdBy: ctx.actor,
+      createdAt: ctx.now,
     });
-    savedItems.push(insertedItem);
   }
 
   if (savedItems.length === 0) {
@@ -2170,46 +2172,6 @@ function handleStocktakeApprove(
   ctx: { operationId: string; deviceId: string; actor: string; now: string }
 ) {
   const { sessionId } = payload;
-  const requestedApprovalTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date(ctx.now);
-  const approvedAt = Number.isNaN(requestedApprovalTime.getTime())
-    ? ctx.now
-    : requestedApprovalTime.toISOString();
-
-  // Include session and entry snapshots so an offline terminal can synchronize
-  // and approve a stocktake without a separate table-push round trip.
-  const existingSession = tx.select().from(stocktakingSessions)
-    .where(eq(stocktakingSessions.id, sessionId)).get();
-  if (existingSession?.status === 'approved') {
-    return { session: existingSession, alreadyApproved: true };
-  }
-  if (!existingSession && payload?.session && String(payload.session.id) === String(sessionId)) {
-    const { syncStatus: _sessionSyncStatus, updatedAt: _sessionUpdatedAt, ...sessionData } = payload.session;
-    tx.insert(stocktakingSessions).values({
-        ...sessionData,
-        isSynced: 0,
-        createdAt: sessionData.createdAt || approvedAt,
-    }).run();
-  }
-  if (Array.isArray(payload?.entries)) {
-    for (const entry of payload.entries) {
-      if (!entry || String(entry.sessionId) !== String(sessionId) || entry.id == null) continue;
-      const { syncStatus: _entrySyncStatus, updatedAt: _entryUpdatedAt, createdAt: _entryCreatedAt, ...entryData } = entry;
-      const existingEntry = tx.select().from(stocktakingEntries)
-        .where(eq(stocktakingEntries.id, entry.id)).get();
-      if (existingEntry) {
-        tx.update(stocktakingEntries)
-          .set({ ...entryData, isSynced: 0 })
-          .where(eq(stocktakingEntries.id, entry.id))
-          .run();
-      } else {
-        tx.insert(stocktakingEntries).values({
-          ...entryData,
-          isSynced: 0,
-        }).run();
-      }
-    }
-  }
-
   const session = tx
     .select()
     .from(stocktakingSessions)
@@ -2224,78 +2186,52 @@ function handleStocktakeApprove(
     .where(eq(stocktakingEntries.sessionId, sessionId))
     .all();
 
+  const valuationMethod = getValuationMethod(tx);
   let netAdjustmentValue = 0;
 
   for (const entry of entries) {
     const product = tx.select().from(products).where(eq(products.id, entry.productId)).get();
     if (!product) continue;
 
-    if (entry.unitCode) {
-      const definition = tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, entry.unitCode)).get();
-      if (!definition || !definition.isActive ||
-          (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
-          (entry.baseUnitCode && entry.baseUnitCode !== product.baseUnitCode)) {
-        throw new OperationError('وحدة الجرد لا تطابق وحدة الأساس الحالية للصنف', 409);
-      }
-      const precision = Math.max(0, Math.min(6, Number(definition.decimalPlaces || 0)));
-      const scale = 10 ** precision;
-      if (Math.abs(Number(entry.actualQuantity) * scale - Math.round(Number(entry.actualQuantity) * scale)) > 1e-7) {
-        throw new OperationError(`كمية الجرد للصنف ${product.name} لا تتوافق مع دقة وحدة الأساس`, 400);
-      }
-    }
-
-    const actualBaseQuantity = Number(entry.actualQuantity);
-    if (!Number.isFinite(actualBaseQuantity) || actualBaseQuantity < 0) {
-      throw new OperationError(`كمية الجرد للصنف ${product.name} غير صالحة`, 400);
-    }
-    const diff = actualBaseQuantity - Number(product.stockQuantity);
-    if (diff === 0) continue;
+    const diff = roundQty(Number(entry.actualQuantity) - Number(product.stockQuantity));
+    if (Math.abs(diff) < 1e-6) continue;
 
     if (diff > 0) {
       const unitCost = Number(product.costPrice || 0);
-      const stocktakeBatchId = `stocktake-${sessionId}-${product.id}`;
       tx.insert(inventoryBatches)
         .values({
-          id: stocktakeBatchId,
+          id: crypto.randomUUID(),
           productId: product.id,
           purchaseId: null,
           quantity: diff,
           remainingQuantity: diff,
           costPrice: unitCost,
-          unitCode: entry.unitCode || product.baseUnitCode || null,
-          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: diff,
-          purchaseDate: approvedAt,
+          purchaseDate: ctx.now,
           branchId: session.branchId || null,
           isSynced: 0,
-          createdAt: approvedAt,
-          updatedAt: approvedAt,
+          createdAt: ctx.now,
+          updatedAt: ctx.now,
         })
         .run();
       tx.update(products)
-        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: approvedAt, isSynced: 0 })
+        .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: ctx.now, isSynced: 0 })
         .where(eq(products.id, product.id))
         .run();
-      appendInventoryMovement(tx, ctx, {
+      recordInventoryMovement(tx, {
+        movementKey: `stocktake:${sessionId}:in:${product.id}`,
         productId: product.id,
-        branchId: session.branchId || null,
         movementType: 'stocktake_increase',
         sourceType: 'stocktake',
-        sourceId: String(sessionId),
-        sourceLineId: stocktakeBatchId,
-        inputQuantity: diff,
-        unitCode: entry.unitCode || null,
-        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-        conversionToBase: 1,
+        sourceId: sessionId,
         quantityDeltaBase: diff,
+        baseUnitCode: product.baseUnitCode || product.unit || 'piece',
         unitCost,
-        totalCost: diff * unitCost,
-        batchAllocations: [{
-          batchId: stocktakeBatchId,
-          quantity: diff,
-          costPrice: unitCost,
-        }],
+        totalCost: roundMoney(diff * unitCost),
+        branchId: session.branchId || null,
+        operationId: ctx.operationId,
+        reason: `زيادة جرد #${sessionId}`,
+        createdBy: ctx.actor,
+        createdAt: ctx.now,
       });
       netAdjustmentValue = roundMoney(netAdjustmentValue + diff * unitCost);
     } else {
@@ -2306,22 +2242,15 @@ function handleStocktakeApprove(
         deviceId: ctx.deviceId,
         productName: product.name,
         allowNegative: true,
-      });
-      appendInventoryMovement(tx, ctx, {
-        productId: product.id,
-        branchId: session.branchId || null,
+        valuationMethod,
         movementType: 'stocktake_decrease',
         sourceType: 'stocktake',
-        sourceId: String(sessionId),
-        sourceLineId: entry.id,
-        inputQuantity: Math.abs(diff),
-        unitCode: entry.unitCode || null,
-        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-        conversionToBase: 1,
-        quantityDeltaBase: diff,
-        unitCost: fifo.averageUnitCost,
-        totalCost: fifo.totalCost,
-        batchAllocations: fifo.allocations,
+        sourceId: sessionId,
+        movementKeySuffix: String(product.id),
+        branchId: session.branchId || null,
+        reason: `عجز جرد #${sessionId}`,
+        createdBy: ctx.actor,
+        createdAt: ctx.now,
       });
       netAdjustmentValue = roundMoney(netAdjustmentValue - fifo.totalCost);
     }
@@ -2335,7 +2264,7 @@ function handleStocktakeApprove(
   if (netAdjustmentValue !== 0) {
     const absVal = Math.abs(netAdjustmentValue);
     postJournalEntry(tx, {
-      date: approvedAt,
+      date: ctx.now,
       referenceId: sessionId,
       referenceType: 'stocktake',
       description: `تسوية جرد مخزون #${sessionId}`,
@@ -2357,7 +2286,7 @@ function handleStocktakeApprove(
   tx.insert(auditLogs)
     .values({
       id: crypto.randomUUID(),
-      date: approvedAt,
+      date: ctx.now,
       type: 'stocktake_approve',
       userName: ctx.actor,
       action: 'اعتماد جرد',
@@ -2390,12 +2319,14 @@ function getEntityTable(tableName: string) {
     stocktakingSessions,
     stocktakingEntries,
     inventoryBatches,
+    serviceRecipes,
+    exchangeRateHistory,
+    fiscalPeriods,
   };
   return map[tableName];
 }
 
-function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; deviceId: string; actor: string; now: string }) {
-  const now = ctx.now;
+function handleEntityUpsert(tx: any, payload: any, now: string) {
   const { table: tableName, record } = payload;
   const table = getEntityTable(tableName);
   if (!table || !record) {
@@ -2501,68 +2432,6 @@ function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; d
       .get();
   }
 
-  if (tableName === 'products') {
-    const productData: any = { ...clean };
-    const existingProduct = productData.id
-      ? tx.select().from(products).where(eq(products.id, Number(productData.id))).get()
-      : null;
-    if (existingProduct) {
-      // Stock is changed only by stock movements/stocktaking, never by a stale
-      // product form or a background entity sync.
-      delete productData.stockQuantity;
-      delete productData.baseUnitCode;
-      delete productData.quantityPrecision;
-      const existingBatch = tx.select({ id: inventoryBatches.id })
-        .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1).get();
-      if (existingBatch) delete productData.costPrice;
-      const updatedProduct = tx.update(products)
-        .set({ ...productData, isSynced: 0, updatedAt: now })
-        .where(eq(products.id, existingProduct.id))
-        .returning()
-        .get();
-      if (!existingBatch && Number(updatedProduct.stockQuantity || 0) > 0) {
-        tx.insert(inventoryBatches).values({
-          id: `opening-${updatedProduct.id}`,
-          productId: updatedProduct.id,
-          purchaseId: null,
-          quantity: Number(updatedProduct.stockQuantity),
-          remainingQuantity: Number(updatedProduct.stockQuantity),
-          costPrice: Number(updatedProduct.costPrice || 0),
-          unitCode: updatedProduct.baseUnitCode || null,
-          baseUnitCode: updatedProduct.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: Number(updatedProduct.stockQuantity),
-          purchaseDate: updatedProduct.createdAt || now,
-          branchId: updatedProduct.branchId || null,
-          isSynced: 0,
-          createdAt: updatedProduct.createdAt || now,
-          updatedAt: now,
-        }).run();
-        appendInventoryMovement(tx, ctx, {
-          productId: updatedProduct.id,
-          branchId: updatedProduct.branchId || null,
-          movementType: 'opening_balance',
-          sourceType: 'product',
-          sourceId: String(updatedProduct.id),
-          sourceLineId: `opening-${updatedProduct.id}`,
-          inputQuantity: Number(updatedProduct.stockQuantity),
-          unitCode: updatedProduct.baseUnitCode || null,
-          baseUnitCode: updatedProduct.baseUnitCode || null,
-          conversionToBase: 1,
-          quantityDeltaBase: Number(updatedProduct.stockQuantity),
-          unitCost: Number(updatedProduct.costPrice || 0),
-          totalCost: Number(updatedProduct.stockQuantity) * Number(updatedProduct.costPrice || 0),
-          batchAllocations: [{
-            batchId: `opening-${updatedProduct.id}`,
-            quantity: Number(updatedProduct.stockQuantity),
-            costPrice: Number(updatedProduct.costPrice || 0),
-          }],
-        });
-      }
-      return updatedProduct;
-    }
-  }
-
   if (tableName === 'offers') {
     const offData: any = { ...clean };
     if (Array.isArray(offData.applicableProducts)) {
@@ -2591,55 +2460,102 @@ function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; d
       .get();
   }
 
-  // Handle auto-increment integer tables where offline client generated a timestamp temp ID (>= 1000000)
-  const autoIncTables = new Set(['products', 'categories', 'customers', 'suppliers', 'expenses']);
-  let savedRecord: any;
-
-  const existingRecord = clean.id !== undefined && clean.id !== null
-    ? tx.select().from(table).where(eq(table.id, clean.id)).get()
-    : null;
-
-  if (existingRecord) {
-    // A client may create and then edit the same temporary-ID entity while
-    // offline. Update that row instead of attempting a second primary-key insert.
-    const updateData: any = { ...clean };
-    delete updateData.createdAt;
-    if (tableName === 'customers') {
-      // Customer balances and loyalty points are derived from sales/payments.
-      // A stale terminal's entity snapshot must never overwrite them.
-      delete updateData.balance;
-      delete updateData.points;
-    } else if (tableName === 'suppliers') {
-      // Supplier balance is derived from purchases and supplier payments.
-      delete updateData.balance;
-    }
-    savedRecord = tx
-      .update(table)
-      .set({ ...updateData, isSynced: 0, updatedAt: now })
-      .where(eq(table.id, existingRecord.id))
-      .returning()
-      .get();
-  } else if (autoIncTables.has(tableName) && clean.id && Number(clean.id) >= 1000000) {
-    // Keep the client-generated numeric ID so later offline operations can
-    // reference the same product/customer/category without remapping.
-    savedRecord = tx
-      .insert(table)
-      .values({ ...clean, id: Number(clean.id), isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
-      .returning()
-      .get();
-  } else {
-    savedRecord = tx
-      .insert(table)
-      .values({ ...clean, isSynced: 0, createdAt: clean.createdAt || now, updatedAt: clean.updatedAt || now })
+  if (tableName === 'exchangeRateHistory') {
+    const idVal = clean.id ? String(clean.id) : crypto.randomUUID();
+    return tx
+      .insert(exchangeRateHistory)
+      .values({
+        id: idVal,
+        currency: String(clean.currency || 'USD'),
+        rate: Number(clean.rate || 1),
+        source: clean.source || 'manual',
+        effectiveFrom: clean.effectiveFrom || now,
+        notes: clean.notes || null,
+        createdBy: clean.createdBy || null,
+        isSynced: 0,
+        createdAt: clean.createdAt || now,
+      })
       .onConflictDoUpdate({
-        target: table.id,
-        set: { ...clean, isSynced: 0, updatedAt: now },
+        target: exchangeRateHistory.id,
+        set: {
+          currency: String(clean.currency || 'USD'),
+          rate: Number(clean.rate || 1),
+          source: clean.source || 'manual',
+          effectiveFrom: clean.effectiveFrom || now,
+          notes: clean.notes || null,
+          isSynced: 0,
+        },
       })
       .returning()
       .get();
   }
 
-  if (tableName === 'products' && savedRecord && Number(savedRecord.stockQuantity) > 0) {
+  // Handle auto-increment integer tables where offline client generated a timestamp temp ID (>= 1000000)
+  const autoIncTables = new Set(['products', 'categories', 'customers', 'suppliers', 'expenses']);
+  let savedRecord: any;
+  const normalizedClean = { ...clean };
+  if (tableName === 'products' && typeof normalizedClean.allowFractions === 'boolean') {
+    normalizedClean.allowFractions = normalizedClean.allowFractions ? 1 : 0;
+  }
+
+  let prevProduct: any = null;
+  if (tableName === 'products' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
+    prevProduct = tx.select().from(products).where(eq(products.id, Number(normalizedClean.id))).get();
+  }
+
+  if (autoIncTables.has(tableName) && normalizedClean.id && Number(normalizedClean.id) >= 1000000) {
+    const { id: _tmp, ...insertValues } = normalizedClean;
+    savedRecord = tx
+      .insert(table)
+      .values({ ...insertValues, isSynced: 0, createdAt: normalizedClean.createdAt || now, updatedAt: normalizedClean.updatedAt || now })
+      .returning()
+      .get();
+  } else {
+    savedRecord = tx
+      .insert(table)
+      .values({ ...normalizedClean, isSynced: 0, createdAt: normalizedClean.createdAt || now, updatedAt: normalizedClean.updatedAt || now })
+      .onConflictDoUpdate({
+        target: table.id,
+        set: { ...normalizedClean, isSynced: 0, updatedAt: now },
+      })
+      .returning()
+      .get();
+  }
+
+  if (
+    tableName === 'products' &&
+    prevProduct &&
+    savedRecord &&
+    (Number(prevProduct.sellingPrice) !== Number(savedRecord.sellingPrice) ||
+      Number(prevProduct.costPrice) !== Number(savedRecord.costPrice))
+  ) {
+    tx.insert(auditLogs)
+      .values({
+        id: crypto.randomUUID(),
+        date: now,
+        type: 'price_change',
+        userName: normalizedClean.updatedBy || 'System',
+        action: 'تعديل سعر',
+        operationName: 'تحديث تسعيرة صنف',
+        productName: savedRecord.name,
+        details: `تعديل سعر ${savedRecord.name} من ${prevProduct.sellingPrice} إلى ${savedRecord.sellingPrice}`,
+        quantity: 1,
+        value: Number(savedRecord.sellingPrice || 0),
+        branchId: savedRecord.branchId || null,
+        previousValue: JSON.stringify({ costPrice: prevProduct.costPrice, sellingPrice: prevProduct.sellingPrice }),
+        newValue: JSON.stringify({ costPrice: savedRecord.costPrice, sellingPrice: savedRecord.sellingPrice }),
+        entityId: String(savedRecord.id),
+        entityName: savedRecord.name,
+      })
+      .run();
+  }
+
+  if (
+    tableName === 'products' &&
+    savedRecord &&
+    Number(savedRecord.stockQuantity) > 0 &&
+    (!savedRecord.itemType || savedRecord.itemType === 'stock')
+  ) {
     const existingBatches = tx
       .select()
       .from(inventoryBatches)
@@ -2648,43 +2564,51 @@ function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; d
     if (existingBatches.length === 0) {
       tx.insert(inventoryBatches)
         .values({
-          id: `opening-${savedRecord.id}`,
+          id: crypto.randomUUID(),
           productId: savedRecord.id,
           purchaseId: null,
           quantity: Number(savedRecord.stockQuantity),
           remainingQuantity: Number(savedRecord.stockQuantity),
           costPrice: Number(savedRecord.costPrice || 0),
-          unitCode: savedRecord.baseUnitCode || null,
-          baseUnitCode: savedRecord.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: Number(savedRecord.stockQuantity),
-          purchaseDate: savedRecord.createdAt || now,
+          purchaseDate: now,
           branchId: savedRecord.branchId || null,
           isSynced: 0,
-          createdAt: savedRecord.createdAt || now,
+          createdAt: now,
           updatedAt: now,
         })
         .run();
-      appendInventoryMovement(tx, ctx, {
+      const openingTotalCost = roundMoney(
+        Number(savedRecord.stockQuantity) * Number(savedRecord.costPrice || 0)
+      );
+      recordInventoryMovement(tx, {
+        movementKey: `opening:${savedRecord.id}`,
         productId: savedRecord.id,
-        branchId: savedRecord.branchId || null,
         movementType: 'opening_balance',
         sourceType: 'product',
         sourceId: String(savedRecord.id),
-        sourceLineId: `opening-${savedRecord.id}`,
-        inputQuantity: Number(savedRecord.stockQuantity),
-        unitCode: savedRecord.baseUnitCode || null,
-        baseUnitCode: savedRecord.baseUnitCode || null,
-        conversionToBase: 1,
         quantityDeltaBase: Number(savedRecord.stockQuantity),
+        baseUnitCode: savedRecord.baseUnitCode || savedRecord.unit || 'piece',
         unitCost: Number(savedRecord.costPrice || 0),
-        totalCost: Number(savedRecord.stockQuantity) * Number(savedRecord.costPrice || 0),
-        batchAllocations: [{
-          batchId: `opening-${savedRecord.id}`,
-          quantity: Number(savedRecord.stockQuantity),
-          costPrice: Number(savedRecord.costPrice || 0),
-        }],
+        totalCost: openingTotalCost,
+        branchId: savedRecord.branchId || null,
+        reason: 'رصيد افتتاحي للصنف',
+        createdBy: 'System',
+        createdAt: now,
       });
+      if (openingTotalCost > 0) {
+        postJournalEntry(tx, {
+          date: now,
+          referenceId: `opening:${savedRecord.id}`,
+          referenceType: 'opening',
+          description: `رصيد افتتاحي للمخزون: ${savedRecord.name}`,
+          lines: [
+            { accountCode: '1200', debit: openingTotalCost, credit: 0 },
+            { accountCode: '3100', debit: 0, credit: openingTotalCost },
+          ],
+          createdBy: 'System',
+          branchId: savedRecord.branchId || undefined,
+        });
+      }
     }
   }
 
@@ -2701,35 +2625,6 @@ function handleEntityDelete(tx: any, payload: any) {
   if (!table) {
     throw new OperationError(`Unsupported entity table: ${tableName}`, 400);
   }
-
-  if (tableName === 'categories') {
-    const linkedProducts = tx.select().from(products)
-      .where(eq(products.categoryId, Number(id))).limit(1).get();
-    if (linkedProducts) {
-      throw new OperationError(
-        'لا يمكن حذف تصنيف مرتبط بأصناف. انقل الأصناف أو عطّلها أولاً.',
-        409
-      );
-    }
-  }
-
-  if (tableName === 'products') {
-    const productId = Number(id);
-    const product = tx.select().from(products).where(eq(products.id, productId)).get();
-    if (product) {
-      const batch = tx.select().from(inventoryBatches)
-        .where(eq(inventoryBatches.productId, productId)).limit(1).get();
-      const movement = tx.select().from(inventoryMovements)
-        .where(eq(inventoryMovements.productId, productId)).limit(1).get();
-      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
-        throw new OperationError(
-          'لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.',
-          409
-        );
-      }
-    }
-  }
-
   tx.delete(table).where(eq(table.id, id)).run();
   return { table: tableName, deleted: id };
 }

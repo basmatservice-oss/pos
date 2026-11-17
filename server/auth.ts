@@ -176,8 +176,6 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   let token = '';
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.slice(7).trim();
-  } else if (typeof req.query.token === 'string') {
-    token = req.query.token;
   }
 
   if (!token) {

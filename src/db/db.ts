@@ -2,31 +2,6 @@ import Dexie, { Table } from 'dexie';
 
 // --- Interfaces ---
 
-export interface Currency {
-  code: string;
-  name: string;
-  symbol?: string;
-  decimalPlaces: number;
-  isActive: number;
-  createdAt: string;
-  updatedAt: string;
-  syncStatus: 'synced' | 'pending' | 'error';
-}
-
-export interface ExchangeRate {
-  id: string;
-  baseCurrencyCode: string;
-  quoteCurrencyCode: string;
-  rate: number;
-  effectiveAt: string;
-  source: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  createdBy?: string;
-  createdAt: string;
-  syncStatus: 'synced' | 'pending' | 'error';
-}
-
 export interface AuditLog {
   id?: string | number;
   date: string;
@@ -44,31 +19,13 @@ export interface AuditLog {
   syncStatus: 'synced' | 'pending' | 'error';
 }
 
-export interface UnitDefinition {
-  code: string;
-  name: string;
-  symbol?: string;
-  dimension: string;
-  decimalPlaces: number;
-  isFractional: number;
-  isActive: number;
-  createdAt: string;
-  updatedAt: string;
-  syncStatus: 'synced' | 'pending' | 'error';
-}
-
 export interface ProductUnit {
-  id: string;
-  productId: number;
-  unitCode: string;
-  conversionToBase: number;
-  isBaseUnit: number;
-  sellingPrice?: number;
+  name: string;
   barcode?: string;
-  isActive: number;
-  createdAt: string;
-  updatedAt: string;
-  syncStatus: 'synced' | 'pending' | 'error';
+  conversionFactor: number;
+  sellingPrice: number;
+  costPrice?: number;
+  allowFractions?: boolean;
 }
 
 export interface Product {
@@ -82,18 +39,100 @@ export interface Product {
   priceInUSD?: number;
   stockQuantity: number;
   minStockLevel?: number;
-  unit: 'piece' | 'box'; // Legacy fields retained for compatibility.
+  unit: string;
   conversionFactor: number;
+  itemType?: 'stock' | 'service' | 'service_with_materials' | 'bundle';
+  allowFractions?: boolean | number;
+  unitsJson?: string;
   baseUnitCode?: string;
   quantityPrecision?: number;
+  isActive?: number;
   vatRate: number;
   imageUrl?: string;
   branchId?: number;
-  isActive?: number;
   expiryDate?: string;
   batchNumber?: string;
   syncStatus: 'synced' | 'pending' | 'error';
   updatedAt: string;
+}
+
+export interface UnitDefinition {
+  code: string;
+  name: string;
+  symbol?: string;
+  dimension: string;
+  decimalPlaces: number;
+  isFractional: number;
+  isSystem?: number;
+  syncStatus?: 'synced' | 'pending' | 'error';
+}
+
+export interface ProductUnitRecord {
+  id: string;
+  productId: number;
+  unitCode: string;
+  conversionToBase: number;
+  isBaseUnit: number;
+  sellingPrice?: number | null;
+  barcode?: string | null;
+  syncStatus?: 'synced' | 'pending' | 'error';
+}
+
+export interface InventoryMovementRecord {
+  id: string;
+  movementKey: string;
+  productId: number;
+  movementType: string;
+  sourceType: string;
+  sourceId: string;
+  quantityDeltaBase: number;
+  baseUnitCode?: string;
+  unitCost: number;
+  totalCost: number;
+  branchId?: number;
+  operationId?: string;
+  reason?: string;
+  createdBy?: string;
+  syncStatus: 'synced' | 'pending' | 'error' | 'conflict';
+  createdAt: string;
+}
+
+export interface ServiceRecipe {
+  id: string;
+  parentProductId: number;
+  ingredientProductId: number;
+  ingredientName?: string;
+  quantity: number;
+  unit?: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ExchangeRateRecord {
+  id: string;
+  currency: string;
+  rate: number;
+  source?: string;
+  effectiveFrom: string;
+  notes?: string;
+  createdBy?: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+  createdAt?: string;
+}
+
+export interface FiscalPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: 'open' | 'closed';
+  closedAt?: string;
+  closedBy?: string;
+  notes?: string;
+  syncStatus: 'synced' | 'pending' | 'error';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface InventoryBatch {
@@ -102,15 +141,9 @@ export interface InventoryBatch {
   purchaseId?: string | null;
   quantity: number;
   remainingQuantity?: number;
-  costPrice: number; // Base-currency FIFO cost.
-  originalCostPrice?: number | null;
-  currencyCode?: string | null;
-  exchangeRate?: number | null;
-  exchangeRateId?: string | null;
-  unitCode?: string | null;
-  baseUnitCode?: string | null;
-  conversionToBase?: number | null;
-  baseQuantity?: number | null;
+  costPrice: number;
+  currency?: string;
+  exchangeRate?: number;
   purchaseDate: string;
   expiryDate?: string;
   batchNumber?: string;
@@ -118,31 +151,6 @@ export interface InventoryBatch {
   syncStatus: 'synced' | 'pending' | 'error';
   createdAt?: string;
   updatedAt?: string;
-}
-
-export interface InventoryMovement {
-  id: string;
-  movementKey: string;
-  productId: number;
-  branchId?: number | null;
-  movementType: string;
-  sourceType: string;
-  sourceId: string;
-  sourceLineId?: string | null;
-  operationId: string;
-  deviceId?: string | null;
-  createdBy?: string | null;
-  inputQuantity?: number | null;
-  unitCode?: string | null;
-  baseUnitCode?: string | null;
-  conversionToBase: number;
-  quantityDeltaBase: number;
-  unitCost: number;
-  totalCost: number;
-  batchAllocations?: string | null;
-  reason?: string | null;
-  createdAt: string;
-  syncStatus: 'synced' | 'pending' | 'error' | 'conflict';
 }
 
 export interface Category {
@@ -165,6 +173,8 @@ export interface Order {
   cardAmount?: number;
   returnedAmount?: number;
   paymentMethod: 'cash' | 'card' | 'credit' | 'mixed';
+  currency?: string;
+  exchangeRate?: number;
   customerId?: number;
   customerName?: string;
   branchId?: number;
@@ -190,10 +200,7 @@ export interface OrderItem {
   returnedQuantity?: number;
   unit?: string;
   conversionFactor?: number;
-  unitCode?: string;
-  baseUnitCode?: string;
-  conversionToBase?: number;
-  baseQuantity?: number;
+  itemType?: 'stock' | 'service' | 'service_with_materials' | 'bundle';
   unitPrice: number;
   costPriceAtTimeOfSale: number;
   discountAmount?: number;
@@ -214,6 +221,8 @@ export interface ReturnRecord {
   branchId?: number;
   shiftId?: string;
   refundMethod: 'cash' | 'card' | 'credit_adjustment';
+  currency?: string;
+  exchangeRate?: number;
   subTotal: number;
   discountAmount: number;
   taxAmount: number;
@@ -235,11 +244,8 @@ export interface ReturnItem {
   productId: number;
   productName: string;
   quantity: number;
+  condition?: 'resalable' | 'damaged';
   unitPrice: number;
-  unitCode?: string;
-  baseUnitCode?: string;
-  conversionToBase?: number;
-  baseQuantity?: number;
   costPrice: number;
   taxAmount: number;
   total: number;
@@ -506,17 +512,21 @@ export interface Purchase {
   id?: string;
   supplierId: number;
   supplierName: string;
-  totalAmount: number; // Base-currency amount used by accounting.
-  currencyCode?: string | null;
-  baseCurrencyCode?: string | null;
-  exchangeRate?: number | null;
-  exchangeRateId?: string | null;
-  originalTotalAmount?: number | null;
-  originalPaidAmount?: number | null;
+  totalAmount: number;
   paymentStatus: 'paid' | 'partial' | 'unpaid';
   paymentMethod?: 'cash' | 'card';
   paidAmount: number;
   returnedAmount?: number;
+  currency?: string;
+  currencyCode?: string;
+  baseCurrencyCode?: string;
+  originalTotalAmount?: number;
+  originalPaidAmount?: number;
+  exchangeRate?: number;
+  shippingCost?: number;
+  customsCost?: number;
+  otherCosts?: number;
+  extraCostsPaymentMethod?: 'cash' | 'card' | 'supplier';
   date: string;
   branchId?: number;
   deviceId?: string;
@@ -531,17 +541,18 @@ export interface PurchaseItem {
   productId: number;
   productName: string;
   quantity: number;
-  costPrice: number; // Base-currency cost per entered purchase unit; inventory batches store base-unit cost.
-  originalCostPrice?: number | null;
-  originalTotal?: number | null;
-  currencyCode?: string | null;
-  exchangeRate?: number | null;
-  exchangeRateId?: string | null;
-  unitCode?: string | null;
-  baseUnitCode?: string | null;
-  conversionToBase?: number | null;
-  baseQuantity?: number | null;
+  unit?: string;
+  unitCode?: string;
+  baseUnitCode?: string;
+  conversionFactor?: number;
+  conversionToBase?: number;
+  baseQuantity?: number;
+  costPrice: number;
+  landedCostPerBaseUnit?: number;
   total: number;
+  originalTotal?: number;
+  expiryDate?: string;
+  batchNumber?: string;
   syncStatus?: 'synced' | 'pending' | 'error';
 }
 
@@ -554,6 +565,8 @@ export interface PurchaseReturn {
   branchId?: number;
   shiftId?: string;
   refundMethod: 'cash' | 'card' | 'credit_adjustment';
+  currency?: string;
+  exchangeRate?: number;
   totalReturn: number;
   reason?: string;
   createdBy?: string;
@@ -572,10 +585,6 @@ export interface PurchaseReturnItem {
   quantity: number;
   costPrice: number;
   total: number;
-  unitCode?: string;
-  baseUnitCode?: string;
-  conversionToBase?: number;
-  baseQuantity?: number;
   batchId?: string;
   syncStatus: 'synced' | 'pending' | 'error';
   createdAt?: string;
@@ -697,14 +706,15 @@ export class POSDatabase extends Dexie {
   stocktakingSessions!: Table<StocktakingSession, string>;
   stocktakingEntries!: Table<StocktakingEntry, number | string>;
   inventoryBatches!: Table<InventoryBatch, string | number>;
-  inventoryMovements!: Table<InventoryMovement, string>;
   syncOperations!: Table<SyncOperation, string>;
   inventoryAlerts!: Table<InventoryAlert, string>;
   heldOrders!: Table<HeldOrder, string>;
+  serviceRecipes!: Table<ServiceRecipe, string>;
+  exchangeRateHistory!: Table<ExchangeRateRecord, string>;
+  fiscalPeriods!: Table<FiscalPeriod, string>;
   unitDefinitions!: Table<UnitDefinition, string>;
-  productUnits!: Table<ProductUnit, string>;
-  currencies!: Table<Currency, string>;
-  exchangeRates!: Table<ExchangeRate, string>;
+  productUnits!: Table<ProductUnitRecord, string>;
+  inventoryMovements!: Table<InventoryMovementRecord, string>;
 
   constructor() {
     super('RetailPOSDB');
@@ -1012,8 +1022,9 @@ export class POSDatabase extends Dexie {
       heldOrders: 'id, createdAt, customerId',
     });
 
+    // Version 22: Add serviceRecipes, exchangeRateHistory, fiscalPeriods without altering any existing primary keys
     this.version(22).stores({
-      products: '++id, barcode, categoryId, name, branchId, syncStatus',
+      products: '++id, barcode, categoryId, name, branchId, itemType, syncStatus',
       categories: '++id, name, branchId, syncStatus',
       orders: 'id, receiptNumber, createdAt, status, branchId, syncStatus, customerId, createdBy, operationId',
       orderItems: '++id, orderId, productId, syncStatus',
@@ -1047,53 +1058,13 @@ export class POSDatabase extends Dexie {
       syncOperations: 'id, type, status, createdAt, nextRetryAt',
       inventoryAlerts: 'id, productId, resolved, createdAt',
       heldOrders: 'id, createdAt, customerId',
-      currencies: 'code, isActive, syncStatus',
-      exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
-    })
-
-    this.version(23).stores({
-      products: '++id, barcode, categoryId, name, branchId, syncStatus',
-      categories: '++id, name, branchId, syncStatus',
-      orders: 'id, receiptNumber, createdAt, status, branchId, syncStatus, customerId, createdBy, operationId',
-      orderItems: '++id, orderId, productId, syncStatus',
-      returns: 'id, returnNumber, originalOrderId, createdAt, branchId, syncStatus',
-      returnItems: 'id, returnId, orderItemId, productId, syncStatus',
-      accounts: 'code, type, name',
-      shifts: '++id, status, startTime, branchId, syncStatus',
-      shiftMovements: 'id, shiftId, type, branchId, createdAt, syncStatus',
-      customers: '++id, name, phone, branchId, syncStatus',
-      customerPayments: 'id, customerId, orderId, shiftId, createdAt, syncStatus',
-      expenses: '++id, date, category, shiftId, branchId, syncStatus',
-      suppliers: '++id, name, phone, syncStatus',
-      supplierPayments: 'id, supplierId, purchaseId, shiftId, createdAt, syncStatus',
-      employees: '++id, name, role, status, branchId, syncStatus, pinCode, username',
-      settings: '++id, key, syncStatus',
-      purchases: 'id, supplierId, date, branchId, syncStatus, operationId',
-      purchaseItems: '++id, purchaseId, productId, syncStatus',
-      purchaseReturns: 'id, returnNumber, originalPurchaseId, supplierId, createdAt, branchId, syncStatus',
-      purchaseReturnItems: 'id, purchaseReturnId, productId, syncStatus',
-      attendance: '++id, employeeId, date, branchId, syncStatus',
-      loyaltyTransactions: '++id, customerId, orderId, date, syncStatus',
-      branches: '++id, name, status, syncStatus',
-      payroll: '++id, employeeId, periodStart, status, branchId, syncStatus',
-      offers: '++id, name, type, status, branchId, syncStatus',
-      auditLogs: '++id, date, type, userName, syncStatus',
-      journalEntries: '++id, date, referenceId, referenceType, status, syncStatus',
-      transactions: '++id, orderId, purchaseId, returnId, journalEntryId, accountId, syncStatus',
-      stocktakingSessions: 'id, status, createdAt, branchId, syncStatus',
-      stocktakingEntries: '++id, sessionId, productId, barcode, syncStatus',
-      inventoryBatches: '++id, productId, purchaseId, purchaseDate, syncStatus',
-      syncOperations: 'id, type, status, createdAt, nextRetryAt',
-      inventoryAlerts: 'id, productId, resolved, createdAt',
-      heldOrders: 'id, createdAt, customerId',
-      unitDefinitions: 'code, dimension, isActive, syncStatus',
-      productUnits: 'id, productId, unitCode, isActive, syncStatus',
-      currencies: 'code, isActive, syncStatus',
-      exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
+      serviceRecipes: 'id, parentProductId, ingredientProductId, syncStatus',
+      exchangeRateHistory: 'id, currency, effectiveFrom, syncStatus',
+      fiscalPeriods: 'id, startDate, endDate, status, syncStatus',
     });
 
-    this.version(24).stores({
-      products: '++id, barcode, categoryId, name, branchId, syncStatus',
+    this.version(23).stores({
+      products: '++id, barcode, categoryId, name, branchId, itemType, syncStatus',
       categories: '++id, name, branchId, syncStatus',
       orders: 'id, receiptNumber, createdAt, status, branchId, syncStatus, customerId, createdBy, operationId',
       orderItems: '++id, orderId, productId, syncStatus',
@@ -1124,14 +1095,15 @@ export class POSDatabase extends Dexie {
       stocktakingSessions: 'id, status, createdAt, branchId, syncStatus',
       stocktakingEntries: '++id, sessionId, productId, barcode, syncStatus',
       inventoryBatches: '++id, productId, purchaseId, purchaseDate, syncStatus',
-      inventoryMovements: 'id, movementKey, productId, branchId, createdAt, movementType, sourceType, sourceId, operationId, syncStatus',
       syncOperations: 'id, type, status, createdAt, nextRetryAt',
       inventoryAlerts: 'id, productId, resolved, createdAt',
       heldOrders: 'id, createdAt, customerId',
-      unitDefinitions: 'code, dimension, isActive, syncStatus',
-      productUnits: 'id, productId, unitCode, isActive, syncStatus',
-      currencies: 'code, isActive, syncStatus',
-      exchangeRates: 'id, baseCurrencyCode, quoteCurrencyCode, effectiveAt, syncStatus',
+      serviceRecipes: 'id, parentProductId, ingredientProductId, syncStatus',
+      exchangeRateHistory: 'id, currency, effectiveFrom, syncStatus',
+      fiscalPeriods: 'id, startDate, endDate, status, syncStatus',
+      unitDefinitions: 'code, dimension',
+      productUnits: 'id, productId, unitCode, barcode',
+      inventoryMovements: 'id, &movementKey, productId, sourceType, sourceId, branchId, createdAt, syncStatus',
     });
   }
 }
@@ -1171,8 +1143,9 @@ const RESCUE_STORES = [
   'heldOrders',
   'expenses',
   'syncOperations',
-  'unitDefinitions',
-  'productUnits',
+  'serviceRecipes',
+  'exchangeRateHistory',
+  'fiscalPeriods',
 ] as const;
 
 async function rescueLegacyIndexedDB(): Promise<Record<string, any[]>> {

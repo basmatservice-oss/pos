@@ -27,13 +27,14 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Customer, HeldOrder } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { useAuth } from '../context/AuthContext';
-import { useCartStore, getItemPrice, type CartUnitSelection } from '../store/useCartStore';
+import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
 import { dispatchOperation } from '../services/operationService';
 import { roundMoney } from '../utils/tax';
+import { formatMoney, formatNumber, formatQty, roundQty } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 export default function POS() {
@@ -78,16 +79,22 @@ export default function POS() {
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
   const [isHeldListOpen, setIsHeldListOpen] = useState(false);
   const [heldDeleteTarget, setHeldDeleteTarget] = useState<HeldOrder | null>(null);
+  const [pendingOverrideCheckout, setPendingOverrideCheckout] = useState<{
+    paymentMethod: 'cash' | 'card' | 'credit' | 'mixed';
+    mixedSplit?: { cashAmount: number; cardAmount: number };
+    message: string;
+  } | null>(null);
 
   const receiptRef = useRef<HTMLDivElement>(null);
   const storeSettings = useSettings();
+  const decimals = storeSettings.currencyDecimals ?? 2;
+  const qtyDecimals = storeSettings.quantityDecimals ?? 3;
   const {
     items,
     globalDiscount,
     globalDiscountType,
     clearCart,
     loadCartState,
-    removeItem,
     updateQuantity,
     updateItemUnit,
     updateItemDiscount,
@@ -102,6 +109,7 @@ export default function POS() {
   const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const allOffers = useLiveQuery(() => db.offers.toArray()) || [];
   const heldOrders = useLiveQuery(() => db.heldOrders.toArray()) || [];
+  const serviceRecipes = useLiveQuery(() => db.serviceRecipes.toArray()) || [];
 
   const customers =
     useLiveQuery(() => {
@@ -172,80 +180,10 @@ export default function POS() {
   const {
     products: allProducts,
     categories,
-    getProductByBarcode,
+    getMatchByBarcode,
   } = useInventoryStore();
 
   const liveProducts = useLiveQuery(() => db.products.toArray());
-  const liveProductUnits = useLiveQuery(() => db.productUnits.where('isActive').equals(1).toArray()) || [];
-  const liveUnitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
-
-  const getUnitSelection = (productId: number, unitCode: string): CartUnitSelection | undefined => {
-    const row = liveProductUnits.find((unit) => unit.productId === productId && unit.unitCode === unitCode && unit.isActive === 1);
-    if (!row) return undefined;
-    const definition = liveUnitDefinitions.find((unit) => unit.code === unitCode);
-    const label = definition
-      ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
-      : unitCode;
-    return {
-      unitCode: row.unitCode,
-      conversionToBase: Number(row.conversionToBase),
-      label,
-      sellingPrice: row.sellingPrice == null ? null : Number(row.sellingPrice),
-    };
-  };
-
-  const handleAddProduct = (product: (typeof allProducts)[number]) => {
-    if (product.isActive === 0) {
-      toast.error('هذا الصنف موقوف ولا يمكن بيعه');
-      return;
-    }
-    const rows = liveProductUnits.filter((unit) => unit.productId === product.id && unit.isActive === 1);
-    const base = rows.find((unit) => unit.isBaseUnit === 1) ||
-      rows.find((unit) => unit.unitCode === product.baseUnitCode);
-    if (base) {
-      addItem(product, base.unitCode, getUnitSelection(product.id!, base.unitCode));
-    } else {
-      addItem(product);
-    }
-  };
-
-  const addProductByBarcode = (barcode: string) => {
-    const alternate = liveProductUnits.find((unit) => unit.barcode === barcode && unit.isActive === 1);
-    if (alternate) {
-      const product = allProducts.find((item) => item.id === alternate.productId);
-      if (product?.isActive === 0) {
-        toast.error('هذا الصنف موقوف ولا يمكن بيعه');
-        return null;
-      }
-      if (product) {
-        addItem(product, alternate.unitCode, getUnitSelection(product.id!, alternate.unitCode));
-        return product;
-      }
-    }
-    const product = allProducts.find((item) => item.barcode === barcode) || getProductByBarcode(barcode);
-    if (product?.isActive === 0) {
-      toast.error('هذا الصنف موقوف ولا يمكن بيعه');
-      return null;
-    }
-    if (product) handleAddProduct(product);
-    return product || null;
-  };
-
-  const handleCartUnitChange = (cartItemId: string, unitCode: string) => {
-    const item = items.find((row) => row.cartItemId === cartItemId);
-    if (!item) return;
-    const selection = getUnitSelection(item.id!, unitCode);
-    if (selection) updateItemUnit(cartItemId, unitCode, selection);
-    else updateItemUnit(cartItemId, unitCode as 'piece' | 'box');
-  };
-
-  const getUnitQuantityStep = (item: (typeof items)[number]) => {
-    const precision = item.selectedUnitCode
-      ? Number(liveUnitDefinitions.find((unit) => unit.code === item.selectedUnitCode)?.decimalPlaces ?? 0)
-      : 0;
-    return 10 ** -Math.max(0, Math.min(6, precision));
-  };
-
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
@@ -268,7 +206,7 @@ export default function POS() {
   }, [searchQuery]);
 
   const filteredProducts = useMemo(() => {
-    let list = allProducts.filter((product) => product.isActive !== 0);
+    let list = allProducts;
     if (selectedCategory !== 'all') {
       const categoryId = parseInt(selectedCategory, 10);
       list = allProducts.filter((p) => p.categoryId === categoryId);
@@ -287,16 +225,18 @@ export default function POS() {
 
   useEffect(() => {
     const handleGlobalScan = (e: any) => {
-      const barcode = e.detail;
-      const product = addProductByBarcode(String(barcode));
-      if (product) {
-        toast.success(`تم العثور على: ${product.name}`);
+      const barcode = String(e.detail || '').trim();
+      if (!barcode) return;
+      const match = getMatchByBarcode(barcode);
+      if (match) {
+        addItem(match.product, match.matchedUnit?.name);
+        toast.success(`تم العثور على: ${match.product.name}${match.matchedUnit ? ` (${match.matchedUnit.name})` : ''}`);
       }
     };
 
     window.addEventListener('barcode-scanned' as any, handleGlobalScan);
     return () => window.removeEventListener('barcode-scanned' as any, handleGlobalScan);
-  }, [getProductByBarcode, addItem, allProducts, liveProductUnits, liveUnitDefinitions]);
+  }, [getMatchByBarcode, addItem]);
 
   useEffect(() => {
     let isMounted = true;
@@ -325,9 +265,10 @@ export default function POS() {
                 const now = Date.now();
                 if (lastScannedRef.current.code !== decodedText || now - lastScannedRef.current.time > 2000) {
                   lastScannedRef.current = { code: decodedText, time: now };
-                  const product = addProductByBarcode(decodedText);
-                  if (product) {
-                    toast.success(`تم العثور على: ${product.name}`);
+                  const match = getMatchByBarcode(decodedText);
+                  if (match) {
+                    addItem(match.product, match.matchedUnit?.name);
+                    toast.success(`تم العثور على: ${match.product.name}${match.matchedUnit ? ` (${match.matchedUnit.name})` : ''}`);
                   } else {
                     toast.error('المنتج غير موجود');
                   }
@@ -356,7 +297,7 @@ export default function POS() {
       isMounted = false;
       stopScanner();
     };
-  }, [isScannerOpen, getProductByBarcode, addItem, allProducts, liveProductUnits, liveUnitDefinitions]);
+  }, [isScannerOpen, getMatchByBarcode, addItem]);
 
   const handleBarcodeSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -369,8 +310,9 @@ export default function POS() {
     }
     lastScannedTimeRef.current[barcode] = now;
 
-    const product = addProductByBarcode(barcode);
-    if (product) {
+    const match = getMatchByBarcode(barcode);
+    if (match) {
+      addItem(match.product, match.matchedUnit?.name);
       if (searchInputRef.current) {
         searchInputRef.current.value = '';
         setSearchQuery('');
@@ -378,7 +320,7 @@ export default function POS() {
     } else {
       const dbProduct = await db.products.where('barcode').equals(barcode).first();
       if (dbProduct) {
-        handleAddProduct(dbProduct);
+        addItem(dbProduct);
         if (searchInputRef.current) {
           searchInputRef.current.value = '';
           setSearchQuery('');
@@ -460,7 +402,8 @@ export default function POS() {
 
   const handleCheckout = async (
     paymentMethod: 'cash' | 'card' | 'credit' | 'mixed',
-    mixedSplit?: { cashAmount: number; cardAmount: number }
+    mixedSplit?: { cashAmount: number; cardAmount: number },
+    overrideConfirmed = false
   ) => {
     if (items.length === 0) return;
 
@@ -473,6 +416,57 @@ export default function POS() {
       toast.error('يجب اختيار عميل للبيع الآجل');
       setIsCustomerModalOpen(true);
       return;
+    }
+
+    const effectivePolicy =
+      storeSettings.offlineStockPolicy ||
+      (storeSettings.allowNegativeStock === false ? 'block' : 'allow_with_alert');
+
+    if ((effectivePolicy === 'block' || effectivePolicy === 'manager_override') && !overrideConfirmed) {
+      const demandedByProduct = new Map<number, number>();
+      for (const item of items) {
+        const prod = allProducts.find((p) => p.id === item.id) || item;
+        const itemType = prod.itemType || 'stock';
+        if (itemType === 'service') continue;
+        const factor = getItemUnitFactor(item);
+        const baseQty = roundQty(item.cartQuantity * factor);
+        if (itemType === 'service_with_materials' || itemType === 'bundle') {
+          const recs = serviceRecipes.filter((r) => Number(r.parentProductId) === Number(prod.id));
+          if (recs.length > 0) {
+            for (const rec of recs) {
+              const ingId = Number(rec.ingredientProductId);
+              demandedByProduct.set(
+                ingId,
+                roundQty((demandedByProduct.get(ingId) || 0) + baseQty * Number(rec.quantity || 0))
+              );
+            }
+            continue;
+          }
+          if (itemType === 'service_with_materials') continue;
+        }
+        demandedByProduct.set(
+          Number(prod.id),
+          roundQty((demandedByProduct.get(Number(prod.id)) || 0) + baseQty)
+        );
+      }
+
+      const shortages: string[] = [];
+      for (const [pid, needed] of demandedByProduct.entries()) {
+        const prod = allProducts.find((p) => Number(p.id) === pid);
+        if (prod && Number(prod.stockQuantity || 0) < needed) {
+          shortages.push(`${prod.name} (المطلوب: ${formatQty(needed, qtyDecimals)} / المتاح: ${formatQty(prod.stockQuantity, qtyDecimals)})`);
+        }
+      }
+
+      if (shortages.length > 0) {
+        const msg = `الرصيد غير كافٍ: ${shortages.join('، ')}`;
+        if (effectivePolicy === 'manager_override' && (user?.role === 'admin' || user?.role === 'manager')) {
+          setPendingOverrideCheckout({ paymentMethod, mixedSplit, message: msg });
+          return;
+        }
+        toast.error(msg);
+        return;
+      }
     }
 
     const summary = getTaxSummary(roundMoney(pointsToRedeem * 0.1));
@@ -488,7 +482,7 @@ export default function POS() {
       cashAmount = roundMoney(mixedSplit?.cashAmount || 0);
       cardAmount = roundMoney(mixedSplit?.cardAmount || 0);
       if (cashAmount < 0 || cardAmount < 0 || Math.abs(cashAmount + cardAmount - grandTotal) > 0.05) {
-        toast.error(`مجموع النقدي والشبكة يجب أن يساوي الإجمالي (${grandTotal.toFixed(2)})`);
+        toast.error(`مجموع النقدي والشبكة يجب أن يساوي الإجمالي (${formatNumber(grandTotal, decimals)})`);
         return;
       }
     }
@@ -513,6 +507,8 @@ export default function POS() {
         cardAmount: paymentMethod === 'mixed' ? cardAmount : undefined,
         returnedAmount: 0,
         paymentMethod,
+        currency: storeSettings.currency,
+        exchangeRate: storeSettings.exchangeRate || 1,
         customerId: selectedCustomer?.id,
         customerName: selectedCustomer?.name,
         shiftId: currentShift.id,
@@ -527,26 +523,21 @@ export default function POS() {
       };
 
       const orderItemsPayload: OrderItem[] = items.map((item, idx) => {
+        const factor = getItemUnitFactor(item);
         const unitPrice = getItemPrice(item);
         const line = summary.lines[idx];
 
-        const factor = item.selectedUnitCode
-          ? Number(item.selectedConversionToBase || 1)
-          : item.selectedUnit === 'box' ? Number(item.conversionFactor || 1) : 1;
         return {
           orderId,
           productId: item.id!,
           productName: item.name,
-          quantity: item.cartQuantity,
+          quantity: roundQty(item.cartQuantity),
           returnedQuantity: 0,
-          unit: item.selectedUnit || 'piece',
+          unit: item.selectedUnit || item.unit || 'piece',
           conversionFactor: factor,
-          unitCode: item.selectedUnitCode,
-          baseUnitCode: item.baseUnitCode || null,
-          conversionToBase: factor,
-          baseQuantity: item.cartQuantity * factor,
+          itemType: item.itemType || 'stock',
           unitPrice,
-          costPriceAtTimeOfSale: roundMoney((item.costPriceAtTimeOfSale ?? item.costPrice ?? 0) * factor),
+          costPriceAtTimeOfSale: roundMoney((item.costPrice ?? 0) * factor),
           discountAmount: line.discountExclTax,
           subTotal: line.subTotalExclTax,
           taxAmount: line.taxAmount,
@@ -562,6 +553,8 @@ export default function POS() {
           items: orderItemsPayload,
           pointsEarned,
           pointsRedeemed: pointsToRedeem,
+          managerOverride: overrideConfirmed,
+          allowNegativeOverride: overrideConfirmed,
         },
         user?.branchId
       );
@@ -693,7 +686,7 @@ export default function POS() {
             {filteredProducts.map((product) => (
               <button
                 key={product.id}
-                onClick={() => handleAddProduct(product)}
+                onClick={() => addItem(product, product.unit || 'piece')}
                 className="bg-white border border-slate-200 rounded-2xl p-3.5 flex flex-col items-center text-center hover:border-indigo-500 transition-colors active:scale-98 group"
               >
                 <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center mb-2.5 group-hover:bg-indigo-50 transition-colors relative overflow-hidden">
@@ -702,16 +695,26 @@ export default function POS() {
                   ) : (
                     <Package className="w-7 h-7 text-slate-400 group-hover:text-indigo-500" />
                   )}
-                  {product.stockQuantity <= (product.minStockLevel || 5) && (
-                    <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-rose-500 rounded-full border border-white" title="مخزون منخفض" />
-                  )}
+                  {(!product.itemType || product.itemType === 'stock') &&
+                    product.stockQuantity <= (product.minStockLevel || 5) && (
+                      <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-rose-500 rounded-full border border-white" title="مخزون منخفض" />
+                    )}
                 </div>
                 <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-2">{product.name}</h3>
+                {product.itemType && product.itemType !== 'stock' && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 mb-1">
+                    {product.itemType === 'service'
+                      ? 'خدمة'
+                      : product.itemType === 'service_with_materials'
+                      ? 'خدمة بمواد'
+                      : 'باقة'}
+                  </span>
+                )}
                 <p className="text-indigo-600 font-extrabold mt-auto tabular-nums">
-                  {product.sellingPrice.toFixed(2)} {storeSettings.currency}
+                  {formatMoney(product.sellingPrice, storeSettings.currency, decimals)}
                 </p>
                 {product.priceInUSD ? (
-                  <p className="text-xs text-slate-500 font-medium tabular-nums">${product.priceInUSD.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 font-medium tabular-nums">${formatNumber(product.priceInUSD, 2)}</p>
                 ) : null}
                 <p className="text-[11px] text-slate-400 mt-1 font-mono">{product.barcode}</p>
               </button>
@@ -802,115 +805,98 @@ export default function POS() {
             </div>
           ) : (
             <div className="space-y-2.5">
-              {items.map((item) => (
-                <div key={item.cartItemId} className="flex flex-col p-3 bg-white border border-slate-200 rounded-xl">
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
-                    <span className="font-bold text-slate-900 tabular-nums shrink-0">
-                      {(getItemPrice(item) * item.cartQuantity).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-col gap-1">
-                      <p className="text-xs text-slate-500 tabular-nums">
-                        {getItemPrice(item).toFixed(2)} {storeSettings.currency} / للوحدة (شامل الضريبة)
-                      </p>
-                      {(() => {
-                        const unitRows = liveProductUnits.filter((unit) => unit.productId === item.id && unit.isActive === 1);
-                        if (unitRows.length > 1) {
-                          return (
-                            <select
-                              value={item.selectedUnitCode || item.selectedUnit}
-                              onChange={(e) => handleCartUnitChange(item.cartItemId, e.target.value)}
-                              className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
-                            >
-                              {unitRows.map((unit) => {
-                                const definition = liveUnitDefinitions.find((row) => row.code === unit.unitCode);
-                                const label = definition
-                                  ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
-                                  : unit.unitCode;
-                                return <option key={unit.id} value={unit.unitCode}>{label} — ×{unit.conversionToBase}</option>;
-                              })}
-                            </select>
-                          );
-                        }
-                        if (item.unit === 'box' && !item.selectedUnitCode) {
-                          return (
-                            <select
-                              value={item.selectedUnit}
-                              onChange={(e) => updateItemUnit(item.cartItemId, e.target.value as 'piece' | 'box')}
-                              className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
-                            >
-                              <option value="piece">حبة</option>
-                              <option value="box">صندوق ({item.conversionFactor} حبة)</option>
-                            </select>
-                          );
-                        }
-                        return item.selectedUnitLabel ? <span className="text-xs text-slate-500">{item.selectedUnitLabel}</span> : null;
-                      })()}
-                      {item.discount > 0 && (
-                        <p className="text-[11px] text-rose-600 font-bold tabular-nums">
-                          خصم: {item.discountType === 'percentage' ? `${item.discount}%` : `${item.discount} ${storeSettings.currency}`}
-                        </p>
-                      )}
+              {items.map((item) => {
+                const productUnits = getProductUnits(item);
+                const selectedUnitObj = productUnits.find((u) => u.name === item.selectedUnit);
+                const isFractional = Boolean(item.allowFractions) || Boolean(selectedUnitObj?.allowFractions);
+                const qtyStep = isFractional ? 0.25 : 1;
+
+                return (
+                  <div key={item.cartItemId} className="flex flex-col p-3 bg-white border border-slate-200 rounded-xl">
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
+                      <span className="font-bold text-slate-900 tabular-nums shrink-0">
+                        {formatNumber(getItemPrice(item) * item.cartQuantity, decimals)}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {hasPermission('apply_discounts') && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setItemDiscountTarget({
-                              cartItemId: item.cartItemId,
-                              name: item.name,
-                              value: String(item.discount || 0),
-                              type: item.discountType,
-                            })
-                          }
-                          className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap"
-                        >
-                          خصم
-                        </button>
-                      )}
-                      <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1 border border-slate-200">
-                        {hasPermission('void_items') ? (
-                          <button
-                            onClick={() => {
-                              const nextQuantity = item.cartQuantity - getUnitQuantityStep(item);
-                              if (nextQuantity <= 0.0000001) removeItem(item.cartItemId);
-                              else updateQuantity(item.cartItemId, nextQuantity);
-                            }}
-                            className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-rose-600"
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs text-slate-500 tabular-nums">
+                          {formatMoney(getItemPrice(item), storeSettings.currency, decimals)} / {item.selectedUnit === 'piece' ? 'حبة' : item.selectedUnit === 'box' ? 'صندوق' : item.selectedUnit}
+                        </p>
+                        {productUnits.length > 1 && (
+                          <select
+                            value={item.selectedUnit}
+                            onChange={(e) => updateItemUnit(item.cartItemId, e.target.value)}
+                            className="text-xs border border-slate-200 rounded-lg p-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 w-fit"
                           >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <div className="w-7 h-7" />
+                            {productUnits.map((u) => (
+                              <option key={u.name} value={u.name}>
+                                {u.name === 'piece' ? 'حبة' : u.name === 'box' ? 'صندوق' : u.name}
+                                {u.conversionFactor !== 1 ? ` (×${formatQty(u.conversionFactor, qtyDecimals)})` : ''}
+                              </option>
+                            ))}
+                          </select>
                         )}
-                        <input
-                          type="number"
-                          min="0.000001"
-                          step="any"
-                          value={item.cartQuantity}
-                          onChange={(e) => {
-                            if (e.target.value === '') return;
-                            const nextQuantity = Number(e.target.value);
-                            if (nextQuantity <= 0) removeItem(item.cartItemId);
-                            else updateQuantity(item.cartItemId, nextQuantity);
-                          }}
-                          className="font-bold w-14 text-center text-sm tabular-nums bg-transparent outline-none"
-                          aria-label="الكمية"
-                        />
-                        <button
-                          onClick={() => updateQuantity(item.cartItemId, item.cartQuantity + getUnitQuantityStep(item))}
-                          className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-indigo-600"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
+                        {item.discount > 0 && (
+                          <p className="text-[11px] text-rose-600 font-bold tabular-nums">
+                            خصم: {item.discountType === 'percentage' ? `${item.discount}%` : formatMoney(item.discount, storeSettings.currency, decimals)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {hasPermission('apply_discounts') && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setItemDiscountTarget({
+                                cartItemId: item.cartItemId,
+                                name: item.name,
+                                value: String(item.discount || 0),
+                                type: item.discountType,
+                              })
+                            }
+                            className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap"
+                          >
+                            خصم
+                          </button>
+                        )}
+                        <div className="flex items-center gap-1 bg-slate-50 rounded-lg p-1 border border-slate-200">
+                          {hasPermission('void_items') ? (
+                            <button
+                              onClick={() => updateQuantity(item.cartItemId, roundQty(item.cartQuantity - qtyStep))}
+                              className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-rose-600"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <div className="w-7 h-7" />
+                          )}
+                          <input
+                            type="number"
+                            step={isFractional ? '0.001' : '1'}
+                            min={isFractional ? '0.001' : '1'}
+                            value={item.cartQuantity}
+                            onChange={(e) => {
+                              const parsed = parseFloat(e.target.value);
+                              if (!isNaN(parsed) && parsed > 0) {
+                                updateQuantity(item.cartItemId, parsed);
+                              }
+                            }}
+                            className="font-bold w-14 text-center text-sm tabular-nums bg-transparent outline-none"
+                          />
+                          <button
+                            onClick={() => updateQuantity(item.cartItemId, roundQty(item.cartQuantity + qtyStep))}
+                            className="w-7 h-7 flex items-center justify-center bg-white rounded border border-slate-200 text-slate-600 hover:text-indigo-600"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -927,7 +913,7 @@ export default function POS() {
                     <div>
                       <p className="text-sm font-bold text-indigo-950">{selectedCustomer.name}</p>
                       <p className="text-xs text-indigo-700 tabular-nums">
-                        الرصيد: {selectedCustomer.balance.toFixed(2)} {storeSettings.currency} | النقاط: {selectedCustomer.points || 0}
+                        الرصيد: {formatMoney(selectedCustomer.balance, storeSettings.currency, decimals)} | النقاط: {formatQty(selectedCustomer.points || 0, 0)}
                       </p>
                     </div>
                   </div>
@@ -959,7 +945,7 @@ export default function POS() {
                         className="w-16 text-center text-xs border border-amber-300 bg-white rounded-lg p-1 focus:outline-none tabular-nums"
                       />
                       <span className="text-xs font-bold text-amber-700 tabular-nums">
-                        (-{(pointsToRedeem * 0.1).toFixed(2)})
+                        (-{formatNumber(pointsToRedeem * 0.1, decimals)})
                       </span>
                     </div>
                   </div>
@@ -980,14 +966,14 @@ export default function POS() {
             <div className="flex justify-between text-slate-600">
               <span>الصافي قبل الضريبة</span>
               <span className="font-bold">
-                {taxSummary.netSalesExclTax.toFixed(2)} {storeSettings.currency}
+                {formatMoney(taxSummary.netSalesExclTax, storeSettings.currency, decimals)}
               </span>
             </div>
             {activeOfferDiscount > 0 && (
               <div className="flex justify-between text-emerald-600 font-bold">
                 <span>خصم العروض التلقائي</span>
                 <span>
-                  -{activeOfferDiscount.toFixed(2)} {storeSettings.currency}
+                  -{formatMoney(activeOfferDiscount, storeSettings.currency, decimals)}
                 </span>
               </div>
             )}
@@ -1009,19 +995,19 @@ export default function POS() {
                 )}
               </div>
               <span className="font-bold">
-                -{taxSummary.grossDiscountTotal.toFixed(2)} {storeSettings.currency}
+                -{formatMoney(taxSummary.grossDiscountTotal, storeSettings.currency, decimals)}
               </span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>ضريبة القيمة المضافة المضمنة ({storeSettings.taxRate}%)</span>
               <span className="font-bold">
-                {taxSummary.taxAmount.toFixed(2)} {storeSettings.currency}
+                {formatMoney(taxSummary.taxAmount, storeSettings.currency, decimals)}
               </span>
             </div>
             <div className="pt-2 mt-1 border-t border-slate-200 flex justify-between items-center">
               <span className="text-base font-bold text-slate-900">الإجمالي النهائي</span>
               <span className="text-2xl font-black text-indigo-600">
-                {taxSummary.netAmount.toFixed(2)} {storeSettings.currency}
+                {formatMoney(taxSummary.netAmount, storeSettings.currency, decimals)}
               </span>
             </div>
           </div>
@@ -1308,7 +1294,7 @@ export default function POS() {
             <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl flex justify-between items-center mb-5 tabular-nums">
               <span className="text-sm font-bold text-indigo-900">المبلغ المطلوب سداده</span>
               <span className="text-xl font-black text-indigo-700">
-                {taxSummary.netAmount.toFixed(2)} {storeSettings.currency}
+                {formatMoney(taxSummary.netAmount, storeSettings.currency, decimals)}
               </span>
             </div>
             <div className="space-y-4">
@@ -1451,7 +1437,7 @@ export default function POS() {
                       <div className="text-left tabular-nums">
                         <p className="text-xs text-slate-500 mb-1">الرصيد</p>
                         <p className={`text-sm font-bold ${customer.balance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                          {customer.balance.toFixed(2)} {storeSettings.currency}
+                          {formatMoney(customer.balance, storeSettings.currency, decimals)}
                         </p>
                       </div>
                     </button>
@@ -1462,6 +1448,23 @@ export default function POS() {
           </div>
         </div>
       )}
+
+      {/* Manager Negative Stock Override Modal */}
+      <ConfirmationModal
+        isOpen={Boolean(pendingOverrideCheckout)}
+        title="تجاوز حد المخزون المتاح (صلاحية المدير)"
+        message={`${pendingOverrideCheckout?.message || ''}. هل ترغب في تجاوز السياسة وإتمام البيع بالسالب؟`}
+        confirmLabel="تجاوز وإتمام البيع"
+        variant="danger"
+        onConfirm={() => {
+          const pending = pendingOverrideCheckout;
+          setPendingOverrideCheckout(null);
+          if (pending) {
+            handleCheckout(pending.paymentMethod, pending.mixedSplit, true);
+          }
+        }}
+        onCancel={() => setPendingOverrideCheckout(null)}
+      />
 
       {/* Receipt Modal */}
       {completedOrder && (

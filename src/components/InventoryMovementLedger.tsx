@@ -126,12 +126,12 @@ export default function InventoryMovementLedger({ currency }: Props) {
   };
 
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
-  const movementTypes = useMemo(
-    () => [...new Set(movements.map((movement) => movement.movementType))].sort(),
+  const movementTypes = useMemo<string[]>(
+    () => [...new Set(movements.map((movement) => String(movement.movementType || '')))].filter(Boolean).sort(),
     [movements]
   );
-  const sourceTypes = useMemo(
-    () => [...new Set(movements.map((movement) => movement.sourceType))].sort(),
+  const sourceTypes = useMemo<string[]>(
+    () => [...new Set(movements.map((movement) => String(movement.sourceType || '')))].filter(Boolean).sort(),
     [movements]
   );
   const handleReconciliation = async () => {

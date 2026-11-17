@@ -149,6 +149,14 @@ function AppContent() {
 
       newSocket.on('connect', () => {
         console.log(`Connected to server via socket.io (${deviceRole})`);
+        const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
+        const deviceName =
+          localStorage.getItem('pos_device_name') ||
+          (isMobileApp ? 'تطبيق الجوال' : deviceRole === 'client' ? 'نقطة بيع فرعية' : 'السيرفر الرئيسي');
+        newSocket.emit('register-terminal', {
+          deviceName,
+          userName: user?.name,
+        });
         syncService.syncAll().catch(() => {});
       });
 
@@ -176,6 +184,16 @@ function AppContent() {
       if (activeSocket) activeSocket.disconnect();
     };
   }, [deviceRole]);
+
+  useEffect(() => {
+    if (socket?.connected && user) {
+      const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
+      const deviceName =
+        localStorage.getItem('pos_device_name') ||
+        (isMobileApp ? 'تطبيق الجوال' : deviceRole === 'client' ? 'نقطة بيع فرعية' : 'السيرفر الرئيسي');
+      socket.emit('register-terminal', { deviceName, userName: user.name });
+    }
+  }, [socket, user, deviceRole]);
 
   useEffect(() => {
     const fetchInitialSetup = async () => {

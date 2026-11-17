@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Product, Category, Supplier } from '../db/db';
+import { db, Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
-import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler, Power } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, X, Download, Upload, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, History, Layers } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
@@ -12,21 +12,30 @@ import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { apiService } from '../services/apiService';
+import { formatMoney, formatQty, roundQty, roundAmount } from '../utils/format';
+import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
-import InventoryMovementHistory from '../components/InventoryMovementHistory';
-import InventoryMovementLedger from '../components/InventoryMovementLedger';
+import { ItemCardModal } from '../components/ItemCardModal';
+
+interface FxReviewItem {
+  product: Product;
+  selected: boolean;
+  newCost: number;
+  currentPrice: number;
+  suggestedPrice: number;
+  targetPrice: number;
+}
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [editingHasInventoryBatches, setEditingHasInventoryBatches] = useState(false);
-  const [unitEditorProduct, setUnitEditorProduct] = useState<Product | null>(null);
-  const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
-  const [unitSaving, setUnitSaving] = useState(false);
+  const [itemCardProduct, setItemCardProduct] = useState<Product | null>(null);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'movements'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
+  const [fxReviewItems, setFxReviewItems] = useState<FxReviewItem[] | null>(null);
+  const [isApplyingFx, setIsApplyingFx] = useState(false);
   const { user } = useAuth();
   
   const hasPermission = (permission: string) => {
@@ -83,14 +92,6 @@ export default function Inventory() {
     }
   }, [liveProducts]);
 
-  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.where('isActive').equals(1).toArray()) || [];
-  const productUnitRows = useLiveQuery(
-    () => unitEditorProduct?.id
-      ? db.productUnits.where('productId').equals(unitEditorProduct.id).toArray()
-      : Promise.resolve([]),
-    [unitEditorProduct?.id]
-  ) || [];
-
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   
   useEffect(() => {
@@ -118,6 +119,7 @@ export default function Inventory() {
   const barcodeRef = useRef<HTMLDivElement>(null);
 
   const storeSettings = useSettings();
+  const existingRecipes = useLiveQuery(() => db.serviceRecipes.toArray(), []) || [];
 
   const handlePrintBarcode = useReactToPrint({
     contentRef: barcodeRef,
@@ -130,7 +132,7 @@ export default function Inventory() {
       handlePrintBarcode();
     }, 100);
   };
-  
+
   // Form state
   const [formData, setFormData] = useState({
     barcode: '',
@@ -140,15 +142,20 @@ export default function Inventory() {
     sellingPrice: '',
     costInUSD: '',
     priceInUSD: '',
-    stockQuantity: '0',
+    stockQuantity: '',
     minStockLevel: '5',
     vatRate: storeSettings.taxRate.toString(),
     imageUrl: '',
     expiryDate: '',
     batchNumber: '',
     unit: 'piece',
-    conversionFactor: '1'
+    conversionFactor: '1',
+    itemType: 'stock' as 'stock' | 'service' | 'service_with_materials' | 'bundle',
+    allowFractions: false,
   });
+  const [extraUnits, setExtraUnits] = useState<ProductUnit[]>([]);
+  const [recipeRows, setRecipeRows] = useState<Array<{ id?: string; ingredientProductId: number; ingredientName: string; quantity: string; unit: string }>>([]);
+  const [removedRecipeIds, setRemovedRecipeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (storeSettings.taxRate !== undefined && !editingProduct && !isModalOpen) {
@@ -156,77 +163,9 @@ export default function Inventory() {
     }
   }, [storeSettings.taxRate, editingProduct, isModalOpen]);
 
-  const handleOpenUnitManager = (product: Product) => {
-    setUnitEditorProduct(product);
-    setUnitDraft({
-      unitCode: '',
-      conversionToBase: '1',
-      isBaseUnit: !product.baseUnitCode,
-      sellingPrice: '',
-      barcode: '',
-    });
-  };
-
-  const handleSelectProductUnit = async (unitCode: string) => {
-    if (!unitEditorProduct?.id) return;
-    const existing = productUnitRows.find((row) => row.unitCode === unitCode) ||
-      await db.productUnits.where('productId').equals(unitEditorProduct.id)
-        .filter((row) => row.unitCode === unitCode).first();
-    const isBaseUnit = existing
-      ? existing.isBaseUnit === 1
-      : !unitEditorProduct.baseUnitCode || unitEditorProduct.baseUnitCode === unitCode;
-    setUnitDraft({
-      unitCode,
-      conversionToBase: String(existing?.conversionToBase ?? 1),
-      isBaseUnit,
-      sellingPrice: existing?.sellingPrice == null ? '' : String(existing.sellingPrice),
-      barcode: existing?.barcode || '',
-    });
-  };
-
-  const handleSaveProductUnit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!unitEditorProduct?.id || !unitDraft.unitCode) return;
-    const conversionToBase = unitDraft.isBaseUnit ? 1 : Number(unitDraft.conversionToBase);
-    if (!Number.isFinite(conversionToBase) || conversionToBase <= 0) {
-      toast.error('معامل التحويل يجب أن يكون أكبر من صفر');
-      return;
-    }
-    setUnitSaving(true);
-    try {
-      const saved = await apiService.saveProductUnit({
-        productId: unitEditorProduct.id,
-        unitCode: unitDraft.unitCode,
-        conversionToBase,
-        isBaseUnit: unitDraft.isBaseUnit,
-        sellingPrice: unitDraft.sellingPrice === '' ? null : Number(unitDraft.sellingPrice),
-        barcode: unitDraft.barcode.trim() || undefined,
-      });
-      await db.productUnits.put({ ...saved, syncStatus: 'synced' });
-      if (saved.isBaseUnit) {
-        const definition = unitDefinitions.find((item) => item.code === saved.unitCode);
-        await db.products.update(unitEditorProduct.id, {
-          baseUnitCode: saved.unitCode,
-          quantityPrecision: definition?.decimalPlaces ?? 0,
-          syncStatus: 'synced',
-        });
-        setUnitEditorProduct((prev) => prev ? { ...prev, baseUnitCode: saved.unitCode, quantityPrecision: definition?.decimalPlaces ?? 0 } : prev);
-      }
-      toast.success('تم حفظ وحدة الصنف');
-      setUnitDraft({ unitCode: '', conversionToBase: '1', isBaseUnit: false, sellingPrice: '', barcode: '' });
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || error?.message || 'تعذر حفظ وحدة الصنف');
-    } finally {
-      setUnitSaving(false);
-    }
-  };
-
-  const handleOpenModal = async (product?: Product, initialBarcode?: string) => {
+  const handleOpenModal = (product?: Product, initialBarcode?: string) => {
+    setRemovedRecipeIds([]);
     if (product) {
-      const batchCount = product.id
-        ? await db.inventoryBatches.where('productId').equals(product.id).count()
-        : 0;
-      setEditingHasInventoryBatches(batchCount > 0);
       setEditingProduct(product);
       setFormData({
         barcode: product.barcode,
@@ -243,10 +182,27 @@ export default function Inventory() {
         expiryDate: product.expiryDate || '',
         batchNumber: product.batchNumber || '',
         unit: product.unit || 'piece',
-        conversionFactor: (product.conversionFactor || 1).toString()
+        conversionFactor: (product.conversionFactor || 1).toString(),
+        itemType: (product.itemType || 'stock') as any,
+        allowFractions: Boolean(product.allowFractions),
       });
+      try {
+        const parsedUnits = product.unitsJson ? JSON.parse(product.unitsJson) : [];
+        setExtraUnits(Array.isArray(parsedUnits) ? parsedUnits : []);
+      } catch {
+        setExtraUnits([]);
+      }
+      const prodRecipes = existingRecipes.filter((r) => r.parentProductId === product.id);
+      setRecipeRows(
+        prodRecipes.map((r) => ({
+          id: r.id,
+          ingredientProductId: r.ingredientProductId,
+          ingredientName: r.ingredientName || allProducts.find((p) => p.id === r.ingredientProductId)?.name || '',
+          quantity: String(r.quantity),
+          unit: r.unit || 'piece',
+        }))
+      );
     } else {
-      setEditingHasInventoryBatches(false);
       setEditingProduct(null);
       setFormData({
         barcode: initialBarcode || '',
@@ -263,8 +219,12 @@ export default function Inventory() {
         expiryDate: '',
         batchNumber: '',
         unit: 'piece',
-        conversionFactor: '1'
+        conversionFactor: '1',
+        itemType: 'stock',
+        allowFractions: false,
       });
+      setExtraUnits([]);
+      setRecipeRows([]);
     }
     setIsModalOpen(true);
   };
@@ -490,18 +450,9 @@ export default function Inventory() {
         try {
           const category = await db.categories.get(id);
           const productsToDelete = await db.products.where('categoryId').equals(id).toArray();
-          for (const product of productsToDelete) {
-            if (product.id === undefined) continue;
-            const movementCount = await db.inventoryMovements.where('productId').equals(product.id).count();
-            const batchCount = await db.inventoryBatches.where('productId').equals(product.id).count();
-            if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || movementCount > 0 || batchCount > 0) {
-              toast.error(`لا يمكن حذف التصنيف؛ الصنف "${product.name}" لديه رصيد أو تاريخ مخزون. عطّل الصنف بدلاً من حذفه.`);
-              return;
-            }
-          }
-          for (const product of productsToDelete) {
-            if (product.id !== undefined) {
-              await dispatchOperation('entity_delete', { table: 'products', id: product.id }, user?.branchId);
+          for (const p of productsToDelete) {
+            if (p.id !== undefined) {
+              await dispatchOperation('entity_delete', { table: 'products', id: p.id }, user?.branchId);
             }
           }
           await dispatchOperation('entity_delete', { table: 'categories', id }, user?.branchId);
@@ -531,32 +482,33 @@ export default function Inventory() {
 
     try {
       const now = new Date().toISOString();
-      if (!editingProduct && Number(formData.stockQuantity) > 0) {
-        toast.error('أنشئ الصنف أولاً بكمية صفر، ثم حدد وحدة الأساس وأدخل الرصيد الافتتاحي عبر الجرد');
-        return;
-      }
+      const validUnits = extraUnits.filter((u) => u.name.trim() && Number(u.conversionFactor) > 0);
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
         categoryId: Number(formData.categoryId),
-        costPrice: Number(formData.costPrice),
-        sellingPrice: Number(formData.sellingPrice),
+        costPrice: Number(formData.costPrice) || 0,
+        sellingPrice: Number(formData.sellingPrice) || 0,
         costInUSD: formData.costInUSD ? Number(formData.costInUSD) : undefined,
         priceInUSD: formData.priceInUSD ? Number(formData.priceInUSD) : undefined,
-        stockQuantity: Number(formData.stockQuantity),
-        minStockLevel: Number(formData.minStockLevel),
-        vatRate: Number(formData.vatRate),
+        stockQuantity: formData.itemType === 'service' ? 0 : roundQty(Number(formData.stockQuantity) || 0),
+        minStockLevel: Number(formData.minStockLevel) || 0,
+        vatRate: Number(formData.vatRate) || 0,
         imageUrl: formData.imageUrl,
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber || undefined,
         unit: formData.unit || 'piece',
         conversionFactor: Number(formData.conversionFactor) || 1,
+        itemType: formData.itemType,
+        allowFractions: formData.allowFractions,
+        unitsJson: validUnits.length > 0 ? JSON.stringify(validUnits) : undefined,
         branchId: editingProduct?.branchId ?? user?.branchId,
         updatedAt: now,
       };
 
+      let savedParentId = editingProduct?.id;
       if (editingProduct && editingProduct.id) {
-        await dispatchOperation(
+        const res = await dispatchOperation(
           'entity_upsert',
           {
             table: 'products',
@@ -568,24 +520,58 @@ export default function Inventory() {
           },
           user?.branchId
         );
+        savedParentId = res?.result?.id || editingProduct.id;
         await logAction(user?.name || 'Unknown', 'تحديث منتج', 'product', `تم تحديث المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
         toast.success('تم تحديث المنتج بنجاح');
       } else {
-        await dispatchOperation(
+        const tempId = makeTempNumericId();
+        const res = await dispatchOperation(
           'entity_upsert',
           {
             table: 'products',
             record: {
               ...productData,
-              id: makeTempNumericId(),
+              id: tempId,
               createdAt: now,
             },
           },
           user?.branchId
         );
+        savedParentId = res?.result?.id || tempId;
         await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
         toast.success('تمت إضافة المنتج بنجاح');
       }
+
+      // Persist service recipes if applicable
+      if (savedParentId) {
+        for (const delId of removedRecipeIds) {
+          await apiService.deleteServiceRecipe(delId).catch(() => {});
+          await db.serviceRecipes.delete(delId).catch(() => {});
+        }
+        if (formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') {
+          for (const row of recipeRows) {
+            const qty = roundQty(Number(row.quantity || 0));
+            if (!row.ingredientProductId || qty <= 0) continue;
+            const ingProd = allProducts.find((p) => p.id === Number(row.ingredientProductId));
+            const recPayload: ServiceRecipe = {
+              id: row.id || generateUUID(),
+              parentProductId: Number(savedParentId),
+              ingredientProductId: Number(row.ingredientProductId),
+              ingredientName: ingProd?.name || row.ingredientName,
+              quantity: qty,
+              unit: row.unit || ingProd?.unit || 'piece',
+              syncStatus: 'pending',
+              updatedAt: now,
+            };
+            await dispatchOperation(
+              'entity_upsert',
+              { table: 'serviceRecipes', record: recPayload },
+              user?.branchId
+            );
+          }
+        }
+      }
+
       handleCloseModal();
     } catch (error) {
       console.error(error);
@@ -603,16 +589,6 @@ export default function Inventory() {
       action: async () => {
         try {
           const product = await db.products.get(id);
-          const movementCount = await db.inventoryMovements.where('productId').equals(id).count();
-          const batchCount = await db.inventoryBatches.where('productId').equals(id).count();
-          if (product && (
-            Math.abs(Number(product.stockQuantity || 0)) > 1e-9 ||
-            movementCount > 0 ||
-            batchCount > 0
-          )) {
-            toast.error('لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.');
-            return;
-          }
           await dispatchOperation('entity_delete', { table: 'products', id }, user?.branchId);
           await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
           toast.success('تم حذف المنتج بنجاح');
@@ -624,36 +600,9 @@ export default function Inventory() {
     });
   };
 
-  const handleToggleProductActive = async (product: Product) => {
-    if (product.id === undefined) return;
-    try {
-      const nextActive = product.isActive === 0 ? 1 : 0;
-      await dispatchOperation(
-        'entity_upsert',
-        {
-          table: 'products',
-          record: { ...product, isActive: nextActive, updatedAt: new Date().toISOString() },
-        },
-        user?.branchId
-      );
-      await logAction(
-        user?.name || 'Unknown',
-        nextActive ? 'تفعيل منتج' : 'إيقاف منتج',
-        'product',
-        `${nextActive ? 'تم تفعيل' : 'تم إيقاف'} الصنف: ${product.name}`,
-        0,
-        0,
-        product.name
-      );
-      toast.success(nextActive ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف');
-    } catch (error) {
-      console.error(error);
-      toast.error('تعذر تغيير حالة الصنف');
-    }
-  };
-
   const handleUpdatePricesFromExchangeRate = () => {
-    if (!storeSettings.exchangeRate || storeSettings.exchangeRate <= 0) {
+    const rate = Number(storeSettings.exchangeRate || 0);
+    if (!rate || rate <= 0) {
       toast.error('يرجى تعيين سعر صرف صحيح في الإعدادات أولاً');
       return;
     }
@@ -664,38 +613,66 @@ export default function Inventory() {
       return;
     }
 
-    setConfirmState({
-      isOpen: true,
-      title: 'تحديث الأسعار حسب سعر الصرف',
-      message: `هل أنت متأكد من تحديث أسعار ${productsToUpdate.length} منتج مسعّر بالدولار بناءً على سعر الصرف الحالي (${storeSettings.exchangeRate})؟`,
-      confirmLabel: 'تحديث الأسعار',
-      variant: 'primary',
-      action: async () => {
-        try {
-          const now = new Date().toISOString();
-          for (const p of productsToUpdate) {
-            const updatedProduct: any = { ...p, updatedAt: now };
-            if (p.priceInUSD) {
-              updatedProduct.sellingPrice = Number((p.priceInUSD * storeSettings.exchangeRate).toFixed(2));
-            }
-            if (p.costInUSD) {
-              updatedProduct.costPrice = Number((p.costInUSD * storeSettings.exchangeRate).toFixed(2));
-            }
-            await dispatchOperation(
-              'entity_upsert',
-              { table: 'products', record: updatedProduct },
-              user?.branchId
-            );
-          }
-
-          await logAction(user?.name || 'Unknown', 'تحديث أسعار', 'product', `تم تحديث أسعار ${productsToUpdate.length} منتج بناءً على سعر الصرف`, 0, 0);
-          toast.success(`تم تحديث أسعار ${productsToUpdate.length} منتج بنجاح`);
-        } catch (error) {
-          console.error(error);
-          toast.error('حدث خطأ أثناء تحديث الأسعار');
-        }
-      },
+    const marginRatio = Math.min(0.9, Math.max(0, Number(storeSettings.targetProfitMargin ?? 25) / 100));
+    const reviewList: FxReviewItem[] = productsToUpdate.map((p) => {
+      const newCost = p.costInUSD
+        ? roundAmount(Number(p.costInUSD) * rate, storeSettings.currencyDecimals)
+        : Number(p.costPrice || 0);
+      const suggested = p.priceInUSD
+        ? roundAmount(Number(p.priceInUSD) * rate, storeSettings.currencyDecimals)
+        : roundAmount(marginRatio < 1 ? newCost / (1 - marginRatio) : newCost * 1.25, storeSettings.currencyDecimals);
+      return {
+        product: p,
+        selected: true,
+        newCost,
+        currentPrice: Number(p.sellingPrice || 0),
+        suggestedPrice: suggested,
+        targetPrice: suggested,
+      };
     });
+
+    setFxReviewItems(reviewList);
+  };
+
+  const handleApplyFxReview = async () => {
+    if (!fxReviewItems) return;
+    const selected = fxReviewItems.filter((item) => item.selected);
+    if (selected.length === 0) {
+      setFxReviewItems(null);
+      return;
+    }
+    setIsApplyingFx(true);
+    try {
+      const now = new Date().toISOString();
+      for (const item of selected) {
+        const updatedProduct: any = {
+          ...item.product,
+          costPrice: item.newCost,
+          sellingPrice: Number(item.targetPrice) || item.suggestedPrice,
+          updatedAt: now,
+        };
+        await dispatchOperation(
+          'entity_upsert',
+          { table: 'products', record: updatedProduct },
+          user?.branchId
+        );
+      }
+      await logAction(
+        user?.name || 'Unknown',
+        'تحديث أسعار الصرف',
+        'product',
+        `تم اعتماد وتحديث أسعار ${selected.length} منتج حسب سعر الصرف ${storeSettings.exchangeRate}`,
+        0,
+        0
+      );
+      toast.success(`تم تحديث أسعار ${selected.length} منتج بنجاح`);
+      setFxReviewItems(null);
+    } catch (error) {
+      console.error(error);
+      toast.error('حدث خطأ أثناء تحديث الأسعار');
+    } finally {
+      setIsApplyingFx(false);
+    }
   };
 
   const handleExportCSV = () => {
@@ -786,11 +763,6 @@ export default function Inventory() {
           }
         }
 
-        if (newProducts.some((product) => Number(product.stockQuantity || 0) > 0)) {
-          toast.error('ملف الاستيراد يحتوي على أرصدة افتتاحية. استورد الأصناف بكمية صفر، ثم حدد وحدة الأساس وأدخل الكميات عبر الجرد حتى تُنشأ طبقات FIFO بوحدة صحيحة');
-          return;
-        }
-
         if (newProducts.length > 0) {
           const baseTs = Date.now() * 1000;
           for (let idx = 0; idx < newProducts.length; idx++) {
@@ -826,9 +798,9 @@ export default function Inventory() {
     reader.readAsText(file);
   };
 
-  const totalCostValue = products.reduce((sum, p) => sum + (p.costPrice * p.stockQuantity), 0);
-  const totalRetailValue = products.reduce((sum, p) => sum + (p.sellingPrice * p.stockQuantity), 0);
-  const lowStockCount = products.filter(p => p.stockQuantity <= (p.minStockLevel || 5)).length;
+  const totalCostValue = products.reduce((sum, p) => sum + (p.itemType === 'service' ? 0 : p.costPrice * p.stockQuantity), 0);
+  const totalRetailValue = products.reduce((sum, p) => sum + (p.itemType === 'service' ? 0 : p.sellingPrice * p.stockQuantity), 0);
+  const lowStockCount = products.filter(p => (p.itemType || 'stock') === 'stock' && p.stockQuantity <= (p.minStockLevel || 5)).length;
 
   return (
     <div className="p-6 h-full flex flex-col bg-[var(--app-bg)]">
@@ -886,7 +858,7 @@ export default function Inventory() {
                 </>
               )}
             </>
-          ) : activeTab === 'categories' ? (
+          ) : (
             <>
               {hasPermission('manage_categories') && (
                 <button 
@@ -898,7 +870,7 @@ export default function Inventory() {
                 </button>
               )}
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -926,17 +898,6 @@ export default function Inventory() {
           <Tags className="w-5 h-5" />
           التصنيفات
         </button>
-        <button
-          onClick={() => setActiveTab('movements')}
-          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${
-            activeTab === 'movements'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-          }`}
-        >
-          <RefreshCcw className="w-5 h-5" />
-          حركة المخزون
-        </button>
       </div>
 
       {activeTab === 'products' && (
@@ -944,11 +905,11 @@ export default function Inventory() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
           <p className="text-gray-500 text-sm mb-1">إجمالي قيمة المخزون (تكلفة)</p>
-          <p className="text-xl font-bold text-gray-900">{totalCostValue.toFixed(2)} {storeSettings.currency}</p>
+          <p className="text-xl font-bold text-gray-900 tabular-nums">{formatMoney(totalCostValue, storeSettings.currency, storeSettings.currencyDecimals)}</p>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
           <p className="text-gray-500 text-sm mb-1">إجمالي قيمة المخزون (بيع)</p>
-          <p className="text-xl font-bold text-emerald-600">{totalRetailValue.toFixed(2)} {storeSettings.currency}</p>
+          <p className="text-xl font-bold text-emerald-600 tabular-nums">{formatMoney(totalRetailValue, storeSettings.currency, storeSettings.currencyDecimals)}</p>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
           <p className="text-gray-500 text-sm mb-1">منتجات تحت حد الطلب</p>
@@ -1024,12 +985,18 @@ export default function Inventory() {
                         )}
                       </div>
                       <div className="mr-4">
-                        <div className="text-sm font-bold text-gray-900">{product.name}</div>
-                        {product.isActive === 0 && (
-                          <span className="inline-flex mt-1 px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[10px] font-bold">
-                            موقوف
-                          </span>
-                        )}
+                        <div className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                          <span>{product.name}</span>
+                          {product.itemType && product.itemType !== 'stock' && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold">
+                              {product.itemType === 'service'
+                                ? 'خدمة'
+                                : product.itemType === 'service_with_materials'
+                                ? 'خدمة بمواد'
+                                : 'باقة'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -1037,30 +1004,32 @@ export default function Inventory() {
                     {product.barcode}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 tabular-nums">
-                    {product.costPrice.toFixed(2)} {storeSettings.currency}
+                    {formatMoney(product.costPrice, storeSettings.currency, storeSettings.currencyDecimals)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-indigo-600 tabular-nums">
-                    {product.sellingPrice.toFixed(2)} {storeSettings.currency}
+                    {formatMoney(product.sellingPrice, storeSettings.currency, storeSettings.currencyDecimals)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 tabular-nums">
-                    {product.priceInUSD ? `$${product.priceInUSD.toFixed(2)}` : '-'}
+                    {product.priceInUSD ? `$${formatMoney(product.priceInUSD, undefined, storeSettings.currencyDecimals)}` : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-bold tabular-nums">
-                    {(product.sellingPrice - product.costPrice).toFixed(2)}
+                    {formatMoney(product.sellingPrice - product.costPrice, undefined, storeSettings.currencyDecimals)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg border tabular-nums ${
-                      product.stockQuantity > (product.minStockLevel || 5) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                      product.stockQuantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 
-                      'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}>
-                      {product.stockQuantity} {product.baseUnitCode
-                        ? (unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.symbol ||
-                          unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name ||
-                          product.baseUnitCode)
-                        : 'حبة'}
-                      {!product.baseUnitCode && product.unit === 'box' && ` (البيع بالصندوق ×${product.conversionFactor})`}
-                    </span>
+                    {product.itemType === 'service' ? (
+                      <span className="px-2.5 py-1 inline-flex text-xs font-bold rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
+                        غير مخزوني (خدمة)
+                      </span>
+                    ) : (
+                      <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg border tabular-nums ${
+                        product.stockQuantity > (product.minStockLevel || 5) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                        product.stockQuantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                        'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}>
+                        {formatQty(product.stockQuantity, storeSettings.quantityDecimals)} {product.unit === 'box' ? 'صندوق' : product.unit === 'piece' ? 'حبة' : product.unit}
+                        {product.unit === 'box' && ` (${formatQty(product.conversionFactor)})`}
+                      </span>
+                    )}
                   </td>
                   {storeSettings.businessType === 'pharmacy' && (
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 tabular-nums">
@@ -1079,16 +1048,14 @@ export default function Inventory() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
-                    <div className="flex items-center justify-end gap-3">
-                      {hasPermission('edit_product') && (
-                        <button
-                          onClick={() => handleOpenUnitManager(product)}
-                          className="text-amber-700 hover:text-amber-900 p-2 bg-amber-50 rounded-lg"
-                          title="إدارة وحدات الصنف"
-                        >
-                          <Ruler className="w-4 h-4" />
-                        </button>
-                      )}
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setItemCardProduct(product)}
+                        className="text-indigo-700 hover:bg-indigo-100 p-2 bg-indigo-50 rounded-lg"
+                        title="بطاقة الصنف وسجل الحركات"
+                      >
+                        <History className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => openPrintBarcode(product)}
                         className="text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg"
@@ -1097,24 +1064,13 @@ export default function Inventory() {
                         <Printer className="w-4 h-4" />
                       </button>
                       {hasPermission('edit_product') && (
-                        <>
-                          <button
-                            onClick={() => handleToggleProductActive(product)}
-                            className={product.isActive === 0
-                              ? 'text-emerald-700 hover:text-emerald-900 p-2 bg-emerald-50 rounded-lg'
-                              : 'text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg'}
-                            title={product.isActive === 0 ? 'تفعيل الصنف' : 'إيقاف الصنف'}
-                          >
-                            <Power className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleOpenModal(product)}
-                            className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
-                            title="تعديل"
-                          >
-                            <Plus className="w-4 h-4 rotate-45" />
-                          </button>
-                        </>
+                        <button 
+                          onClick={() => handleOpenModal(product)}
+                          className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
+                          title="تعديل"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
                       )}
                       {hasPermission('delete_product') && (
                         <button 
@@ -1122,7 +1078,7 @@ export default function Inventory() {
                           className="text-rose-600 hover:text-rose-900 p-2 bg-rose-50 rounded-lg"
                           title="حذف"
                         >
-                          <X className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -1181,10 +1137,6 @@ export default function Inventory() {
         </div>
       )}
 
-      {activeTab === 'movements' && (
-        <InventoryMovementLedger currency={storeSettings.currency} />
-      )}
-
       {/* Hidden Barcode for Printing */}
       <div className="absolute -left-[9999px]">
         <div ref={barcodeRef} className="p-4 flex flex-col items-center justify-center w-[200px] text-center bg-white">
@@ -1208,18 +1160,18 @@ export default function Inventory() {
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b border-gray-100">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-gray-100 shrink-0">
               <h3 className="text-xl font-bold text-gray-900">
-                {editingProduct ? 'تعديل منتج' : 'إضافة منتج جديد'}
+                {editingProduct ? 'تعديل منتج / خدمة' : 'إضافة منتج / خدمة جديدة'}
               </h3>
               <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Image Upload Section */}
                 <div className="md:col-span-1 flex flex-col items-center gap-4">
                   <div className="w-full aspect-square rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 group relative">
@@ -1247,12 +1199,22 @@ export default function Inventory() {
                     تحميل صورة
                     <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                   </label>
+
+                  <label className="w-full flex items-center justify-between p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl cursor-pointer">
+                    <span className="text-xs font-bold text-indigo-900">السماح بالكميات العشرية (أوزان/أمتار)</span>
+                    <input
+                      type="checkbox"
+                      checked={formData.allowFractions}
+                      onChange={(e) => setFormData({ ...formData, allowFractions: e.target.checked })}
+                      className="w-4 h-4 accent-indigo-600"
+                    />
+                  </label>
                 </div>
 
                 {/* Product Info Section */}
                 <div className="md:col-span-2 grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم المنتج</label>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الصنف</label>
                     <input 
                       type="text" 
                       required
@@ -1260,6 +1222,19 @@ export default function Inventory() {
                       onChange={e => setFormData({...formData, name: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
                     />
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع الصنف</label>
+                    <select
+                      value={formData.itemType}
+                      onChange={(e) => setFormData({ ...formData, itemType: e.target.value as any })}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+                    >
+                      <option value="stock">صنف مخزوني قياسي</option>
+                      <option value="service">خدمة (بدون خصم مخزوني)</option>
+                      <option value="service_with_materials">خدمة / وجبة بمواد مستهلكة</option>
+                      <option value="bundle">باقة / تجميعة منتجات</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">رقم الباركود</label>
@@ -1317,39 +1292,35 @@ export default function Inventory() {
                       ))}
                     </select>
                   </div>
+                  {formData.itemType !== 'service' && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية المتوفرة</label>
+                        <input 
+                          type="number" 
+                          required
+                          step={formData.allowFractions ? '0.001' : '1'}
+                          min="0"
+                          value={formData.stockQuantity}
+                          onChange={e => setFormData({...formData, stockQuantity: e.target.value})}
+                          className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">حد التنبيه</label>
+                        <input 
+                          type="number" 
+                          required
+                          min="0"
+                          value={formData.minStockLevel}
+                          onChange={e => setFormData({...formData, minStockLevel: e.target.value})}
+                          className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none" 
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      {editingProduct ? 'الكمية الحالية' : 'الرصيد الافتتاحي'}
-                      ({editingProduct?.baseUnitCode
-                        ? unitDefinitions.find((unit) => unit.code === editingProduct.baseUnitCode)?.symbol || editingProduct.baseUnitCode
-                        : 'وحدة غير محددة'})
-                    </label>
-                    {!editingProduct && (
-                      <p className="text-xs text-amber-700 mb-1.5">يُنشأ الصنف بكمية صفر. حدد وحدة الأساس أولاً، ثم أدخل الرصيد عبر الجرد.</p>
-                    )}
-                    <input 
-                      type="number" 
-                      required
-                      min="0"
-                      disabled
-                      value={formData.stockQuantity}
-                      onChange={e => setFormData({...formData, stockQuantity: e.target.value})}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">حد التنبيه</label>
-                    <input 
-                      type="number" 
-                      required
-                      min="0"
-                      value={formData.minStockLevel}
-                      onChange={e => setFormData({...formData, minStockLevel: e.target.value})}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">وحدة العرض القديمة (للتوافق)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الوحدة الأساسية</label>
                     <select 
                       required
                       value={formData.unit}
@@ -1358,6 +1329,10 @@ export default function Inventory() {
                     >
                       <option value="piece">قطعة / حبة</option>
                       <option value="box">صندوق / كرتون</option>
+                      <option value="كجم">كيلوجرام (كجم)</option>
+                      <option value="جرام">جرام</option>
+                      <option value="لتر">لتر</option>
+                      <option value="متر">متر</option>
                     </select>
                   </div>
                   {formData.unit === 'box' && (
@@ -1410,20 +1385,19 @@ export default function Inventory() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">تكلفة وحدة الأساس ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">التكلفة ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required
                       step="0.01"
                       min="0"
                       value={formData.costPrice}
-                      disabled={!!editingProduct && editingHasInventoryBatches}
                       onChange={e => setFormData({...formData, costPrice: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر بيع وحدة الأساس ({storeSettings.currency})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر البيع ({storeSettings.currency})</label>
                     <input 
                       type="number" 
                       required
@@ -1459,6 +1433,182 @@ export default function Inventory() {
                 </div>
               </div>
 
+              {/* Multi-Unit Packaging Editor */}
+              <div className="mt-6 pt-5 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-indigo-600" />
+                    وحدات القياس والبيع الإضافية (مثال: كرتون / درزن / نصف كيلو)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtraUnits([
+                        ...extraUnits,
+                        { name: 'كرتون', barcode: '', conversionFactor: 12, sellingPrice: (Number(formData.sellingPrice) || 0) * 12 },
+                      ])
+                    }
+                    className="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    إضافة وحدة
+                  </button>
+                </div>
+                {extraUnits.length > 0 && (
+                  <div className="space-y-2">
+                    {extraUnits.map((u, idx) => (
+                      <div key={idx} className="grid grid-cols-5 gap-2 items-center bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+                        <input
+                          type="text"
+                          value={u.name}
+                          onChange={(e) => {
+                            const next = [...extraUnits];
+                            next[idx] = { ...u, name: e.target.value };
+                            setExtraUnits(next);
+                          }}
+                          placeholder="اسم الوحدة"
+                          className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+                        />
+                        <input
+                          type="text"
+                          value={u.barcode || ''}
+                          onChange={(e) => {
+                            const next = [...extraUnits];
+                            next[idx] = { ...u, barcode: e.target.value };
+                            setExtraUnits(next);
+                          }}
+                          placeholder="باركود الوحدة"
+                          className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono"
+                        />
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0.001"
+                          value={u.conversionFactor}
+                          onChange={(e) => {
+                            const next = [...extraUnits];
+                            next[idx] = { ...u, conversionFactor: Number(e.target.value) };
+                            setExtraUnits(next);
+                          }}
+                          placeholder="المعامل"
+                          title="معامل التحويل للوحدة الأساسية"
+                          className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={u.sellingPrice}
+                          onChange={(e) => {
+                            const next = [...extraUnits];
+                            next[idx] = { ...u, sellingPrice: Number(e.target.value) };
+                            setExtraUnits(next);
+                          }}
+                          placeholder="سعر البيع"
+                          className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setExtraUnits(extraUnits.filter((_, i) => i !== idx))}
+                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg justify-self-center"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Service / Bundle Recipe Builder */}
+              {(formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') && (
+                <div className="mt-5 pt-5 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-bold text-gray-800">
+                      مكونات الوصفة / المواد الخام المستهلكة تلقائياً عند البيع
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstStock = allProducts.find((p) => p.id !== editingProduct?.id && p.itemType !== 'service');
+                        if (!firstStock?.id) {
+                          toast.error('يرجى إضافة أصناف مخزونية أولاً لاختيارها كمكونات');
+                          return;
+                        }
+                        setRecipeRows([
+                          ...recipeRows,
+                          {
+                            ingredientProductId: firstStock.id,
+                            ingredientName: firstStock.name,
+                            quantity: '1',
+                            unit: firstStock.unit || 'piece',
+                          },
+                        ]);
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      إضافة مادة خام
+                    </button>
+                  </div>
+                  {recipeRows.length > 0 && (
+                    <div className="space-y-2">
+                      {recipeRows.map((row, idx) => (
+                        <div key={idx} className="grid grid-cols-4 gap-2 items-center bg-emerald-50/40 p-2.5 rounded-xl border border-emerald-100">
+                          <select
+                            value={row.ingredientProductId}
+                            onChange={(e) => {
+                              const pid = Number(e.target.value);
+                              const p = allProducts.find((x) => x.id === pid);
+                              const next = [...recipeRows];
+                              next[idx] = {
+                                ...row,
+                                ingredientProductId: pid,
+                                ingredientName: p?.name || '',
+                                unit: p?.unit || 'piece',
+                              };
+                              setRecipeRows(next);
+                            }}
+                            className="col-span-2 px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+                          >
+                            {allProducts
+                              .filter((p) => p.id !== editingProduct?.id && p.itemType !== 'service')
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({formatQty(p.stockQuantity)} {p.unit})
+                                </option>
+                              ))}
+                          </select>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0.001"
+                            value={row.quantity}
+                            onChange={(e) => {
+                              const next = [...recipeRows];
+                              next[idx] = { ...row, quantity: e.target.value };
+                              setRecipeRows(next);
+                            }}
+                            placeholder="الكمية"
+                            className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (row.id) setRemovedRecipeIds((prev) => [...prev, row.id!]);
+                              setRecipeRows(recipeRows.filter((_, i) => i !== idx));
+                            }}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg justify-self-center"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-8 flex justify-end gap-3">
                 <button 
                   type="button" 
@@ -1475,14 +1625,6 @@ export default function Inventory() {
                 </button>
               </div>
             </form>
-            {editingProduct?.id !== undefined && (
-              <div className="px-6 pb-6">
-                <InventoryMovementHistory
-                  productId={Number(editingProduct.id)}
-                  currency={storeSettings.currency}
-                />
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1633,62 +1775,92 @@ export default function Inventory() {
         </div>
       )}
 
-      {unitEditorProduct && (
-        <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4" dir="rtl">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b flex items-center justify-between">
+      {/* Bulk FX Price Review Modal */}
+      {fxReviewItems && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white w-full max-w-4xl max-h-[88vh] rounded-3xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">وحدات الصنف</h3>
-                <p className="text-sm text-gray-500 mt-1">{unitEditorProduct.name}</p>
+                <h3 className="text-lg font-black text-gray-900">مراجعة تسعير الإحلال حسب سعر الصرف ({storeSettings.exchangeRate})</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  مقترح بهامش ربح مستهدف {storeSettings.targetProfitMargin ?? 25}% — يمكنك تعديل السعر المستهدف أو إلغاء تحديد أي صنف قبل الاعتماد.
+                </p>
               </div>
-              <button type="button" onClick={() => setUnitEditorProduct(null)} className="p-2 rounded-lg bg-gray-100"><X className="w-5 h-5" /></button>
+              <button onClick={() => setFxReviewItems(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <form onSubmit={handleSaveProductUnit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="text-sm space-y-1">الوحدة
-                <select required value={unitDraft.unitCode} onChange={(e) => handleSelectProductUnit(e.target.value)} className="w-full p-3 border rounded-xl">
-                  <option value="">اختر وحدة</option>
-                  {unitDefinitions.map((unit) => <option key={unit.code} value={unit.code}>{unit.name} ({unit.code})</option>)}
-                </select>
-              </label>
-              <label className="text-sm space-y-1">معامل التحويل إلى وحدة الأساس
-                <input required type="number" min="0.0000001" step="any" value={unitDraft.isBaseUnit ? '1' : unitDraft.conversionToBase} disabled={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, conversionToBase: e.target.value })} className="w-full p-3 border rounded-xl disabled:bg-gray-100" />
-              </label>
-              <label className="text-sm space-y-1">سعر البيع لهذه الوحدة (اختياري)
-                <input type="number" min="0" step="0.01" value={unitDraft.sellingPrice} onChange={(e) => setUnitDraft({ ...unitDraft, sellingPrice: e.target.value })} className="w-full p-3 border rounded-xl" />
-              </label>
-              <label className="text-sm space-y-1">باركود هذه الوحدة (اختياري)
-                <input value={unitDraft.barcode} onChange={(e) => setUnitDraft({ ...unitDraft, barcode: e.target.value })} className="w-full p-3 border rounded-xl font-mono" placeholder="امسح باركود العبوة" />
-              </label>
-              <label className="flex items-center gap-2 text-sm self-end p-3 border rounded-xl">
-                <input type="checkbox" checked={unitDraft.isBaseUnit} onChange={(e) => setUnitDraft({ ...unitDraft, isBaseUnit: e.target.checked, conversionToBase: '1' })} />
-                هذه وحدة الأساس للصنف (معاملها 1)
-              </label>
-              <div className="md:col-span-2 flex items-center gap-3">
-                <button disabled={unitSaving || !unitDraft.unitCode} className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50">حفظ الوحدة</button>
-                <span className="text-xs text-gray-500">مثال: 1 كرتونة = 12 قطعة، يكون معامل الكرتونة 12 إذا كانت القطعة هي وحدة الأساس.</span>
-              </div>
-            </form>
-            <div className="px-6 pb-6">
-              <h4 className="font-bold text-gray-800 mb-3">الوحدات المسجلة</h4>
-              <div className="overflow-x-auto border rounded-xl">
-                <table className="w-full text-sm text-right">
-                  <thead className="bg-gray-50"><tr><th className="p-3">الوحدة</th><th className="p-3">المعامل إلى الأساس</th><th className="p-3">النوع</th><th className="p-3">السعر الخاص</th><th className="p-3">الباركود</th></tr></thead>
-                  <tbody>{productUnitRows.map((unit) => (
-                    <tr key={unit.id} className="border-t">
-                      <td className="p-3">{unitDefinitions.find((definition) => definition.code === unit.unitCode)?.name || unit.unitCode}</td>
-                      <td className="p-3 tabular-nums">{unit.conversionToBase}</td>
-                      <td className="p-3">{unit.isBaseUnit ? 'أساس' : 'بديلة'}</td>
-                      <td className="p-3 tabular-nums">{unit.sellingPrice ?? '—'}</td>
-                      <td className="p-3 font-mono">{unit.barcode || '—'}</td>
+            <div className="flex-1 overflow-y-auto p-6">
+              <table className="w-full text-xs text-right">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="p-3">تطبيق</th>
+                    <th className="p-3">الصنف</th>
+                    <th className="p-3">التكلفة الجديدة</th>
+                    <th className="p-3">سعر البيع الحالي</th>
+                    <th className="p-3">السعر المقترح</th>
+                    <th className="p-3">السعر المعتمد</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {fxReviewItems.map((row, idx) => (
+                    <tr key={row.product.id}>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={row.selected}
+                          onChange={(e) => {
+                            const next = [...fxReviewItems];
+                            next[idx] = { ...row, selected: e.target.checked };
+                            setFxReviewItems(next);
+                          }}
+                          className="w-4 h-4 accent-indigo-600"
+                        />
+                      </td>
+                      <td className="p-3 font-bold text-gray-900">{row.product.name}</td>
+                      <td className="p-3 tabular-nums font-bold">{formatMoney(row.newCost, storeSettings.currency, storeSettings.currencyDecimals)}</td>
+                      <td className="p-3 tabular-nums text-gray-500">{formatMoney(row.currentPrice, storeSettings.currency, storeSettings.currencyDecimals)}</td>
+                      <td className="p-3 tabular-nums font-bold text-emerald-700">{formatMoney(row.suggestedPrice, storeSettings.currency, storeSettings.currencyDecimals)}</td>
+                      <td className="p-3">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={row.targetPrice}
+                          onChange={(e) => {
+                            const next = [...fxReviewItems];
+                            next[idx] = { ...row, targetPrice: Number(e.target.value) };
+                            setFxReviewItems(next);
+                          }}
+                          className="w-28 px-2.5 py-1.5 border border-indigo-200 rounded-lg font-bold text-indigo-700"
+                        />
+                      </td>
                     </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-              {!unitEditorProduct.baseUnitCode && <p className="text-xs text-amber-700 mt-3">لم تُحدد وحدة أساس بعد. ابدأ بتسجيل الوحدة الأساسية ومعامل تحويل يساوي 1.</p>}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-5 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setFxReviewItems(null)}
+                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-sm"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isApplyingFx}
+                onClick={handleApplyFxReview}
+                className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {isApplyingFx ? 'جاري التحديث...' : `اعتماد تحديث ${fxReviewItems.filter((i) => i.selected).length} صنف`}
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      <ItemCardModal product={itemCardProduct} onClose={() => setItemCardProduct(null)} />
 
       <ConfirmationModal
         isOpen={confirmState.isOpen}

@@ -7,10 +7,15 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql, asc, desc, gt, gte, lte, or, inArray } from 'drizzle-orm';
-import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
-import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
-import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
+import { eq, sql } from 'drizzle-orm';
+import {
+  db,
+  sqliteInstance,
+  getDbPath,
+  closeDatabaseConnection,
+  reopenDatabaseConnection,
+} from '../drizzle/db.js';
+import { ensureSchemaUpgrades } from '../migrate.js';
 import {
   products,
   categories,
@@ -43,13 +48,12 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
-  inventoryMovements,
   inventoryAlerts,
+  inventoryMovements,
   syncQueue,
-  currencies,
-  exchangeRates,
-  unitDefinitions,
-  productUnits,
+  serviceRecipes,
+  exchangeRateHistory,
+  fiscalPeriods,
 } from '../drizzle/schema.js';
 import {
   signToken,
@@ -65,7 +69,7 @@ import {
   AuthenticatedRequest,
   AuthPayload,
 } from './auth.js';
-import { ensureChartOfAccountsAsync } from './accounting.js';
+import { ensureChartOfAccountsAsync, postJournalEntry, recordInventoryMovement } from './accounting.js';
 import { executeBusinessOperation, OperationError } from './operations.js';
 import os from 'os';
 
@@ -86,54 +90,25 @@ export const getLocalIPAddress = () => {
   return '127.0.0.1';
 };
 
-async function appendApiInventoryMovement(input: {
-  operationId: string;
-  movementKey: string;
-  productId: number;
-  branchId?: number | null;
-  movementType: string;
-  sourceType: string;
-  sourceId: string;
-  sourceLineId?: string | number | null;
-  deviceId?: string | null;
-  createdBy?: string | null;
-  inputQuantity?: number | null;
-  unitCode?: string | null;
-  baseUnitCode?: string | null;
-  conversionToBase?: number;
-  quantityDeltaBase: number;
-  unitCost?: number;
-  totalCost?: number;
-  batchAllocations?: any[] | string | null;
-  reason?: string | null;
-  createdAt: string;
-}, executor: any = db) {
-  const allocations = typeof input.batchAllocations === 'string'
-    ? input.batchAllocations
-    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
-  await executor.insert(inventoryMovements).values({
-    id: `${input.operationId}:${input.movementKey}`,
-    movementKey: input.movementKey,
-    productId: Number(input.productId),
-    branchId: input.branchId ?? null,
-    movementType: input.movementType,
-    sourceType: input.sourceType,
-    sourceId: String(input.sourceId),
-    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
-    operationId: input.operationId,
-    deviceId: input.deviceId ?? null,
-    createdBy: input.createdBy ?? null,
-    inputQuantity: input.inputQuantity ?? null,
-    unitCode: input.unitCode ?? null,
-    baseUnitCode: input.baseUnitCode ?? null,
-    conversionToBase: Number(input.conversionToBase || 1),
-    quantityDeltaBase: Number(input.quantityDeltaBase),
-    unitCost: Number(input.unitCost || 0),
-    totalCost: Math.abs(Number(input.totalCost || 0)),
-    batchAllocations: allocations,
-    reason: input.reason ?? null,
-    createdAt: input.createdAt,
-  }).onConflictDoNothing();
+export function isAllowedCorsOrigin(origin?: string | null): boolean {
+  if (!origin) return true; // Electron, mobile native, curl, same-origin
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+    if (host.endsWith('.run.app')) return true;
+    if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
+    if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+    const extra = (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (extra.includes(origin) || extra.includes(host)) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 const SAFE_PUBLIC_SETTING_KEYS = new Set([
@@ -145,6 +120,9 @@ const SAFE_PUBLIC_SETTING_KEYS = new Set([
   'taxNumber',
   'taxRate',
   'currency',
+  'baseCurrency',
+  'currencyDecimals',
+  'quantityDecimals',
   'loginMethod',
   'themeName',
   'primaryColor',
@@ -221,17 +199,57 @@ export function createPosApp() {
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: (origin, callback) => callback(null, true),
+      origin: (origin, callback) => {
+        if (isAllowedCorsOrigin(origin)) return callback(null, true);
+        callback(new Error('CORS origin not allowed'));
+      },
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       credentials: true,
     },
+  });
+
+  const connectedTerminals = new Map<
+    string,
+    { socketId: string; ip: string; deviceName: string; userName?: string; connectedAt: string }
+  >();
+
+  io.on('connection', (socket) => {
+    const ip =
+      (socket.handshake.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      socket.handshake.address ||
+      'unknown';
+    connectedTerminals.set(socket.id, {
+      socketId: socket.id,
+      ip,
+      deviceName: (socket.handshake.query?.deviceName as string) || 'Terminal',
+      userName: (socket.handshake.query?.userName as string) || undefined,
+      connectedAt: new Date().toISOString(),
+    });
+
+    socket.on('register-terminal', (info: any) => {
+      const existing = connectedTerminals.get(socket.id);
+      if (existing) {
+        connectedTerminals.set(socket.id, {
+          ...existing,
+          deviceName: info?.deviceName || existing.deviceName,
+          userName: info?.userName || existing.userName,
+        });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      connectedTerminals.delete(socket.id);
+    });
   });
 
   app.set('io', io);
 
   app.use(
     cors({
-      origin: (origin, callback) => callback(null, true),
+      origin: (origin, callback) => {
+        if (isAllowedCorsOrigin(origin)) return callback(null, true);
+        callback(new Error('CORS origin not allowed'));
+      },
       credentials: true,
     })
   );
@@ -574,7 +592,7 @@ export function createPosApp() {
         break;
       case 'entity_upsert': {
         const tbl = payload?.table;
-        if (tbl === 'products') requireAny(['add_product', 'edit_product']);
+        if (tbl === 'products' || tbl === 'serviceRecipes') requireAny(['add_product', 'edit_product']);
         else if (tbl === 'categories') requireOne('manage_categories');
         else if (tbl === 'customers') requireAny(['add_customer', 'edit_customer']);
         else if (tbl === 'suppliers') requireAny(['add_supplier', 'edit_supplier']);
@@ -584,14 +602,14 @@ export function createPosApp() {
         else if (tbl === 'branches') requireOne('manage_branches');
         else if (tbl === 'offers') requireOne('manage_offers');
         else if (tbl === 'attendance') requireOne('manage_attendance');
-        else if (tbl === 'settings') requireOne('manage_settings');
+        else if (tbl === 'settings' || tbl === 'exchangeRateHistory' || tbl === 'fiscalPeriods') requireOne('manage_settings');
         else if (tbl === 'stocktakingSessions' || tbl === 'stocktakingEntries') requireOne('manage_stocktaking');
         else if (tbl === 'inventoryBatches') requireOne('edit_product');
         break;
       }
       case 'entity_delete': {
         const tbl = payload?.table;
-        if (tbl === 'products') requireOne('delete_product');
+        if (tbl === 'products' || tbl === 'serviceRecipes') requireOne('delete_product');
         else if (tbl === 'categories') requireOne('manage_categories');
         else if (tbl === 'customers') requireOne('delete_customer');
         else if (tbl === 'suppliers') requireOne('delete_supplier');
@@ -600,6 +618,7 @@ export function createPosApp() {
         else if (tbl === 'branches') requireOne('manage_branches');
         else if (tbl === 'offers') requireOne('manage_offers');
         else if (tbl === 'attendance') requireOne('manage_attendance');
+        else if (tbl === 'exchangeRateHistory' || tbl === 'fiscalPeriods') requireOne('manage_settings');
         else if (tbl === 'stocktakingSessions' || tbl === 'stocktakingEntries') requireOne('manage_stocktaking');
         break;
       }
@@ -618,6 +637,7 @@ export function createPosApp() {
         operationId,
         deviceId,
         userName: req.authUser?.name || 'System',
+        userRole: req.authUser?.role,
         branchId: req.authUser?.branchId ?? undefined,
       });
 
@@ -629,8 +649,8 @@ export function createPosApp() {
 
       res.status(outcome.duplicate ? 200 : 201).json(outcome);
     } catch (error) {
-      if (error instanceof OperationError) {
-        return res.status(error.statusCode).json({ error: error.message });
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
       }
       console.error('Operation execution failed:', error);
       res.status(500).json({
@@ -653,6 +673,7 @@ export function createPosApp() {
           operationId: op.id || op.operationId,
           deviceId: op.deviceId,
           userName: req.authUser?.name || 'System',
+          userRole: req.authUser?.role,
           branchId: op.branchId ?? req.authUser?.branchId ?? undefined,
         });
         results.push({
@@ -664,7 +685,10 @@ export function createPosApp() {
         results.push({
           operationId: op.id || op.operationId,
           status: 'error',
-          statusCode: error instanceof OperationError ? error.statusCode : 500,
+          statusCode:
+            error instanceof OperationError || typeof (error as any)?.statusCode === 'number'
+              ? (error as any).statusCode
+              : 500,
           error: error instanceof Error ? error.message : 'Operation failed',
         });
       }
@@ -687,12 +711,13 @@ export function createPosApp() {
           operationId: order?.operationId || order?.id,
           deviceId: order?.deviceId || 'client',
           userName: req.authUser?.name || 'System',
+          userRole: req.authUser?.role,
         }
       );
       res.status(201).json(outcome.result);
     } catch (error) {
-      if (error instanceof OperationError) {
-        return res.status(error.statusCode).json({ error: error.message });
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
       }
       res.status(500).json({ error: error instanceof Error ? error.message : 'Checkout failed' });
     }
@@ -707,83 +732,78 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/products', requirePermission('add_product'), async (req, res) => {
+  app.post('/api/products', requirePermission('add_product'), async (req: AuthenticatedRequest, res) => {
     try {
       const data = { ...req.body };
+      if (typeof data.allowFractions === 'boolean') {
+        data.allowFractions = data.allowFractions ? 1 : 0;
+      }
+      if (typeof data.isActive === 'boolean') {
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const now = new Date().toISOString();
-      let existingProduct: any;
-      if (data.id) {
-        const [foundProduct] = await db.select().from(products)
-          .where(eq(products.id, Number(data.id))).limit(1);
-        existingProduct = foundProduct;
-      }
-      let product: any;
-      if (existingProduct) {
-        delete data.stockQuantity;
-        delete data.baseUnitCode;
-        delete data.quantityPrecision;
-        const [existingBatch] = await db.select({ id: inventoryBatches.id })
-          .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1);
-        if (existingBatch) delete data.costPrice;
-        [product] = await db.update(products)
-          .set({ ...data, isSynced: 0, updatedAt: now })
-          .where(eq(products.id, existingProduct.id))
-          .returning();
-      } else {
-        [product] = await db.insert(products)
-          .values({ ...data, isSynced: 0, updatedAt: now })
-          .returning();
-      }
+      const [product] = await db
+        .insert(products)
+        .values({ ...data, isSynced: 0, updatedAt: now })
+        .onConflictDoUpdate({
+          target: products.id,
+          set: { ...data, isSynced: 0, updatedAt: now },
+        })
+        .returning();
 
-      // New product opening stock is stored as a base-unit FIFO layer.
-      if (product && Number(product.stockQuantity) > 0) {
+      // Create initial batch + opening movement if stockQuantity > 0 and no batches exist for this product
+      if (product && Number(product.stockQuantity) > 0 && (!product.itemType || product.itemType === 'stock')) {
         const existingBatches = await db
-          .select({ id: inventoryBatches.id })
+          .select()
           .from(inventoryBatches)
           .where(eq(inventoryBatches.productId, product.id));
         if (existingBatches.length === 0) {
-          const openingBatchId = `opening-${product.id}`;
-          const openingQuantity = Number(product.stockQuantity);
-          const openingUnitCost = Number(product.costPrice || 0);
-          await db.transaction(async (tx: any) => {
-            await tx.insert(inventoryBatches).values({
-              id: openingBatchId,
-              productId: product.id,
-              purchaseId: null,
-              quantity: openingQuantity,
-              remainingQuantity: openingQuantity,
-              costPrice: openingUnitCost,
-              unitCode: product.baseUnitCode || null,
-              baseUnitCode: product.baseUnitCode || null,
-              conversionToBase: 1,
-              baseQuantity: openingQuantity,
-              purchaseDate: product.createdAt || now,
-              branchId: product.branchId || null,
-              isSynced: 0,
-              createdAt: product.createdAt || now,
-              updatedAt: now,
-            });
-            const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
-            await appendApiInventoryMovement({
-              operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
-              movementKey,
-              productId: product.id,
-              branchId: product.branchId || null,
-              movementType: 'opening_balance',
-              sourceType: 'product',
-              sourceId: String(product.id),
-              sourceLineId: openingBatchId,
-              inputQuantity: openingQuantity,
-              unitCode: product.baseUnitCode || null,
-              baseUnitCode: product.baseUnitCode || null,
-              conversionToBase: 1,
-              quantityDeltaBase: openingQuantity,
-              unitCost: openingUnitCost,
-              totalCost: openingQuantity * openingUnitCost,
-              batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
-              createdAt: product.createdAt || now,
-            }, tx);
+          await db.insert(inventoryBatches).values({
+            id: crypto.randomUUID(),
+            productId: product.id,
+            purchaseId: null,
+            quantity: Number(product.stockQuantity),
+            remainingQuantity: Number(product.stockQuantity),
+            costPrice: Number(product.costPrice || 0),
+            purchaseDate: now,
+            branchId: product.branchId || null,
+            isSynced: 0,
+            createdAt: now,
+            updatedAt: now,
           });
+          const openingTotalCost =
+            Math.round(Number(product.stockQuantity) * Number(product.costPrice || 0) * 100) / 100;
+          recordInventoryMovement(db, {
+            movementKey: `opening:${product.id}`,
+            productId: product.id,
+            movementType: 'opening_balance',
+            sourceType: 'product',
+            sourceId: String(product.id),
+            quantityDeltaBase: Number(product.stockQuantity),
+            baseUnitCode: product.baseUnitCode || product.unit || 'piece',
+            unitCost: Number(product.costPrice || 0),
+            totalCost: openingTotalCost,
+            branchId: product.branchId || null,
+            reason: 'رصيد افتتاحي للصنف',
+            createdBy: req.authUser?.name || 'System',
+            createdAt: now,
+          });
+          if (openingTotalCost > 0) {
+            db.transaction((tx) => {
+              postJournalEntry(tx, {
+                date: now,
+                referenceId: `opening:${product.id}`,
+                referenceType: 'opening',
+                description: `رصيد افتتاحي للمخزون: ${product.name}`,
+                lines: [
+                  { accountCode: '1200', debit: openingTotalCost, credit: 0 },
+                  { accountCode: '3100', debit: 0, credit: openingTotalCost },
+                ],
+                createdBy: req.authUser?.name || 'System',
+                branchId: product.branchId || undefined,
+              });
+            });
+          }
         }
       }
 
@@ -797,87 +817,30 @@ export function createPosApp() {
   app.put('/api/products/:id', requirePermission('edit_product'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updateData = { ...req.body };
-      delete updateData.stockQuantity;
-      delete updateData.baseUnitCode;
-      delete updateData.quantityPrecision;
-      const [existingBatch] = await db.select({ id: inventoryBatches.id })
-        .from(inventoryBatches).where(eq(inventoryBatches.productId, id)).limit(1);
-      if (existingBatch) delete updateData.costPrice;
-      const now = new Date().toISOString();
+      const data = { ...req.body };
+      if (typeof data.allowFractions === 'boolean') {
+        data.allowFractions = data.allowFractions ? 1 : 0;
+      }
+      if (typeof data.isActive === 'boolean') {
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const [product] = await db
         .update(products)
-        .set({ ...updateData, isSynced: 0, updatedAt: now })
+        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
         .where(eq(products.id, id))
         .returning();
-      if (product && !existingBatch && Number(product.stockQuantity || 0) > 0) {
-        const openingBatchId = `opening-${product.id}`;
-        const openingQuantity = Number(product.stockQuantity);
-        const openingUnitCost = Number(product.costPrice || 0);
-        await db.transaction(async (tx: any) => {
-          await tx.insert(inventoryBatches).values({
-            id: openingBatchId,
-            productId: product.id,
-            purchaseId: null,
-            quantity: openingQuantity,
-            remainingQuantity: openingQuantity,
-            costPrice: openingUnitCost,
-            unitCode: product.baseUnitCode || null,
-            baseUnitCode: product.baseUnitCode || null,
-            conversionToBase: 1,
-            baseQuantity: openingQuantity,
-            purchaseDate: product.createdAt || now,
-            branchId: product.branchId || null,
-            isSynced: 0,
-            createdAt: product.createdAt || now,
-            updatedAt: now,
-          }).onConflictDoNothing();
-          const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
-          await appendApiInventoryMovement({
-            operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
-            movementKey,
-            productId: product.id,
-            branchId: product.branchId || null,
-            movementType: 'opening_balance',
-            sourceType: 'product',
-            sourceId: String(product.id),
-            sourceLineId: openingBatchId,
-            inputQuantity: openingQuantity,
-            unitCode: product.baseUnitCode || null,
-            baseUnitCode: product.baseUnitCode || null,
-            conversionToBase: 1,
-            quantityDeltaBase: openingQuantity,
-            unitCost: openingUnitCost,
-            totalCost: openingQuantity * openingUnitCost,
-            batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
-            createdAt: product.createdAt || now,
-          }, tx);
-        });
-      }
       res.json(product);
     } catch {
       res.status(500).json({ error: 'Failed to update product' });
     }
   });
 
-  app.delete('/api/products/:id', async (req, res) => {
+  app.delete('/api/products/:id', requirePermission('delete_product'), async (req, res) => {
     try {
-      const productId = Number(req.params.id);
-      const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
-      if (!product) return res.status(404).json({ error: 'Product not found' });
-      const [batch] = await db.select().from(inventoryBatches)
-        .where(eq(inventoryBatches.productId, productId)).limit(1);
-      const [movement] = await db.select().from(inventoryMovements)
-        .where(eq(inventoryMovements.productId, productId)).limit(1);
-      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
-        return res.status(409).json({
-          error: 'Product has stock or inventory history. Deactivate it instead of deleting it.',
-        });
-      }
-      await db.delete(products).where(eq(products.id, productId));
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      await db.delete(products).where(eq(products.id, parseInt(req.params.id)));
+      res.json({ message: 'Product deleted' });
+    } catch {
+      res.status(500).json({ error: 'Failed to delete product' });
     }
   });
 
@@ -922,13 +885,7 @@ export function createPosApp() {
 
   app.delete('/api/categories/:id', requirePermission('manage_categories'), async (req, res) => {
     try {
-      const categoryId = parseInt(req.params.id);
-      const [linkedProduct] = await db.select().from(products)
-        .where(eq(products.categoryId, categoryId)).limit(1);
-      if (linkedProduct) {
-        return res.status(409).json({ error: 'Category still contains products. Move or delete eligible products first.' });
-      }
-      await db.delete(categories).where(eq(categories.id, categoryId));
+      await db.delete(categories).where(eq(categories.id, parseInt(req.params.id)));
       res.json({ message: 'Category deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete category' });
@@ -1040,21 +997,10 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/orders', requireAnyPermission(['view_pos', 'view_mobile_sales']), async (req, res) => {
-    try {
-      const now = new Date().toISOString();
-      const [order] = await db
-        .insert(orders)
-        .values({ ...req.body, isSynced: 0, createdAt: req.body.createdAt || now, updatedAt: now })
-        .onConflictDoUpdate({
-          target: orders.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
-        })
-        .returning();
-      res.status(201).json(order);
-    } catch {
-      res.status(500).json({ error: 'Failed to create order' });
-    }
+  app.post('/api/orders', requireAnyPermission(['view_pos', 'view_mobile_sales']), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن إنشاء الطلبات مباشرة خارج محرك العمليات؛ استخدم /api/operations/execute (sale) لضمان خصم المخزون والقيود المحاسبية',
+    });
   });
 
   app.put('/api/orders/:id', requirePermission('void_items'), async (req, res) => {
@@ -1083,29 +1029,16 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/orderItems', requireAnyPermission(['view_pos', 'view_mobile_sales']), async (req, res) => {
-    try {
-      const [item] = await db
-        .insert(orderItems)
-        .values({ ...req.body, isSynced: 0, createdAt: new Date().toISOString() })
-        .onConflictDoUpdate({
-          target: orderItems.id,
-          set: { ...req.body, isSynced: 0 },
-        })
-        .returning();
-      res.status(201).json(item);
-    } catch {
-      res.status(500).json({ error: 'Failed to create order item' });
-    }
+  app.post('/api/orderItems', requireAnyPermission(['view_pos', 'view_mobile_sales']), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن تعديل أصناف الفاتورة مباشرة خارج محرك العمليات الذرية',
+    });
   });
 
-  app.delete('/api/orderItems/:id', requirePermission('void_items'), async (req, res) => {
-    try {
-      await db.delete(orderItems).where(eq(orderItems.id, parseInt(req.params.id)));
-      res.json({ message: 'Order item deleted' });
-    } catch {
-      res.status(500).json({ error: 'Failed to delete order item' });
-    }
+  app.delete('/api/orderItems/:id', requirePermission('void_items'), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن حذف أصناف الفاتورة مباشرة؛ استخدم مرتجع المبيعات أو إلغاء الفاتورة',
+    });
   });
 
   // --- Returns & Return Items ---
@@ -1131,164 +1064,14 @@ export function createPosApp() {
         operationId: req.body?.operationId || req.body?.id,
         deviceId: req.body?.deviceId || 'client',
         userName: req.authUser?.name || 'System',
+        userRole: req.authUser?.role,
       });
       res.status(201).json(outcome.result);
     } catch (error) {
-      if (error instanceof OperationError) {
-        return res.status(error.statusCode).json({ error: error.message });
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
       }
       res.status(500).json({ error: 'Failed to process return' });
-    }
-  });
-
-  // --- Immutable Inventory Movement Ledger ---
-  app.get('/api/inventoryMovements', async (req, res) => {
-    try {
-      const parsedLimit = Number.parseInt(String(req.query.limit || '500'), 10);
-      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(2000, parsedLimit)) : 500;
-      const parsedOffset = Number.parseInt(String(req.query.offset || '0'), 10);
-      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.min(500000, parsedOffset)) : 0;
-      const productId = Number(req.query.productId);
-      const afterCreatedAt = typeof req.query.afterCreatedAt === 'string' ? req.query.afterCreatedAt : '';
-      const afterId = typeof req.query.afterId === 'string' ? req.query.afterId : '';
-      const movementKeys = typeof req.query.movementKeys === 'string'
-        ? req.query.movementKeys.split(',').filter(Boolean).slice(0, 200)
-        : [];
-      const latest = req.query.latest === 'true';
-      const branchId = Number(req.query.branchId);
-      const sourceType = typeof req.query.sourceType === 'string' ? req.query.sourceType : '';
-      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
-      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
-      const filters: any[] = [];
-
-      if (movementKeys.length > 0) {
-        filters.push(inArray(inventoryMovements.movementKey, movementKeys));
-      } else {
-        if (Number.isSafeInteger(productId) && productId > 0) {
-          filters.push(eq(inventoryMovements.productId, productId));
-        }
-        if (Number.isSafeInteger(branchId) && branchId > 0) {
-          filters.push(eq(inventoryMovements.branchId, branchId));
-        }
-        if (sourceType) filters.push(eq(inventoryMovements.sourceType, sourceType));
-        if (startDate) filters.push(gte(inventoryMovements.createdAt, startDate));
-        if (endDate) filters.push(lte(inventoryMovements.createdAt, `${endDate}T23:59:59.999Z`));
-      }
-      if (movementKeys.length === 0 && afterCreatedAt && afterId) {
-        filters.push(or(
-          gt(inventoryMovements.createdAt, afterCreatedAt),
-          and(
-            eq(inventoryMovements.createdAt, afterCreatedAt),
-            gt(inventoryMovements.id, afterId)
-          )
-        ));
-      }
-
-      let query: any = db.select().from(inventoryMovements);
-      if (filters.length === 1) query = query.where(filters[0]);
-      else if (filters.length > 1) query = query.where(and(...filters));
-
-      const orderedQuery = query.orderBy(
-        latest && movementKeys.length === 0
-          ? desc(inventoryMovements.createdAt)
-          : asc(inventoryMovements.createdAt),
-        latest && movementKeys.length === 0
-          ? desc(inventoryMovements.id)
-          : asc(inventoryMovements.id)
-      );
-      const rows = await (latest && movementKeys.length === 0 ? orderedQuery.offset(offset) : orderedQuery)
-        .limit(limit + 1);
-      const hasMore = rows.length > limit;
-      const items = hasMore ? rows.slice(0, limit) : rows;
-      const last = items[items.length - 1];
-      res.json({
-        items,
-        hasMore,
-        nextCursor: latest || movementKeys.length > 0 || !last
-          ? null
-          : { createdAt: last.createdAt, id: last.id },
-        nextOffset: latest && movementKeys.length === 0 && hasMore ? offset + limit : null,
-      });
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch inventory movements' });
-    }
-  });
-
-  app.get('/api/inventoryMovements/reconciliation', async (_req, res) => {
-    try {
-      const [stockRows, batchRows, ledgerRows] = await Promise.all([
-        db.select({
-          productId: products.id,
-          productName: products.name,
-          baseUnitCode: products.baseUnitCode,
-          stockQuantity: products.stockQuantity,
-        }).from(products),
-        db.select({
-          productId: inventoryBatches.productId,
-          batchQuantity: sql<number>`COALESCE(SUM(${inventoryBatches.remainingQuantity}), 0)`,
-          batchCount: sql<number>`COUNT(*)`,
-        }).from(inventoryBatches).groupBy(inventoryBatches.productId),
-        db.select({
-          productId: inventoryMovements.productId,
-          ledgerQuantity: sql<number>`COALESCE(SUM(${inventoryMovements.quantityDeltaBase}), 0)`,
-          movementCount: sql<number>`COUNT(*)`,
-        }).from(inventoryMovements).groupBy(inventoryMovements.productId),
-      ]);
-      const batchesByProduct = new Map(
-        batchRows.map((row) => [row.productId, {
-          batchQuantity: Number(row.batchQuantity || 0),
-          batchCount: Number(row.batchCount || 0),
-        }])
-      );
-      const ledgerByProduct = new Map(
-        ledgerRows.map((row) => [row.productId, {
-          ledgerQuantity: Number(row.ledgerQuantity || 0),
-          movementCount: Number(row.movementCount || 0),
-        }])
-      );
-      const allProductIds = new Set([
-        ...stockRows.map((row) => row.productId),
-        ...batchRows.map((row) => row.productId),
-        ...ledgerRows.map((row) => row.productId),
-      ]);
-      const stockByProduct = new Map(stockRows.map((row) => [row.productId, row]));
-      const items = [...allProductIds].map((productId) => {
-        const product = stockByProduct.get(productId);
-        const batch = batchesByProduct.get(productId);
-        const ledger = ledgerByProduct.get(productId);
-        const stockQuantity = Number(product?.stockQuantity || 0);
-        const batchQuantity = batch?.batchQuantity || 0;
-        const ledgerQuantity = ledger?.ledgerQuantity || 0;
-        return {
-          productId,
-          productName: product?.productName || `#${productId} (صنف غير موجود)`,
-          baseUnitCode: product?.baseUnitCode || null,
-          stockQuantity,
-          batchQuantity,
-          ledgerQuantity,
-          stockVsBatchDifference: stockQuantity - batchQuantity,
-          batchVsLedgerDifference: batchQuantity - ledgerQuantity,
-          stockVsLedgerDifference: stockQuantity - ledgerQuantity,
-          batchCount: batch?.batchCount || 0,
-          movementCount: ledger?.movementCount || 0,
-        };
-      });
-      const hasDifference = (item: any) =>
-        Math.abs(item.stockVsBatchDifference) > 1e-6 ||
-        Math.abs(item.batchVsLedgerDifference) > 1e-6;
-      const mismatched = items.filter(hasDifference);
-      res.json({
-        items: mismatched,
-        summary: {
-          productsChecked: items.length,
-          productsWithMovements: items.filter((item) => item.movementCount > 0).length,
-          productsWithBatchMismatch: items.filter((item) => Math.abs(item.stockVsBatchDifference) > 1e-6).length,
-          productsWithLedgerMismatch: items.filter((item) => Math.abs(item.batchVsLedgerDifference) > 1e-6).length,
-          mismatchedProducts: mismatched.length,
-        },
-      });
-    } catch {
-      res.status(500).json({ error: 'Failed to reconcile stock, FIFO batches and movement ledger' });
     }
   });
 
@@ -1304,72 +1087,22 @@ export function createPosApp() {
   app.post('/api/inventoryBatches', requirePermission('edit_product'), async (req, res) => {
     try {
       const now = new Date().toISOString();
-      const batchId = req.body.id ? String(req.body.id) : crypto.randomUUID();
-      const batchQuantity = Number(req.body.baseQuantity ?? req.body.quantity ?? 0);
-      const factor = Number(req.body.conversionToBase || 1);
-      const remainingQuantity = Number(req.body.remainingQuantity ?? batchQuantity);
-      const costPrice = Number(req.body.costPrice || 0);
-      if (!Number.isFinite(batchQuantity) || batchQuantity <= 0 ||
-          !Number.isFinite(factor) || factor <= 0 ||
-          !Number.isFinite(remainingQuantity) || remainingQuantity < 0 || remainingQuantity > batchQuantity ||
-          !Number.isFinite(costPrice) || costPrice < 0) {
-        return res.status(400).json({ error: 'Invalid inventory batch quantity, conversion or cost' });
-      }
-      const batch = await db.transaction(async (tx: any) => {
-        const [createdBatch] = await tx
-          .insert(inventoryBatches)
-          .values({
-            id: batchId,
-            productId: Number(req.body.productId),
-            purchaseId: req.body.purchaseId || null,
-            quantity: batchQuantity,
-            remainingQuantity,
-            costPrice,
-            originalCostPrice: req.body.originalCostPrice ?? null,
-            currencyCode: req.body.currencyCode ?? null,
-            exchangeRate: req.body.exchangeRate ?? null,
-            exchangeRateId: req.body.exchangeRateId ?? null,
-            unitCode: req.body.unitCode ?? null,
-            baseUnitCode: req.body.baseUnitCode ?? null,
-            conversionToBase: factor,
-            baseQuantity: batchQuantity,
-            purchaseDate: req.body.purchaseDate || now,
-            expiryDate: req.body.expiryDate ?? null,
-            batchNumber: req.body.batchNumber ?? null,
-            branchId: req.body.branchId || null,
-            isSynced: 0,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning();
-        const movementType = createdBatch.purchaseId ? 'purchase_receipt' : 'opening_balance';
-        const sourceType = createdBatch.purchaseId ? 'purchase' : 'product';
-        const sourceId = createdBatch.purchaseId ? String(createdBatch.purchaseId) : String(createdBatch.productId);
-        const operationId = String(req.body.operationId || `legacy-api:batch:${createdBatch.id}`);
-        const movementKey = `${movementType}:${sourceType}:${sourceId}:${createdBatch.id}`;
-        await appendApiInventoryMovement({
-          operationId,
-          movementKey,
-          productId: createdBatch.productId,
-          branchId: createdBatch.branchId,
-          movementType,
-          sourceType,
-          sourceId,
-          sourceLineId: createdBatch.id,
-          deviceId: req.body.deviceId,
-          createdBy: req.body.createdBy,
-          inputQuantity: factor > 0 ? batchQuantity / factor : batchQuantity,
-          unitCode: createdBatch.unitCode,
-          baseUnitCode: createdBatch.baseUnitCode,
-          conversionToBase: factor,
-          quantityDeltaBase: batchQuantity,
-          unitCost: createdBatch.costPrice,
-          totalCost: batchQuantity * createdBatch.costPrice,
-          batchAllocations: [{ batchId: createdBatch.id, quantity: batchQuantity, costPrice: createdBatch.costPrice }],
+      const [batch] = await db
+        .insert(inventoryBatches)
+        .values({
+          id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
+          productId: Number(req.body.productId),
+          purchaseId: req.body.purchaseId || null,
+          quantity: Number(req.body.quantity || 0),
+          remainingQuantity: Number(req.body.remainingQuantity ?? req.body.quantity ?? 0),
+          costPrice: Number(req.body.costPrice || 0),
+          purchaseDate: req.body.purchaseDate || now,
+          branchId: req.body.branchId || null,
+          isSynced: 0,
           createdAt: now,
-        }, tx);
-        return createdBatch;
-      });
+          updatedAt: now,
+        })
+        .returning();
       res.status(201).json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to create inventory batch' });
@@ -1378,80 +1111,12 @@ export function createPosApp() {
 
   app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), async (req, res) => {
     try {
-      const batchId = String(req.params.id);
-      const now = new Date().toISOString();
-      const updateData = { ...req.body };
-      delete updateData.id;
-      delete updateData.productId;
-      delete updateData.purchaseId;
-      delete updateData.quantity;
-      delete updateData.baseQuantity;
-      delete updateData.costPrice;
-      delete updateData.unitCode;
-      delete updateData.baseUnitCode;
-      delete updateData.conversionToBase;
-      delete updateData.operationId;
-      delete updateData.deviceId;
-      delete updateData.createdBy;
-      delete updateData.isSynced;
-      delete updateData.createdAt;
-      delete updateData.updatedAt;
-      delete updateData.remainingQuantity;
-
-      const result = await db.transaction(async (tx: any) => {
-        const [existing] = await tx.select().from(inventoryBatches)
-          .where(eq(inventoryBatches.id, batchId)).limit(1);
-        if (!existing) return { status: 404 as const };
-
-        const nextRemaining = Number(req.body.remainingQuantity ?? existing.remainingQuantity);
-        if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
-            nextRemaining > Number(existing.quantity) + 1e-9) {
-          return { status: 400 as const };
-        }
-
-        const [batch] = await tx
-          .update(inventoryBatches)
-          .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
-          .where(eq(inventoryBatches.id, batchId))
-          .returning();
-
-        const delta = nextRemaining - Number(existing.remainingQuantity || 0);
-        if (Math.abs(delta) > 1e-9) {
-          const operationId = String(req.body.operationId || `legacy-api:batch-adjust:${batchId}:${now}`);
-          const movementKey = `legacy_batch_adjustment:inventory_batch:${batchId}:${now}`;
-          await appendApiInventoryMovement({
-            operationId,
-            movementKey,
-            productId: existing.productId,
-            branchId: existing.branchId,
-            movementType: 'legacy_batch_adjustment',
-            sourceType: 'inventory_batch',
-            sourceId: batchId,
-            sourceLineId: batchId,
-            deviceId: req.body.deviceId,
-            createdBy: req.body.createdBy,
-            inputQuantity: Math.abs(delta) / Number(existing.conversionToBase || 1),
-            unitCode: existing.unitCode,
-            baseUnitCode: existing.baseUnitCode,
-            conversionToBase: Number(existing.conversionToBase || 1),
-            quantityDeltaBase: delta,
-            unitCost: Number(existing.costPrice || 0),
-            totalCost: Math.abs(delta * Number(existing.costPrice || 0)),
-            batchAllocations: [{ batchId, quantity: Math.abs(delta), costPrice: Number(existing.costPrice || 0) }],
-            reason: 'legacy_batch_update',
-            createdAt: now,
-          }, tx);
-        }
-        return { batch };
-      });
-
-      if ('status' in result && result.status === 404) {
-        return res.status(404).json({ error: 'Inventory batch not found' });
-      }
-      if ('status' in result && result.status === 400) {
-        return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
-      }
-      res.json(result.batch);
+      const [batch] = await db
+        .update(inventoryBatches)
+        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
+        .where(eq(inventoryBatches.id, String(req.params.id)))
+        .returning();
+      res.json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to update inventory batch' });
     }
@@ -1475,6 +1140,141 @@ export function createPosApp() {
       res.json(alert);
     } catch {
       res.status(500).json({ error: 'Failed to resolve alert' });
+    }
+  });
+
+  // --- Inventory Movement Ledger & Reconciliation ---
+  app.get('/api/inventoryMovements', async (req, res) => {
+    try {
+      const {
+        productId,
+        latest,
+        offset: rawOffset,
+        limit: rawLimit,
+        branchId,
+        sourceType,
+        movementType,
+        startDate,
+        endDate,
+      } = req.query;
+
+      let rows = await db.select().from(inventoryMovements);
+
+      if (productId !== undefined && productId !== '') {
+        rows = rows.filter((r) => Number(r.productId) === Number(productId));
+      }
+      if (branchId !== undefined && branchId !== '' && branchId !== 'all') {
+        rows = rows.filter((r) => Number(r.branchId) === Number(branchId));
+      }
+      if (sourceType && sourceType !== 'all') {
+        rows = rows.filter((r) => r.sourceType === String(sourceType));
+      }
+      if (movementType && movementType !== 'all') {
+        rows = rows.filter((r) => r.movementType === String(movementType));
+      }
+      if (startDate) {
+        const startDay = String(startDate).slice(0, 10);
+        rows = rows.filter((r) => String(r.createdAt || '').slice(0, 10) >= startDay);
+      }
+      if (endDate) {
+        const endDay = String(endDate).slice(0, 10);
+        rows = rows.filter((r) => String(r.createdAt || '').slice(0, 10) <= endDay);
+      }
+
+      const sortDesc = String(latest) === 'true' || String(latest) === '1';
+      rows.sort((a, b) => {
+        const cmp =
+          String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+          String(a.id).localeCompare(String(b.id));
+        return sortDesc ? -cmp : cmp;
+      });
+
+      const offset = Math.max(0, Number(rawOffset || 0));
+      const limit = Math.min(2000, Math.max(1, Number(rawLimit || 500)));
+      const items = rows.slice(offset, offset + limit);
+      const nextOffset = offset + items.length < rows.length ? offset + items.length : null;
+
+      res.json({ items, nextOffset, total: rows.length });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to fetch inventory movements' });
+    }
+  });
+
+  app.get('/api/inventoryMovements/reconciliation', requirePermission('view_inventory'), async (_req, res) => {
+    try {
+      const roundQty = (n: number) => Math.round((Number(n) || 0) * 10000) / 10000;
+      const allProducts = await db.select().from(products);
+      const allBatches = await db.select().from(inventoryBatches);
+      const allMovements = await db.select().from(inventoryMovements);
+
+      const batchesByProduct = new Map<number, any[]>();
+      for (const b of allBatches) {
+        const arr = batchesByProduct.get(b.productId) || [];
+        arr.push(b);
+        batchesByProduct.set(b.productId, arr);
+      }
+
+      const movementsByProduct = new Map<number, any[]>();
+      for (const m of allMovements) {
+        const arr = movementsByProduct.get(m.productId) || [];
+        arr.push(m);
+        movementsByProduct.set(m.productId, arr);
+      }
+
+      let productsWithBatchMismatch = 0;
+      let productsWithLedgerMismatch = 0;
+      const items: any[] = [];
+
+      for (const p of allProducts) {
+        if (p.itemType === 'service') continue;
+        const pBatches = batchesByProduct.get(p.id) || [];
+        const pMovements = movementsByProduct.get(p.id) || [];
+
+        const stockQuantity = roundQty(Number(p.stockQuantity || 0));
+        const batchQuantity = roundQty(
+          pBatches.reduce((s, b) => s + Number(b.remainingQuantity || 0), 0)
+        );
+        const ledgerQuantity = roundQty(
+          pMovements.reduce((s, m) => s + Number(m.quantityDeltaBase || 0), 0)
+        );
+
+        const stockVsBatchDifference = roundQty(stockQuantity - batchQuantity);
+        const batchVsLedgerDifference = roundQty(batchQuantity - ledgerQuantity);
+
+        const hasBatchDiff = Math.abs(stockVsBatchDifference) > 1e-6;
+        const hasLedgerDiff = Math.abs(batchVsLedgerDifference) > 1e-6;
+
+        if (hasBatchDiff) productsWithBatchMismatch++;
+        if (hasLedgerDiff) productsWithLedgerMismatch++;
+
+        if (hasBatchDiff || hasLedgerDiff) {
+          items.push({
+            productId: p.id,
+            productName: p.name,
+            baseUnitCode: p.baseUnitCode || p.unit || 'piece',
+            stockQuantity,
+            batchQuantity,
+            ledgerQuantity,
+            stockVsBatchDifference,
+            batchVsLedgerDifference,
+            batchCount: pBatches.length,
+            movementCount: pMovements.length,
+          });
+        }
+      }
+
+      res.json({
+        summary: {
+          productsChecked: allProducts.filter((p) => p.itemType !== 'service').length,
+          productsWithBatchMismatch,
+          productsWithLedgerMismatch,
+        },
+        items,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to reconcile inventory movements' });
     }
   });
 
@@ -1583,287 +1383,6 @@ export function createPosApp() {
     }
   });
 
-  // --- Unit catalogue and per-product unit conversions ---
-  app.get('/api/unit-definitions', async (_req, res) => {
-    try {
-      res.json(await db.select().from(unitDefinitions));
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch unit definitions' });
-    }
-  });
-
-  app.post('/api/unit-definitions', requirePermission('manage_settings'), async (req, res) => {
-    try {
-      const { code, name, symbol, dimension, decimalPlaces, isFractional } = normalizeUnitDefinition(req.body);
-      const [existingDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, code));
-      if (existingDefinition) {
-        const linkedUnits = await db.select().from(productUnits).where(eq(productUnits.unitCode, code));
-        const linkedProducts = await db.select().from(products).where(eq(products.baseUnitCode, code));
-        if (existingDefinition.dimension !== dimension && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
-          return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
-        }
-        if (existingDefinition.decimalPlaces !== decimalPlaces && (linkedUnits.length > 0 || linkedProducts.length > 0)) {
-          return res.status(409).json({ error: 'لا يمكن تغيير دقة وحدة مرتبطة بأصناف؛ أنشئ رمز وحدة جديداً أو نفّذ ترحيلاً موثقاً' });
-        }
-      }
-      const now = new Date().toISOString();
-      const [saved] = await db.insert(unitDefinitions).values({
-        code, name, symbol, dimension, decimalPlaces, isFractional,
-        isActive: 1, createdAt: now, updatedAt: now,
-      }).onConflictDoUpdate({
-        target: unitDefinitions.code,
-        set: { name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0, updatedAt: now },
-      }).returning();
-      res.status(201).json(saved);
-    } catch (error: any) {
-      const message = error?.message || 'Failed to save unit definition';
-      res.status(error instanceof TypeError ? 400 : 500).json({ error: message });
-    }
-  });
-
-  app.get('/api/product-units', async (req, res) => {
-    try {
-      const productId = Number(req.query.productId);
-      const rows = await db.select().from(productUnits);
-      res.json(Number.isInteger(productId) && productId > 0 ? rows.filter((row) => row.productId === productId) : rows);
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch product units' });
-    }
-  });
-
-  app.post('/api/product-units', requirePermission('edit_product'), async (req, res) => {
-    try {
-      const { productId, unitCode, conversionToBase, isBaseUnit, sellingPrice, barcode } = normalizeProductUnit(req.body);
-
-      const saved = await db.transaction(async (tx) => {
-        const [product] = await tx.select().from(products).where(eq(products.id, productId));
-        const [unit] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, unitCode));
-        if (!product || !unit || !unit.isActive) throw new Error('الصنف أو تعريف الوحدة غير موجود أو غير نشط');
-
-        const existingUnits = await tx.select().from(productUnits).where(eq(productUnits.productId, productId));
-        const existingBase = existingUnits.find((row) => row.isBaseUnit === 1);
-        const existing = existingUnits.find((row) => row.unitCode === unitCode);
-        if (barcode) {
-          const [duplicateUnitBarcode] = await tx.select().from(productUnits).where(eq(productUnits.barcode, barcode));
-          if (duplicateUnitBarcode && duplicateUnitBarcode.id !== existing?.id) {
-            throw new RangeError('هذا الباركود مستخدم بالفعل لوحدة أخرى');
-          }
-          const [duplicateProductBarcode] = await tx.select().from(products).where(eq(products.barcode, barcode));
-          if (duplicateProductBarcode) {
-            throw new RangeError('هذا الباركود مستخدم بالفعل كرمز صنف؛ استخدم باركوداً مختلفاً للوحدة');
-          }
-        }
-
-        if (!isBaseUnit && existingBase?.unitCode === unitCode) {
-          throw new Error('لا يمكن إلغاء وحدة الأساس دون تعيين وحدة أساس بديلة');
-        }
-        if (!isBaseUnit && !existingBase && !product.baseUnitCode) {
-          throw new Error('يجب تحديد وحدة أساس للصنف قبل إضافة وحدات التحويل');
-        }
-        const currentBaseCode = existingBase?.unitCode || product.baseUnitCode;
-        if (!currentBaseCode && !isBaseUnit) {
-          throw new RangeError('يجب تحديد وحدة الأساس أولاً قبل إضافة وحدات بديلة');
-        }
-        const [orderMovement] = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, productId)).limit(1);
-        const [purchaseMovement] = await tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, productId)).limit(1);
-        const [inventoryMovement] = await tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, productId)).limit(1);
-        const hasMovementHistory = Boolean(orderMovement || purchaseMovement || inventoryMovement);
-
-        if (isBaseUnit && !currentBaseCode &&
-            (hasMovementHistory || Number(product.stockQuantity || 0) > 0)) {
-          throw new RangeError('لا يمكن تعيين وحدة أساس لصنف له مخزون أو حركات سابقة؛ أنشئ الصنف بكمية صفر وحدد وحدة الأساس قبل إدخال المخزون، أو نفّذ ترحيلاً موثقاً');
-        }
-
-        if (isBaseUnit && currentBaseCode && currentBaseCode !== unitCode) {
-          if (hasMovementHistory) {
-            throw new RangeError('لا يمكن تغيير وحدة الأساس بعد وجود حركات مخزون تاريخية');
-          }
-          assertBaseUnitChangeAllowed({
-            hasStock: Number(product.stockQuantity || 0) > 0,
-            hasDependentAlternateUnits: existingUnits.some((row) => row.unitCode !== currentBaseCode),
-          });
-          throw new RangeError('لا يمكن استبدال وحدة أساس مثبتة مباشرة؛ أنشئ صنفاً جديداً أو نفّذ ترحيلاً موثقاً حتى لا تتغير معاني المخزون');
-        }
-        if (existing && Math.abs(Number(existing.conversionToBase) - conversionToBase) > 1e-10 && hasMovementHistory) {
-          throw new RangeError('لا يمكن تغيير معامل التحويل بعد وجود حركات مخزون تاريخية؛ أنشئ وحدة جديدة بدلاً من تعديل القديمة');
-        }
-        if (currentBaseCode && currentBaseCode !== unitCode) {
-          const [baseDefinition] = await tx.select().from(unitDefinitions).where(eq(unitDefinitions.code, currentBaseCode));
-          if (baseDefinition) assertCompatibleUnitDimensions(baseDefinition.dimension, unit.dimension);
-        }
-
-        const now = new Date().toISOString();
-        let result: any;
-        if (existing) {
-          [result] = await tx.update(productUnits).set({
-            conversionToBase, isBaseUnit, sellingPrice, barcode, isActive: 1, updatedAt: now,
-          }).where(eq(productUnits.id, existing.id)).returning();
-        } else {
-          [result] = await tx.insert(productUnits).values({
-            id: crypto.randomUUID(), productId, unitCode, conversionToBase, isBaseUnit,
-            sellingPrice, barcode, isActive: 1, createdAt: now, updatedAt: now,
-          }).returning();
-        }
-
-        if (isBaseUnit) {
-          for (const row of existingUnits) {
-            if (row.unitCode !== unitCode && row.isBaseUnit) {
-              await tx.update(productUnits).set({ isBaseUnit: 0, updatedAt: now }).where(eq(productUnits.id, row.id));
-            }
-          }
-          await tx.update(products).set({
-            baseUnitCode: unitCode,
-            quantityPrecision: unit.decimalPlaces,
-            updatedAt: now,
-          }).where(eq(products.id, productId));
-        }
-        return result;
-      });
-      res.status(201).json(saved);
-    } catch (error: any) {
-      const message = error?.message || 'Failed to save product unit';
-      const status = /غير موجود|غير نشط/.test(message) ? 404 : error instanceof RangeError ? 409 : 400;
-      res.status(status).json({ error: message });
-    }
-  });
-
-  // --- Currency master data and append-only exchange-rate ledger ---
-  app.get('/api/currencies', async (_req, res) => {
-    try {
-      res.json(await db.select().from(currencies));
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch currencies' });
-    }
-  });
-
-  app.post('/api/currencies', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
-    try {
-      const code = String(req.body?.code || '').trim().toUpperCase();
-      const name = String(req.body?.name || '').trim();
-      const symbol = req.body?.symbol == null ? null : String(req.body.symbol).trim();
-      const decimalPlaces = Number(req.body?.decimalPlaces ?? 2);
-      const supportedCurrencyCodes: string[] =
-        typeof (Intl as any).supportedValuesOf === 'function'
-          ? (Intl as any).supportedValuesOf('currency')
-          : [];
-      const recognizedCode = supportedCurrencyCodes.includes(code);
-      if (!/^[A-Z]{3}$/.test(code) || !recognizedCode || !name || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 4) {
-        return res.status(400).json({ error: 'Currency requires a recognized ISO 4217 code, name, and 0-4 decimal places' });
-      }
-      const now = new Date().toISOString();
-      const [saved] = await db.insert(currencies).values({
-        code, name, symbol, decimalPlaces, isActive: 1, createdAt: now, updatedAt: now,
-      }).onConflictDoUpdate({
-        target: currencies.code,
-        set: { name, symbol, decimalPlaces, updatedAt: now },
-      }).returning();
-      res.status(201).json(saved);
-    } catch {
-      res.status(500).json({ error: 'Failed to save currency' });
-    }
-  });
-
-  app.put('/api/currencies/:code/status', requirePermission('manage_settings'), async (req, res) => {
-    try {
-      const code = String(req.params.code || '').trim().toUpperCase();
-      const isActive = req.body?.isActive === true || req.body?.isActive === 1 ? 1 : 0;
-      if (!isActive) {
-        const [baseSetting] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
-        if (baseSetting?.value === code) return res.status(409).json({ error: 'The configured base currency cannot be deactivated' });
-      }
-      const [saved] = await db.update(currencies).set({ isActive, updatedAt: new Date().toISOString() })
-        .where(eq(currencies.code, code)).returning();
-      if (!saved) return res.status(404).json({ error: 'Currency not found' });
-      res.json(saved);
-    } catch {
-      res.status(500).json({ error: 'Failed to update currency status' });
-    }
-  });
-
-  app.get('/api/currencies/base', async (_req, res) => {
-    try {
-      const [setting] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
-      res.json({ baseCurrencyCode: setting?.value || null });
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch base currency' });
-    }
-  });
-
-  app.put('/api/currencies/base', requirePermission('manage_settings'), async (req, res) => {
-    try {
-      const code = String(req.body?.code || '').trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(code)) return res.status(400).json({ error: 'A valid 3-letter currency code is required' });
-      const [currency] = await db.select().from(currencies).where(eq(currencies.code, code));
-      if (!currency || !currency.isActive) return res.status(400).json({ error: 'Base currency must exist and be active' });
-      const [existingBase] = await db.select().from(settings).where(eq(settings.key, 'baseCurrencyCode'));
-      if (existingBase?.value && existingBase.value !== code) {
-        const [existingPurchase] = await db.select({ id: purchases.id }).from(purchases).limit(1);
-        const [existingOrder] = await db.select({ id: orders.id }).from(orders).limit(1);
-        if (existingPurchase || existingOrder) {
-          return res.status(409).json({ error: 'لا يمكن تغيير العملة الأساسية بعد تسجيل حركات مالية؛ يلزم إجراء تحويل محاسبي مستقل' });
-        }
-      }
-      const now = new Date().toISOString();
-      const [saved] = await db.insert(settings).values({ key: 'baseCurrencyCode', value: code, isSynced: 0, createdAt: now, updatedAt: now })
-        .onConflictDoUpdate({ target: settings.key, set: { value: code, isSynced: 0, updatedAt: now } }).returning();
-      res.json({ baseCurrencyCode: saved.value });
-    } catch {
-      res.status(500).json({ error: 'Failed to set base currency' });
-    }
-  });
-
-  app.get('/api/exchange-rates', async (req, res) => {
-    try {
-      const base = req.query.base ? String(req.query.base).toUpperCase() : undefined;
-      const quote = req.query.quote ? String(req.query.quote).toUpperCase() : undefined;
-      const rows = await db.select().from(exchangeRates);
-      res.json(rows.filter((row) => (!base || row.baseCurrencyCode === base) && (!quote || row.quoteCurrencyCode === quote))
-        .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt)));
-    } catch {
-      res.status(500).json({ error: 'Failed to fetch exchange rates' });
-    }
-  });
-
-  app.post('/api/exchange-rates', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
-    try {
-      const baseCurrencyCode = String(req.body?.baseCurrencyCode || '').trim().toUpperCase();
-      const quoteCurrencyCode = String(req.body?.quoteCurrencyCode || '').trim().toUpperCase();
-      const rate = Number(req.body?.rate);
-      const effectiveAt = String(req.body?.effectiveAt || '').trim();
-      const source = String(req.body?.source || '').trim();
-      if (!/^[A-Z]{3}$/.test(baseCurrencyCode) || !/^[A-Z]{3}$/.test(quoteCurrencyCode) || baseCurrencyCode === quoteCurrencyCode || !Number.isFinite(rate) || rate <= 0 || !effectiveAt || Number.isNaN(Date.parse(effectiveAt)) || !source) {
-        return res.status(400).json({ error: 'Valid distinct currencies, positive rate, effective date, and source are required' });
-      }
-      const active = await db.select().from(currencies);
-      if (![baseCurrencyCode, quoteCurrencyCode].every((code) => active.some((currency) => currency.code === code && currency.isActive))) {
-        return res.status(400).json({ error: 'Both currencies must be registered and active' });
-      }
-      const now = new Date().toISOString();
-      const [saved] = await db.insert(exchangeRates).values({
-        id: crypto.randomUUID(), baseCurrencyCode, quoteCurrencyCode, rate, effectiveAt, source,
-        createdBy: req.authUser?.username || null, createdAt: now, approvedBy: null, approvedAt: null, isSynced: 0,
-      }).returning();
-      res.status(201).json(saved);
-    } catch {
-      res.status(500).json({ error: 'Failed to create exchange rate' });
-    }
-  });
-
-  app.post('/api/exchange-rates/:id/approve', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
-    try {
-      const [rate] = await db.select().from(exchangeRates).where(eq(exchangeRates.id, req.params.id));
-      if (!rate) return res.status(404).json({ error: 'Exchange rate not found' });
-      if (rate.approvedAt) return res.status(409).json({ error: 'Approved exchange rates are immutable' });
-      const now = new Date().toISOString();
-      const [approved] = await db.update(exchangeRates).set({
-        approvedBy: req.authUser?.username || 'admin', approvedAt: now, isSynced: 0,
-      }).where(eq(exchangeRates.id, req.params.id)).returning();
-      res.json(approved);
-    } catch {
-      res.status(500).json({ error: 'Failed to approve exchange rate' });
-    }
-  });
-
   // --- Settings (Filter sensitive keys) ---
   app.get('/api/settings', async (_req, res) => {
     try {
@@ -1961,6 +1480,9 @@ export function createPosApp() {
       );
       res.status(201).json(outcome.result);
     } catch (error) {
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
+      }
       console.error('Purchase failed:', error);
       res.status(500).json({ error: 'Purchase failed' });
     }
@@ -2123,7 +1645,10 @@ export function createPosApp() {
         userName: req.authUser?.name || 'System',
       });
       res.status(201).json(outcome.result);
-    } catch {
+    } catch (error) {
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
+      }
       res.status(500).json({ error: 'Failed to create expense' });
     }
   });
@@ -2137,7 +1662,10 @@ export function createPosApp() {
         { userName: req.authUser?.name || 'System' }
       );
       res.json(outcome.result);
-    } catch {
+    } catch (error) {
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
+      }
       res.status(500).json({ error: 'Failed to delete expense' });
     }
   });
@@ -2216,7 +1744,10 @@ export function createPosApp() {
         userName: req.authUser?.name || 'System',
       });
       res.status(201).json(outcome.result);
-    } catch {
+    } catch (error) {
+      if (error instanceof OperationError || typeof (error as any)?.statusCode === 'number') {
+        return res.status((error as any).statusCode).json({ error: (error as Error).message });
+      }
       res.status(500).json({ error: 'Failed to create payroll' });
     }
   });
@@ -2232,12 +1763,17 @@ export function createPosApp() {
   app.post('/api/branches', requirePermission('manage_branches'), async (req, res) => {
     try {
       const now = new Date().toISOString();
+      const data = { ...req.body };
+      if (typeof data.isActive === 'boolean') {
+        if (!data.status) data.status = data.isActive ? 'active' : 'inactive';
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const [record] = await db
         .insert(branches)
-        .values({ ...req.body, isSynced: 0, createdAt: now, updatedAt: now })
+        .values({ ...data, isSynced: 0, createdAt: now, updatedAt: now })
         .onConflictDoUpdate({
           target: branches.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
+          set: { ...data, isSynced: 0, updatedAt: now },
         })
         .returning();
       res.status(201).json(record);
@@ -2248,9 +1784,14 @@ export function createPosApp() {
 
   app.put('/api/branches/:id', requirePermission('manage_branches'), async (req, res) => {
     try {
+      const data = { ...req.body };
+      if (typeof data.isActive === 'boolean') {
+        if (!data.status) data.status = data.isActive ? 'active' : 'inactive';
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const [record] = await db
         .update(branches)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
+        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
         .where(eq(branches.id, parseInt(req.params.id)))
         .returning();
       res.json(record);
@@ -2279,12 +1820,20 @@ export function createPosApp() {
   app.post('/api/offers', requirePermission('manage_offers'), async (req, res) => {
     try {
       const now = new Date().toISOString();
+      const data = { ...req.body };
+      if (Array.isArray(data.applicableProducts)) {
+        data.applicableProducts = JSON.stringify(data.applicableProducts);
+      }
+      if (typeof data.isActive === 'boolean') {
+        if (!data.status) data.status = data.isActive ? 'active' : 'inactive';
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const [record] = await db
         .insert(offers)
-        .values({ ...req.body, isSynced: 0, createdAt: now, updatedAt: now })
+        .values({ ...data, isSynced: 0, createdAt: now, updatedAt: now })
         .onConflictDoUpdate({
           target: offers.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
+          set: { ...data, isSynced: 0, updatedAt: now },
         })
         .returning();
       res.status(201).json(record);
@@ -2295,9 +1844,17 @@ export function createPosApp() {
 
   app.put('/api/offers/:id', requirePermission('manage_offers'), async (req, res) => {
     try {
+      const data = { ...req.body };
+      if (Array.isArray(data.applicableProducts)) {
+        data.applicableProducts = JSON.stringify(data.applicableProducts);
+      }
+      if (typeof data.isActive === 'boolean') {
+        if (!data.status) data.status = data.isActive ? 'active' : 'inactive';
+        data.isActive = data.isActive ? 1 : 0;
+      }
       const [record] = await db
         .update(offers)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
+        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
         .where(eq(offers.id, parseInt(req.params.id)))
         .returning();
       res.json(record);
@@ -2400,13 +1957,14 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/auditLogs', async (req, res) => {
+  app.post('/api/auditLogs', async (req: AuthenticatedRequest, res) => {
     try {
       const [log] = await db
         .insert(auditLogs)
         .values({
           ...req.body,
           id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
+          userName: req.authUser?.name || req.body.userName || 'System',
           action: req.body.action || req.body.operationName || req.body.type || 'log',
           date: req.body.date || new Date().toISOString(),
         })
@@ -2418,13 +1976,236 @@ export function createPosApp() {
     }
   });
 
-  // --- Authoritative Financial Report (Income Statement, VAT Summary, Balance Sheet, Trial Balance) ---
+  // --- Service Recipes, Exchange Rate History & Fiscal Periods ---
+  app.get('/api/serviceRecipes', async (_req, res) => {
+    try {
+      res.json(await db.select().from(serviceRecipes));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch service recipes' });
+    }
+  });
+
+  app.post('/api/serviceRecipes', requireAnyPermission(['add_product', 'edit_product']), async (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const id = req.body.id ? String(req.body.id) : crypto.randomUUID();
+      const [rec] = await db
+        .insert(serviceRecipes)
+        .values({
+          id,
+          parentProductId: Number(req.body.parentProductId),
+          ingredientProductId: Number(req.body.ingredientProductId),
+          ingredientName: req.body.ingredientName || null,
+          quantity: Number(req.body.quantity || 0),
+          unit: req.body.unit || 'piece',
+          isSynced: 0,
+          createdAt: req.body.createdAt || now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: serviceRecipes.id,
+          set: {
+            quantity: Number(req.body.quantity || 0),
+            unit: req.body.unit || 'piece',
+            ingredientName: req.body.ingredientName || null,
+            isSynced: 0,
+            updatedAt: now,
+          },
+        })
+        .returning();
+      res.status(201).json(rec);
+    } catch {
+      res.status(500).json({ error: 'Failed to save service recipe' });
+    }
+  });
+
+  app.delete('/api/serviceRecipes/:id', requireAnyPermission(['edit_product', 'delete_product']), async (req, res) => {
+    try {
+      await db.delete(serviceRecipes).where(eq(serviceRecipes.id, String(req.params.id)));
+      res.json({ deleted: req.params.id });
+    } catch {
+      res.status(500).json({ error: 'Failed to delete service recipe' });
+    }
+  });
+
+  app.get('/api/exchangeRateHistory', async (_req, res) => {
+    try {
+      res.json(
+        await db
+          .select()
+          .from(exchangeRateHistory)
+          .orderBy(sql`${exchangeRateHistory.effectiveFrom} DESC`)
+      );
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch exchange rate history' });
+    }
+  });
+
+  app.post('/api/exchangeRateHistory', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const now = new Date().toISOString();
+      const rateVal = Number(req.body.rate || 0);
+      if (rateVal <= 0) return res.status(400).json({ error: 'سعر الصرف يجب أن يكون أكبر من صفر' });
+
+      const currency = String(req.body.currency || 'USD').toUpperCase();
+      const id = req.body.id ? String(req.body.id) : crypto.randomUUID();
+
+      const [saved] = await db
+        .insert(exchangeRateHistory)
+        .values({
+          id,
+          currency,
+          rate: rateVal,
+          source: req.body.source || 'manual',
+          effectiveFrom: req.body.effectiveFrom || now,
+          notes: req.body.notes || null,
+          createdBy: req.authUser?.name || 'System',
+          isSynced: 0,
+          createdAt: now,
+        })
+        .returning();
+
+      // Also sync active exchangeRate setting if currency is USD
+      if (currency === 'USD') {
+        await db
+          .insert(settings)
+          .values({ key: 'exchangeRate', value: String(rateVal), isSynced: 0, createdAt: now, updatedAt: now })
+          .onConflictDoUpdate({
+            target: settings.key,
+            set: { value: String(rateVal), isSynced: 0, updatedAt: now },
+          });
+      }
+
+      res.status(201).json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to save exchange rate' });
+    }
+  });
+
+  app.get('/api/fiscalPeriods', async (_req, res) => {
+    try {
+      res.json(await db.select().from(fiscalPeriods).orderBy(sql`${fiscalPeriods.startDate} DESC`));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch fiscal periods' });
+    }
+  });
+
+  app.post('/api/fiscalPeriods', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const { id, name, startDate, endDate, notes } = req.body || {};
+      if (!name || !startDate || !endDate) {
+        return res.status(400).json({ error: 'اسم الفترة وتاريخ البداية والنهاية مطلوبة' });
+      }
+      const periodId = id ? String(id) : crypto.randomUUID();
+      const [saved] = await db
+        .insert(fiscalPeriods)
+        .values({
+          id: periodId,
+          name: String(name),
+          startDate: String(startDate).slice(0, 10),
+          endDate: String(endDate).slice(0, 10),
+          status: 'open',
+          notes: notes || null,
+          isSynced: 0,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: fiscalPeriods.id,
+          set: {
+            name: String(name),
+            startDate: String(startDate).slice(0, 10),
+            endDate: String(endDate).slice(0, 10),
+            notes: notes || null,
+            isSynced: 0,
+            updatedAt: now,
+          },
+        })
+        .returning();
+      res.status(201).json(saved);
+    } catch {
+      res.status(500).json({ error: 'Failed to save fiscal period' });
+    }
+  });
+
+  app.post('/api/fiscalPeriods/:id/close', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const now = new Date().toISOString();
+      const [updated] = await db
+        .update(fiscalPeriods)
+        .set({
+          status: 'closed',
+          closedAt: now,
+          closedBy: req.authUser?.name || 'System',
+          updatedAt: now,
+          isSynced: 0,
+        })
+        .where(eq(fiscalPeriods.id, String(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: 'Fiscal period not found' });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: 'Failed to close fiscal period' });
+    }
+  });
+
+  app.post('/api/fiscalPeriods/:id/reopen', requirePermission('manage_settings'), async (req: AuthenticatedRequest, res) => {
+    try {
+      if (req.authUser?.role !== 'admin' && req.authUser?.role !== 'manager') {
+        return res.status(403).json({ error: 'إعادة فتح الفترة المالية يتطلب صلاحية مدير أو مسؤول' });
+      }
+      const now = new Date().toISOString();
+      const [updated] = await db
+        .update(fiscalPeriods)
+        .set({
+          status: 'open',
+          closedAt: null,
+          closedBy: null,
+          updatedAt: now,
+          isSynced: 0,
+        })
+        .where(eq(fiscalPeriods.id, String(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: 'Fiscal period not found' });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: 'Failed to reopen fiscal period' });
+    }
+  });
+
+  app.get('/api/system/status', async (_req, res) => {
+    try {
+      const dbPath = getDbPath();
+      const stats = fs.existsSync(dbPath) ? fs.statSync(dbPath) : null;
+      const walMode = sqliteInstance.pragma('journal_mode', { simple: true });
+      const integrity = sqliteInstance.pragma('quick_check', { simple: true });
+      const [lastBackupRow] = await db.select().from(settings).where(eq(settings.key, 'lastAutoBackup'));
+
+      res.json({
+        ip: getLocalIPAddress(),
+        port: Number(process.env.PORT) || 3000,
+        uptimeSeconds: Math.floor(process.uptime()),
+        dbPath,
+        dbSizeBytes: stats ? stats.size : 0,
+        walMode,
+        integrity,
+        lastAutoBackup: lastBackupRow?.value || null,
+        connectedCount: connectedTerminals.size,
+        connectedTerminals: Array.from(connectedTerminals.values()),
+        serverTime: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Status check failed' });
+    }
+  });
+
+  // --- Authoritative Financial Report (Income Statement, VAT Summary, Balance Sheet, Trial Balance, Aging & Cash Flow) ---
   app.get('/api/reports/financial', requirePermission('view_reports'), async (req, res) => {
     try {
       const { startDate, endDate, branchId } = req.query;
       const allOrders = await db.select().from(orders);
       const allOrderItems = await db.select().from(orderItems);
-      const allProducts = await db.select().from(products);
       const allReturns = await db.select().from(returns);
       const allPurchases = await db.select().from(purchases);
       const allPurchaseReturns = await db.select().from(purchaseReturns);
@@ -2434,6 +2215,8 @@ export function createPosApp() {
       const allAccounts = await db.select().from(accounts);
       const allJournalEntries = await db.select().from(journalEntries);
       const allTransactions = await db.select().from(transactions);
+      const allCustomers = await db.select().from(customers);
+      const allSuppliers = await db.select().from(suppliers);
 
       const round = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
       const startMs = startDate ? new Date(String(startDate)).getTime() : null;
@@ -2473,23 +2256,27 @@ export function createPosApp() {
       const netSalesExclTax = round(grossSales - discounts - returnsExclTax);
       const netVatPayable = round(salesTax - returnsTax);
 
-      const productsById = new Map(allProducts.map((product) => [product.id, product]));
       const grossCogs = round(
-        fItems.reduce((sum, item) => sum + getHistoricalCostAmount(item, productsById.get(item.productId)), 0)
+        fItems.reduce((s, i) => s + Number(i.costPriceAtTimeOfSale || 0) * Number(i.quantity || 0), 0)
       );
       const returnedCogs = round(fReturns.reduce((s, r) => s + Number(r.totalCostReversed || 0), 0));
-      const netCogs = round(grossCogs - returnedCogs);
+
+      const periodJournalIds = new Set(
+        allJournalEntries
+          .filter((je) => inRange(je.date) && matchBranch(je.branchId))
+          .map((je) => je.id)
+      );
+      const cogsTxs = allTransactions.filter(
+        (t) => t.accountId === '5100' && periodJournalIds.has(t.journalEntryId)
+      );
+      const netCogs =
+        cogsTxs.length > 0
+          ? round(cogsTxs.reduce((s, t) => s + Number(t.debit || 0) - Number(t.credit || 0), 0))
+          : round(grossCogs - returnedCogs);
 
       const grossProfit = round(netSalesExclTax - netCogs);
       const operatingExpenses = round(fExpenses.reduce((s, e) => s + Number(e.amount || 0), 0));
       const payrollExpenses = round(fPayrolls.reduce((s, p) => s + Number(p.netSalary || 0), 0));
-
-      // Stocktaking variance expense/gain (Account 5400)
-      const periodJournalIds = new Set(
-        allJournalEntries
-          .filter((je) => je.referenceType === 'stocktake' && inRange(je.date) && matchBranch(je.branchId))
-          .map((je) => je.id)
-      );
       const stocktakeAdjustments = round(
         allTransactions
           .filter((t) => t.accountId === '5400' && periodJournalIds.has(t.journalEntryId))
@@ -2502,6 +2289,34 @@ export function createPosApp() {
       const inventoryCostValue = round(
         filteredBatches.reduce((s, b) => s + Number(b.remainingQuantity || 0) * Number(b.costPrice || 0), 0)
       );
+
+      // Debt Aging (Receivables from credit orders) & Payables Summary
+      const nowMs = Date.now();
+      const aging = { bucket0_30: 0, bucket31_60: 0, bucket61_90: 0, bucket90Plus: 0, totalReceivables: 0, totalPayables: 0 };
+      aging.totalReceivables = round(allCustomers.reduce((s, c) => s + Math.max(0, Number(c.balance || 0)), 0));
+      aging.totalPayables = round(allSuppliers.reduce((s, sup) => s + Math.max(0, Number(sup.balance || 0)), 0));
+
+      for (const o of allOrders) {
+        if (o.status === 'void' || o.paymentMethod !== 'credit' || !matchBranch(o.branchId)) continue;
+        const unpaid = round(Number(o.netAmount || 0) - Number(o.paidAmount || 0) - Number(o.returnedAmount || 0));
+        if (unpaid <= 0.01) continue;
+        const ageDays = Math.floor((nowMs - new Date(o.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+        if (ageDays <= 30) aging.bucket0_30 = round(aging.bucket0_30 + unpaid);
+        else if (ageDays <= 60) aging.bucket31_60 = round(aging.bucket31_60 + unpaid);
+        else if (ageDays <= 90) aging.bucket61_90 = round(aging.bucket61_90 + unpaid);
+        else aging.bucket90Plus = round(aging.bucket90Plus + unpaid);
+      }
+
+      // Cash Flow Summary (Cash 1010 + Bank 1020 movements during period)
+      let cashInflows = 0;
+      let cashOutflows = 0;
+      for (const t of allTransactions) {
+        if (t.accountId !== '1010' && t.accountId !== '1020') continue;
+        const je = allJournalEntries.find((j) => j.id === t.journalEntryId);
+        if (je && (!inRange(je.date) || !matchBranch(je.branchId))) continue;
+        cashInflows = round(cashInflows + Number(t.debit || 0));
+        cashOutflows = round(cashOutflows + Number(t.credit || 0));
+      }
 
       // Balance sheet from authoritative account balances
       const assets = allAccounts
@@ -2580,6 +2395,12 @@ export function createPosApp() {
         purchaseReturnsTotal: round(fPurchaseReturns.reduce((s, pr) => s + Number(pr.totalReturn || 0), 0)),
         salesCount: fOrders.length,
         accounts: allAccounts,
+        aging,
+        cashFlow: {
+          inflows: cashInflows,
+          outflows: cashOutflows,
+          netCashFlow: round(cashInflows - cashOutflows),
+        },
         balanceSheet: {
           assets,
           liabilities,
@@ -2614,8 +2435,8 @@ export function createPosApp() {
     }
   });
 
-  // --- Sync Queue ---
-  app.get('/api/sync-queue', async (_req, res) => {
+  // --- Sync Queue (Admin / Settings Protected) ---
+  app.get('/api/sync-queue', requirePermission('manage_settings'), async (_req, res) => {
     try {
       res.json(
         await db.select().from(syncQueue).orderBy(sql`${syncQueue.createdAt} DESC`).limit(100)
@@ -2625,7 +2446,7 @@ export function createPosApp() {
     }
   });
 
-  app.delete('/api/sync-queue/:id', async (req, res) => {
+  app.delete('/api/sync-queue/:id', requirePermission('manage_settings'), async (req, res) => {
     try {
       await db.delete(syncQueue).where(eq(syncQueue.id, req.params.id));
       res.json({ success: true });
@@ -2634,7 +2455,7 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/sync-queue/:id/retry', async (req, res) => {
+  app.post('/api/sync-queue/:id/retry', requirePermission('manage_settings'), async (req, res) => {
     try {
       await db.update(syncQueue).set({ status: 'pending' }).where(eq(syncQueue.id, req.params.id));
       res.json({ success: true });
@@ -2643,7 +2464,7 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/sync-queue/process', async (_req, res) => {
+  app.post('/api/sync-queue/process', requirePermission('manage_settings'), async (_req, res) => {
     try {
       const { processSyncQueue } = await import('../syncEngine.js');
       await processSyncQueue();
@@ -2653,7 +2474,7 @@ export function createPosApp() {
     }
   });
 
-  // --- WAL-Safe Backup & Restore ---
+  // --- WAL-Safe Backup & Restore (Windows File-Lock Safe) ---
   app.get('/api/backup', requirePermission('manage_settings'), async (_req, res) => {
     try {
       const { filename, path: backupPath } = await createSafeBackup();
@@ -2716,16 +2537,32 @@ export function createPosApp() {
           fs.unlinkSync(req.file.path);
           return res.status(400).json({ error: 'Uploaded SQLite file failed integrity check' });
         }
-        // Take safety backup before restoring
+        // Take safety backup before closing handle
         await createSafeBackup();
         const dbPath = getDbPath();
-        await sqliteInstance.backup(dbPath + '.tmp-restore');
+
+        // Close live connection & remove stale WAL/SHM files so Windows does not EBUSY
+        closeDatabaseConnection();
+        for (const ext of ['-wal', '-shm']) {
+          if (fs.existsSync(dbPath + ext)) {
+            fs.unlinkSync(dbPath + ext);
+          }
+        }
+
         fs.copyFileSync(req.file.path, dbPath);
         fs.unlinkSync(req.file.path);
-        res.json({ message: 'Data imported safely. Please restart the server.' });
+
+        const { sqliteInstance: freshSqlite } = reopenDatabaseConnection();
+        ensureSchemaUpgrades(freshSqlite);
+        await seedDefaultUsersAndAccounts();
+
+        res.json({ message: 'تم استعادة قاعدة البيانات بنجاح وتحديث الاتصال.' });
       } catch (error) {
+        try {
+          reopenDatabaseConnection();
+        } catch {}
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        res.status(500).json({ error: 'Failed to import data' });
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to import data' });
       }
     }
   );
@@ -2734,10 +2571,24 @@ export function createPosApp() {
     try {
       await createSafeBackup();
       const dbPath = getDbPath();
-      if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-      res.json({ message: 'Backup saved and data cleared. Please restart the server.' });
-    } catch {
-      res.status(500).json({ error: 'Failed to clear data' });
+      closeDatabaseConnection();
+
+      for (const target of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (fs.existsSync(target)) {
+          fs.unlinkSync(target);
+        }
+      }
+
+      const { sqliteInstance: freshSqlite } = reopenDatabaseConnection();
+      ensureSchemaUpgrades(freshSqlite);
+      await seedDefaultUsersAndAccounts();
+
+      res.json({ message: 'تم حفظ نسخة احتياطية وتصفير قاعدة البيانات بأمان.' });
+    } catch (error) {
+      try {
+        reopenDatabaseConnection();
+      } catch {}
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to clear data' });
     }
   });
 

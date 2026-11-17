@@ -1,8 +1,8 @@
 import React, { forwardRef } from 'react';
-import { formatAmount } from '../utils/numberFormat.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { Order, OrderItem } from '../db/db';
 import { format } from 'date-fns';
+import { formatNumber, formatQty } from '../utils/format';
 
 interface ReceiptProps {
   order: Order;
@@ -20,12 +20,16 @@ interface ReceiptProps {
     showTaxDetails: boolean;
     showCustomerInfo: boolean;
     showLogoOnReceipt: boolean;
+    currencyDecimals?: number;
+    quantityDecimals?: number;
   };
 }
 
 export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
   ({ order, items, settings }, ref) => {
-    const qrData = `Seller: ${settings.businessName}\nTax No: ${settings.taxNumber}\nDate: ${format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}\nTotal: ${formatAmount(order.netAmount)}\nVAT: ${formatAmount(order.taxAmount)}`;
+    const decimals = settings.currencyDecimals ?? 2;
+    const qtyDecimals = settings.quantityDecimals ?? 3;
+    const qrData = `Seller: ${settings.businessName}\nTax No: ${settings.taxNumber}\nDate: ${format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}\nTotal: ${order.netAmount.toFixed(2)}\nVAT: ${order.taxAmount.toFixed(2)}`;
 
     return (
       <div ref={ref} className="p-6 bg-white text-black w-[80mm] mx-auto text-sm font-sans" dir="rtl">
@@ -76,15 +80,17 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
               <tr key={index} className="border-b border-gray-300 border-dashed">
                 <td className="py-2 pr-1">
                   <div>{item.productName}</div>
-                  {(item.unitCode || item.unit) && <div className="text-[10px] text-gray-500">{item.unitCode || item.unit}</div>}
                   {settings.showTaxDetails && (
                     <div className="text-[10px] text-gray-500">
                       شامل الضريبة ({settings.taxRate}%)
                     </div>
                   )}
                 </td>
-                <td className="text-center py-2">{item.quantity}</td>
-                <td className="text-left py-2 pl-1 font-mono">{formatAmount(item.total)}</td>
+                <td className="text-center py-2 tabular-nums">
+                  {formatQty(item.quantity, qtyDecimals)}
+                  {item.unit && item.unit !== 'piece' ? <span className="text-[10px] text-gray-500 block">{item.unit}</span> : null}
+                </td>
+                <td className="text-left py-2 pl-1 font-mono tabular-nums">{formatNumber(item.total, decimals)}</td>
               </tr>
             ))}
           </tbody>
@@ -94,21 +100,21 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         <div className="border-b-2 border-black border-dashed mb-6 pb-4 space-y-1 tabular-nums">
           <div className="flex justify-between text-gray-600">
             <span>الصافي قبل الضريبة:</span>
-            <span className="font-mono">{formatAmount(Math.max(0, order.netAmount - order.taxAmount))}</span>
+            <span className="font-mono">{formatNumber(Math.max(0, order.netAmount - order.taxAmount), decimals)}</span>
           </div>
           {order.discountAmount > 0 && (
             <div className="flex justify-between text-gray-600">
               <span>الخصم:</span>
-              <span className="font-mono">-{formatAmount(order.discountAmount)}</span>
+              <span className="font-mono">-{formatNumber(order.discountAmount, decimals)}</span>
             </div>
           )}
           <div className="flex justify-between text-gray-600">
             <span>ضريبة القيمة المضافة ({settings.taxRate}%):</span>
-            <span className="font-mono">{formatAmount(order.taxAmount)}</span>
+            <span className="font-mono">{formatNumber(order.taxAmount, decimals)}</span>
           </div>
           <div className="flex justify-between font-bold text-xl mt-3 pt-3 border-t border-gray-300">
             <span>الإجمالي شامل الضريبة:</span>
-            <span className="font-mono">{formatAmount(order.netAmount)} {settings.currency}</span>
+            <span className="font-mono">{formatNumber(order.netAmount, decimals)} {settings.currency}</span>
           </div>
           <div className="flex justify-between text-sm text-gray-600 mt-1">
             <span>طريقة الدفع:</span>
@@ -118,7 +124,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
                 : order.paymentMethod === 'card'
                 ? 'شبكة (بطاقة)'
                 : order.paymentMethod === 'mixed'
-                ? `مختلط (نقد: ${formatAmount(Number(order.cashAmount || 0))} | شبكة: ${formatAmount(Number(order.cardAmount || 0))})`
+                ? `مختلط (نقد: ${formatNumber(Number(order.cashAmount || 0), decimals)} | شبكة: ${formatNumber(Number(order.cardAmount || 0), decimals)})`
                 : 'آجل (ذمم)'}
             </span>
           </div>

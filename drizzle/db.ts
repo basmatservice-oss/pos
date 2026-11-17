@@ -8,6 +8,10 @@ import fs from 'fs';
 // Determine the best path for the database
 export const getDbPath = () => {
   if (process.env.POS_DB_PATH) {
+    const dir = path.dirname(process.env.POS_DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     return process.env.POS_DB_PATH;
   }
 
@@ -28,8 +32,31 @@ export const getDbPath = () => {
   return path.join(process.cwd(), 'dev.db');
 };
 
-const sqlite = new Database(getDbPath());
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('synchronous = NORMAL');
-export const sqliteInstance = sqlite;
-export const db = drizzle(sqlite, { schema });
+function openSqliteConnection(): Database.Database {
+  const instance = new Database(getDbPath());
+  instance.pragma('journal_mode = WAL');
+  instance.pragma('synchronous = NORMAL');
+  instance.pragma('busy_timeout = 5000');
+  return instance;
+}
+
+export let sqliteInstance = openSqliteConnection();
+export let db = drizzle(sqliteInstance, { schema });
+
+export function closeDatabaseConnection() {
+  try {
+    if (sqliteInstance && sqliteInstance.open) {
+      sqliteInstance.pragma('wal_checkpoint(TRUNCATE)');
+      sqliteInstance.close();
+    }
+  } catch (err) {
+    console.warn('Failed during SQLite close:', err);
+  }
+}
+
+export function reopenDatabaseConnection() {
+  closeDatabaseConnection();
+  sqliteInstance = openSqliteConnection();
+  db = drizzle(sqliteInstance, { schema });
+  return { sqliteInstance, db };
+}

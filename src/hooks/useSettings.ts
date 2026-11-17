@@ -47,7 +47,14 @@ export function useSettings() {
     themeName: 'modern' as 'modern' | 'classic' | 'brutalist' | 'glassmorphism' | 'playful',
     businessType: 'multi' as 'supermarket' | 'pharmacy' | 'apparel' | 'restaurant' | 'electronics' | 'hardware' | 'bookstore' | 'multi',
     deviceRole: 'server' as 'server' | 'client',
-    exchangeRate: 1
+    exchangeRate: 1,
+    baseCurrency: 'ر.س',
+    currencyDecimals: 2,
+    quantityDecimals: 3,
+    allowNegativeStock: true,
+    offlineStockPolicy: 'allow_with_alert' as 'allow_with_alert' | 'block' | 'manager_override',
+    inventoryValuationMethod: 'fifo' as 'fifo' | 'weighted_average',
+    targetProfitMargin: 25,
   };
 
   settings.forEach(setting => {
@@ -67,6 +74,7 @@ export function useSettings() {
     if (key === 'storeAddress') storeSettings.businessAddress = value;
     if (key === 'storePhone') storeSettings.businessPhone = value;
     if (key === 'showTaxOnReceipt') storeSettings.showTaxDetails = value === 'true';
+    if (key === 'currency' && !settings.some(s => s.key === 'baseCurrency')) storeSettings.baseCurrency = value;
   });
 
   return storeSettings;

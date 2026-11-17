@@ -9,7 +9,7 @@ import {
 import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
-import { getBasePerDocumentUnit } from '../utils/currencyConversion.js';
+import { roundQty } from '../utils/format';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 
@@ -36,302 +36,72 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-async function appendLocalInventoryMovement(
-  operationId: string,
-  syncStatus: 'synced' | 'pending',
-  input: {
-    productId: number;
-    branchId?: number | null;
-    movementType: string;
-    sourceType: string;
-    sourceId: string;
-    sourceLineId?: string | number | null;
-    inputQuantity?: number | null;
-    unitCode?: string | null;
-    baseUnitCode?: string | null;
-    conversionToBase?: number;
-    quantityDeltaBase: number;
-    unitCost?: number;
-    totalCost?: number;
-    batchAllocations?: any[] | string | null;
-    reason?: string | null;
+function resolveLocalUnitFactor(product: any, item: any): number {
+  if (Number(item?.conversionFactor) > 0 && item?.unit && item.unit !== 'piece') {
+    return Number(item.conversionFactor);
   }
-) {
-  const movementKey = [
-    input.movementType,
-    input.sourceType,
-    input.sourceId,
-    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
-  ].join(':');
-  const allocations = typeof input.batchAllocations === 'string'
-    ? input.batchAllocations
-    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
-
-  // Keep local rows pending until the cursor pull confirms the authoritative server row.
-  const localSyncStatus = syncStatus === 'synced' ? 'pending' : syncStatus;
-  await db.inventoryMovements.put({
-    id: `${operationId}:${movementKey}`,
-    movementKey,
-    productId: Number(input.productId),
-    branchId: input.branchId ?? null,
-    movementType: input.movementType,
-    sourceType: input.sourceType,
-    sourceId: String(input.sourceId),
-    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
-    operationId,
-    deviceId: getDeviceId(),
-    createdBy: null,
-    inputQuantity: input.inputQuantity ?? null,
-    unitCode: input.unitCode ?? null,
-    baseUnitCode: input.baseUnitCode ?? null,
-    conversionToBase: Number(input.conversionToBase || 1),
-    quantityDeltaBase: Number(input.quantityDeltaBase),
-    unitCost: Number(input.unitCost || 0),
-    totalCost: Math.abs(Number(input.totalCost || 0)),
-    batchAllocations: allocations,
-    reason: input.reason ?? null,
-    createdAt: new Date().toISOString(),
-    syncStatus: localSyncStatus,
-  });
-}
-
-function generateTempNumericId(): number {
-  // 52 random bits remain within JavaScript's safe-integer range and SQLite INTEGER.
-  return Number.parseInt(generateUUID().replace(/-/g, '').slice(0, 13), 16) || Date.now() * 1000;
-}
-
-let isReconcilingServerSnapshot = false;
-let operationDispatchQueue: Promise<void> = Promise.resolve();
-
-async function reconcileServerSnapshot(): Promise<void> {
-  // syncAll owns the isSyncing lock. Setting it here first would make syncAll
-  // reject its own reconciliation attempt as an overlapping cycle.
-  isReconcilingServerSnapshot = true;
-  try {
-    const { syncService } = await import('./syncService');
-    await syncService.syncAll();
-  } catch {
-    // The operation is already committed; the next scheduled sync will reconcile it.
-  } finally {
-    isReconcilingServerSnapshot = false;
-  }
-}
-
-function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 0)): number {
-  const originalQuantity = Number(item?.quantity || 0);
-  const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
-  const storedBaseQuantity = Number(item?.baseQuantity);
-  if (hasStoredBaseQuantity && originalQuantity > 0 && Number.isFinite(storedBaseQuantity) && storedBaseQuantity >= 0) {
-    return storedBaseQuantity * (quantity / originalQuantity);
-  }
-  const factor = Number(item?.conversionToBase ?? item?.selectedConversionToBase ??
-    (item?.unit === 'box' || item?.selectedUnit === 'box' ? item?.conversionFactor : 1) ?? 1);
-  return quantity * (Number.isFinite(factor) && factor > 0 ? factor : 1);
-}
-
-type LocalBatchAllocation = { batchId: string | number | null; quantity: number; costPrice: number };
-
-function assertLocalBaseUnitMatches(product: any, item: any): void {
-  if (item?.baseUnitCode && String(item.baseUnitCode) !== String(product?.baseUnitCode || '')) {
-    throw new Error('تغيرت وحدة الأساس للصنف؛ لا يمكن تطبيق حركة مسجلة بوحدة أساس قديمة محلياً');
-  }
-}
-
-function parseLocalBatchAllocations(value: unknown): LocalBatchAllocation[] {
-  try {
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((row: any) => row && Number(row.quantity) > 0)
-      .map((row: any) => ({
-        batchId: row.batchId == null ? null : row.batchId,
-        quantity: Number(row.quantity),
-        costPrice: Number(row.costPrice || 0),
-      }));
-  } catch {
-    return [];
-  }
-}
-
-async function consumeLocalInventoryFIFO(
-  productId: number,
-  quantityInBaseUnits: number,
-  fallbackCost: number,
-  syncStatus: 'synced' | 'pending'
-): Promise<{ allocations: LocalBatchAllocation[]; totalCost: number; averageUnitCost: number }> {
-  const now = new Date().toISOString();
-  const batches = await db.inventoryBatches.where('productId').equals(productId).toArray();
-  batches.sort((a, b) =>
-    String(a.purchaseDate || a.createdAt || '').localeCompare(String(b.purchaseDate || b.createdAt || '')) ||
-    String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
-  );
-
-  let remaining = quantityInBaseUnits;
-  let totalCost = 0;
-  const allocations: LocalBatchAllocation[] = [];
-  for (const batch of batches) {
-    if (remaining <= 1e-9) break;
-    const available = Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0));
-    if (available <= 0) continue;
-    const take = Math.min(remaining, available);
-    const costPrice = Number(batch.costPrice ?? fallbackCost);
-    await db.inventoryBatches.update(batch.id!, {
-      remainingQuantity: available - take,
-      updatedAt: now,
-      syncStatus,
-    });
-    allocations.push({ batchId: batch.id!, quantity: take, costPrice });
-    totalCost += take * costPrice;
-    remaining -= take;
-  }
-
-  if (remaining > 1e-9) {
-    const costPrice = Number(fallbackCost || 0);
-    allocations.push({ batchId: null, quantity: remaining, costPrice });
-    totalCost += remaining * costPrice;
-  }
-
-  return {
-    allocations,
-    totalCost: roundMoney(totalCost),
-    averageUnitCost: quantityInBaseUnits > 0 ? totalCost / quantityInBaseUnits : Number(fallbackCost || 0),
-  };
-}
-
-async function restoreLocalInventoryFIFO(
-  productId: number,
-  quantityInBaseUnits: number,
-  sourceAllocations: LocalBatchAllocation[],
-  fallbackCost: number,
-  branchId: number | undefined,
-  syncStatus: 'synced' | 'pending',
-  batchIdPrefix: string
-): Promise<{
-  restoredAllocations: LocalBatchAllocation[];
-  remainingAllocations: LocalBatchAllocation[];
-  totalCostRestored: number;
-}> {
-  const now = new Date().toISOString();
-  const product = await db.products.get(productId);
-  if (!product) throw new Error(`الصنف رقم ${productId} غير موجود`);
-
-  let remaining = quantityInBaseUnits;
-  let totalCostRestored = 0;
-  let createdBatchIndex = 0;
-  const restoredAllocations: LocalBatchAllocation[] = [];
-  const remainingAllocations = sourceAllocations
-    .filter((allocation) => allocation && Number(allocation.quantity) > 0)
-    .map((allocation) => ({ ...allocation, quantity: Number(allocation.quantity) }));
-
-  const createReturnBatch = async (quantity: number, costPrice: number) => {
-    if (quantity <= 0) return;
-    const batchId = `${batchIdPrefix}-${createdBatchIndex++}`;
-    await db.inventoryBatches.put({
-      id: batchId,
-      productId,
-      purchaseId: null,
-      quantity,
-      remainingQuantity: quantity,
-      costPrice,
-      unitCode: product.baseUnitCode || null,
-      baseUnitCode: product.baseUnitCode || null,
-      conversionToBase: 1,
-      baseQuantity: quantity,
-      purchaseDate: now,
-      branchId,
-      syncStatus,
-      createdAt: now,
-      updatedAt: now,
-    });
-    restoredAllocations.push({ batchId, quantity, costPrice });
-  };
-
-  for (let i = remainingAllocations.length - 1; i >= 0 && remaining > 1e-9; i--) {
-    const allocation = remainingAllocations[i];
-    const take = Math.min(remaining, allocation.quantity);
-    if (take <= 0) continue;
-    const costPrice = Number(allocation.costPrice ?? fallbackCost);
-    let restoredToOriginal = 0;
-
-    if (allocation.batchId) {
-      const batch = await db.inventoryBatches.get(allocation.batchId) ||
-        (typeof allocation.batchId === 'string' && /^\d+$/.test(allocation.batchId)
-          ? await db.inventoryBatches.get(Number(allocation.batchId))
-          : undefined);
-      if (batch) {
-        const capacity = Math.max(
-          0,
-          Number(batch.quantity || 0) - Number(batch.remainingQuantity ?? 0)
-        );
-        restoredToOriginal = Math.min(take, capacity);
-        if (restoredToOriginal > 0) {
-          await db.inventoryBatches.update(batch.id!, {
-            remainingQuantity: Number(batch.remainingQuantity ?? 0) + restoredToOriginal,
-            updatedAt: now,
-            syncStatus,
-          });
-          restoredAllocations.push({
-            batchId: batch.id!,
-            quantity: restoredToOriginal,
-            costPrice,
-          });
+  const unitName = String(item?.unit || item?.selectedUnit || 'piece');
+  if (product?.unitsJson) {
+    try {
+      const units = JSON.parse(product.unitsJson);
+      if (Array.isArray(units)) {
+        const matched = units.find((u: any) => u?.name === unitName);
+        if (matched && Number(matched.conversionFactor) > 0) {
+          return Number(matched.conversionFactor);
         }
       }
-    }
-
-    const missing = take - restoredToOriginal;
-    if (missing > 1e-9) await createReturnBatch(missing, costPrice);
-    totalCostRestored += take * costPrice;
-    allocation.quantity -= take;
-    remaining -= take;
+    } catch {}
   }
-
-  if (remaining > 1e-9) {
-    await createReturnBatch(remaining, Number(fallbackCost || 0));
-    totalCostRestored += remaining * Number(fallbackCost || 0);
+  if (unitName === 'box') {
+    return Number(item?.conversionFactor || product?.conversionFactor || 1);
   }
-
-  return {
-    restoredAllocations,
-    remainingAllocations: remainingAllocations.filter((allocation) => allocation.quantity > 1e-9),
-    totalCostRestored: roundMoney(totalCostRestored),
-  };
+  return Number(item?.conversionFactor || 1) || 1;
 }
 
-async function recalculateLocalProductWeightedCost(
-  productId: number,
-  syncStatus: 'synced' | 'pending'
-): Promise<void> {
-  const batches = await db.inventoryBatches.where('productId').equals(productId).toArray();
-  let totalQuantity = 0;
-  let totalValue = 0;
-  for (const batch of batches) {
-    const remaining = Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0));
-    if (remaining <= 0) continue;
-    totalQuantity += remaining;
-    totalValue += remaining * Number(batch.costPrice || 0);
-  }
-  if (totalQuantity <= 0) return;
-  const product = await db.products.get(productId);
-  if (product) {
-    await db.products.update(productId, {
-      costPrice: roundMoney(totalValue / totalQuantity),
-      updatedAt: new Date().toISOString(),
-      syncStatus,
-    });
-  }
-}
-
-async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
+async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.serviceRecipes],
     async () => {
       await db.orders.put({ ...order, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
+
+      const deductProductOrRecipe = async (product: any, item: any, baseQty: number) => {
+        const itemType = String(item.itemType || product?.itemType || 'stock');
+        if (itemType === 'service') return;
+
+        if (itemType === 'service_with_materials' || itemType === 'bundle') {
+          const recipes = await db.serviceRecipes
+            .where('parentProductId')
+            .equals(Number(product.id))
+            .toArray();
+          if (recipes.length > 0) {
+            for (const rec of recipes) {
+              const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
+              if (ingQty <= 0) continue;
+              const ingProd = await db.products.get(Number(rec.ingredientProductId));
+              if (ingProd) {
+                await db.products.update(ingProd.id!, {
+                  stockQuantity: roundQty(ingProd.stockQuantity - ingQty),
+                  updatedAt: now,
+                  syncStatus,
+                });
+              }
+            }
+            return;
+          }
+          if (itemType === 'service_with_materials') return;
+        }
+
+        await db.products.update(product.id!, {
+          stockQuantity: roundQty(product.stockQuantity - baseQty),
+          updatedAt: now,
+          syncStatus,
+        });
+      };
 
       if (Array.isArray(_serverItems) && _serverItems.length > 0) {
         await db.orderItems.bulkPut(
@@ -340,122 +110,40 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
             syncStatus,
           }))
         );
-        for (let index = 0; index < items.length; index++) {
-          const item = items[index];
-          const serverItem = _serverItems[index] || {};
-          const baseQty = Number(serverItem.baseQuantity ?? getBaseMovementQuantity(item));
-          for (const allocation of parseLocalBatchAllocations(serverItem.batchAllocations)) {
-            if (!allocation.batchId) continue;
-            const batch = await db.inventoryBatches.get(allocation.batchId) ||
-        (typeof allocation.batchId === 'string' && /^\d+$/.test(allocation.batchId)
-          ? await db.inventoryBatches.get(Number(allocation.batchId))
-          : undefined);
-            if (!batch) continue;
-            const currentRemaining = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
-            await db.inventoryBatches.update(batch.id!, {
-              remainingQuantity: Math.max(0, currentRemaining - allocation.quantity),
-              updatedAt: now,
-              syncStatus,
-            });
-          }
+        for (const item of items) {
           const product = await db.products.get(item.productId);
-          if (product?.isActive === 0) {
-            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
-          }
           if (product) {
-            assertLocalBaseUnitMatches(product, item);
-            await db.products.update(product.id!, {
-              stockQuantity: product.stockQuantity - baseQty,
-              updatedAt: now,
-              syncStatus,
-            });
-            await recalculateLocalProductWeightedCost(product.id!, syncStatus);
+            const factor = resolveLocalUnitFactor(product, item);
+            const baseQty = roundQty(Number(item.quantity) * factor);
+            await deductProductOrRecipe(product, item, baseQty);
           }
-          const serverFactor = Number(serverItem.conversionToBase ?? serverItem.conversionFactor ?? 1);
-          const serverTotalCost = Number(serverItem.costPriceAtTimeOfSale || 0) * Number(serverItem.quantity ?? item.quantity ?? 0);
-          await appendLocalInventoryMovement(operationId, syncStatus, {
-            productId: Number(item.productId),
-            branchId: order.branchId ?? null,
-            movementType: 'sale',
-            sourceType: 'order',
-            sourceId: String(order.id),
-            sourceLineId: serverItem.id ?? item.id,
-            inputQuantity: Number(serverItem.quantity ?? item.quantity ?? 0),
-            unitCode: serverItem.unitCode ?? item.unitCode ?? null,
-            baseUnitCode: serverItem.baseUnitCode ?? item.baseUnitCode ?? null,
-            conversionToBase: serverFactor,
-            quantityDeltaBase: -baseQty,
-            unitCost: baseQty > 0 ? serverTotalCost / baseQty : 0,
-            totalCost: serverTotalCost,
-            batchAllocations: parseLocalBatchAllocations(serverItem.batchAllocations),
-          });
         }
       } else {
         for (const item of items) {
-          const baseQty = getBaseMovementQuantity(item);
           const product = await db.products.get(item.productId);
-          if (product?.isActive === 0) {
-            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
-          }
-          if (product) assertLocalBaseUnitMatches(product, item);
-          const factor = Number(item.conversionToBase ?? item.selectedConversionToBase ??
-            (item.unit === 'box' || item.selectedUnit === 'box' ? item.conversionFactor : 1) ?? 1);
-          const fifo = await consumeLocalInventoryFIFO(
-            item.productId,
-            baseQty,
-            Number(product?.costPrice || item.costPriceAtTimeOfSale || 0),
-            syncStatus
-          );
-          const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
-
-          const orderItemId = Number(item.id) || generateTempNumericId();
+          const factor = resolveLocalUnitFactor(product, item);
+          const itemType = String(item.itemType || product?.itemType || 'stock');
           await db.orderItems.add({
-            id: orderItemId,
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
-            quantity: item.quantity,
+            quantity: roundQty(Number(item.quantity)),
             returnedQuantity: 0,
             unit: item.unit || item.selectedUnit || 'piece',
             conversionFactor: factor,
-            unitCode: item.unitCode || item.selectedUnitCode || null,
-            baseUnitCode: item.baseUnitCode || null,
-            conversionToBase: factor,
-            baseQuantity: baseQty,
+            itemType: itemType as any,
             unitPrice: item.unitPrice,
-            costPriceAtTimeOfSale: unitCostAtSale,
+            costPriceAtTimeOfSale: item.costPriceAtTimeOfSale,
             discountAmount: item.discountAmount || 0,
             subTotal: item.subTotal,
             taxAmount: item.taxAmount,
             total: item.total,
-            batchAllocations: JSON.stringify(fifo.allocations),
             syncStatus,
           });
 
-          await appendLocalInventoryMovement(operationId, syncStatus, {
-            productId: Number(item.productId),
-            branchId: order.branchId ?? null,
-            movementType: 'sale',
-            sourceType: 'order',
-            sourceId: String(order.id),
-            sourceLineId: orderItemId,
-            inputQuantity: Number(item.quantity || 0),
-            unitCode: item.unitCode || item.selectedUnitCode || null,
-            baseUnitCode: item.baseUnitCode || null,
-            conversionToBase: factor,
-            quantityDeltaBase: -baseQty,
-            unitCost: fifo.averageUnitCost,
-            totalCost: fifo.totalCost,
-            batchAllocations: fifo.allocations,
-          });
-
           if (product) {
-            await db.products.update(product.id!, {
-              stockQuantity: product.stockQuantity - baseQty,
-              updatedAt: now,
-              syncStatus,
-            });
-            await recalculateLocalProductWeightedCost(product.id!, syncStatus);
+            const baseQty = roundQty(Number(item.quantity) * factor);
+            await deductProductOrRecipe(product, item, baseQty);
           }
         }
       }
@@ -498,62 +186,53 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
   );
 }
 
-async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
+async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) return;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.serviceRecipes],
     async () => {
       const origOrder = await db.orders.get(targetOrderId);
       if (!origOrder || origOrder.status === 'void') return;
 
-      if (Number(origOrder.returnedAmount || 0) > 0 || origOrder.status === 'returned' || origOrder.status === 'partially_returned') {
-        throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
-      }
       const origItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
       for (const oi of origItems) {
-        const baseQty = getBaseMovementQuantity(oi);
-        const factor = Number(oi.conversionToBase ?? oi.conversionFactor ?? 1);
-        const fallbackBaseCost = factor > 0
-          ? Number(oi.costPriceAtTimeOfSale || 0) / factor
-          : Number(oi.costPriceAtTimeOfSale || 0);
-        const restored = await restoreLocalInventoryFIFO(
-          oi.productId,
-          baseQty,
-          parseLocalBatchAllocations(oi.batchAllocations),
-          fallbackBaseCost,
-          origOrder.branchId,
-          syncStatus,
-          `void-${targetOrderId}-${oi.id}`
-        );
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(oi.productId),
-          branchId: origOrder.branchId ?? null,
-          movementType: 'sale_void',
-          sourceType: 'order_void',
-          sourceId: targetOrderId,
-          sourceLineId: oi.id,
-          inputQuantity: Number(oi.quantity || 0),
-          unitCode: oi.unitCode || null,
-          baseUnitCode: oi.baseUnitCode || null,
-          conversionToBase: factor,
-          quantityDeltaBase: baseQty,
-          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
-          totalCost: restored.totalCostRestored,
-          batchAllocations: restored.restoredAllocations,
-        });
+        const itemType = String(oi.itemType || 'stock');
+        if (itemType === 'service') continue;
+        const factor = Number(oi.conversionFactor || 1);
+        const baseQty = roundQty(Number(oi.quantity || 0) * factor);
         const product = await db.products.get(oi.productId);
         if (product) {
-          assertLocalBaseUnitMatches(product, oi);
+          if (itemType === 'service_with_materials' || itemType === 'bundle') {
+            const recipes = await db.serviceRecipes
+              .where('parentProductId')
+              .equals(Number(product.id))
+              .toArray();
+            if (recipes.length > 0) {
+              for (const rec of recipes) {
+                const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
+                const ingProd = await db.products.get(Number(rec.ingredientProductId));
+                if (ingProd && ingQty > 0) {
+                  await db.products.update(ingProd.id!, {
+                    stockQuantity: roundQty(ingProd.stockQuantity + ingQty),
+                    updatedAt: now,
+                    syncStatus,
+                  });
+                }
+              }
+              continue;
+            }
+            if (itemType === 'service_with_materials') continue;
+          }
+
           await db.products.update(product.id!, {
-            stockQuantity: product.stockQuantity + baseQty,
+            stockQuantity: roundQty(product.stockQuantity + baseQty),
             updatedAt: now,
             syncStatus,
           });
-          await recalculateLocalProductWeightedCost(product.id!, syncStatus);
         }
       }
 
@@ -591,14 +270,14 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
   );
 }
 
-async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
+async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches, db.inventoryMovements],
+    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.serviceRecipes],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
@@ -609,109 +288,97 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
       let totalCostReversed = 0;
 
       for (const reqItem of items) {
-        const qty = Number(reqItem.quantity);
-        if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية المرتجع يجب أن تكون رقماً موجباً');
         const origItem = reqItem.orderItemId
-          ? origItems.find((oi) => oi.id === Number(reqItem.orderItemId))
-          : origItems.find((oi) =>
-              oi.productId === reqItem.productId &&
-              Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) >= qty
-            );
-        if (!origItem) throw new Error('الصنف غير موجود في الفاتورة الأصلية أو لا توجد كمية كافية للإرجاع');
-        const remainingReturnable = Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0);
-        if (qty > remainingReturnable) throw new Error('كمية المرتجع تتجاوز الكمية المتبقية في الفاتورة الأصلية');
-        if (origItem.unitCode) {
-          const unitDefinition = await db.unitDefinitions.get(origItem.unitCode);
-          const precision = Math.max(0, Math.min(6, Number(unitDefinition?.decimalPlaces ?? 0)));
-          const scale = 10 ** precision;
-          if (!unitDefinition || Math.abs(qty * scale - Math.round(qty * scale)) > 1e-7) {
-            throw new Error('كمية المرتجع لا تتوافق مع دقة وحدة البيع الأصلية');
-          }
-        }
+          ? origItems.find((oi) => oi.id === reqItem.orderItemId)
+          : origItems.find(
+              (oi) =>
+                oi.productId === reqItem.productId &&
+                Number(oi.quantity || 0) - Number(oi.returnedQuantity || 0) > 0
+            ) || origItems.find((oi) => oi.productId === reqItem.productId);
+        if (!origItem) continue;
+
+        const qty = roundQty(Number(reqItem.quantity));
+        if (qty <= 0) continue;
+
         const ratio = qty / Number(origItem.quantity);
         const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
         const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
         const lineTotal = roundMoney(Number(origItem.total) * ratio);
-        const baseQty = getBaseMovementQuantity(origItem, qty);
-        const factor = Number(origItem.conversionToBase ?? origItem.conversionFactor ?? 1);
-        const fallbackBaseCost = factor > 0
-          ? Number(origItem.costPriceAtTimeOfSale || 0) / factor
-          : Number(origItem.costPriceAtTimeOfSale || 0);
-        const restored = await restoreLocalInventoryFIFO(
-          origItem.productId,
-          baseQty,
-          parseLocalBatchAllocations(origItem.batchAllocations),
-          fallbackBaseCost,
-          branchId ?? origOrder?.branchId,
-          syncStatus,
-          `return-${id}-${origItem.id}`
-        );
+        const lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
+        const condition: 'resalable' | 'damaged' =
+          reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
 
         totalSub += lineSub;
         totalTax += lineTax;
         totalRefund += lineTotal;
-        totalCostReversed += restored.totalCostRestored;
+        totalCostReversed += lineCost;
 
-        const nextReturnedQuantity = Number(origItem.returnedQuantity || 0) + qty;
-        const remainingAllocationsJson = JSON.stringify(restored.remainingAllocations);
+        const nextReturned = roundQty(Number(origItem.returnedQuantity || 0) + qty);
+        origItem.returnedQuantity = nextReturned;
         if (origItem.id) {
           await db.orderItems.update(origItem.id, {
-            returnedQuantity: nextReturnedQuantity,
-            batchAllocations: remainingAllocationsJson,
+            returnedQuantity: nextReturned,
             syncStatus,
           });
         }
-        origItem.returnedQuantity = nextReturnedQuantity;
-        origItem.batchAllocations = remainingAllocationsJson;
 
-        const product = await db.products.get(origItem.productId);
-        if (product) {
-          assertLocalBaseUnitMatches(product, origItem);
-          await db.products.update(product.id!, {
-            stockQuantity: product.stockQuantity + baseQty,
-            updatedAt: now,
-            syncStatus,
-          });
-          await recalculateLocalProductWeightedCost(product.id!, syncStatus);
+        const itemType = String(origItem.itemType || 'stock');
+        const factor = Number(origItem.conversionFactor || 1);
+        const baseQty = roundQty(qty * factor);
+
+        if (condition === 'resalable' && itemType !== 'service') {
+          const product = await db.products.get(origItem.productId);
+          if (product) {
+            if (itemType === 'service_with_materials' || itemType === 'bundle') {
+              const recipes = await db.serviceRecipes
+                .where('parentProductId')
+                .equals(Number(product.id))
+                .toArray();
+              if (recipes.length > 0) {
+                for (const rec of recipes) {
+                  const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
+                  const ingProd = await db.products.get(Number(rec.ingredientProductId));
+                  if (ingProd && ingQty > 0) {
+                    await db.products.update(ingProd.id!, {
+                      stockQuantity: roundQty(ingProd.stockQuantity + ingQty),
+                      updatedAt: now,
+                      syncStatus,
+                    });
+                  }
+                }
+              } else if (itemType === 'bundle') {
+                await db.products.update(product.id!, {
+                  stockQuantity: roundQty(product.stockQuantity + baseQty),
+                  updatedAt: now,
+                  syncStatus,
+                });
+              }
+            } else {
+              await db.products.update(product.id!, {
+                stockQuantity: roundQty(product.stockQuantity + baseQty),
+                updatedAt: now,
+                syncStatus,
+              });
+            }
+          }
         }
 
         const retItem: ReturnItem = {
-          id: reqItem.id || generateUUID(),
+          id: generateUUID(),
           returnId: id,
           orderItemId: origItem.id,
           productId: origItem.productId,
           productName: origItem.productName,
           quantity: qty,
+          condition,
           unitPrice: origItem.unitPrice,
-          unitCode: origItem.unitCode || null,
-          baseUnitCode: origItem.baseUnitCode || null,
-          conversionToBase: origItem.conversionToBase ?? origItem.conversionFactor ?? 1,
-          baseQuantity: baseQty,
           costPrice: origItem.costPriceAtTimeOfSale || 0,
           taxAmount: lineTax,
           total: lineTotal,
-          batchAllocations: JSON.stringify(restored.restoredAllocations),
           syncStatus,
           createdAt: now,
         };
         await db.returnItems.put(retItem);
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(origItem.productId),
-          branchId: branchId ?? origOrder?.branchId ?? null,
-          movementType: 'sale_return',
-          sourceType: 'return',
-          sourceId: String(id),
-          sourceLineId: retItem.id,
-          inputQuantity: qty,
-          unitCode: origItem.unitCode || null,
-          baseUnitCode: origItem.baseUnitCode || null,
-          conversionToBase: factor,
-          quantityDeltaBase: baseQty,
-          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
-          totalCost: restored.totalCostRestored,
-          batchAllocations: restored.restoredAllocations,
-          reason: reason || null,
-        });
       }
 
       if (origOrder) {
@@ -766,156 +433,25 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 async function applyPurchaseLocally(
   type: 'purchase' | 'purchase_update' | 'purchase_delete',
   payload: any,
-  syncStatus: 'synced' | 'pending',
-  operationId: string
+  syncStatus: 'synced' | 'pending'
 ) {
   const now = new Date().toISOString();
 
-  let resolvedPurchase = payload.purchase;
-  let resolvedItems: any[] = payload.items || [];
-  const serverItems: any[] = Array.isArray(payload._serverItems) ? payload._serverItems : [];
-
-  if (type !== 'purchase_delete' && resolvedPurchase?.currencyCode) {
-    if (serverItems.length > 0) {
-      // Server-returned item costs are authoritative and already converted to base currency.
-      resolvedItems = resolvedItems.map((item, index) => {
-        const serverItem = serverItems[index] || serverItems.find(
-          (candidate) => candidate.productId === item.productId && Number(candidate.quantity) === Number(item.quantity)
-        );
-        return {
-          ...item,
-          costPrice: Number(serverItem?.costPrice ?? item.costPrice),
-          unitCode: serverItem?.unitCode ?? item.unitCode ?? null,
-          baseUnitCode: serverItem?.baseUnitCode ?? item.baseUnitCode ?? null,
-          conversionToBase: Number(serverItem?.conversionToBase ?? item.conversionToBase ?? 1),
-          baseQuantity: Number(serverItem?.baseQuantity ?? item.baseQuantity ?? getBaseMovementQuantity(item)),
-          originalCostPrice: serverItem?.originalCostPrice ?? item.costPrice,
-          originalTotal: serverItem?.originalTotal ?? roundMoney(Number(item.quantity) * Number(item.costPrice)),
-          currencyCode: serverItem?.currencyCode ?? resolvedPurchase.currencyCode,
-          exchangeRate: serverItem?.exchangeRate ?? resolvedPurchase.exchangeRate,
-          exchangeRateId: serverItem?.exchangeRateId ?? resolvedPurchase.exchangeRateId,
-        };
-      });
-    } else {
-      // Offline optimistic application uses the exact approved rate snapshot selected in the UI.
-      const baseSetting = await db.settings.where('key').equals('baseCurrencyCode').first();
-      const baseCurrencyCode = String(resolvedPurchase.baseCurrencyCode || baseSetting?.value || '').toUpperCase();
-      const currencyCode = String(resolvedPurchase.currencyCode).toUpperCase();
-      if (!baseCurrencyCode) throw new Error('لا توجد عملة أساسية محفوظة على هذا الجهاز');
-
-      let conversionRate = 1;
-      let exchangeRateId: string | null = null;
-      if (currencyCode !== baseCurrencyCode) {
-        exchangeRateId = resolvedPurchase.exchangeRateId || null;
-        const rate = exchangeRateId ? await db.exchangeRates.get(exchangeRateId) : undefined;
-        const invoiceCutoff = new Date(`${String(resolvedPurchase.date || now).slice(0, 10)}T23:59:59.999Z`).getTime();
-        const pairMatches = rate && (
-          (rate.baseCurrencyCode === currencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
-          (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === currencyCode)
-        );
-        if (!rate || !rate.approvedAt || !pairMatches || new Date(rate.effectiveAt).getTime() > invoiceCutoff) {
-          throw new Error('سعر الصرف المعتمد المحدد غير متوفر في التخزين المحلي؛ أعد المزامنة قبل تسجيل الفاتورة');
-        }
-        conversionRate = getBasePerDocumentUnit(rate, currencyCode, baseCurrencyCode);
-      }
-
-      const originalTotalAmount = roundMoney(Number(resolvedPurchase.totalAmount || 0));
-      const originalPaidAmount = roundMoney(Number(resolvedPurchase.paidAmount || 0));
-      resolvedPurchase = {
-        ...resolvedPurchase,
-        currencyCode,
-        baseCurrencyCode,
-        exchangeRate: conversionRate,
-        exchangeRateId,
-        originalTotalAmount,
-        originalPaidAmount,
-        totalAmount: roundMoney(originalTotalAmount * conversionRate),
-        paidAmount: roundMoney(originalPaidAmount * conversionRate),
-      };
-      resolvedItems = resolvedItems.map((item) => ({
-        ...item,
-        originalCostPrice: Number(item.costPrice || 0),
-        originalTotal: roundMoney(Number(item.quantity || 0) * Number(item.costPrice || 0)),
-        currencyCode,
-        exchangeRate: conversionRate,
-        exchangeRateId,
-        costPrice: roundMoney(Number(item.costPrice || 0) * conversionRate),
-      }));
-    }
-  }
-
-  if (serverItems.length > 0) {
-    resolvedItems = resolvedItems.map((item, index) => {
-      const serverItem = serverItems[index] || serverItems.find(
-        (candidate) => candidate.productId === item.productId && Number(candidate.quantity) === Number(item.quantity)
-      );
-      return {
-        ...item,
-        ...(serverItem || {}),
-        batchId: item.batchId || serverItem?.batchId,
-      };
-    });
-  }
-
   await db.transaction(
     'rw',
-    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.inventoryMovements],
+    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
     async () => {
       if (type === 'purchase_delete' || type === 'purchase_update') {
-        const pid = type === 'purchase_delete' ? payload.id : resolvedPurchase.id;
+        const pid = type === 'purchase_delete' ? payload.id : payload.purchase.id;
         const oldPurchase = await db.purchases.get(pid);
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
-        const oldBatches = await db.inventoryBatches.where('purchaseId').equals(pid).toArray();
-        if (oldBatches.length > 0) {
-          for (const batch of oldBatches) {
-            const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
-            await appendLocalInventoryMovement(operationId, syncStatus, {
-              productId: Number(batch.productId),
-              branchId: batch.branchId ?? oldPurchase?.branchId ?? null,
-              movementType: 'purchase_reversal',
-              sourceType: 'purchase',
-              sourceId: String(pid),
-              sourceLineId: batch.id,
-              inputQuantity: baseQty,
-              unitCode: batch.unitCode || null,
-              baseUnitCode: batch.baseUnitCode || null,
-              conversionToBase: Number(batch.conversionToBase || 1),
-              quantityDeltaBase: -baseQty,
-              unitCost: Number(batch.costPrice || 0),
-              totalCost: baseQty * Number(batch.costPrice || 0),
-              batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
-              reason: 'purchase_delete_or_update',
-            });
-          }
-        } else {
-          for (const item of oldItems) {
-            const baseQty = getBaseMovementQuantity(item);
-            const factor = Number(item.conversionToBase || 1);
-            const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
-            await appendLocalInventoryMovement(operationId, syncStatus, {
-              productId: Number(item.productId),
-              branchId: oldPurchase?.branchId ?? null,
-              movementType: 'purchase_reversal',
-              sourceType: 'purchase',
-              sourceId: String(pid),
-              sourceLineId: item.id,
-              inputQuantity: Number(item.quantity || 0),
-              unitCode: item.unitCode || null,
-              baseUnitCode: item.baseUnitCode || null,
-              conversionToBase: factor,
-              quantityDeltaBase: -baseQty,
-              unitCost,
-              totalCost: baseQty * unitCost,
-              reason: 'legacy_purchase_without_batch',
-            });
-          }
-        }
         for (const item of oldItems) {
+          const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
+          const baseQty = roundQty(Number(item.quantity || 0) * factor);
           const prod = await db.products.get(item.productId);
           if (prod) {
-            assertLocalBaseUnitMatches(prod, item);
             await db.products.update(prod.id!, {
-              stockQuantity: prod.stockQuantity - getBaseMovementQuantity(item),
+              stockQuantity: roundQty(prod.stockQuantity - baseQty),
               updatedAt: now,
               syncStatus,
             });
@@ -923,10 +459,11 @@ async function applyPurchaseLocally(
         }
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
-        for (const productId of new Set(oldItems.map((item) => item.productId))) {
-          await recalculateLocalProductWeightedCost(productId, syncStatus);
-        }
         if (oldPurchase && oldPurchase.supplierId) {
+          const oldExtra =
+            Number(oldPurchase.shippingCost || 0) +
+            Number(oldPurchase.customsCost || 0) +
+            Number(oldPurchase.otherCosts || 0);
           const oldRemaining = oldPurchase.totalAmount - oldPurchase.paidAmount;
           const sup = await db.suppliers.get(oldPurchase.supplierId);
           if (sup && oldRemaining > 0) {
@@ -936,6 +473,7 @@ async function applyPurchaseLocally(
               syncStatus,
             });
           }
+          void oldExtra;
         }
         if (type === 'purchase_delete') {
           await db.purchases.delete(pid);
@@ -943,88 +481,91 @@ async function applyPurchaseLocally(
         }
       }
 
-      await db.purchases.put({ ...resolvedPurchase, returnedAmount: resolvedPurchase.returnedAmount || 0, syncStatus });
-      await db.purchaseItems.where('purchaseId').equals(resolvedPurchase.id).delete();
+      const { purchase, items = [], _serverItems } = payload;
+      await db.purchases.put({ ...purchase, returnedAmount: purchase.returnedAmount || 0, syncStatus });
+      await db.purchaseItems.where('purchaseId').equals(purchase.id).delete();
 
-      if (serverItems.length > 0) {
-        await db.purchaseItems.bulkPut(serverItems.map((item: any) => ({ ...item, syncStatus })));
+      if (Array.isArray(_serverItems) && _serverItems.length > 0) {
+        await db.purchaseItems.bulkPut(_serverItems.map((si: any) => ({ ...si, syncStatus })));
       }
 
-      for (const item of resolvedItems) {
-        if (serverItems.length === 0) {
+      const fxRate = Number(purchase.exchangeRate || 1) > 0 ? Number(purchase.exchangeRate || 1) : 1;
+      const extraCost =
+        Number(purchase.shippingCost || 0) +
+        Number(purchase.customsCost || 0) +
+        Number(purchase.otherCosts || 0);
+      const goodsTotal = items.reduce((s: number, it: any) => {
+        const c = it.pricesInForeignCurrency ? Number(it.costPrice || 0) * fxRate : Number(it.costPrice || 0);
+        return s + Number(it.quantity || 0) * c;
+      }, 0);
+
+      for (const item of items) {
+        const qty = roundQty(Number(item.quantity || 0));
+        const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
+        const baseQty = roundQty(qty * factor);
+        const unitPurchaseCost = item.pricesInForeignCurrency
+          ? Number(item.costPrice || 0) * fxRate
+          : Number(item.costPrice || 0);
+        const lineTotal = roundMoney(qty * unitPurchaseCost);
+        const share = goodsTotal > 0 ? (lineTotal / goodsTotal) * extraCost : 0;
+        const landedCostPerBaseUnit =
+          item.landedCostPerBaseUnit !== undefined
+            ? Number(item.landedCostPerBaseUnit)
+            : baseQty > 0
+            ? Math.round(((lineTotal + share) / baseQty) * 10000) / 10000
+            : unitPurchaseCost;
+
+        if (!Array.isArray(_serverItems) || _serverItems.length === 0) {
           await db.purchaseItems.add({
-            purchaseId: resolvedPurchase.id,
+            purchaseId: purchase.id,
             productId: item.productId,
             productName: item.productName,
-            quantity: item.quantity,
-            costPrice: item.costPrice,
-            unitCode: item.unitCode || null,
-            baseUnitCode: item.baseUnitCode || null,
-            conversionToBase: item.conversionToBase ?? 1,
-            baseQuantity: item.baseQuantity ?? getBaseMovementQuantity(item),
-            originalCostPrice: item.originalCostPrice ?? null,
-            originalTotal: item.originalTotal ?? null,
-            currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
-            exchangeRate: item.exchangeRate ?? resolvedPurchase.exchangeRate ?? null,
-            exchangeRateId: item.exchangeRateId ?? resolvedPurchase.exchangeRateId ?? null,
-            total: roundMoney(item.quantity * item.costPrice),
+            quantity: qty,
+            unit: item.unit || 'piece',
+            conversionFactor: factor,
+            costPrice: unitPurchaseCost,
+            landedCostPerBaseUnit,
+            total: lineTotal,
+            expiryDate: item.expiryDate,
+            batchNumber: item.batchNumber,
             syncStatus,
           });
         }
-        const conversionToBase = Number(item.conversionToBase || 1);
-        const baseQuantity = Number(item.baseQuantity ?? getBaseMovementQuantity(item));
-        const baseUnitCost = conversionToBase > 0 ? Number(item.costPrice || 0) / conversionToBase : Number(item.costPrice || 0);
-        const batchId = item.batchId || generateUUID();
         await db.inventoryBatches.put({
-          id: batchId,
+          id: item.batchId || generateUUID(),
           productId: item.productId,
-          purchaseId: resolvedPurchase.id,
-          quantity: baseQuantity,
-          remainingQuantity: baseQuantity,
-          costPrice: baseUnitCost,
-          originalCostPrice: item.originalCostPrice == null ? null : Number(item.originalCostPrice) / conversionToBase,
-          unitCode: item.unitCode || null,
-          baseUnitCode: item.baseUnitCode || null,
-          conversionToBase,
-          baseQuantity,
-          currencyCode: item.currencyCode ?? resolvedPurchase.currencyCode ?? null,
-          exchangeRate: item.exchangeRate ?? resolvedPurchase.exchangeRate ?? null,
-          exchangeRateId: item.exchangeRateId ?? resolvedPurchase.exchangeRateId ?? null,
-          purchaseDate: resolvedPurchase.date || now,
-          branchId: resolvedPurchase.branchId,
+          purchaseId: purchase.id,
+          quantity: baseQty,
+          remainingQuantity: baseQty,
+          costPrice: landedCostPerBaseUnit,
+          currency: purchase.currency,
+          exchangeRate: fxRate,
+          purchaseDate: purchase.date || now,
+          expiryDate: item.expiryDate,
+          batchNumber: item.batchNumber,
+          branchId: purchase.branchId,
           syncStatus,
         });
         const prod = await db.products.get(item.productId);
         if (prod) {
-          assertLocalBaseUnitMatches(prod, item);
           await db.products.update(prod.id!, {
-            stockQuantity: prod.stockQuantity + baseQuantity,
+            stockQuantity: roundQty(prod.stockQuantity + baseQty),
+            costPrice: landedCostPerBaseUnit,
+            expiryDate: item.expiryDate || prod.expiryDate,
+            batchNumber: item.batchNumber || prod.batchNumber,
             updatedAt: now,
             syncStatus,
           });
-          await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(item.productId),
-          branchId: resolvedPurchase.branchId ?? null,
-          movementType: 'purchase_receipt',
-          sourceType: 'purchase',
-          sourceId: String(resolvedPurchase.id),
-          sourceLineId: batchId,
-          inputQuantity: Number(item.quantity || 0),
-          unitCode: item.unitCode || null,
-          baseUnitCode: item.baseUnitCode || null,
-          conversionToBase,
-          quantityDeltaBase: baseQuantity,
-          unitCost: baseUnitCost,
-          totalCost: baseQuantity * baseUnitCost,
-          batchAllocations: [{ batchId, quantity: baseQuantity, costPrice: baseUnitCost }],
-        });
       }
 
-      const remaining = Number(resolvedPurchase.totalAmount || 0) - Number(resolvedPurchase.paidAmount || 0);
-      if (resolvedPurchase.supplierId && remaining > 0) {
-        const sup = await db.suppliers.get(resolvedPurchase.supplierId);
+      const invoicePayable =
+        purchase.extraCostsPaymentMethod === 'supplier'
+          ? roundMoney(Number(purchase.totalAmount || 0) + extraCost)
+          : Number(purchase.totalAmount || 0);
+      const remaining = roundMoney(invoicePayable - Number(purchase.paidAmount || 0));
+      if (purchase.supplierId && remaining > 0) {
+        const sup = await db.suppliers.get(purchase.supplierId);
         if (sup) {
           await db.suppliers.update(sup.id!, {
             balance: roundMoney((sup.balance || 0) + remaining),
@@ -1037,14 +578,14 @@ async function applyPurchaseLocally(
   );
 }
 
-async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
+async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions, db.inventoryMovements],
+    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers],
     async () => {
       const origPurchase = await db.purchases.get(String(originalPurchaseId));
       const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
@@ -1052,96 +593,47 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       let totalReturn = 0;
       for (const reqItem of items) {
         const qty = Number(reqItem.quantity || 0);
-        if (!Number.isFinite(qty) || qty <= 0) throw new Error('كمية مرتجع المشتريات يجب أن تكون رقماً موجباً');
-        const batch = reqItem.batchId
-          ? batches.find((b) => b.id === reqItem.batchId && b.productId === Number(reqItem.productId))
-          : batches.find((b) =>
-              b.productId === Number(reqItem.productId) && (!reqItem.unitCode || b.unitCode === reqItem.unitCode)
-            );
-        if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
-        const unitCode = batch?.unitCode || null;
-        if ((reqItem.batchId && !batch) ||
-            (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode))) {
-          throw new Error('وحدة مرتجع المشتريات لا تطابق دفعتها الأصلية');
-        }
-        if (unitCode) {
-          const definition = await db.unitDefinitions.get(unitCode);
-          const precision = Math.max(0, Math.min(6, Number(definition?.decimalPlaces ?? 0)));
-          const scale = 10 ** precision;
-          if (!definition || Math.abs(qty * scale - Math.round(qty * scale)) > 1e-7) {
-            throw new Error('كمية مرتجع المشتريات لا تتوافق مع دقة وحدة الشراء الأصلية');
-          }
-        }
-        const conversionToBase = Number(batch?.conversionToBase || 1);
-        const baseQuantity = qty * conversionToBase;
-        if (batch && Number(batch.remainingQuantity ?? batch.quantity) < baseQuantity) {
-          throw new Error('الكمية المتبقية في دفعة الشراء لا تكفي لتنفيذ المرتجع');
-        }
+        if (qty <= 0) continue;
         const cost = Number(reqItem.costPrice || 0);
         const lineTotal = roundMoney(qty * cost);
         totalReturn = roundMoney(totalReturn + lineTotal);
 
+        const batch = reqItem.batchId
+          ? batches.find((b) => b.id === reqItem.batchId)
+          : batches.find((b) => b.productId === reqItem.productId && (b.remainingQuantity ?? b.quantity) >= qty) ||
+            batches.find((b) => b.productId === reqItem.productId);
+
         if (batch && batch.id) {
           const curRem = Number(batch.remainingQuantity ?? batch.quantity);
           await db.inventoryBatches.update(batch.id, {
-            remainingQuantity: curRem - baseQuantity,
+            remainingQuantity: Math.max(0, curRem - qty),
             updatedAt: now,
             syncStatus,
           });
-          batch.remainingQuantity = curRem - baseQuantity;
         }
 
         const prod = await db.products.get(Number(reqItem.productId));
-        if (prod && batch) assertLocalBaseUnitMatches(prod, batch);
-        if (!batch && (!prod || Number(prod.stockQuantity || 0) < baseQuantity)) {
-          throw new Error('المخزون المتاح لا يكفي لتنفيذ مرتجع المشتريات');
-        }
         if (prod) {
           await db.products.update(prod.id!, {
-            stockQuantity: prod.stockQuantity - baseQuantity,
+            stockQuantity: Math.max(0, prod.stockQuantity - qty),
             updatedAt: now,
             syncStatus,
           });
-          await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
 
         const itemDoc: PurchaseReturnItem = {
-          id: reqItem.id || generateUUID(),
+          id: generateUUID(),
           purchaseReturnId: id,
           productId: Number(reqItem.productId),
           productName: reqItem.productName || '',
           quantity: qty,
           costPrice: cost,
           total: lineTotal,
-          unitCode: batch?.unitCode || reqItem.unitCode || null,
-          baseUnitCode: batch?.baseUnitCode || reqItem.baseUnitCode || null,
-          conversionToBase,
-          baseQuantity,
           batchId: batch?.id ? String(batch.id) : undefined,
           syncStatus,
           createdAt: now,
         };
         await db.purchaseReturnItems.put(itemDoc);
-        const baseUnitCost = conversionToBase > 0 ? cost / conversionToBase : cost;
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(reqItem.productId),
-          branchId: branchId ?? origPurchase?.branchId ?? null,
-          movementType: 'purchase_return',
-          sourceType: 'purchase_return',
-          sourceId: String(id),
-          sourceLineId: itemDoc.id,
-          inputQuantity: qty,
-          unitCode: itemDoc.unitCode || null,
-          baseUnitCode: itemDoc.baseUnitCode || null,
-          conversionToBase,
-          quantityDeltaBase: -baseQuantity,
-          unitCost: baseUnitCost,
-          totalCost: baseQuantity * baseUnitCost,
-          batchAllocations: batch
-            ? [{ batchId: batch.id, quantity: baseQuantity, costPrice: baseUnitCost }]
-            : null,
-          reason: reason || null,
-        });
       }
 
       if (origPurchase) {
@@ -1358,98 +850,20 @@ async function applyShiftLocally(
   }
 }
 
-async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
-  const requestedTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date();
-  const now = Number.isNaN(requestedTime.getTime()) ? new Date().toISOString() : requestedTime.toISOString();
+async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
+  const now = new Date().toISOString();
   const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions, db.inventoryMovements], async () => {
+  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
     for (const entry of entries) {
-      const product = await db.products.get(entry.productId);
-      if (!product) continue;
-      const actualQuantity = Number(entry.actualQuantity);
-      if (!Number.isFinite(actualQuantity) || actualQuantity < 0) throw new Error('كمية الجرد غير صالحة');
-      if (entry.unitCode) {
-        const definition = await db.unitDefinitions.get(entry.unitCode);
-        const precision = Math.max(0, Math.min(6, Number(definition?.decimalPlaces ?? 0)));
-        const scale = 10 ** precision;
-        if (!definition || (entry.baseUnitCode && entry.baseUnitCode !== entry.unitCode) ||
-            (entry.baseUnitCode && entry.baseUnitCode !== product.baseUnitCode) ||
-            Math.abs(actualQuantity * scale - Math.round(actualQuantity * scale)) > 1e-7) {
-          throw new Error('كمية الجرد لا تتوافق مع دقة وحدة الأساس');
-        }
-      }
-      const difference = actualQuantity - Number(product.stockQuantity || 0);
-      if (difference > 1e-9) {
-        const batchId = `stocktake-${sessionId}-${entry.productId}`;
-        const unitCost = Number(product.costPrice || 0);
-        await db.inventoryBatches.put({
-          id: batchId,
-          productId: entry.productId,
-          purchaseId: null,
-          quantity: difference,
-          remainingQuantity: difference,
-          costPrice: unitCost,
-          unitCode: entry.baseUnitCode || product.baseUnitCode || null,
-          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: difference,
-          purchaseDate: now,
-          branchId: product.branchId,
-          syncStatus,
-          createdAt: now,
-          updatedAt: now,
-        });
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(entry.productId),
-          branchId: product.branchId ?? null,
-          movementType: 'stocktake_increase',
-          sourceType: 'stocktake',
-          sourceId: String(sessionId),
-          sourceLineId: batchId,
-          inputQuantity: difference,
-          unitCode: entry.unitCode || null,
-          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-          conversionToBase: 1,
-          quantityDeltaBase: difference,
-          unitCost,
-          totalCost: difference * unitCost,
-          batchAllocations: [{ batchId, quantity: difference, costPrice: unitCost }],
-        });
-      } else if (difference < -1e-9) {
-        const fifo = await consumeLocalInventoryFIFO(
-          entry.productId,
-          Math.abs(difference),
-          Number(product.costPrice || 0),
-          syncStatus
-        );
-        await appendLocalInventoryMovement(operationId, syncStatus, {
-          productId: Number(entry.productId),
-          branchId: product.branchId ?? null,
-          movementType: 'stocktake_decrease',
-          sourceType: 'stocktake',
-          sourceId: String(sessionId),
-          sourceLineId: entry.id,
-          inputQuantity: Math.abs(difference),
-          unitCode: entry.unitCode || null,
-          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
-          conversionToBase: 1,
-          quantityDeltaBase: difference,
-          unitCost: fifo.averageUnitCost,
-          totalCost: fifo.totalCost,
-          batchAllocations: fifo.allocations,
-        });
-      }
       await db.products.update(entry.productId, {
-        stockQuantity: actualQuantity,
+        stockQuantity: entry.actualQuantity,
         updatedAt: now,
         syncStatus,
       });
-      await recalculateLocalProductWeightedCost(entry.productId, syncStatus);
     }
     await db.stocktakingSessions.update(sessionId, {
       status: 'approved',
-      updatedAt: now,
       syncStatus,
     });
   });
@@ -1459,8 +873,7 @@ async function applyEntityLocally(
   type: 'entity_upsert' | 'entity_delete',
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any,
-  operationId = String(payload?.operationId || '')
+  serverResult?: any
 ) {
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
@@ -1480,66 +893,7 @@ async function applyEntityLocally(
     ) {
       await table.delete(payload.record.id).catch(() => {});
     }
-    if (tableName === 'products' && finalRecord.id !== undefined) {
-      const existingProduct = await db.products.get(finalRecord.id);
-      if (existingProduct) {
-        const batchCount = await db.inventoryBatches.where('productId').equals(existingProduct.id!).count();
-        if (syncStatus === 'pending' || !serverResult) {
-          finalRecord.stockQuantity = existingProduct.stockQuantity;
-          finalRecord.baseUnitCode = existingProduct.baseUnitCode;
-          finalRecord.quantityPrecision = existingProduct.quantityPrecision;
-          if (batchCount > 0) finalRecord.costPrice = existingProduct.costPrice;
-        }
-      }
-    }
     await table.put({ ...finalRecord, syncStatus });
-    if (tableName === 'products' && Number(finalRecord.stockQuantity || 0) > 0) {
-      const existingBatchCount = await db.inventoryBatches.where('productId').equals(finalRecord.id).count();
-      if (existingBatchCount === 0) {
-        const openingQuantity = Number(finalRecord.stockQuantity);
-        const createdAt = finalRecord.createdAt || new Date().toISOString();
-        const openingBatchId = `opening-${finalRecord.id}`;
-        await db.inventoryBatches.put({
-          id: openingBatchId,
-          productId: finalRecord.id,
-          purchaseId: null,
-          quantity: openingQuantity,
-          remainingQuantity: openingQuantity,
-          costPrice: Number(finalRecord.costPrice || 0),
-          unitCode: finalRecord.baseUnitCode || null,
-          baseUnitCode: finalRecord.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: openingQuantity,
-          purchaseDate: createdAt,
-          branchId: finalRecord.branchId,
-          syncStatus,
-          createdAt,
-          updatedAt: new Date().toISOString(),
-        });
-        if (operationId) {
-          await appendLocalInventoryMovement(operationId, syncStatus, {
-            productId: Number(finalRecord.id),
-            branchId: finalRecord.branchId ?? null,
-            movementType: 'opening_balance',
-            sourceType: 'product',
-            sourceId: String(finalRecord.id),
-            sourceLineId: openingBatchId,
-            inputQuantity: openingQuantity,
-            unitCode: finalRecord.baseUnitCode || null,
-            baseUnitCode: finalRecord.baseUnitCode || null,
-            conversionToBase: 1,
-            quantityDeltaBase: openingQuantity,
-            unitCost: Number(finalRecord.costPrice || 0),
-            totalCost: openingQuantity * Number(finalRecord.costPrice || 0),
-            batchAllocations: [{
-              batchId: openingBatchId,
-              quantity: openingQuantity,
-              costPrice: Number(finalRecord.costPrice || 0),
-            }],
-          });
-        }
-      }
-    }
   }
 }
 
@@ -1547,24 +901,23 @@ async function applyOperationLocally(
   type: SyncOperation['type'],
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any,
-  operationId = String(payload?.operationId || '')
+  serverResult?: any
 ) {
   (globalThis as any).__posApplyingOperation = true;
   try {
     switch (type) {
       case 'sale':
-        return await applySaleLocally(payload, syncStatus, operationId);
+        return await applySaleLocally(payload, syncStatus);
       case 'return':
-        return await applyReturnLocally(payload, syncStatus, operationId);
+        return await applyReturnLocally(payload, syncStatus);
       case 'order_void':
-        return await applyOrderVoidLocally(payload, syncStatus, operationId);
+        return await applyOrderVoidLocally(payload, syncStatus);
       case 'purchase':
       case 'purchase_update':
       case 'purchase_delete':
-        return await applyPurchaseLocally(type, payload, syncStatus, operationId);
+        return await applyPurchaseLocally(type, payload, syncStatus);
       case 'purchase_return':
-        return await applyPurchaseReturnLocally(payload, syncStatus, operationId);
+        return await applyPurchaseReturnLocally(payload, syncStatus);
       case 'expense':
       case 'expense_delete':
         return await applyExpenseLocally(type, payload, syncStatus);
@@ -1579,10 +932,10 @@ async function applyOperationLocally(
       case 'shift_movement':
         return await applyShiftLocally(type, payload, syncStatus);
       case 'stocktake_approve':
-        return await applyStocktakeApproveLocally(payload, syncStatus, operationId);
+        return await applyStocktakeApproveLocally(payload, syncStatus);
       case 'entity_upsert':
       case 'entity_delete':
-        return await applyEntityLocally(type, payload, syncStatus, serverResult, operationId);
+        return await applyEntityLocally(type, payload, syncStatus, serverResult);
     }
   } finally {
     (globalThis as any).__posApplyingOperation = false;
@@ -1590,15 +943,6 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
-  if (type === 'sale' && Array.isArray(payload?.items)) {
-    return {
-      ...payload,
-      items: payload.items.map((item: any) => ({
-        ...item,
-        id: Number(item.id) || generateTempNumericId(),
-      })),
-    };
-  }
   if ((type === 'purchase' || type === 'purchase_update') && Array.isArray(payload?.items)) {
     return {
       ...payload,
@@ -1614,19 +958,8 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
   if (type === 'shift_movement' && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
-  if (type === 'return' && Array.isArray(payload?.items)) {
-    return {
-      ...payload,
-      id: payload.id || generateUUID(),
-      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
-    };
-  }
-  if (type === 'purchase_return' && Array.isArray(payload?.items)) {
-    return {
-      ...payload,
-      id: payload.id || generateUUID(),
-      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
-    };
+  if (type === 'purchase_return' && !payload?.id) {
+    return { ...payload, id: generateUUID() };
   }
   return payload;
 }
@@ -1651,7 +984,7 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
   return payload;
 }
 
-async function dispatchOperationSequential(
+export async function dispatchOperation(
   type: SyncOperation['type'],
   rawPayload: any,
   branchId?: number
@@ -1662,13 +995,6 @@ async function dispatchOperationSequential(
   const role = await getDeviceRole();
   const now = new Date().toISOString();
   const token = getAuthToken();
-  const unresolvedQueueCount = await db.syncOperations
-    .where('status')
-    .anyOf(['pending', 'error', 'syncing', 'conflict'])
-    .count();
-  const canExecuteImmediately = unresolvedQueueCount === 0 &&
-    !isReconcilingServerSnapshot &&
-    !Boolean((useSyncStore.getState() as any).isSyncing);
 
   const opRecord: SyncOperation = {
     id: operationId,
@@ -1682,12 +1008,12 @@ async function dispatchOperationSequential(
     updatedAt: now,
   };
 
-  if (role === 'server' && token && canExecuteImmediately) {
+  if (role === 'server' && token) {
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-      await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
-      await reconcileServerSnapshot();
+      await applyOperationLocally(type, localPayload, 'synced', response.result);
+      import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (
@@ -1701,29 +1027,62 @@ async function dispatchOperationSequential(
     }
   }
 
-  await db.syncOperations.put(opRecord);
-
-  if (token && canExecuteImmediately) {
-    let reachable = false;
+  // Enforce local stock policy before queueing offline sale when offlineStockPolicy is 'block'
+  if (type === 'sale' && !payload?.allowNegativeOverride && !payload?.managerOverride) {
     try {
-      reachable = await apiService.checkServerReachability(2000);
-    } catch {
-      reachable = false;
+      const policyRow = await db.settings.where('key').equals('offlineStockPolicy').first();
+      const allowNegRow = await db.settings.where('key').equals('allowNegativeStock').first();
+      const policy = policyRow?.value || (allowNegRow?.value === 'false' || allowNegRow?.value === false ? 'block' : 'allow_with_alert');
+      if (policy === 'block') {
+        for (const item of payload?.items || []) {
+          const prod = await db.products.get(Number(item.productId));
+          if (!prod) continue;
+          const itemType = String(item.itemType || prod.itemType || 'stock');
+          if (itemType === 'service') continue;
+          const factor = resolveLocalUnitFactor(prod, item);
+          const baseQty = roundQty(Number(item.quantity || 0) * factor);
+          if (itemType === 'service_with_materials' || itemType === 'bundle') {
+            const recipes = await db.serviceRecipes.where('parentProductId').equals(Number(prod.id)).toArray();
+            if (recipes.length > 0) {
+              for (const rec of recipes) {
+                const ing = await db.products.get(Number(rec.ingredientProductId));
+                const needed = roundQty(baseQty * Number(rec.quantity || 0));
+                if (ing && ing.stockQuantity < needed) {
+                  throw new Error(`الرصيد غير كافٍ للمادة الخام: ${ing.name} (المتاح: ${ing.stockQuantity})`);
+                }
+              }
+              continue;
+            }
+          }
+          if (itemType === 'stock' && prod.stockQuantity < baseQty) {
+            throw new Error(`الرصيد غير كافٍ للصنف: ${prod.name} (المتاح: ${prod.stockQuantity})`);
+          }
+        }
+      }
+    } catch (policyErr: any) {
+      throw policyErr;
     }
+  }
 
+  await db.syncOperations.put(opRecord);
+  await applyOperationLocally(type, opRecord.payload, 'pending');
+
+  if (token) {
+    const reachable = await apiService.checkServerReachability(2000);
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
         const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-        // Apply exactly once, using the server's authoritative item snapshots.
-        await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
+        await applyOperationLocally(type, localPayload, 'synced', response.result);
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
         });
         useSyncStore.getState().setLastSynced(new Date());
-        await reconcileServerSnapshot();
-        import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
+        import('./syncService').then(({ syncService }) => {
+          syncService.updatePendingCount();
+          syncService.pullAll().catch(() => {});
+        });
         return { synced: true, operationId, result: response.result };
       } catch (err: any) {
         if (
@@ -1743,24 +1102,6 @@ async function dispatchOperationSequential(
     }
   }
 
-  // The server is unavailable (or returned a transient failure): keep the
-  // operation in the durable queue and apply it once to the local database.
-  await applyOperationLocally(type, opRecord.payload, 'pending', undefined, operationId);
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
-
-}
-
-export function dispatchOperation(
-  type: SyncOperation['type'],
-  rawPayload: any,
-  branchId?: number
-): Promise<{ synced: boolean; operationId: string; result?: any }> {
-  // Serialize operations within this terminal. Without this queue, two rapid
-  // actions can both observe an empty durable queue and reach the server out of order.
-  const next = operationDispatchQueue.then(() =>
-    dispatchOperationSequential(type, rawPayload, branchId)
-  );
-  operationDispatchQueue = next.then(() => undefined, () => undefined);
-  return next;
 }

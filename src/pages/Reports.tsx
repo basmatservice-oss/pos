@@ -1,8 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
-import { formatAmount, formatQuantity } from '../utils/numberFormat.js';
-import { getHistoricalBaseQuantity, getHistoricalCostAmount } from '../utils/inventoryUnits.js';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Order, OrderItem, Purchase, PurchaseItem } from '../db/db';
+import { db, Order, OrderItem, Purchase, PurchaseItem, Product } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
 import {
   XAxis,
@@ -36,6 +34,7 @@ import {
   PieChart as PieChartIcon,
   Activity,
   Ban,
+  Eye,
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { arSA } from 'date-fns/locale';
@@ -44,10 +43,13 @@ import { toast } from 'react-hot-toast';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
+import { useInventoryStore } from '../store/useInventoryStore';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
 import { useAuth } from '../context/AuthContext';
 import ConfirmationModal from '../components/ConfirmationModal';
+import { ItemCardModal } from '../components/ItemCardModal';
+import { formatNumber, formatQty } from '../utils/format';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -57,7 +59,6 @@ export default function Reports() {
   const returns = useLiveQuery(() => db.returns.toArray()) || [];
   const inventoryBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
   const products = useLiveQuery(() => db.products.toArray()) || [];
-  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) || [];
   const payrolls = useLiveQuery(() => db.payroll.toArray()) || [];
   const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
@@ -72,11 +73,14 @@ export default function Reports() {
   const [customEndDate, setCustomEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const storeSettings = useSettings();
+  const decimals = storeSettings.currencyDecimals ?? 2;
+  const qtyDecimals = storeSettings.quantityDecimals ?? 3;
 
   const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[] } | null>(null);
   const [selectedPurchase, setSelectedPurchase] = useState<{ purchase: Purchase; items: PurchaseItem[] } | null>(null);
   const [returnTarget, setReturnTarget] = useState<{ order: Order; items: OrderItem[] } | null>(null);
   const [voidTarget, setVoidTarget] = useState<Order | null>(null);
+  const [itemCardProduct, setItemCardProduct] = useState<Product | null>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
 
   const hasPermission = (permission: string) => {
@@ -191,6 +195,7 @@ export default function Reports() {
   };
 
   const stats = useMemo(() => {
+    const { idMap: productIdMap } = useInventoryStore.getState();
     const today = new Date();
     let startDate = startOfDay(today);
     let endDate = endOfDay(today);
@@ -296,15 +301,17 @@ export default function Reports() {
     const filteredOrderIds = new Set(filteredOrders.map((o) => o.id));
     const filteredOrderItems = orderItems.filter((item) => filteredOrderIds.has(item.orderId));
 
-    const productsById = new Map(products.map((product) => [product.id, product]));
     let grossCost = 0;
     filteredOrderItems.forEach((item) => {
-      grossCost += getHistoricalCostAmount(item, productsById.get(item.productId));
+      const unitCost =
+        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
+          ? Number(item.costPriceAtTimeOfSale)
+          : Number(productIdMap.get(item.productId)?.costPrice || 0);
+      grossCost += unitCost * Number(item.quantity || 0);
     });
 
     const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
-    // Returns reverse COGS in the return period, even when the original sale was in an earlier period.
-    const totalCost = grossCost - returnedCost;
+    const totalCost = Math.max(0, grossCost - returnedCost);
 
     const grossProfit = totalRevenueExclVat - totalCost;
     const netProfit = grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
@@ -340,19 +347,12 @@ export default function Reports() {
       };
     });
 
-    const unitNames = new Map(unitDefinitions.map((unit) => [unit.code, unit.name]));
-    const productSales: Record<string, { name: string; quantity: number; unitLabel: string; revenue: number }> = {};
+    const productSales: Record<string, { productId: number; name: string; quantity: number; revenue: number }> = {};
     filteredOrderItems.forEach((item) => {
-      const product = productsById.get(item.productId);
-      const baseUnitQuantity = getHistoricalBaseQuantity(item, product);
-      const baseUnitCode = item.baseUnitCode || product?.baseUnitCode || (product?.unit === 'box' ? 'piece' : product?.unit);
-      const unitLabel = baseUnitCode
-        ? unitNames.get(baseUnitCode) || (baseUnitCode === 'piece' ? 'قطعة' : baseUnitCode)
-        : 'وحدة أساس';
       if (!productSales[item.productId]) {
-        productSales[item.productId] = { name: item.productName, quantity: 0, unitLabel, revenue: 0 };
+        productSales[item.productId] = { productId: item.productId, name: item.productName, quantity: 0, revenue: 0 };
       }
-      productSales[item.productId].quantity += baseUnitQuantity;
+      productSales[item.productId].quantity += Number(item.quantity || 0);
       productSales[item.productId].revenue += Number(item.total || 0) - Number(item.taxAmount || 0);
     });
 
@@ -384,17 +384,7 @@ export default function Reports() {
     const totalRetailValue = products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity) * p.sellingPrice, 0);
     const totalReceivables = customers.reduce((sum, c) => sum + Number(c.balance || 0), 0);
     const totalPayables = suppliers.reduce((sum, s) => sum + Number(s.balance || 0), 0);
-    const lowStockItems = products
-      .filter((product) => product.stockQuantity <= (product.minStockLevel || 10))
-      .map((product) => {
-        const baseUnitCode = product.baseUnitCode || (product.unit === 'box' ? 'piece' : product.unit);
-        return {
-          ...product,
-          baseUnitLabel: baseUnitCode
-            ? unitNames.get(baseUnitCode) || (baseUnitCode === 'piece' ? 'قطعة' : baseUnitCode)
-            : 'وحدة أساس',
-        };
-      });
+    const lowStockItems = products.filter((p) => (!p.itemType || p.itemType === 'stock') && p.stockQuantity <= (p.minStockLevel || 10));
 
     const totalPurchases = purchases
       .filter((p) => isWithinInterval(new Date(p.date), { start: startDate, end: endDate }))
@@ -450,7 +440,6 @@ export default function Reports() {
     returns,
     inventoryBatches,
     products,
-    unitDefinitions,
     expenses,
     payrolls,
     journalEntries,
@@ -588,12 +577,12 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">صافي المبيعات (بدون ضريبة)</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {formatAmount(stats.totalRevenueExclVat)}{' '}
+                  {formatNumber(stats.totalRevenueExclVat, decimals)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
                 <div className="flex items-center gap-1 mt-1 text-emerald-600">
                   <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span className="text-xs font-bold">صافي الربح: {formatAmount(stats.netProfit)}</span>
+                  <span className="text-xs font-bold">صافي الربح: {formatNumber(stats.netProfit, decimals)}</span>
                 </div>
               </div>
             </div>
@@ -605,10 +594,10 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">صافي ضريبة القيمة المضافة (2200)</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {formatAmount(stats.netVatPayable)}{' '}
+                  {formatNumber(stats.netVatPayable, decimals)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {formatAmount(stats.netCollectedInclVat)}</p>
+                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {formatNumber(stats.netCollectedInclVat, decimals)}</p>
               </div>
             </div>
 
@@ -619,11 +608,11 @@ export default function Reports() {
               <div>
                 <p className="text-xs font-bold text-slate-500 mb-1">المصروفات والرواتب</p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {formatAmount(stats.totalExpenses + stats.totalPayrolls)}{' '}
+                  {formatNumber(stats.totalExpenses + stats.totalPayrolls, decimals)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  تشغيلية: {formatAmount(stats.totalExpenses)} | رواتب: {formatAmount(stats.totalPayrolls)}
+                  تشغيلية: {formatNumber(stats.totalExpenses, decimals)} | رواتب: {formatNumber(stats.totalPayrolls, decimals)}
                 </p>
               </div>
             </div>
@@ -633,12 +622,14 @@ export default function Reports() {
                 <Package className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-500 mb-1">قيمة المخزون (تكلفة FIFO)</p>
+                <p className="text-xs font-bold text-slate-500 mb-1">
+                  قيمة المخزون ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})
+                </p>
                 <h3 className="text-xl font-black text-slate-900">
-                  {formatAmount(stats.totalInventoryValue)}{' '}
+                  {formatNumber(stats.totalInventoryValue, decimals)}{' '}
                   <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {formatAmount(stats.totalRetailValue)}</p>
+                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {formatNumber(stats.totalRetailValue, decimals)}</p>
               </div>
             </div>
           </div>
@@ -653,7 +644,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">التحصيل النقدي (شامل الضريبة)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {formatAmount(stats.cashRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatNumber(stats.cashRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.cashRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -670,7 +661,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الشبكة (شامل الضريبة)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {formatAmount(stats.cardRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatNumber(stats.cardRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.cardRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -687,7 +678,7 @@ export default function Reports() {
                 <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الآجل (ذمم)</p>
                 <div className="flex items-end justify-between">
                   <h3 className="text-xl font-black text-slate-900">
-                    {formatAmount(stats.creditRevenue)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
+                    {formatNumber(stats.creditRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
                   </h3>
                   <span className="text-xs font-bold text-slate-500">
                     {stats.netCollectedInclVat > 0 ? ((stats.creditRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
@@ -751,7 +742,7 @@ export default function Reports() {
                         <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: item.color }} />
                         <span className="text-slate-600">{item.name}</span>
                       </div>
-                      <span className="font-bold text-slate-900 tabular-nums">{formatAmount(item.value)}</span>
+                      <span className="font-bold text-slate-900 tabular-nums">{item.value.toFixed(2)}</span>
                     </div>
                   ))}
                   {stats.expenseData.length === 0 && (
@@ -791,50 +782,50 @@ export default function Reports() {
                       صافي إيرادات المبيعات (بدون ضريبة القيمة المضافة)
                     </td>
                     <td className="px-6 py-3.5 font-black text-indigo-950 text-left">
-                      {formatAmount(stats.totalRevenueExclVat)}
+                      {formatNumber(stats.totalRevenueExclVat, decimals)}
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-500 pr-10">ضريبة القيمة المضافة المستحقة للهيئة (حساب 2200)</td>
                     <td className="px-6 py-3 text-slate-500">صافي الضريبة المحصلة بعد المرتجعات</td>
-                    <td className="px-6 py-3 text-amber-700 font-bold text-left">{formatAmount(stats.netVatPayable)}</td>
+                    <td className="px-6 py-3 text-amber-700 font-bold text-left">{formatNumber(stats.netVatPayable, decimals)}</td>
                   </tr>
                   <tr className="bg-rose-50/30">
                     <td className="px-6 py-3.5 font-black text-rose-900" colSpan={2}>
-                      تكلفة البضاعة المباعة (COGS التاريخية FIFO)
+                      تكلفة البضاعة المباعة (COGS التاريخية)
                     </td>
-                    <td className="px-6 py-3.5 font-black text-rose-900 text-left">({formatAmount(stats.totalCost)})</td>
+                    <td className="px-6 py-3.5 font-black text-rose-900 text-left">({formatNumber(stats.totalCost, decimals)})</td>
                   </tr>
                   <tr className="bg-emerald-50/40">
                     <td className="px-6 py-3.5 font-black text-emerald-900" colSpan={2}>
                       مجمل الربح (Gross Profit)
                     </td>
-                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{formatAmount(stats.grossProfit)}</td>
+                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{formatNumber(stats.grossProfit, decimals)}</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">المصروفات التشغيلية</td>
                     <td className="px-6 py-3 text-slate-500">مصروفات الفترة</td>
-                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatAmount(stats.totalExpenses)})</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatNumber(stats.totalExpenses, decimals)})</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">الرواتب والأجور</td>
                     <td className="px-6 py-3 text-slate-500">مسير الرواتب المنصرف</td>
-                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatAmount(stats.totalPayrolls)})</td>
+                    <td className="px-6 py-3 text-rose-600 font-bold text-left">({formatNumber(stats.totalPayrolls, decimals)})</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">فروقات وتسويات الجرد (5400)</td>
                     <td className="px-6 py-3 text-slate-500">عجز / فائض المخزون المعتمد</td>
                     <td className="px-6 py-3 text-slate-900 font-bold text-left">
                       {stats.stocktakeAdjustments >= 0
-                        ? `(${formatAmount(stats.stocktakeAdjustments)})`
-                        : `+${formatAmount(Math.abs(stats.stocktakeAdjustments))}`}
+                        ? `(${formatNumber(stats.stocktakeAdjustments, decimals)})`
+                        : `+${formatNumber(Math.abs(stats.stocktakeAdjustments), decimals)}`}
                     </td>
                   </tr>
                   <tr className="bg-emerald-600 text-white">
                     <td className="px-6 py-4 font-black text-base" colSpan={2}>
                       صافي الربح المحاسبي النهائي (Net Profit)
                     </td>
-                    <td className="px-6 py-4 font-black text-lg text-left">{formatAmount(stats.netProfit)}</td>
+                    <td className="px-6 py-4 font-black text-lg text-left">{formatNumber(stats.netProfit, decimals)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -852,25 +843,40 @@ export default function Reports() {
                 {stats.topProducts.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-slate-400 text-sm">لا توجد بيانات</div>
                 ) : (
-                  stats.topProducts.map((product, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-bold text-sm text-indigo-600 tabular-nums">
-                          {index + 1}
+                  stats.topProducts.map((product, index) => {
+                    const matchedProd = products.find((p) => Number(p.id) === Number(product.productId));
+                    return (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-bold text-sm text-indigo-600 tabular-nums">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{product.name}</p>
+                            <p className="text-xs text-slate-500 tabular-nums">{formatQty(product.quantity, qtyDecimals)} وحدة مباعة</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{product.name}</p>
-                          <p className="text-xs text-slate-500 tabular-nums">{formatQuantity(product.quantity, { maximumFractionDigits: 6 })} {product.unitLabel} مباعة بوحدة الأساس</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-black text-emerald-600 tabular-nums">
+                            {formatNumber(product.revenue, decimals)} {storeSettings.currency}
+                          </p>
+                          {matchedProd && (
+                            <button
+                              type="button"
+                              onClick={() => setItemCardProduct(matchedProd)}
+                              title="بطاقة الصنف"
+                              className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-indigo-600"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <p className="text-sm font-black text-emerald-600 tabular-nums">
-                        {formatAmount(product.revenue)} {storeSettings.currency}
-                      </p>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -894,12 +900,22 @@ export default function Reports() {
                       <div>
                         <p className="text-sm font-bold text-slate-900">{product.name}</p>
                         <p className="text-xs text-rose-600 font-bold tabular-nums">
-                          المتبقي: {formatQuantity(product.stockQuantity, { maximumFractionDigits: 6 })} {product.baseUnitLabel}
+                          المتبقي: {formatQty(product.stockQuantity, qtyDecimals)} {product.unit || 'حبة'}
                         </p>
                       </div>
-                      <span className="px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-xs font-bold whitespace-nowrap">
-                        منخفض
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setItemCardProduct(product)}
+                          title="بطاقة الصنف"
+                          className="p-1.5 rounded-lg bg-white border border-rose-200 text-slate-600 hover:text-indigo-600"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-xs font-bold whitespace-nowrap">
+                          منخفض
+                        </span>
+                      </div>
                     </div>
                   ))
                 )}
@@ -928,7 +944,7 @@ export default function Reports() {
                         </p>
                       </div>
                       <div className="text-left tabular-nums">
-                        <p className="text-sm font-black text-indigo-600">{formatAmount(order.netAmount)}</p>
+                        <p className="text-sm font-black text-indigo-600">{formatNumber(order.netAmount, decimals)}</p>
                         <p className="text-xs font-bold text-slate-500">
                           {order.paymentMethod === 'cash'
                             ? 'نقدي'
@@ -1086,6 +1102,12 @@ export default function Reports() {
         promptRequired={true}
         onConfirm={confirmVoidOrder}
         onCancel={() => setVoidTarget(null)}
+      />
+
+      {/* Item Card Modal */}
+      <ItemCardModal
+        product={itemCardProduct}
+        onClose={() => setItemCardProduct(null)}
       />
     </div>
   );

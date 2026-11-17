@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
 import {
   Plus,
@@ -24,11 +24,27 @@ import { v4 as uuidv4 } from 'uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
+import { getProductUnits } from '../store/useCartStore';
+import { useInventoryStore } from '../store/useInventoryStore';
+import { formatMoney, formatNumber, formatQty, roundAmount, roundQty } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PurchaseReceipt from '../components/PurchaseReceipt';
 
+interface PurchaseCartRow {
+  rowId: string;
+  product: Product;
+  quantity: number;
+  unit: string;
+  conversionFactor: number;
+  costPrice: number;
+  batchNumber?: string;
+  expiryDate?: string;
+}
+
 export default function Purchases() {
   const storeSettings = useSettings();
+  const decimals = storeSettings.currencyDecimals ?? 2;
+  const qtyDecimals = storeSettings.quantityDecimals ?? 3;
   const { user } = useAuth();
 
   const hasPermission = (permission: string) => {
@@ -43,13 +59,8 @@ export default function Purchases() {
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   const allPurchases = useLiveQuery(() => db.purchases.toArray()) || [];
   const allBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
-  const productUnits = useLiveQuery(() => db.productUnits.where('isActive').equals(1).toArray()) || [];
-  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
+  const exchangeRateHistory = useLiveQuery(() => db.exchangeRateHistory.toArray()) || [];
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
-  const currencyRows = useLiveQuery(() => db.currencies.toArray()) || [];
-  const approvedExchangeRates = useLiveQuery(() => db.exchangeRates.toArray()) || [];
-  const baseCurrencySetting = useLiveQuery(() => db.settings.where('key').equals('baseCurrencyCode').first());
-
 
   const purchases = useMemo(() => {
     return [...allPurchases].sort(
@@ -81,26 +92,20 @@ export default function Purchases() {
 
   // New / Edit Purchase State
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [cart, setCart] = useState<{
-    product: Product;
-    quantity: number;
-    costPrice: number;
-    unitCode?: string;
-    baseUnitCode?: string;
-    conversionToBase: number;
-    unitLabel?: string;
-  }[]>([]);
+  const [cart, setCart] = useState<PurchaseCartRow[]>([]);
   const [paidAmount, setPaidAmount] = useState<string>('0');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [purchaseDate, setPurchaseDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [purchaseCurrencyCode, setPurchaseCurrencyCode] = useState('');
-
-  useEffect(() => {
-    if (baseCurrencySetting?.value && !purchaseCurrencyCode) setPurchaseCurrencyCode(String(baseCurrencySetting.value).toUpperCase());
-  }, [baseCurrencySetting?.value, purchaseCurrencyCode]);
-
-
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+
+  // FX & Landed Cost State
+  const [currency, setCurrency] = useState<string>(storeSettings.currency);
+  const [exchangeRateInput, setExchangeRateInput] = useState<string>('1');
+  const [pricesInForeignCurrency, setPricesInForeignCurrency] = useState<boolean>(false);
+  const [shippingCostInput, setShippingCostInput] = useState<string>('0');
+  const [customsCostInput, setCustomsCostInput] = useState<string>('0');
+  const [otherCostsInput, setOtherCostsInput] = useState<string>('0');
+  const [extraCostsPaymentMethod, setExtraCostsPaymentMethod] = useState<'cash' | 'card' | 'supplier'>('cash');
 
   // Confirm Delete Modal State
   const [purchaseToDelete, setPurchaseToDelete] = useState<Purchase | null>(null);
@@ -116,9 +121,6 @@ export default function Purchases() {
       costPrice: number;
       returnQty: number;
       batchId?: string;
-      unitCode?: string;
-      baseUnitCode?: string;
-      conversionToBase?: number;
     }>
   >([]);
   const [returnRefundMethod, setReturnRefundMethod] = useState<'credit_adjustment' | 'cash' | 'card'>(
@@ -146,121 +148,119 @@ export default function Purchases() {
     );
   }, [products, searchQuery]);
 
+  const currencyOptions = useMemo(() => {
+    const set = new Set<string>([storeSettings.currency, 'USD', 'EUR', 'SAR', 'AED', 'EGP']);
+    for (const row of exchangeRateHistory) {
+      if (row.currency) set.add(row.currency);
+    }
+    return Array.from(set).filter(Boolean);
+  }, [storeSettings.currency, exchangeRateHistory]);
+
+  const handleCurrencyChange = (nextCurrency: string) => {
+    setCurrency(nextCurrency);
+    if (nextCurrency === storeSettings.currency) {
+      setExchangeRateInput('1');
+      setPricesInForeignCurrency(false);
+    } else {
+      const latest = [...exchangeRateHistory]
+        .filter((h) => h.currency === nextCurrency)
+        .sort((a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime())[0];
+      const suggested = latest ? Number(latest.rate || 1) : Number(storeSettings.exchangeRate || 1);
+      setExchangeRateInput(String(suggested > 0 ? suggested : 1));
+      setPricesInForeignCurrency(true);
+    }
+  };
+
   const handleBarcodeSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!searchQuery) return;
+    const q = searchQuery.trim();
+    if (!q) return;
 
-    const alternateUnit = productUnits.find((unit) => unit.barcode === searchQuery && unit.isActive === 1);
-    const product = alternateUnit
-      ? products.find((row) => row.id === alternateUnit.productId)
-      : await db.products.where('barcode').equals(searchQuery).first();
+    const match = useInventoryStore.getState().getMatchByBarcode(q);
+    if (match) {
+      addToCart(match.product, match.matchedUnit?.name);
+      setSearchQuery('');
+      return;
+    }
+
+    const product = await db.products.where('barcode').equals(q).first();
     if (product) {
-      addToCart(product, alternateUnit?.unitCode);
+      addToCart(product);
       setSearchQuery('');
     } else {
       toast.error('المنتج غير موجود');
     }
   };
 
-  const addToCart = (product: Product, requestedUnitCode?: string) => {
-    const rows = productUnits.filter((unit) => unit.productId === product.id && unit.isActive === 1);
-    const selected = requestedUnitCode
-      ? rows.find((unit) => unit.unitCode === requestedUnitCode)
-      : rows.find((unit) => unit.isBaseUnit === 1) || rows.find((unit) => unit.unitCode === product.baseUnitCode);
-    const unitCode = selected?.unitCode;
-    const factor = Number(selected?.conversionToBase || 1);
-    const definition = unitCode ? unitDefinitions.find((unit) => unit.code === unitCode) : undefined;
-    const unitLabel = definition
-      ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
-      : unitCode;
-    const existing = cart.find((item) => item.product.id === product.id && item.unitCode === unitCode);
+  const addToCart = (product: Product, preferredUnit?: string) => {
+    const units = getProductUnits(product);
+    const unitMeta = preferredUnit ? units.find((u) => u.name === preferredUnit) : units[0];
+    const targetUnit = unitMeta?.name || product.unit || 'piece';
+    const factor = unitMeta?.conversionFactor || 1;
+    const defaultCost = unitMeta?.costPrice ?? roundAmount(product.costPrice * factor, decimals);
+
+    const existing = cart.find((item) => item.product.id === product.id && item.unit === targetUnit);
     if (existing) {
-      setCart(cart.map((item) =>
-        item.product.id === product.id && item.unitCode === unitCode
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
+      setCart(
+        cart.map((item) =>
+          item.rowId === existing.rowId ? { ...item, quantity: roundQty(item.quantity + 1) } : item
+        )
+      );
     } else {
-      const baseCostInDocumentCurrency = selectedPurchaseRate
-        ? product.costPrice / selectedPurchaseRate
-        : product.costPrice;
-      setCart([...cart, {
-        product,
-        quantity: 1,
-        costPrice: baseCostInDocumentCurrency * factor,
-        unitCode,
-        baseUnitCode: product.baseUnitCode || undefined,
-        conversionToBase: factor,
-        unitLabel,
-      }]);
+      setCart([
+        ...cart,
+        {
+          rowId: uuidv4(),
+          product,
+          quantity: 1,
+          unit: targetUnit,
+          conversionFactor: factor,
+          costPrice: defaultCost,
+          batchNumber: '',
+          expiryDate: '',
+        },
+      ]);
     }
   };
 
-  const updatePurchaseCartUnit = (productId: number, currentUnitCode: string | undefined, unitCode: string) => {
-    const row = productUnits.find((unit) => unit.productId === productId && unit.unitCode === unitCode && unit.isActive === 1);
-    if (!row) return;
-    const definition = unitDefinitions.find((unit) => unit.code === unitCode);
-    const factor = Number(row.conversionToBase || 1);
-    setCart(cart.map((item) => item.product.id === productId && item.unitCode === currentUnitCode ? {
-      ...item,
-      unitCode,
-      baseUnitCode: item.product.baseUnitCode || undefined,
-      conversionToBase: factor,
-      unitLabel: definition ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}` : unitCode,
-      costPrice: (selectedPurchaseRate ? item.product.costPrice / selectedPurchaseRate : item.product.costPrice) * factor,
-    } : item));
+  const removeFromCart = (rowId: string) => {
+    setCart(cart.filter((item) => item.rowId !== rowId));
   };
 
-  const removeFromCart = (productId: number, unitCode?: string) => {
-    setCart(cart.filter((item) => !(item.product.id === productId && item.unitCode === unitCode)));
+  const updateCartRow = (rowId: string, patch: Partial<PurchaseCartRow>) => {
+    setCart(cart.map((item) => (item.rowId === rowId ? { ...item, ...patch } : item)));
   };
 
-  const updateCartItem = (productId: number, unitCode: string | undefined, field: 'quantity' | 'costPrice', value: number) => {
-    setCart(
-      cart.map((item) =>
-        item.product.id === productId && item.unitCode === unitCode
-          ? { ...item, [field]: Math.max(0, value) }
-          : item
-      )
-    );
-  };
-
-  const baseCurrencyCode = String(baseCurrencySetting?.value || '').toUpperCase();
-  const selectedPurchaseRate = useMemo(() => {
-    if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return purchaseCurrencyCode === baseCurrencyCode && baseCurrencyCode ? 1 : null;
-    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
-    const matches = approvedExchangeRates.filter((rate) => {
-      if (!rate.approvedAt || new Date(rate.effectiveAt).getTime() > cutoff) return false;
-      return (
-        (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
-        (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
-      );
-    }).sort((a, b) => {
-      const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
-      return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  const handleRowUnitChange = (row: PurchaseCartRow, unitName: string) => {
+    const units = getProductUnits(row.product);
+    const meta = units.find((u) => u.name === unitName);
+    const factor = meta?.conversionFactor || 1;
+    const nextCost = meta?.costPrice ?? roundAmount(row.product.costPrice * factor, decimals);
+    updateCartRow(row.rowId, {
+      unit: unitName,
+      conversionFactor: factor,
+      costPrice: nextCost,
     });
-    const rate = matches[0];
-    if (!rate) return null;
-    const value = Number(rate.rate);
-    return rate.baseCurrencyCode === purchaseCurrencyCode ? value : 1 / value;
-  }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
-  const selectedPurchaseRateId = useMemo(() => {
-    if (!purchaseCurrencyCode || !baseCurrencyCode || purchaseCurrencyCode === baseCurrencyCode) return null;
-    const cutoff = new Date(`${purchaseDate.slice(0, 10)}T23:59:59.999Z`).getTime();
-    return approvedExchangeRates
-      .filter((rate) => rate.approvedAt && new Date(rate.effectiveAt).getTime() <= cutoff && (
-        (rate.baseCurrencyCode === purchaseCurrencyCode && rate.quoteCurrencyCode === baseCurrencyCode) ||
-        (rate.baseCurrencyCode === baseCurrencyCode && rate.quoteCurrencyCode === purchaseCurrencyCode)
-      ))
-      .sort((a, b) => {
-        const effective = new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime();
-        return effective || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      })[0]?.id || null;
-  }, [purchaseCurrencyCode, baseCurrencyCode, purchaseDate, approvedExchangeRates]);
+  };
 
-  const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
+  const fxRate = Math.max(0.0001, parseFloat(exchangeRateInput || '1') || 1);
+  const shippingCost = Math.max(0, parseFloat(shippingCostInput || '0') || 0);
+  const customsCost = Math.max(0, parseFloat(customsCostInput || '0') || 0);
+  const otherCosts = Math.max(0, parseFloat(otherCostsInput || '0') || 0);
+  const extraLandedCost = roundAmount(shippingCost + customsCost + otherCosts, decimals);
+
+  const totalAmount = roundAmount(
+    cart.reduce((sum, item) => {
+      const unitCostBase = pricesInForeignCurrency ? item.costPrice * fxRate : item.costPrice;
+      return sum + item.quantity * unitCostBase;
+    }, 0),
+    decimals
+  );
+
+  const capitalizedTotal = roundAmount(totalAmount + extraLandedCost, decimals);
+  const invoicePayable = extraCostsPaymentMethod === 'supplier' ? capitalizedTotal : totalAmount;
   const paidNum = Math.max(0, parseFloat(paidAmount || '0') || 0);
-  const remainingAmount = Math.max(0, totalAmount - paidNum);
+  const remainingAmount = Math.max(0, roundAmount(invoicePayable - paidNum, decimals));
 
   const resetForm = () => {
     setIsAddingNew(false);
@@ -270,7 +270,13 @@ export default function Purchases() {
     setPaidAmount('0');
     setPaymentMethod('cash');
     setPurchaseDate(format(new Date(), 'yyyy-MM-dd'));
-    setPurchaseCurrencyCode(baseCurrencyCode);
+    setCurrency(storeSettings.currency);
+    setExchangeRateInput('1');
+    setPricesInForeignCurrency(false);
+    setShippingCostInput('0');
+    setCustomsCostInput('0');
+    setOtherCostsInput('0');
+    setExtraCostsPaymentMethod('cash');
   };
 
   const handleSavePurchase = async () => {
@@ -282,20 +288,12 @@ export default function Purchases() {
       toast.error('السلة فارغة');
       return;
     }
-    if (purchaseCurrencyCode && (!baseCurrencyCode || !selectedPurchaseRate || selectedPurchaseRate <= 0)) {
-      toast.error('لا يمكن تسجيل فاتورة بعملة أجنبية دون سعر صرف معتمد وساري');
+    if (cart.some((i) => i.quantity <= 0)) {
+      toast.error('الكمية يجب أن تكون أكبر من صفر');
       return;
     }
-    if (cart.some((i) => !Number.isFinite(i.quantity) || i.quantity <= 0)) {
-      toast.error('الكمية يجب أن تكون رقماً صحيحاً وموجباً وفق دقة وحدة القياس');
-      return;
-    }
-    if (cart.some((i) => !Number.isFinite(i.costPrice) || i.costPrice < 0)) {
-      toast.error('تكلفة الشراء يجب أن تكون رقماً صالحاً وغير سالب');
-      return;
-    }
-    if (paidNum > totalAmount + 0.01) {
-      toast.error('المبلغ المدفوع لا يمكن أن يتجاوز إجمالي الفاتورة');
+    if (paidNum > invoicePayable + 0.01) {
+      toast.error('المبلغ المدفوع لا يمكن أن يتجاوز إجمالي الفاتورة المستحق');
       return;
     }
 
@@ -308,28 +306,43 @@ export default function Purchases() {
         supplierId: selectedSupplier.id!,
         supplierName: selectedSupplier.name,
         totalAmount,
-        currencyCode: purchaseCurrencyCode || undefined,
-        exchangeRateId: selectedPurchaseRateId || undefined,
         paidAmount: paidNum,
         paymentMethod,
         paymentStatus: remainingAmount <= 0.01 ? 'paid' : paidNum > 0 ? 'partial' : 'unpaid',
+        currency,
+        exchangeRate: fxRate,
+        shippingCost,
+        customsCost,
+        otherCosts,
+        extraCostsPaymentMethod,
         date: new Date(purchaseDate).toISOString(),
         branchId: user?.branchId,
         createdAt: editingPurchase?.createdAt || now,
         updatedAt: now,
       };
 
-      const itemsPayload = cart.map((item) => ({
-        productId: item.product.id!,
-        productName: item.product.name,
-        quantity: item.quantity,
-        costPrice: item.costPrice,
-        unitCode: item.unitCode,
-        baseUnitCode: item.baseUnitCode,
-        conversionToBase: item.conversionToBase || 1,
-        baseQuantity: item.quantity * Number(item.conversionToBase || 1),
-        total: item.quantity * item.costPrice,
-      }));
+      const itemsPayload = cart.map((item) => {
+        const unitCostBase = pricesInForeignCurrency
+          ? roundAmount(item.costPrice * fxRate, 4)
+          : item.costPrice;
+        const lineTotal = roundAmount(item.quantity * unitCostBase, decimals);
+        const share = totalAmount > 0 ? (lineTotal / totalAmount) * extraLandedCost : 0;
+        const baseQty = roundQty(item.quantity * (item.conversionFactor || 1));
+        const landedCostPerBaseUnit = baseQty > 0 ? Math.round(((lineTotal + share) / baseQty) * 10000) / 10000 : unitCostBase;
+        return {
+          productId: item.product.id!,
+          productName: item.product.name,
+          quantity: roundQty(item.quantity),
+          unit: item.unit || 'piece',
+          conversionFactor: item.conversionFactor || 1,
+          costPrice: item.costPrice,
+          pricesInForeignCurrency,
+          landedCostPerBaseUnit,
+          total: lineTotal,
+          batchNumber: item.batchNumber?.trim() || undefined,
+          expiryDate: item.expiryDate || undefined,
+        };
+      });
 
       await dispatchOperation(
         editingPurchase ? 'purchase_update' : 'purchase',
@@ -338,7 +351,7 @@ export default function Purchases() {
       );
 
       toast.success(
-        editingPurchase ? 'تم تحديث الفاتورة والدفعات بنجاح' : 'تم تسجيل المشتريات وتحديث المخزون'
+        editingPurchase ? 'تم تحديث الفاتورة والدفعات بنجاح' : 'تم تسجيل المشتريات وتحديث المخزون والتكلفة المرجحة'
       );
       resetForm();
     } catch (error: any) {
@@ -373,20 +386,27 @@ export default function Purchases() {
     setEditingPurchase(purchase);
     setSelectedSupplier(supplier || null);
     setPurchaseDate(format(new Date(purchase.date), 'yyyy-MM-dd'));
-    setPurchaseCurrencyCode(purchase.currencyCode || baseCurrencyCode);
-    setPaidAmount((purchase.originalPaidAmount ?? purchase.paidAmount).toString());
+    setPaidAmount(purchase.paidAmount.toString());
     setPaymentMethod(purchase.paymentMethod === 'card' ? 'card' : 'cash');
+    setCurrency(purchase.currency || storeSettings.currency);
+    setExchangeRateInput(String(purchase.exchangeRate || 1));
+    setPricesInForeignCurrency(false);
+    setShippingCostInput(String(purchase.shippingCost || 0));
+    setCustomsCostInput(String(purchase.customsCost || 0));
+    setOtherCostsInput(String(purchase.otherCosts || 0));
+    setExtraCostsPaymentMethod((purchase.extraCostsPaymentMethod as any) || 'cash');
 
-    const cartItems = items.map((item) => {
+    const cartItems: PurchaseCartRow[] = items.map((item) => {
       const product = products.find((p) => p.id === item.productId);
       return {
+        rowId: uuidv4(),
         product: product || ({ id: item.productId, name: item.productName, costPrice: item.costPrice } as any),
         quantity: item.quantity,
-        costPrice: item.originalCostPrice ?? item.costPrice,
-        unitCode: item.unitCode || undefined,
-        baseUnitCode: item.baseUnitCode || undefined,
-        conversionToBase: Number(item.conversionToBase || 1),
-        unitLabel: item.unitCode ? unitDefinitions.find((unit) => unit.code === item.unitCode)?.name : undefined,
+        unit: item.unit || 'piece',
+        conversionFactor: item.conversionFactor || 1,
+        costPrice: item.costPrice,
+        batchNumber: item.batchNumber || '',
+        expiryDate: item.expiryDate || '',
       };
     });
     setCart(cartItems);
@@ -398,24 +418,18 @@ export default function Purchases() {
     const batches = await db.inventoryBatches.where('purchaseId').equals(purchase.id!).toArray();
 
     const mapped = items.map((item) => {
-      const matchingBatch = batches.find((b) =>
-        b.productId === item.productId && (!item.unitCode || b.unitCode === item.unitCode)
-      );
-      const factor = Number(item.conversionToBase ?? matchingBatch?.conversionToBase ?? 1);
-      const remainingBaseQty = matchingBatch
+      const matchingBatch = batches.find((b) => b.productId === item.productId);
+      const remainingBatchQty = matchingBatch
         ? Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity)
-        : Number(item.baseQuantity ?? item.quantity * factor);
+        : item.quantity;
       return {
         productId: item.productId,
         productName: item.productName,
         purchasedQty: item.quantity,
-        remainingBatchQty: factor > 0 ? remainingBaseQty / factor : remainingBaseQty,
+        remainingBatchQty,
         costPrice: item.costPrice,
         returnQty: 0,
         batchId: matchingBatch?.id ? String(matchingBatch.id) : undefined,
-        unitCode: item.unitCode || matchingBatch?.unitCode || undefined,
-        baseUnitCode: item.baseUnitCode || matchingBatch?.baseUnitCode || undefined,
-        conversionToBase: factor,
       };
     });
 
@@ -469,10 +483,6 @@ export default function Purchases() {
             quantity: s.returnQty,
             costPrice: s.costPrice,
             batchId: s.batchId,
-            unitCode: s.unitCode,
-            baseUnitCode: s.baseUnitCode,
-            conversionToBase: s.conversionToBase || 1,
-            baseQuantity: s.returnQty * Number(s.conversionToBase || 1),
           })),
         },
         user?.branchId
@@ -538,10 +548,10 @@ export default function Purchases() {
                   <p className="text-xs text-slate-400 font-mono mb-2">{product.barcode}</p>
                   <div className="flex justify-between items-center tabular-nums">
                     <span className="text-indigo-600 font-black text-sm">
-                      {product.costPrice.toFixed(2)}
+                      {formatNumber(product.costPrice, decimals)}
                     </span>
                     <span className="text-[11px] bg-slate-100 px-2 py-0.5 rounded-md text-slate-600 border border-slate-200">
-                      مخزون: {product.stockQuantity}
+                      مخزون: {formatQty(product.stockQuantity, qtyDecimals)}
                     </span>
                   </div>
                 </button>
@@ -550,15 +560,15 @@ export default function Purchases() {
           </div>
         </div>
 
-        {/* Right Side: Cart & Supplier */}
-        <div className="w-96 bg-white border-r border-slate-200 flex flex-col">
-          <div className="p-5 border-b border-slate-200 space-y-3">
+        {/* Right Side: Cart, Supplier, FX & Landed Costs */}
+        <div className="w-[430px] bg-white border-r border-slate-200 flex flex-col">
+          <div className="p-4 border-b border-slate-200 space-y-2.5">
             <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
               <Truck className="w-4 h-4 text-indigo-600" />
-              بيانات المورد والفاتورة
+              بيانات المورد والفاتورة والعملة
             </h3>
             <select
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
               value={selectedSupplier?.id || ''}
               onChange={(e) => {
                 const s = suppliers.find((sup) => sup.id === Number(e.target.value));
@@ -572,39 +582,56 @@ export default function Purchases() {
                 </option>
               ))}
             </select>
-            <div>
-              <label className="text-xs text-slate-500 block mb-1">عملة فاتورة المورد</label>
-              <select
-                value={purchaseCurrencyCode}
-                onChange={(e) => setPurchaseCurrencyCode(e.target.value)}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none text-sm"
-                disabled={Boolean(editingPurchase) || cart.length > 0}
-              >
-                {!baseCurrencyCode && <option value="">لم تُحدد عملة أساسية بعد</option>}
-                {currencyRows.filter((item) => item.isActive).map((item) => (
-                  <option key={item.code} value={item.code}>{item.code} — {item.name}</option>
-                ))}
-              </select>
-              {purchaseCurrencyCode && purchaseCurrencyCode !== baseCurrencyCode && (
-                <p className={`text-xs mt-1 ${selectedPurchaseRate ? 'text-emerald-700' : 'text-rose-600'}`}>
-                  {selectedPurchaseRate
-                    ? `السعر المعتمد: 1 ${purchaseCurrencyCode} = ${selectedPurchaseRate.toFixed(6)} ${baseCurrencyCode}`
-                    : 'لا يوجد سعر صرف معتمد وساري لهذا التاريخ. لا يمكن حفظ الفاتورة بهذه العملة.'}
-                </p>
-              )}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[11px] text-slate-500 block mb-0.5">التاريخ</label>
+                <input
+                  type="date"
+                  value={purchaseDate}
+                  onChange={(e) => setPurchaseDate(e.target.value)}
+                  className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-500 block mb-0.5">العملة</label>
+                <select
+                  value={currency}
+                  onChange={(e) => handleCurrencyChange(e.target.value)}
+                  className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-xs"
+                >
+                  {currencyOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-500 block mb-0.5">سعر الصرف</label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0.0001"
+                  disabled={currency === storeSettings.currency}
+                  value={exchangeRateInput}
+                  onChange={(e) => setExchangeRateInput(e.target.value)}
+                  className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-xs tabular-nums disabled:opacity-60"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-1">تاريخ الفاتورة</label>
-              <input
-                type="date"
-                value={purchaseDate}
-                onChange={(e) => setPurchaseDate(e.target.value)}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none text-sm"
-              />
-            </div>
+            {currency !== storeSettings.currency && (
+              <label className="flex items-center gap-2 text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pricesInForeignCurrency}
+                  onChange={(e) => setPricesInForeignCurrency(e.target.checked)}
+                />
+                <span>أسعار الأصناف أدناه بعملة {currency} (تُحوَّل × {fxRate})</span>
+              </label>
+            )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-3.5 custom-scrollbar">
             {cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-400">
                 <ShoppingCart className="w-10 h-10 mb-2 opacity-30" />
@@ -612,89 +639,172 @@ export default function Purchases() {
               </div>
             ) : (
               <div className="space-y-3">
-                {cart.map((item) => (
-                  <div key={`${item.product.id}-${item.unitCode || 'legacy'}`} className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-bold text-xs text-slate-900 line-clamp-1">
-                          {item.product.name}
-                        </h4>
-                        {item.unitLabel && <p className="text-[10px] text-slate-500">{item.unitLabel} — التحويل ×{item.conversionToBase}</p>}
-                      </div>
-                      <button
-                        onClick={() => removeFromCart(item.product.id!, item.unitCode)}
-                        className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    {productUnits.filter((unit) => unit.productId === item.product.id && unit.isActive === 1).length > 1 && (
-                      <label className="block mb-2">
-                        <span className="text-[11px] text-slate-500 block mb-0.5">وحدة الشراء</span>
-                        <select
-                          value={item.unitCode || ''}
-                          onChange={(e) => updatePurchaseCartUnit(item.product.id!, item.unitCode, e.target.value)}
-                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                {cart.map((item) => {
+                  const units = getProductUnits(item.product);
+                  const unitCostBase = pricesInForeignCurrency ? item.costPrice * fxRate : item.costPrice;
+                  const lineTotal = roundAmount(item.quantity * unitCostBase, decimals);
+                  const share = totalAmount > 0 ? (lineTotal / totalAmount) * extraLandedCost : 0;
+                  const baseQty = roundQty(item.quantity * (item.conversionFactor || 1));
+                  const estLandedPerBase = baseQty > 0 ? (lineTotal + share) / baseQty : 0;
+
+                  return (
+                    <div key={item.rowId} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex justify-between items-start gap-2">
+                        <h4 className="font-bold text-xs text-slate-900 line-clamp-1">{item.product.name}</h4>
+                        <button
+                          onClick={() => removeFromCart(item.rowId)}
+                          className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg shrink-0"
                         >
-                          {productUnits.filter((unit) => unit.productId === item.product.id && unit.isActive === 1).map((unit) => {
-                            const definition = unitDefinitions.find((row) => row.code === unit.unitCode);
-                            const label = definition
-                              ? `${definition.name}${definition.symbol ? ` (${definition.symbol})` : ''}`
-                              : unit.unitCode;
-                            return <option key={unit.id} value={unit.unitCode}>{label} — ×{unit.conversionToBase}</option>;
-                          })}
-                        </select>
-                      </label>
-                    )}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[11px] text-slate-500 block mb-0.5">الكمية</label>
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-0.5">الوحدة</label>
+                          <select
+                            value={item.unit}
+                            onChange={(e) => handleRowUnitChange(item, e.target.value)}
+                            className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none"
+                          >
+                            {units.map((u) => (
+                              <option key={u.name} value={u.name}>
+                                {u.name === 'piece' ? 'حبة' : u.name === 'box' ? 'صندوق' : u.name}
+                                {u.conversionFactor !== 1 ? ` (×${formatQty(u.conversionFactor, qtyDecimals)})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-0.5">الكمية</label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0.001"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              updateCartRow(item.rowId, { quantity: Math.max(0, Number(e.target.value)) })
+                            }
+                            className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-0.5">
+                            التكلفة ({pricesInForeignCurrency ? currency : storeSettings.currency})
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.costPrice}
+                            onChange={(e) =>
+                              updateCartRow(item.rowId, { costPrice: Math.max(0, Number(e.target.value)) })
+                            }
+                            className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-xs tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
                         <input
-                          type="number"
-                          min="0.000001"
-                          step="any"
-                          value={item.quantity}
-                          onChange={(e) =>
-                            updateCartItem(item.product.id!, item.unitCode, 'quantity', Number(e.target.value))
-                          }
-                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-sm tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
+                          type="text"
+                          placeholder="رقم التشغيلة (Batch)"
+                          value={item.batchNumber || ''}
+                          onChange={(e) => updateCartRow(item.rowId, { batchNumber: e.target.value })}
+                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-[11px] outline-none"
+                        />
+                        <input
+                          type="date"
+                          title="تاريخ الانتهاء"
+                          value={item.expiryDate || ''}
+                          onChange={(e) => updateCartRow(item.rowId, { expiryDate: e.target.value })}
+                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-[11px] outline-none"
                         />
                       </div>
-                      <div>
-                        <label className="text-[11px] text-slate-500 block mb-0.5">سعر التكلفة</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.costPrice}
-                          onChange={(e) =>
-                            updateCartItem(item.product.id!, item.unitCode, 'costPrice', Number(e.target.value))
-                          }
-                          className="w-full p-1.5 bg-white border border-slate-200 rounded-lg text-sm tabular-nums outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
+
+                      <div className="flex justify-between items-center text-[11px] tabular-nums pt-1 border-t border-slate-200/70">
+                        <span className="text-slate-500">
+                          الواصل/أساس: <strong className="text-indigo-700">{formatNumber(estLandedPerBase, decimals)}</strong>
+                        </span>
+                        <span className="font-bold text-slate-700">
+                          المجموع: {formatMoney(lineTotal, storeSettings.currency, decimals)}
+                        </span>
                       </div>
                     </div>
-                    <div className="mt-2 text-left">
-                      <span className="text-xs font-bold text-slate-600 tabular-nums">
-                        المجموع: {(item.quantity * item.costPrice).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
 
-          <div className="p-5 bg-slate-50 border-t border-slate-200 space-y-3">
-            <div className="space-y-2 text-sm tabular-nums">
+          <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-2.5">
+            {/* Extra Landed Costs */}
+            <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+              <div>
+                <label className="text-slate-500 block mb-0.5">شحن</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={shippingCostInput}
+                  onChange={(e) => setShippingCostInput(e.target.value)}
+                  className="w-full p-1.5 bg-white border border-slate-200 rounded-lg tabular-nums outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-slate-500 block mb-0.5">جمارك</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={customsCostInput}
+                  onChange={(e) => setCustomsCostInput(e.target.value)}
+                  className="w-full p-1.5 bg-white border border-slate-200 rounded-lg tabular-nums outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-slate-500 block mb-0.5">أخرى</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={otherCostsInput}
+                  onChange={(e) => setOtherCostsInput(e.target.value)}
+                  className="w-full p-1.5 bg-white border border-slate-200 rounded-lg tabular-nums outline-none"
+                />
+              </div>
+            </div>
+
+            {extraLandedCost > 0 && (
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-600">سداد المصاريف الإضافية</span>
+                <select
+                  value={extraCostsPaymentMethod}
+                  onChange={(e) => setExtraCostsPaymentMethod(e.target.value as any)}
+                  className="p-1 bg-white border border-slate-200 rounded-lg text-xs outline-none"
+                >
+                  <option value="cash">نقدي من الصندوق</option>
+                  <option value="card">تحويل / بنك</option>
+                  <option value="supplier">مضافة لذمة المورد</option>
+                </select>
+              </div>
+            )}
+
+            <div className="space-y-1.5 text-xs tabular-nums pt-1 border-t border-slate-200">
               <div className="flex justify-between text-slate-600">
-                <span>الإجمالي</span>
+                <span>قيمة البضاعة</span>
                 <span className="font-bold text-slate-900">
-                  {totalAmount.toFixed(2)} {purchaseCurrencyCode || storeSettings.currency}
+                  {formatMoney(totalAmount, storeSettings.currency, decimals)}
                 </span>
               </div>
+              {extraLandedCost > 0 && (
+                <div className="flex justify-between text-indigo-700 font-bold">
+                  <span>التكلفة المرسملة بالمخزون (+مصاريف)</span>
+                  <span>{formatMoney(capitalizedTotal, storeSettings.currency, decimals)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center gap-2">
-                <span className="text-slate-600">المبلغ المدفوع</span>
+                <span className="text-slate-600">المبلغ المدفوع للمورد</span>
                 <input
                   type="number"
                   min="0"
@@ -733,16 +843,16 @@ export default function Purchases() {
                   </div>
                 </div>
               )}
-              <div className="flex justify-between text-rose-600 font-bold pt-2 border-t border-slate-200">
+              <div className="flex justify-between text-rose-600 font-bold pt-1.5 border-t border-slate-200">
                 <span>المتبقي (ذمة للمورد)</span>
                 <span>
-                  {remainingAmount.toFixed(2)} {storeSettings.currency}
+                  {formatMoney(remainingAmount, storeSettings.currency, decimals)}
                 </span>
               </div>
             </div>
             <button
               onClick={handleSavePurchase}
-              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors"
+              className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors"
             >
               <Save className="w-4 h-4" />
               {editingPurchase ? 'تحديث الفاتورة' : 'حفظ الفاتورة'}
@@ -817,16 +927,16 @@ export default function Purchases() {
                     </td>
                     <td className="px-5 py-3.5 font-bold text-slate-900">{purchase.supplierName}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-900 tabular-nums">
-                      {purchase.totalAmount.toFixed(2)}
+                      {formatNumber(purchase.totalAmount, decimals)}
                     </td>
                     <td className="px-5 py-3.5 text-amber-700 font-medium tabular-nums">
-                      {returned > 0 ? returned.toFixed(2) : '-'}
+                      {returned > 0 ? formatNumber(returned, decimals) : '-'}
                     </td>
                     <td className="px-5 py-3.5 text-emerald-700 font-bold tabular-nums">
-                      {purchase.paidAmount.toFixed(2)}
+                      {formatNumber(purchase.paidAmount, decimals)}
                     </td>
                     <td className="px-5 py-3.5 text-rose-600 font-bold tabular-nums">
-                      {netRemaining.toFixed(2)}
+                      {formatNumber(netRemaining, decimals)}
                     </td>
                     <td className="px-5 py-3.5">
                       <span
@@ -946,25 +1056,25 @@ export default function Purchases() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 tabular-nums">
                     {returnItemsState.map((item, idx) => (
-                      <tr key={`${item.productId}-${item.unitCode || 'legacy'}-${idx}`}>
+                      <tr key={item.productId}>
                         <td className="px-3 py-2.5 font-medium text-slate-900">{item.productName}</td>
-                        <td className="px-3 py-2.5 text-center text-slate-600">{item.purchasedQty}</td>
+                        <td className="px-3 py-2.5 text-center text-slate-600">{formatQty(item.purchasedQty, qtyDecimals)}</td>
                         <td className="px-3 py-2.5 text-center font-bold text-indigo-600">
-                          {item.remainingBatchQty}
+                          {formatQty(item.remainingBatchQty, qtyDecimals)}
                         </td>
-                        <td className="px-3 py-2.5 text-center">{item.costPrice.toFixed(2)}</td>
+                        <td className="px-3 py-2.5 text-center">{formatNumber(item.costPrice, decimals)}</td>
                         <td className="px-3 py-2.5 text-center">
                           <input
                             type="number"
+                            step="any"
                             min={0}
                             max={item.remainingBatchQty}
-                            step="any"
                             value={item.returnQty}
                             onChange={(e) => {
-                              const val = Math.min(
-                                item.remainingBatchQty,
-                                Math.max(0, Number(e.target.value) || 0)
-                              );
+                              const parsed = parseFloat(e.target.value);
+                              const val = isNaN(parsed)
+                                ? 0
+                                : Math.min(item.remainingBatchQty, Math.max(0, roundQty(parsed)));
                               setReturnItemsState((prev) =>
                                 prev.map((row, i) => (i === idx ? { ...row, returnQty: val } : row))
                               );
@@ -1010,7 +1120,7 @@ export default function Purchases() {
               <div className="flex justify-between items-center p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
                 <span className="text-sm font-bold text-amber-900">إجمالي قيمة المرتجع:</span>
                 <span className="text-lg font-black text-amber-800 tabular-nums">
-                  {returnTotal.toFixed(2)} {storeSettings.currency}
+                  {formatMoney(returnTotal, storeSettings.currency, decimals)}
                 </span>
               </div>
 
@@ -1078,7 +1188,7 @@ export default function Purchases() {
         title="حذف فاتورة المشتريات"
         message={
           purchaseToDelete
-            ? `هل أنت متأكد من حذف فاتورة المشتريات من "${purchaseToDelete.supplierName}" بقيمة ${purchaseToDelete.totalAmount.toFixed(2)} ${storeSettings.currency}؟ سيتم خصم الدفعات والمخزون وعكس القيود المحاسبية.`
+            ? `هل أنت متأكد من حذف فاتورة المشتريات من "${purchaseToDelete.supplierName}" بقيمة ${formatMoney(purchaseToDelete.totalAmount, storeSettings.currency, decimals)}؟ سيتم خصم الدفعات والمخزون وعكس القيود المحاسبية.`
             : ''
         }
         confirmLabel="حذف الفاتورة"

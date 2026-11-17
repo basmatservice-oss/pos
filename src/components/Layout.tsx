@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { LayoutGrid, Package, FileText, Settings, LogOut, Clock, Wifi, WifiOff, Users, Wallet, Truck, UserCircle, ShoppingBag, ShoppingCart, UserCheck, DollarSign, Tag, Building2, Smartphone, RotateCcw, Bell, RefreshCw } from 'lucide-react';
+import { LayoutGrid, Package, FileText, Settings, LogOut, Clock, Wifi, WifiOff, Users, Wallet, Truck, UserCircle, ShoppingBag, ShoppingCart, UserCheck, DollarSign, Tag, Building2, Smartphone, RotateCcw, Bell, RefreshCw, ShieldAlert, Lock } from 'lucide-react';
 import { db } from '../db/db';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
@@ -9,17 +9,23 @@ import { useSyncStore } from '../store/syncStore';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 import SyncIndicator from './SyncIndicator';
+import toast from 'react-hot-toast';
 
 export default function Layout() {
   const { isOnline, isSyncing } = useSyncStore();
   const [logo, setLogo] = useState('');
   const [lowStockCount, setLowStockCount] = useState(0);
   const [themeName, setThemeName] = useState('modern');
-  const { user, logout } = useAuth();
+  const { user, logout, updateCurrentUser } = useAuth();
   const navigate = useNavigate();
 
   const [deviceRole, setDeviceRole] = useState<'server' | 'client'>('server');
   const [oversellAlertCount, setOversellAlertCount] = useState(0);
+  const [curPass, setCurPass] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [updatingCreds, setUpdatingCreds] = useState(false);
 
   useEffect(() => {
     useInventoryStore.getState().initialize();
@@ -149,6 +155,51 @@ export default function Layout() {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleMandatoryPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPass || newPass.length < 6) {
+      toast.error('كلمة المرور الجديدة يجب أن لا تقل عن 6 أحرف');
+      return;
+    }
+    if (newPass === '123456') {
+      toast.error('يرجى اختيار كلمة مرور غير الافتراضية 123456');
+      return;
+    }
+    if (newPass !== confirmPass) {
+      toast.error('تأكيد كلمة المرور غير متطابق');
+      return;
+    }
+    if (newPin && (newPin.length < 4 || newPin === '1234')) {
+      toast.error('يرجى إدخال رمز PIN جديد مكون من 4 أرقام على الأقل (غير 1234)');
+      return;
+    }
+
+    setUpdatingCreds(true);
+    try {
+      await apiService.changePassword({
+        currentPassword: curPass || undefined,
+        newPassword: newPass,
+        newPinCode: newPin || undefined,
+      });
+      if (user?.id) {
+        await db.employees.update(user.id, {
+          mustChangePassword: false,
+          syncStatus: 'synced',
+        }).catch(() => {});
+      }
+      updateCurrentUser({ mustChangePassword: false });
+      setCurPass('');
+      setNewPass('');
+      setConfirmPass('');
+      setNewPin('');
+      toast.success('تم تأمين الحساب وتحديث بيانات الدخول بنجاح');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'تعذر تحديث كلمة المرور — تأكد من الاتصال بالسيرفر');
+    } finally {
+      setUpdatingCreds(false);
+    }
   };
 
   const roleLabels: Record<Role, string> = {
@@ -320,6 +371,89 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {user?.mustChangePassword && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 p-7 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">تغيير بيانات الدخول الإلزامي</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  لحماية النظام قبل التشغيل الإنتاجي، يجب تغيير كلمة المرور الافتراضية الآن.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleMandatoryPasswordChange} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الحالية (الافتراضية: 123456)</label>
+                <input
+                  type="password"
+                  value={curPass}
+                  onChange={(e) => setCurPass(e.target.value)}
+                  placeholder="أدخل كلمة المرور الحالية"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الجديدة *</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                  placeholder="6 أحرف أو أرقام على الأقل"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">تأكيد كلمة المرور الجديدة *</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPass}
+                  onChange={(e) => setConfirmPass(e.target.value)}
+                  placeholder="أعد إدخال كلمة المرور"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رمز PIN جديد (اختياري - 4 أرقام)</label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value)}
+                  placeholder="مثال: 5820"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 pt-2">
+                <button
+                  type="submit"
+                  disabled={updatingCreds}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  <Lock className="w-4 h-4" />
+                  {updatingCreds ? 'جاري التحديث...' : 'حفظ وتأمين الحساب'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200"
+                >
+                  خروج
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

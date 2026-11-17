@@ -3,13 +3,21 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { eq } from 'drizzle-orm';
-import { db } from './drizzle/db.js';
+import { db, closeDatabaseConnection } from './drizzle/db.js';
 import { settings } from './drizzle/schema.js';
-import { startSyncEngine } from './syncEngine.js';
+import { startSyncEngine, stopSyncEngine } from './syncEngine.js';
 import { createPosApp, seedDefaultUsersAndAccounts, createSafeBackup } from './server/app.js';
 import { runLegacyDataBackfill } from './server/backfill.js';
 
 let backupIntervalHandle: NodeJS.Timeout | null = null;
+let isShuttingDown = false;
+
+function stopAutoBackup() {
+  if (backupIntervalHandle) {
+    clearInterval(backupIntervalHandle);
+    backupIntervalHandle = null;
+  }
+}
 
 function startAutoBackup() {
   if (backupIntervalHandle) return;
@@ -79,16 +87,41 @@ async function startServer() {
 
   // 3. Build Express app & Socket.io
   console.log('[Startup 3/5] Configuring Express server and Socket.io...');
-  const { app, httpServer } = createPosApp();
+  const { app, httpServer, io } = createPosApp();
 
   // 4. Attach Vite middleware (dev) or static dist (prod)
   console.log('[Startup 4/5] Attaching frontend server...');
+  let viteInstance: any = null;
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    const disableHmr = process.env.DISABLE_HMR === 'true';
+    viteInstance = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: disableHmr ? false : { server: httpServer, path: '/vite-hmr' },
+      },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+
+    if (disableHmr) {
+      app.get('/@vite/client', async (_req, res, next) => {
+        try {
+          const transformed = await viteInstance.transformRequest('/@vite/client');
+          if (transformed?.code) {
+            const safeCode = transformed.code.replace(
+              'transport.connect(createHMRHandler(handleMessage));',
+              '/* HMR disabled in preview environment */'
+            );
+            res.type('application/javascript').send(safeCode);
+            return;
+          }
+        } catch {
+          // Fall through to Vite middleware if transform fails
+        }
+        next();
+      });
+    }
+
+    app.use(viteInstance.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
@@ -105,9 +138,48 @@ async function startServer() {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Startup 5/5] POS Central Server ready on http://0.0.0.0:${PORT}`);
   });
+
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[Shutdown] Received ${signal}, flushing WAL and closing services...`);
+
+    const forceTimer = setTimeout(() => {
+      console.warn('[Shutdown] Forced exit after timeout');
+      closeDatabaseConnection();
+      process.exit(0);
+    }, 5000);
+
+    try {
+      stopAutoBackup();
+      stopSyncEngine();
+      if (viteInstance && typeof viteInstance.close === 'function') {
+        await viteInstance.close().catch(() => {});
+      }
+      await new Promise<void>((resolve) => {
+        io.close(() => resolve());
+      });
+      await new Promise<void>((resolve) => {
+        httpServer.close(() => resolve());
+      });
+      closeDatabaseConnection();
+      clearTimeout(forceTimer);
+      console.log('[Shutdown] Cleanly closed SQLite & HTTP server.');
+      process.exit(0);
+    } catch (err) {
+      console.error('[Shutdown] Error during shutdown:', err);
+      closeDatabaseConnection();
+      clearTimeout(forceTimer);
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 }
 
 startServer().catch((err) => {
   console.error('Fatal server startup failure:', err);
+  closeDatabaseConnection();
   process.exit(1);
 });

@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
 import { format } from 'date-fns';
+import { useSettings } from '../hooks/useSettings';
+import { formatMoney, formatNumber, formatQty, roundQty } from '../utils/format';
 
 type ReturnableItem = OrderItem & {
   previouslyReturned: number;
@@ -14,17 +16,20 @@ type ReturnableItem = OrderItem & {
 };
 
 export default function Returns() {
+  const storeSettings = useSettings();
+  const decimals = storeSettings.currencyDecimals ?? 2;
+  const qtyDecimals = storeSettings.quantityDecimals ?? 3;
   const [searchQuery, setSearchQuery] = useState('');
   const [order, setOrder] = useState<(Order & { items: ReturnableItem[] }) | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<number, number>>({});
+  const [returnConditions, setReturnConditions] = useState<Record<number, 'resalable' | 'damaged'>>({});
   const [refundMethod, setRefundMethod] = useState<'cash' | 'card' | 'credit_adjustment'>('cash');
   const [reason, setReason] = useState('');
   const { user } = useAuth();
 
   const returnsHistory = useLiveQuery(() => db.returns.toArray()) || [];
-  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
   const sortedReturns = useMemo(
     () => [...returnsHistory].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [returnsHistory]
@@ -69,10 +74,10 @@ export default function Returns() {
 
       const itemsWithRemaining: ReturnableItem[] = origItems.map((item) => {
         const fromPastDocs = pastReturnItems
-          .filter((ri) => (ri.orderItemId && ri.orderItemId === item.id) || ri.productId === item.productId)
+          .filter((ri) => (ri.orderItemId ? ri.orderItemId === item.id : ri.productId === item.productId))
           .reduce((sum, ri) => sum + Number(ri.quantity || 0), 0);
         const previouslyReturned = Math.max(Number(item.returnedQuantity || 0), fromPastDocs);
-        const maxReturnable = Math.max(0, Number(item.quantity) - previouslyReturned);
+        const maxReturnable = Math.max(0, roundQty(Number(item.quantity) - previouslyReturned));
         return {
           ...item,
           previouslyReturned,
@@ -90,10 +95,13 @@ export default function Returns() {
       );
 
       const initialQuantities: Record<number, number> = {};
+      const initialConditions: Record<number, 'resalable' | 'damaged'> = {};
       itemsWithRemaining.forEach((_, index) => {
         initialQuantities[index] = 0;
+        initialConditions[index] = 'resalable';
       });
       setReturnQuantities(initialQuantities);
+      setReturnConditions(initialConditions);
     } catch (error) {
       console.error(error);
       toast.error('حدث خطأ أثناء البحث عن الفاتورة');
@@ -103,7 +111,7 @@ export default function Returns() {
   };
 
   const handleQuantityChange = (index: number, value: number, max: number) => {
-    const clean = isNaN(value) ? 0 : Math.max(0, Math.min(max, value));
+    const clean = isNaN(value) ? 0 : Math.max(0, Math.min(max, roundQty(value)));
     setReturnQuantities((prev) => ({ ...prev, [index]: clean }));
   };
 
@@ -124,7 +132,11 @@ export default function Returns() {
     }
 
     const selectedItems = order.items
-      .map((item, idx) => ({ item, qty: returnQuantities[idx] || 0 }))
+      .map((item, idx) => ({
+        item,
+        qty: returnQuantities[idx] || 0,
+        condition: returnConditions[idx] || 'resalable',
+      }))
       .filter((entry) => entry.qty > 0);
 
     if (selectedItems.length === 0) {
@@ -135,7 +147,7 @@ export default function Returns() {
     for (const { item, qty } of selectedItems) {
       if (qty > item.maxReturnable) {
         toast.error(
-          `الكمية المطلوبة للمنتج "${item.productName}" تتجاوز الكمية المتبقية القابلة للإرجاع (${item.maxReturnable})`
+          `الكمية المطلوبة للمنتج "${item.productName}" تتجاوز الكمية المتبقية القابلة للإرجاع (${formatQty(item.maxReturnable, qtyDecimals)})`
         );
         return;
       }
@@ -156,10 +168,11 @@ export default function Returns() {
         branchId: user?.branchId,
         shiftId: currentShift?.id,
         createdBy: user?.name || 'مستخدم',
-        items: selectedItems.map(({ item, qty }) => ({
+        items: selectedItems.map(({ item, qty, condition }) => ({
           orderItemId: item.id,
           productId: item.productId,
           quantity: qty,
+          condition,
         })),
       };
 
@@ -225,7 +238,9 @@ export default function Returns() {
             </div>
             <div className="text-left tabular-nums">
               <p className="text-xs text-slate-500">صافي الفاتورة شامل الضريبة</p>
-              <p className="text-xl font-black text-indigo-600">{order.netAmount.toFixed(2)}</p>
+              <p className="text-xl font-black text-indigo-600">
+                {formatMoney(order.netAmount, storeSettings.currency, decimals)}
+              </p>
             </div>
           </div>
 
@@ -238,6 +253,7 @@ export default function Returns() {
                   <th className="pb-3">الكمية المباعة</th>
                   <th className="pb-3">تم إرجاعه سابقاً</th>
                   <th className="pb-3">المتبقي للإرجاع</th>
+                  <th className="pb-3">حالة المرتجع</th>
                   <th className="pb-3 w-44">كمية الإرجاع</th>
                 </tr>
               </thead>
@@ -246,12 +262,37 @@ export default function Returns() {
                   <tr key={item.id ?? index}>
                     <td className="py-3.5 font-bold text-slate-900">
                       {item.productName}
-                      {item.unitCode && <div className="text-[10px] text-slate-500 font-normal">{item.unitCode}</div>}
+                      {item.unit && item.unit !== 'piece' ? (
+                        <span className="text-xs text-slate-400 font-normal mr-1.5">({item.unit})</span>
+                      ) : null}
                     </td>
-                    <td className="py-3.5 text-slate-600 tabular-nums">{item.unitPrice.toFixed(2)}</td>
-                    <td className="py-3.5 text-slate-600 tabular-nums">{item.quantity}</td>
-                    <td className="py-3.5 text-amber-600 font-bold tabular-nums">{item.previouslyReturned}</td>
-                    <td className="py-3.5 text-emerald-700 font-bold tabular-nums">{item.maxReturnable}</td>
+                    <td className="py-3.5 text-slate-600 tabular-nums">{formatNumber(item.unitPrice, decimals)}</td>
+                    <td className="py-3.5 text-slate-600 tabular-nums">{formatQty(item.quantity, qtyDecimals)}</td>
+                    <td className="py-3.5 text-amber-600 font-bold tabular-nums">{formatQty(item.previouslyReturned, qtyDecimals)}</td>
+                    <td className="py-3.5 text-emerald-700 font-bold tabular-nums">{formatQty(item.maxReturnable, qtyDecimals)}</td>
+                    <td className="py-3.5">
+                      {item.maxReturnable <= 0 ? (
+                        <span className="text-xs text-slate-400">-</span>
+                      ) : (
+                        <select
+                          value={returnConditions[index] || 'resalable'}
+                          onChange={(e) =>
+                            setReturnConditions((prev) => ({
+                              ...prev,
+                              [index]: e.target.value as 'resalable' | 'damaged',
+                            }))
+                          }
+                          className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border outline-none ${
+                            (returnConditions[index] || 'resalable') === 'damaged'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}
+                        >
+                          <option value="resalable">صالح لإعادة البيع</option>
+                          <option value="damaged">تالف / هالك (خسارة)</option>
+                        </select>
+                      )}
+                    </td>
                     <td className="py-3.5">
                       {item.maxReturnable <= 0 ? (
                         <span className="text-xs font-bold text-slate-400">مُرجع بالكامل</span>
@@ -259,33 +300,29 @@ export default function Returns() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => {
-                              const precision = unitDefinitions.find((unit) => unit.code === item.unitCode)?.decimalPlaces ?? 0;
-                              const step = 10 ** -precision;
-                              handleQuantityChange(index, (returnQuantities[index] || 0) - step, item.maxReturnable);
-                            }}
+                            onClick={() =>
+                              handleQuantityChange(index, (returnQuantities[index] || 0) - 1, item.maxReturnable)
+                            }
                             className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
                           >
                             -
                           </button>
                           <input
                             type="number"
+                            step="any"
                             min="0"
                             max={item.maxReturnable}
-                            step="any"
                             value={returnQuantities[index] || 0}
                             onChange={(e) =>
-                              handleQuantityChange(index, Number(e.target.value) || 0, item.maxReturnable)
+                              handleQuantityChange(index, parseFloat(e.target.value) || 0, item.maxReturnable)
                             }
-                            className="w-16 text-center border border-slate-200 rounded-lg py-1 tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
+                            className="w-20 text-center border border-slate-200 rounded-lg py-1 tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
                           />
                           <button
                             type="button"
-                            onClick={() => {
-                              const precision = unitDefinitions.find((unit) => unit.code === item.unitCode)?.decimalPlaces ?? 0;
-                              const step = 10 ** -precision;
-                              handleQuantityChange(index, (returnQuantities[index] || 0) + step, item.maxReturnable);
-                            }}
+                            onClick={() =>
+                              handleQuantityChange(index, (returnQuantities[index] || 0) + 1, item.maxReturnable)
+                            }
                             className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
                           >
                             +
@@ -328,7 +365,7 @@ export default function Returns() {
             <div className="flex items-center gap-2 text-amber-800 bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl tabular-nums">
               <AlertCircle className="w-5 h-5 shrink-0" />
               <span className="text-xs font-bold">
-                المبلغ المسترد المتوقع: {estimatedRefund.toFixed(2)} — سيتم عكس الضريبة وتكلفة البضاعة وإعادة الكمية للمخزون.
+                المبلغ المسترد المتوقع: {formatMoney(estimatedRefund, storeSettings.currency, decimals)} — سيتم عكس الضريبة، وإعادة الأصناف الصالحة للمخزون وتسجيل التالف كخسارة (5400).
               </span>
             </div>
             {hasPermission('process_returns') && (
@@ -382,7 +419,9 @@ export default function Returns() {
                     {ret.refundMethod === 'cash' ? 'نقدي' : ret.refundMethod === 'card' ? 'شبكة' : 'تسوية رصيد'}
                   </td>
                   <td className="px-5 py-3 text-slate-500">{ret.reason || '-'}</td>
-                  <td className="px-5 py-3 font-black text-slate-900 tabular-nums">{Number(ret.totalRefund).toFixed(2)}</td>
+                  <td className="px-5 py-3 font-black text-slate-900 tabular-nums">
+                    {formatMoney(Number(ret.totalRefund), storeSettings.currency, decimals)}
+                  </td>
                 </tr>
               ))}
               {sortedReturns.length === 0 && (

@@ -1,41 +1,4 @@
-import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
-
-// Currency master data and immutable, effective-dated exchange-rate snapshots.
-export const currencies = sqliteTable('Currency', {
-  code: text('code').primaryKey(), // ISO 4217 code; normalized to uppercase by the service layer.
-  name: text('name').notNull(),
-  symbol: text('symbol'),
-  decimalPlaces: integer('decimalPlaces').notNull().default(2),
-  isActive: integer('isActive').notNull().default(1),
-  createdAt: text('createdAt').notNull(),
-  updatedAt: text('updatedAt').notNull(),
-});
-
-export const exchangeRates = sqliteTable('ExchangeRate', {
-  id: text('id').primaryKey(),
-  baseCurrencyCode: text('baseCurrencyCode').notNull(),
-  quoteCurrencyCode: text('quoteCurrencyCode').notNull(),
-  rate: real('rate').notNull(), // units of quote currency for one unit of base currency
-  effectiveAt: text('effectiveAt').notNull(),
-  source: text('source').notNull(),
-  approvedBy: text('approvedBy'),
-  approvedAt: text('approvedAt'),
-  createdBy: text('createdBy'),
-  createdAt: text('createdAt').notNull(),
-  isSynced: integer('isSynced').notNull().default(0),
-});
-
-export const unitDefinitions = sqliteTable('UnitDefinition', {
-  code: text('code').primaryKey(),
-  name: text('name').notNull(),
-  symbol: text('symbol'),
-  dimension: text('dimension').notNull(),
-  decimalPlaces: integer('decimalPlaces').notNull().default(0),
-  isFractional: integer('isFractional').notNull().default(0),
-  isActive: integer('isActive').notNull().default(1),
-  createdAt: text('createdAt').notNull(),
-  updatedAt: text('updatedAt').notNull(),
-});
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const products = sqliteTable('Product', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -48,31 +11,33 @@ export const products = sqliteTable('Product', {
   priceInUSD: real('priceInUSD'),
   stockQuantity: real('stockQuantity').default(0),
   minStockLevel: real('minStockLevel').default(5),
-  unit: text('unit').default('piece'), // Legacy display unit retained during staged migration.
+  unit: text('unit').default('piece'),
   conversionFactor: real('conversionFactor').default(1),
+  itemType: text('itemType').default('stock'), // 'stock' | 'service' | 'service_with_materials' | 'bundle'
+  allowFractions: integer('allowFractions').default(0),
+  unitsJson: text('unitsJson'), // JSON array of extra units { name, barcode, conversionFactor, sellingPrice, costPrice, allowFractions }
   baseUnitCode: text('baseUnitCode'),
-  quantityPrecision: integer('quantityPrecision').notNull().default(0),
+  quantityPrecision: integer('quantityPrecision').default(0),
+  isActive: integer('isActive').default(1),
   vatRate: real('vatRate').default(0),
   imageUrl: text('imageUrl'),
   branchId: integer('branchId'),
   expiryDate: text('expiryDate'),
   batchNumber: text('batchNumber'),
-  isActive: integer('isActive').notNull().default(1),
   isSynced: integer('isSynced').default(0),
   updatedAt: text('updatedAt').notNull(),
   createdAt: text('createdAt').default(new Date().toISOString()),
 });
 
-export const productUnits = sqliteTable('ProductUnit', {
+export const serviceRecipes = sqliteTable('ServiceRecipe', {
   id: text('id').primaryKey(),
-  productId: integer('productId').notNull(),
-  unitCode: text('unitCode').notNull(),
-  conversionToBase: real('conversionToBase').notNull(),
-  isBaseUnit: integer('isBaseUnit').notNull().default(0),
-  sellingPrice: real('sellingPrice'),
-  barcode: text('barcode'),
-  isActive: integer('isActive').notNull().default(1),
-  createdAt: text('createdAt').notNull(),
+  parentProductId: integer('parentProductId').notNull(),
+  ingredientProductId: integer('ingredientProductId').notNull(),
+  ingredientName: text('ingredientName'),
+  quantity: real('quantity').notNull(), // consumed per 1 base unit of parent item
+  unit: text('unit').default('piece'),
+  isSynced: integer('isSynced').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
   updatedAt: text('updatedAt').notNull(),
 });
 
@@ -82,15 +47,9 @@ export const inventoryBatches = sqliteTable('InventoryBatch', {
   purchaseId: text('purchaseId'),
   quantity: real('quantity').notNull(),
   remainingQuantity: real('remainingQuantity').notNull(),
-  costPrice: real('costPrice').notNull(), // Immutable FIFO/COGS cost in the system base currency.
-  originalCostPrice: real('originalCostPrice'),
-  currencyCode: text('currencyCode'),
-  exchangeRate: real('exchangeRate'),
-  exchangeRateId: text('exchangeRateId'),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase'),
-  baseQuantity: real('baseQuantity'),
+  costPrice: real('costPrice').notNull(),
+  currency: text('currency'),
+  exchangeRate: real('exchangeRate').default(1),
   purchaseDate: text('purchaseDate').notNull(),
   expiryDate: text('expiryDate'),
   batchNumber: text('batchNumber'),
@@ -99,36 +58,6 @@ export const inventoryBatches = sqliteTable('InventoryBatch', {
   createdAt: text('createdAt').default(new Date().toISOString()),
   updatedAt: text('updatedAt').notNull(),
 });
-
-export const inventoryMovements = sqliteTable('InventoryMovement', {
-  id: text('id').primaryKey(),
-  movementKey: text('movementKey').notNull(),
-  productId: integer('productId').notNull(),
-  branchId: integer('branchId'),
-  movementType: text('movementType').notNull(),
-  sourceType: text('sourceType').notNull(),
-  sourceId: text('sourceId').notNull(),
-  sourceLineId: text('sourceLineId'),
-  operationId: text('operationId').notNull(),
-  deviceId: text('deviceId'),
-  createdBy: text('createdBy'),
-  inputQuantity: real('inputQuantity'),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase').notNull().default(1),
-  quantityDeltaBase: real('quantityDeltaBase').notNull(),
-  unitCost: real('unitCost').notNull().default(0),
-  totalCost: real('totalCost').notNull().default(0),
-  batchAllocations: text('batchAllocations'),
-  reason: text('reason'),
-  createdAt: text('createdAt').notNull(),
-}, (table) => ({
-  movementKeyUnique: uniqueIndex('idx_inventory_movement_key').on(table.movementKey),
-  productDateIdx: index('idx_inventory_movement_product_date').on(table.productId, table.createdAt),
-  branchDateIdx: index('idx_inventory_movement_branch_date').on(table.branchId, table.createdAt),
-  createdAtIdx: index('idx_inventory_movement_created_at').on(table.createdAt, table.id),
-  sourceIdx: index('idx_inventory_movement_source').on(table.sourceType, table.sourceId),
-}));
 
 export const categories = sqliteTable('Category', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -178,6 +107,8 @@ export const orders = sqliteTable('Order', {
   cardAmount: real('cardAmount').default(0),
   returnedAmount: real('returnedAmount').default(0),
   paymentMethod: text('paymentMethod').notNull(),
+  currency: text('currency'),
+  exchangeRate: real('exchangeRate').default(1),
   customerId: integer('customerId'),
   customerName: text('customerName'),
   branchId: integer('branchId'),
@@ -202,10 +133,7 @@ export const orderItems = sqliteTable('OrderItem', {
   returnedQuantity: real('returnedQuantity').default(0),
   unit: text('unit').default('piece'),
   conversionFactor: real('conversionFactor').default(1),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase'),
-  baseQuantity: real('baseQuantity'),
+  itemType: text('itemType').default('stock'),
   unitPrice: real('unitPrice').notNull(),
   costPriceAtTimeOfSale: real('costPriceAtTimeOfSale').default(0),
   discountAmount: real('discountAmount').default(0),
@@ -227,6 +155,8 @@ export const returns = sqliteTable('Return', {
   branchId: integer('branchId'),
   shiftId: text('shiftId'),
   refundMethod: text('refundMethod').notNull(), // 'cash' | 'card' | 'credit_adjustment'
+  currency: text('currency'),
+  exchangeRate: real('exchangeRate').default(1),
   subTotal: real('subTotal').default(0),
   discountAmount: real('discountAmount').default(0),
   taxAmount: real('taxAmount').default(0),
@@ -248,11 +178,8 @@ export const returnItems = sqliteTable('ReturnItem', {
   productId: integer('productId').notNull(),
   productName: text('productName').notNull(),
   quantity: real('quantity').notNull(),
+  condition: text('condition').default('resalable'), // 'resalable' | 'damaged'
   unitPrice: real('unitPrice').notNull(),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase'),
-  baseQuantity: real('baseQuantity'),
   costPrice: real('costPrice').default(0),
   taxAmount: real('taxAmount').default(0),
   total: real('total').notNull(),
@@ -420,17 +347,16 @@ export const purchases = sqliteTable('Purchase', {
   id: text('id').primaryKey(),
   supplierId: integer('supplierId'),
   supplierName: text('supplierName'),
-  totalAmount: real('totalAmount').notNull(), // Always stored in the system base currency for accounting.
-  currencyCode: text('currencyCode'),
-  baseCurrencyCode: text('baseCurrencyCode'),
-  exchangeRate: real('exchangeRate'), // Base-currency units per one document-currency unit.
-  exchangeRateId: text('exchangeRateId'),
-  originalTotalAmount: real('originalTotalAmount'),
-  originalPaidAmount: real('originalPaidAmount'),
+  totalAmount: real('totalAmount').notNull(),
   paymentStatus: text('paymentStatus').default('unpaid'),
   paymentMethod: text('paymentMethod').default('cash'),
   paidAmount: real('paidAmount').default(0),
   returnedAmount: real('returnedAmount').default(0),
+  currency: text('currency'),
+  exchangeRate: real('exchangeRate').default(1),
+  shippingCost: real('shippingCost').default(0),
+  customsCost: real('customsCost').default(0),
+  otherCosts: real('otherCosts').default(0),
   date: text('date').notNull(),
   branchId: integer('branchId'),
   deviceId: text('deviceId'),
@@ -446,17 +372,13 @@ export const purchaseItems = sqliteTable('PurchaseItem', {
   productId: integer('productId').notNull(),
   productName: text('productName').notNull(),
   quantity: real('quantity').notNull(),
-  costPrice: real('costPrice').notNull(), // Base-currency unit cost.
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase'),
-  baseQuantity: real('baseQuantity'),
-  originalCostPrice: real('originalCostPrice'),
-  originalTotal: real('originalTotal'),
-  currencyCode: text('currencyCode'),
-  exchangeRate: real('exchangeRate'),
-  exchangeRateId: text('exchangeRateId'),
-  total: real('total').notNull(), // Base-currency line total.
+  unit: text('unit').default('piece'),
+  conversionFactor: real('conversionFactor').default(1),
+  costPrice: real('costPrice').notNull(),
+  landedCostPerBaseUnit: real('landedCostPerBaseUnit'),
+  total: real('total').notNull(),
+  expiryDate: text('expiryDate'),
+  batchNumber: text('batchNumber'),
   isSynced: integer('isSynced').default(0),
   createdAt: text('createdAt').default(new Date().toISOString()),
 });
@@ -470,6 +392,8 @@ export const purchaseReturns = sqliteTable('PurchaseReturn', {
   branchId: integer('branchId'),
   shiftId: text('shiftId'),
   refundMethod: text('refundMethod').notNull(), // 'cash' | 'card' | 'credit_adjustment'
+  currency: text('currency'),
+  exchangeRate: real('exchangeRate').default(1),
   totalReturn: real('totalReturn').notNull(),
   reason: text('reason'),
   createdBy: text('createdBy'),
@@ -488,10 +412,6 @@ export const purchaseReturnItems = sqliteTable('PurchaseReturnItem', {
   quantity: real('quantity').notNull(),
   costPrice: real('costPrice').notNull(),
   total: real('total').notNull(),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
-  conversionToBase: real('conversionToBase'),
-  baseQuantity: real('baseQuantity'),
   batchId: text('batchId'),
   isSynced: integer('isSynced').default(0),
   createdAt: text('createdAt').default(new Date().toISOString()),
@@ -539,7 +459,6 @@ export const auditLogs = sqliteTable('AuditLog', {
   productName: text('productName'),
   details: text('details'),
   quantity: real('quantity').default(0),
-  unitCode: text('unitCode'),
   value: real('value').default(0),
   branchId: integer('branchId'),
   previousValue: text('previousValue'),
@@ -610,8 +529,6 @@ export const stocktakingEntries = sqliteTable('StocktakingEntry', {
   barcode: text('barcode'),
   systemQuantity: real('systemQuantity').notNull(),
   actualQuantity: real('actualQuantity').notNull(),
-  unitCode: text('unitCode'),
-  baseUnitCode: text('baseUnitCode'),
   scannedBy: text('scannedBy'),
   scannedAt: text('scannedAt').default(new Date().toISOString()),
   isSynced: integer('isSynced').default(0),
@@ -646,5 +563,76 @@ export const inventoryAlerts = sqliteTable('InventoryAlert', {
   deviceId: text('deviceId'),
   reason: text('reason').notNull(),
   resolved: integer('resolved').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
+});
+
+export const exchangeRateHistory = sqliteTable('ExchangeRateHistory', {
+  id: text('id').primaryKey(),
+  currency: text('currency').notNull(),
+  rate: real('rate').notNull(),
+  source: text('source').default('manual'),
+  effectiveFrom: text('effectiveFrom').notNull(),
+  notes: text('notes'),
+  createdBy: text('createdBy'),
+  isSynced: integer('isSynced').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
+});
+
+export const fiscalPeriods = sqliteTable('FiscalPeriod', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  startDate: text('startDate').notNull(),
+  endDate: text('endDate').notNull(),
+  status: text('status').default('open'), // 'open' | 'closed'
+  closedAt: text('closedAt'),
+  closedBy: text('closedBy'),
+  notes: text('notes'),
+  isSynced: integer('isSynced').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
+  updatedAt: text('updatedAt').notNull(),
+});
+
+export const unitDefinitions = sqliteTable('UnitDefinition', {
+  code: text('code').primaryKey(),
+  name: text('name').notNull(),
+  symbol: text('symbol'),
+  dimension: text('dimension').notNull(),
+  decimalPlaces: integer('decimalPlaces').default(0),
+  isFractional: integer('isFractional').default(0),
+  isSystem: integer('isSystem').default(0),
+  isSynced: integer('isSynced').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
+  updatedAt: text('updatedAt').notNull(),
+});
+
+export const productUnits = sqliteTable('ProductUnit', {
+  id: text('id').primaryKey(),
+  productId: integer('productId').notNull(),
+  unitCode: text('unitCode').notNull(),
+  conversionToBase: real('conversionToBase').notNull(),
+  isBaseUnit: integer('isBaseUnit').default(0),
+  sellingPrice: real('sellingPrice'),
+  barcode: text('barcode'),
+  isSynced: integer('isSynced').default(0),
+  createdAt: text('createdAt').default(new Date().toISOString()),
+  updatedAt: text('updatedAt').notNull(),
+});
+
+export const inventoryMovements = sqliteTable('InventoryMovement', {
+  id: text('id').primaryKey(),
+  movementKey: text('movementKey').unique().notNull(),
+  productId: integer('productId').notNull(),
+  movementType: text('movementType').notNull(),
+  sourceType: text('sourceType').notNull(),
+  sourceId: text('sourceId').notNull(),
+  quantityDeltaBase: real('quantityDeltaBase').notNull(),
+  baseUnitCode: text('baseUnitCode'),
+  unitCost: real('unitCost').default(0),
+  totalCost: real('totalCost').default(0),
+  branchId: integer('branchId'),
+  operationId: text('operationId'),
+  reason: text('reason'),
+  createdBy: text('createdBy'),
+  isSynced: integer('isSynced').default(0),
   createdAt: text('createdAt').default(new Date().toISOString()),
 });

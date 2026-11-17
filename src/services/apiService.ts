@@ -421,28 +421,6 @@ export const apiService = {
   async createStocktakingEntry(entry: any) {
     return requestWithRetry(() => axios.post(`${API_BASE}/stocktakingEntries`, entry).then((r) => r.data));
   },
-  async getInventoryMovements(params?: {
-    productId?: number;
-    branchId?: number;
-    sourceType?: string;
-    startDate?: string;
-    endDate?: string;
-    afterCreatedAt?: string;
-    afterId?: string;
-    movementKeys?: string;
-    latest?: boolean;
-    offset?: number;
-    limit?: number;
-  }) {
-    return requestWithRetry(() =>
-      axios.get(`${API_BASE}/inventoryMovements`, { params }).then((r) => r.data)
-    );
-  },
-  async getInventoryMovementReconciliation() {
-    return requestWithRetry(() =>
-      axios.get(`${API_BASE}/inventoryMovements/reconciliation`).then((r) => r.data)
-    );
-  },
   async getInventoryBatches() {
     return requestWithRetry(() => axios.get(`${API_BASE}/inventoryBatches`).then((r) => r.data));
   },
@@ -457,6 +435,21 @@ export const apiService = {
   },
   async resolveInventoryAlert(id: string) {
     return requestWithRetry(() => axios.post(`${API_BASE}/inventoryAlerts/${id}/resolve`).then((r) => r.data));
+  },
+  async getInventoryMovements(params?: {
+    productId?: number;
+    latest?: boolean;
+    offset?: number;
+    limit?: number;
+    branchId?: number;
+    sourceType?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    return requestWithRetry(() => axios.get(`${API_BASE}/inventoryMovements`, { params }).then((r) => r.data));
+  },
+  async getInventoryMovementReconciliation() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/inventoryMovements/reconciliation`).then((r) => r.data));
   },
 
   // --- Backup & Restore ---
@@ -495,44 +488,36 @@ export const apiService = {
       .then((r) => r.data);
   },
 
-  // --- Currency and historical exchange-rate ledger ---
-  async getCurrencies() {
-    return requestWithRetry(() => axios.get(`${API_BASE}/currencies`).then((r) => r.data));
+  // --- Service Recipes, Exchange Rate History, Fiscal Periods & System Status ---
+  async getServiceRecipes() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/serviceRecipes`).then((r) => r.data));
   },
-  async saveCurrency(currency: { code: string; name: string; symbol?: string; decimalPlaces?: number }) {
-    return axios.post(`${API_BASE}/currencies`, currency).then((r) => r.data);
+  async saveServiceRecipe(recipe: any) {
+    return requestWithRetry(() => axios.post(`${API_BASE}/serviceRecipes`, recipe).then((r) => r.data));
   },
-  async setCurrencyActive(code: string, isActive: boolean) {
-    return axios.put(`${API_BASE}/currencies/${encodeURIComponent(code)}/status`, { isActive }).then((r) => r.data);
+  async deleteServiceRecipe(id: string) {
+    return requestWithRetry(() => axios.delete(`${API_BASE}/serviceRecipes/${id}`).then((r) => r.data));
   },
-  async getBaseCurrency() {
-    return requestWithRetry(() => axios.get(`${API_BASE}/currencies/base`).then((r) => r.data));
+  async getExchangeRateHistory() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/exchangeRateHistory`).then((r) => r.data));
   },
-  async setBaseCurrency(code: string) {
-    return axios.put(`${API_BASE}/currencies/base`, { code }).then((r) => r.data);
+  async addExchangeRate(entry: any) {
+    return requestWithRetry(() => axios.post(`${API_BASE}/exchangeRateHistory`, entry).then((r) => r.data));
   },
-  async getExchangeRates(base?: string, quote?: string) {
-    return requestWithRetry(() => axios.get(`${API_BASE}/exchange-rates`, { params: { base, quote } }).then((r) => r.data));
+  async getFiscalPeriods() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/fiscalPeriods`).then((r) => r.data));
   },
-  async createExchangeRate(rate: { baseCurrencyCode: string; quoteCurrencyCode: string; rate: number; effectiveAt: string; source: string }) {
-    return axios.post(`${API_BASE}/exchange-rates`, rate).then((r) => r.data);
+  async saveFiscalPeriod(period: any) {
+    return requestWithRetry(() => axios.post(`${API_BASE}/fiscalPeriods`, period).then((r) => r.data));
   },
-  async approveExchangeRate(id: string) {
-    return axios.post(`${API_BASE}/exchange-rates/${encodeURIComponent(id)}/approve`).then((r) => r.data);
+  async closeFiscalPeriod(id: string) {
+    return axios.post(`${API_BASE}/fiscalPeriods/${id}/close`).then((r) => r.data);
   },
-
-  // --- Unit catalogue and per-product unit conversions ---
-  async getUnitDefinitions() {
-    return requestWithRetry(() => axios.get(`${API_BASE}/unit-definitions`).then((r) => r.data));
+  async reopenFiscalPeriod(id: string) {
+    return axios.post(`${API_BASE}/fiscalPeriods/${id}/reopen`).then((r) => r.data);
   },
-  async saveUnitDefinition(unit: { code: string; name: string; symbol?: string; dimension: string; decimalPlaces?: number }) {
-    return axios.post(`${API_BASE}/unit-definitions`, unit).then((r) => r.data);
-  },
-  async getProductUnits(productId?: number) {
-    return requestWithRetry(() => axios.get(`${API_BASE}/product-units`, { params: { productId } }).then((r) => r.data));
-  },
-  async saveProductUnit(unit: { productId: number; unitCode: string; conversionToBase: number; isBaseUnit?: boolean; sellingPrice?: number | null; barcode?: string }) {
-    return axios.post(`${API_BASE}/product-units`, unit).then((r) => r.data);
+  async getSystemStatus() {
+    return axios.get(`${API_BASE}/system/status`).then((r) => r.data);
   },
 
   // --- Sync Queue ---

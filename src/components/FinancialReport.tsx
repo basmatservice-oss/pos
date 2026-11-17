@@ -1,6 +1,4 @@
 import { useState, useMemo, useEffect } from 'react';
-import { formatAmount } from '../utils/numberFormat.js';
-import { getHistoricalCostAmount } from '../utils/inventoryUnits.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, Purchase } from '../db/db';
 import {
@@ -13,8 +11,10 @@ import {
   startOfMonth,
   endOfMonth,
 } from 'date-fns';
-import { FileText, Activity, BookOpen, Calendar, Receipt, Scale, Download } from 'lucide-react';
+import { FileText, Activity, BookOpen, Calendar, Receipt, Scale, Download, Clock, Wallet } from 'lucide-react';
 import { apiService } from '../services/apiService';
+import { useSettings } from '../hooks/useSettings';
+import { formatMoney, formatNumber } from '../utils/format';
 
 interface FinancialReportProps {
   onViewReceipt?: (order: Order) => void;
@@ -22,7 +22,9 @@ interface FinancialReportProps {
 }
 
 export default function FinancialReport({ onViewReceipt, onViewPurchase }: FinancialReportProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'trialBalance' | 'balanceSheet' | 'invoices' | 'ledger' | 'audit'>(
+  const storeSettings = useSettings();
+  const decimals = storeSettings.currencyDecimals ?? 2;
+  const [activeSubTab, setActiveSubTab] = useState<'trialBalance' | 'balanceSheet' | 'aging_cashflow' | 'invoices' | 'ledger' | 'audit'>(
     'trialBalance'
   );
   const [dateFilter, setDateFilter] = useState<'today' | 'thisWeek' | 'thisMonth' | 'all' | 'custom'>('thisMonth');
@@ -43,6 +45,8 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
   const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
   const transactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
+  const customers = useLiveQuery(() => db.customers.toArray()) || [];
+  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
 
   const getDateRange = () => {
     const now = new Date();
@@ -161,11 +165,16 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
 
   const grossCOGS = orderItems
     .filter((item) => validOrderIds.has(item.orderId))
-    .reduce((sum, item) => sum + getHistoricalCostAmount(item, productMap.get(item.productId)), 0);
+    .reduce((sum, item) => {
+      const cost =
+        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
+          ? Number(item.costPriceAtTimeOfSale)
+          : Number(productMap.get(item.productId)?.costPrice || 0);
+      return sum + cost * Number(item.quantity || 0);
+    }, 0);
 
   const returnedCOGS = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
-  // A return reverses COGS in its own accounting period, including returns of older sales.
-  const totalCOGS = serverReport ? Number(serverReport.netCogs) : grossCOGS - returnedCOGS;
+  const totalCOGS = serverReport ? Number(serverReport.netCogs) : Math.max(0, grossCOGS - returnedCOGS);
   const totalExpenses = serverReport ? Number(serverReport.operatingExpenses) : filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const totalSalaries = serverReport ? Number(serverReport.payrollExpenses) : filteredPayrolls.reduce((sum, p) => sum + Number(p.netSalary || 0), 0);
 
@@ -287,6 +296,43 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
     );
   }, [serverReport, accounts, ledgerLines]);
 
+  const agingData = useMemo(() => {
+    if (serverReport?.aging) return serverReport.aging;
+    const nowMs = Date.now();
+    const bucket = {
+      bucket0_30: 0,
+      bucket31_60: 0,
+      bucket61_90: 0,
+      bucket90Plus: 0,
+      totalReceivables: customers.reduce((s, c) => s + Math.max(0, Number(c.balance || 0)), 0),
+      totalPayables: suppliers.reduce((s, sup) => s + Math.max(0, Number(sup.balance || 0)), 0),
+    };
+    for (const o of orders) {
+      if (o.status === 'void' || o.paymentMethod !== 'credit') continue;
+      const unpaid = Number(o.netAmount || 0) - Number(o.paidAmount || 0) - Number(o.returnedAmount || 0);
+      if (unpaid <= 0.01) continue;
+      const days = Math.floor((nowMs - new Date(o.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+      if (days <= 30) bucket.bucket0_30 += unpaid;
+      else if (days <= 60) bucket.bucket31_60 += unpaid;
+      else if (days <= 90) bucket.bucket61_90 += unpaid;
+      else bucket.bucket90Plus += unpaid;
+    }
+    return bucket;
+  }, [serverReport, customers, suppliers, orders]);
+
+  const cashFlowData = useMemo(() => {
+    if (serverReport?.cashFlow) return serverReport.cashFlow;
+    let inflows = 0;
+    let outflows = 0;
+    for (const l of ledgerLines) {
+      if (l.accountId === '1010' || l.accountId === '1020') {
+        inflows += l.debit;
+        outflows += l.credit;
+      }
+    }
+    return { inflows, outflows, netCashFlow: inflows - outflows };
+  }, [serverReport, ledgerLines]);
+
   const exportTrialBalanceCSV = () => {
     const headers = ['رقم الحساب', 'اسم الحساب', 'رصيد أول مدين', 'رصيد أول دائن', 'حركة مدين', 'حركة دائن', 'ختامي مدين', 'ختامي دائن'];
     const rows = trialBalanceRows.map((r: any) => [
@@ -330,6 +376,15 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
           >
             <Scale className="w-4 h-4 inline-block ml-1.5" />
             الميزانية العمومية
+          </button>
+          <button
+            onClick={() => setActiveSubTab('aging_cashflow')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+              activeSubTab === 'aging_cashflow' ? 'bg-white text-indigo-600' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Clock className="w-4 h-4 inline-block ml-1.5" />
+            أعمار الديون والتدفق النقدي
           </button>
           <button
             onClick={() => setActiveSubTab('invoices')}
@@ -417,34 +472,36 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">صافي المبيعات (بدون ضريبة)</p>
-                <p className="text-2xl font-black text-emerald-600">{formatAmount(netSalesExclTax)}</p>
+                <p className="text-2xl font-black text-emerald-600">{formatNumber(netSalesExclTax, decimals)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">صافي ضريبة القيمة المضافة</p>
-                <p className="text-2xl font-black text-amber-600">{formatAmount(netVatPayable)}</p>
+                <p className="text-2xl font-black text-amber-600">{formatNumber(netVatPayable, decimals)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">تكلفة المبيعات (COGS)</p>
-                <p className="text-2xl font-black text-slate-900">{formatAmount(totalCOGS)}</p>
+                <p className="text-2xl font-black text-slate-900">{formatNumber(totalCOGS, decimals)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">المصروفات + تسوية الجرد</p>
-                <p className="text-2xl font-black text-rose-600">{formatAmount(totalExpenses + stocktakeAdjustments)}</p>
+                <p className="text-2xl font-black text-rose-600">{formatNumber(totalExpenses + stocktakeAdjustments, decimals)}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200">
                 <p className="text-slate-500 text-xs font-bold mb-1">الرواتب والأجور</p>
-                <p className="text-2xl font-black text-rose-600">{formatAmount(totalSalaries)}</p>
+                <p className="text-2xl font-black text-rose-600">{formatNumber(totalSalaries, decimals)}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-indigo-600 p-5 rounded-2xl text-white">
                 <p className="text-indigo-100 text-xs font-bold mb-1">صافي الربح المحاسبي (بدون ضريبة)</p>
-                <p className="text-3xl font-black">{formatAmount(netProfit)}</p>
+                <p className="text-3xl font-black">{formatMoney(netProfit, storeSettings.currency, decimals)}</p>
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">قيمة المخزون الحالية (FIFO)</p>
-                <p className="text-3xl font-black text-slate-900">{formatAmount(inventoryCostValue)}</p>
+                <p className="text-slate-500 text-xs font-bold mb-1">
+                  قيمة المخزون الحالية ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})
+                </p>
+                <p className="text-3xl font-black text-slate-900">{formatMoney(inventoryCostValue, storeSettings.currency, decimals)}</p>
               </div>
             </div>
 
@@ -458,7 +515,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                       : 'bg-rose-50 border-rose-200 text-rose-700'
                   }`}
                 >
-                  المدين: {formatAmount(totalDebit)} | الدائن: {formatAmount(totalCredit)}
+                  المدين: {formatNumber(totalDebit, decimals)} | الدائن: {formatNumber(totalCredit, decimals)}
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -480,12 +537,12 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                       <tr key={acc.code} className="hover:bg-slate-50">
                         <td className="px-4 py-2.5 font-mono text-slate-500">{acc.code}</td>
                         <td className="px-4 py-2.5 font-bold text-slate-900">{acc.name}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{formatAmount(Number(acc.openingDebit || 0))}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{formatAmount(Number(acc.openingCredit || 0))}</td>
-                        <td className="px-4 py-2.5 font-bold text-emerald-600">{formatAmount(Number(acc.periodDebit || 0))}</td>
-                        <td className="px-4 py-2.5 font-bold text-rose-600">{formatAmount(Number(acc.periodCredit || 0))}</td>
-                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatAmount(Number(acc.closingDebit || 0))}</td>
-                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatAmount(Number(acc.closingCredit || 0))}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{formatNumber(acc.openingDebit, decimals)}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{formatNumber(acc.openingCredit, decimals)}</td>
+                        <td className="px-4 py-2.5 font-bold text-emerald-600">{formatNumber(acc.periodDebit, decimals)}</td>
+                        <td className="px-4 py-2.5 font-bold text-rose-600">{formatNumber(acc.periodCredit, decimals)}</td>
+                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatNumber(acc.closingDebit, decimals)}</td>
+                        <td className="px-4 py-2.5 font-black text-indigo-700">{formatNumber(acc.closingCredit, decimals)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -518,7 +575,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="p-4 bg-emerald-50 border-b border-emerald-200 flex justify-between items-center">
                   <h4 className="font-bold text-emerald-950">الأصول (Assets)</h4>
-                  <span className="font-black text-emerald-800">{formatAmount(Number(balanceSheetData.totalAssets))}</span>
+                  <span className="font-black text-emerald-800">{formatMoney(balanceSheetData.totalAssets, storeSettings.currency, decimals)}</span>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {balanceSheetData.assets.map((a: any) => (
@@ -527,7 +584,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{a.code}]</span>
                         <span className="font-bold text-slate-800">{a.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{formatAmount(Number(a.balance))}</span>
+                      <span className="font-bold text-slate-900">{formatNumber(a.balance, decimals)}</span>
                     </div>
                   ))}
                 </div>
@@ -538,7 +595,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                 <div className="p-4 bg-indigo-50 border-b border-indigo-200 flex justify-between items-center">
                   <h4 className="font-bold text-indigo-950">الخصوم وحقوق الملكية</h4>
                   <span className="font-black text-indigo-800">
-                    {formatAmount(Number(balanceSheetData.totalLiabilitiesAndEquity))}
+                    {formatMoney(balanceSheetData.totalLiabilitiesAndEquity, storeSettings.currency, decimals)}
                   </span>
                 </div>
                 <div className="divide-y divide-slate-100">
@@ -548,7 +605,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{l.code}]</span>
                         <span className="font-bold text-slate-800">{l.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{formatAmount(Number(l.balance))}</span>
+                      <span className="font-bold text-slate-900">{formatNumber(l.balance, decimals)}</span>
                     </div>
                   ))}
                   {balanceSheetData.equity.map((eqItem: any) => (
@@ -557,13 +614,95 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <span className="font-mono text-xs text-slate-400 ml-2">[{eqItem.code}]</span>
                         <span className="font-bold text-slate-800">{eqItem.name}</span>
                       </span>
-                      <span className="font-bold text-slate-900">{formatAmount(Number(eqItem.balance))}</span>
+                      <span className="font-bold text-slate-900">{formatNumber(eqItem.balance, decimals)}</span>
                     </div>
                   ))}
                   <div className="px-4 py-3 flex justify-between items-center text-sm bg-slate-50">
                     <span className="font-bold text-indigo-700">صافي الدخل التراكمي للفترة الجارية</span>
-                    <span className="font-black text-indigo-700">{formatAmount(Number(balanceSheetData.netIncome))}</span>
+                    <span className="font-black text-indigo-700">{formatNumber(balanceSheetData.netIncome, decimals)}</span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Debt Aging & Cash Flow Tab */}
+        {activeSubTab === 'aging_cashflow' && (
+          <div className="space-y-6 tabular-nums">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Wallet className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">ملخص التدفقات النقدية (الصندوق والبنك 1010 + 1020)</h3>
+                  <p className="text-xs text-slate-500">حركة السيولة النقدية الفعلية خلال الفترة المحددة</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <p className="text-xs font-bold text-emerald-700 mb-1">التدفقات النقدية الداخلة (مقبوضات)</p>
+                  <p className="text-2xl font-black text-emerald-800">
+                    {formatMoney(cashFlowData.inflows, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-rose-50 border border-rose-200">
+                  <p className="text-xs font-bold text-rose-700 mb-1">التدفقات النقدية الخارجة (مدفوعات)</p>
+                  <p className="text-2xl font-black text-rose-800">
+                    {formatMoney(cashFlowData.outflows, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+                <div className={`p-4 rounded-xl border ${Number(cashFlowData.netCashFlow) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className="text-xs font-bold text-slate-700 mb-1">صافي التدفق النقدي للفترة</p>
+                  <p className={`text-2xl font-black ${Number(cashFlowData.netCashFlow) >= 0 ? 'text-indigo-800' : 'text-amber-800'}`}>
+                    {formatMoney(cashFlowData.netCashFlow, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">تقرير أعمار الديون والذمم (Debt Aging)</h3>
+                    <p className="text-xs text-slate-500">توزيع الفواتير الآجلة غير المسددة حسب تاريخ استحقاقها</p>
+                  </div>
+                </div>
+                <div className="flex gap-3 text-xs font-bold">
+                  <span className="px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700">
+                    إجمالي ذمم العملاء: {formatMoney(agingData.totalReceivables, storeSettings.currency, decimals)}
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700">
+                    إجمالي مستحقات الموردين: {formatMoney(agingData.totalPayables, storeSettings.currency, decimals)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs font-bold text-slate-500 mb-1">0 - 30 يوماً (حديثة)</p>
+                  <p className="text-xl font-black text-slate-900">
+                    {formatMoney(agingData.bucket0_30, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50">
+                  <p className="text-xs font-bold text-amber-700 mb-1">31 - 60 يوماً</p>
+                  <p className="text-xl font-black text-amber-800">
+                    {formatMoney(agingData.bucket31_60, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/60">
+                  <p className="text-xs font-bold text-orange-700 mb-1">61 - 90 يوماً</p>
+                  <p className="text-xl font-black text-orange-800">
+                    {formatMoney(agingData.bucket61_90, storeSettings.currency, decimals)}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl border border-rose-200 bg-rose-50">
+                  <p className="text-xs font-bold text-rose-700 mb-1">أكثر من 90 يوماً (متأخرة جداً)</p>
+                  <p className="text-xl font-black text-rose-800">
+                    {formatMoney(agingData.bucket90Plus, storeSettings.currency, decimals)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -639,7 +778,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                             : log.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-bold text-slate-900 tabular-nums">{formatAmount(Number(log.amount))}</td>
+                      <td className="px-4 py-3 font-bold text-slate-900 tabular-nums">{formatNumber(log.amount, decimals)}</td>
                       <td className="px-4 py-3">
                         {(log.type === 'sale' || log.type === 'purchase') && (
                           <button
@@ -679,10 +818,10 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               </div>
               <div className="flex gap-3 text-xs font-bold tabular-nums">
                 <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
-                  إجمالي المدين: {formatAmount(totalDebit)}
+                  إجمالي المدين: {formatNumber(totalDebit, decimals)}
                 </span>
                 <span className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700">
-                  إجمالي الدائن: {formatAmount(totalCredit)}
+                  إجمالي الدائن: {formatNumber(totalCredit, decimals)}
                 </span>
               </div>
             </div>
@@ -712,10 +851,10 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         {line.referenceType}:{String(line.referenceId).slice(0, 8)}
                       </td>
                       <td className="px-4 py-2.5 font-bold text-emerald-600">
-                        {line.debit > 0 ? formatAmount(line.debit) : '-'}
+                        {line.debit > 0 ? formatNumber(line.debit, decimals) : '-'}
                       </td>
                       <td className="px-4 py-2.5 font-bold text-rose-600">
-                        {line.credit > 0 ? formatAmount(line.credit) : '-'}
+                        {line.credit > 0 ? formatNumber(line.credit, decimals) : '-'}
                       </td>
                     </tr>
                   ))}
@@ -767,7 +906,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
                         <td className="px-4 py-2.5 text-slate-600">{log.details}</td>
                         <td className="px-4 py-2.5 text-slate-600">{log.branchId || '-'}</td>
                         <td className="px-4 py-2.5 font-bold" dir="ltr">
-                          {formatAmount(Number(log.value || 0))} / {log.quantity || 0}
+                          {formatNumber(log.value, decimals)} / {log.quantity || 0}
                         </td>
                       </tr>
                     ))}
