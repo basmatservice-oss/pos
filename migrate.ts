@@ -670,8 +670,8 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       "reason" text,
       "createdAt" text NOT NULL
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS "idx_inventory_movement_operation_key"
-      ON "InventoryMovement" ("operationId", "movementKey");
+    CREATE UNIQUE INDEX IF NOT EXISTS "idx_inventory_movement_key"
+      ON "InventoryMovement" ("movementKey");
     CREATE INDEX IF NOT EXISTS "idx_inventory_movement_product_date"
       ON "InventoryMovement" ("productId", "createdAt");
     CREATE INDEX IF NOT EXISTS "idx_inventory_movement_branch_date"
