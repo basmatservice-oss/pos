@@ -326,7 +326,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       await db.orders.put({ ...order, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
@@ -366,6 +366,24 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
             });
             await recalculateLocalProductWeightedCost(product.id!, syncStatus);
           }
+          const serverFactor = Number(serverItem.conversionToBase ?? serverItem.conversionFactor ?? 1);
+          const serverTotalCost = Number(serverItem.costPriceAtTimeOfSale || 0) * Number(serverItem.quantity ?? item.quantity ?? 0);
+          appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(item.productId),
+            branchId: order.branchId ?? null,
+            movementType: 'sale',
+            sourceType: 'order',
+            sourceId: String(order.id),
+            sourceLineId: serverItem.id ?? item.id,
+            inputQuantity: Number(serverItem.quantity ?? item.quantity ?? 0),
+            unitCode: serverItem.unitCode ?? item.unitCode ?? null,
+            baseUnitCode: serverItem.baseUnitCode ?? item.baseUnitCode ?? null,
+            conversionToBase: serverFactor,
+            quantityDeltaBase: -baseQty,
+            unitCost: baseQty > 0 ? serverTotalCost / baseQty : 0,
+            totalCost: serverTotalCost,
+            batchAllocations: parseLocalBatchAllocations(serverItem.batchAllocations),
+          });
         }
       } else {
         for (const item of items) {
@@ -382,8 +400,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
           );
           const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 
+          const orderItemId = Number(item.id) || generateTempNumericId();
           await db.orderItems.add({
-            id: Number(item.id) || generateTempNumericId(),
+            id: orderItemId,
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
@@ -403,6 +422,23 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', 
             total: item.total,
             batchAllocations: JSON.stringify(fifo.allocations),
             syncStatus,
+          });
+
+          appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(item.productId),
+            branchId: order.branchId ?? null,
+            movementType: 'sale',
+            sourceType: 'order',
+            sourceId: String(order.id),
+            sourceLineId: orderItemId,
+            inputQuantity: Number(item.quantity || 0),
+            unitCode: item.unitCode || item.selectedUnitCode || null,
+            baseUnitCode: item.baseUnitCode || null,
+            conversionToBase: factor,
+            quantityDeltaBase: -baseQty,
+            unitCost: fifo.averageUnitCost,
+            totalCost: fifo.totalCost,
+            batchAllocations: fifo.allocations,
           });
 
           if (product) {
