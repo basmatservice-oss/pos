@@ -1078,7 +1078,9 @@ function handlePurchaseCreate(
     const factor = unitSnapshot.conversionToBase;
     const baseQty = unitSnapshot.baseQuantity;
     const cost = roundMoney(originalCost * conversionRate);
-    const baseUnitCost = factor > 0 ? roundMoney(cost / factor) : cost;
+    // Keep fractional base-unit cost precision so multiplying by the conversion factor
+    // reproduces the entered purchase-unit cost without rounding loss.
+    const baseUnitCost = factor > 0 ? cost / factor : cost;
 
     const pItem = tx
       .insert(purchaseItems)
@@ -1113,7 +1115,7 @@ function handlePurchaseCreate(
         quantity: baseQty,
         remainingQuantity: baseQty,
         costPrice: baseUnitCost,
-        originalCostPrice: currencySnapshot ? roundMoney(originalCost / factor) : null,
+        originalCostPrice: currencySnapshot ? originalCost / factor : null,
         unitCode: unitSnapshot.unitCode,
         baseUnitCode: unitSnapshot.baseUnitCode,
         conversionToBase: factor,
