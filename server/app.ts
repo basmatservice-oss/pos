@@ -1430,7 +1430,7 @@ export function createPosApp() {
             sourceLineId: batchId,
             deviceId: req.body.deviceId,
             createdBy: req.body.createdBy,
-            inputQuantity: Math.abs(delta),
+            inputQuantity: Math.abs(delta) / Number(existing.conversionToBase || 1),
             unitCode: existing.unitCode,
             baseUnitCode: existing.baseUnitCode,
             conversionToBase: Number(existing.conversionToBase || 1),
