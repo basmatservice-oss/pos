@@ -164,7 +164,8 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
     .reduce((sum, item) => sum + getHistoricalCostAmount(item, productMap.get(item.productId)), 0);
 
   const returnedCOGS = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
-  const totalCOGS = serverReport ? Number(serverReport.netCogs) : Math.max(0, grossCOGS - returnedCOGS);
+  // A return reverses COGS in its own accounting period, including returns of older sales.
+  const totalCOGS = serverReport ? Number(serverReport.netCogs) : grossCOGS - returnedCOGS;
   const totalExpenses = serverReport ? Number(serverReport.operatingExpenses) : filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const totalSalaries = serverReport ? Number(serverReport.payrollExpenses) : filteredPayrolls.reduce((sum, p) => sum + Number(p.netSalary || 0), 0);
 
