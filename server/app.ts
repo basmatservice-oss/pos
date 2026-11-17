@@ -1220,6 +1220,14 @@ export function createPosApp() {
       const batchId = req.body.id ? String(req.body.id) : crypto.randomUUID();
       const batchQuantity = Number(req.body.baseQuantity ?? req.body.quantity ?? 0);
       const factor = Number(req.body.conversionToBase || 1);
+      const remainingQuantity = Number(req.body.remainingQuantity ?? batchQuantity);
+      const costPrice = Number(req.body.costPrice || 0);
+      if (!Number.isFinite(batchQuantity) || batchQuantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0 ||
+          !Number.isFinite(remainingQuantity) || remainingQuantity < 0 || remainingQuantity > batchQuantity ||
+          !Number.isFinite(costPrice) || costPrice < 0) {
+        return res.status(400).json({ error: 'Invalid inventory batch quantity, conversion or cost' });
+      }
       const batch = await db.transaction(async (tx: any) => {
         const [createdBatch] = await tx
           .insert(inventoryBatches)
@@ -1228,8 +1236,8 @@ export function createPosApp() {
             productId: Number(req.body.productId),
             purchaseId: req.body.purchaseId || null,
             quantity: batchQuantity,
-            remainingQuantity: Number(req.body.remainingQuantity ?? batchQuantity),
-            costPrice: Number(req.body.costPrice || 0),
+            remainingQuantity,
+            costPrice,
             originalCostPrice: req.body.originalCostPrice ?? null,
             currencyCode: req.body.currencyCode ?? null,
             exchangeRate: req.body.exchangeRate ?? null,
