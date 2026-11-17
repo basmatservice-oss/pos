@@ -101,7 +101,8 @@
     "asarUnpack": [
       "dist/**/*",
       "node_modules/better-sqlite3/**/*",
-      "node_modules/sqlite3/**/*"
+      "node_modules/sqlite3/**/*",
+      "drizzle/migrations/**/*"
     ],
     "win": {
       "target": [
