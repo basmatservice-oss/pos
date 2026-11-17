@@ -36,6 +36,24 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+let isReconcilingServerSnapshot = false;
+
+async function reconcileServerSnapshot(): Promise<void> {
+  const syncState = useSyncStore.getState() as any;
+  const wasSyncing = Boolean(syncState.isSyncing);
+  isReconcilingServerSnapshot = true;
+  if (!wasSyncing) syncState.setSyncing(true);
+  try {
+    const { syncService } = await import('./syncService');
+    await syncService.syncAll();
+  } catch {
+    // The operation is already committed; the next scheduled sync will reconcile it.
+  } finally {
+    isReconcilingServerSnapshot = false;
+    if (!wasSyncing) useSyncStore.getState().setSyncing(false);
+  }
+}
+
 function getBaseMovementQuantity(item: any, quantity = Number(item?.quantity || 0)): number {
   const originalQuantity = Number(item?.quantity || 0);
   const hasStoredBaseQuantity = item?.baseQuantity !== null && item?.baseQuantity !== undefined;
@@ -1311,7 +1329,9 @@ export async function dispatchOperation(
     .where('status')
     .anyOf(['pending', 'error', 'syncing', 'conflict'])
     .count();
-  const canExecuteImmediately = unresolvedQueueCount === 0;
+  const canExecuteImmediately = unresolvedQueueCount === 0 &&
+    !isReconcilingServerSnapshot &&
+    !Boolean((useSyncStore.getState() as any).isSyncing);
 
   const opRecord: SyncOperation = {
     id: operationId,
@@ -1330,7 +1350,7 @@ export async function dispatchOperation(
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
-      import('./syncService').then(({ syncService }) => syncService.syncAll().catch(() => {}));
+      await reconcileServerSnapshot();
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (
@@ -1365,10 +1385,8 @@ export async function dispatchOperation(
           updatedAt: new Date().toISOString(),
         });
         useSyncStore.getState().setLastSynced(new Date());
-        import('./syncService').then(({ syncService }) => {
-          syncService.updatePendingCount();
-          syncService.syncAll().catch(() => {});
-        });
+        await reconcileServerSnapshot();
+        import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
         return { synced: true, operationId, result: response.result };
       } catch (err: any) {
         if (
