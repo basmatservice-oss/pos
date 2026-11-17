@@ -38,14 +38,42 @@ function ensureColumn(sqlite: Database.Database, table: string, column: string, 
 }
 
 export function ensureSchemaUpgrades(sqlite: Database.Database) {
+  // Unit definitions and per-product conversion units (additive; legacy unit fields remain intact).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS "UnitDefinition" (
+      "code" text PRIMARY KEY NOT NULL,
+      "name" text NOT NULL,
+      "symbol" text,
+      "dimension" text NOT NULL,
+      "decimalPlaces" integer NOT NULL DEFAULT 0,
+      "isFractional" integer NOT NULL DEFAULT 0,
+      "isActive" integer NOT NULL DEFAULT 1,
+      "createdAt" text NOT NULL,
+      "updatedAt" text NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "ProductUnit" (
+      "id" text PRIMARY KEY NOT NULL,
+      "productId" integer NOT NULL,
+      "unitCode" text NOT NULL,
+      "conversionToBase" real NOT NULL CHECK ("conversionToBase" > 0),
+      "isBaseUnit" integer NOT NULL DEFAULT 0,
+      "sellingPrice" real,
+      "barcode" text,
+      "isActive" integer NOT NULL DEFAULT 1,
+      "createdAt" text NOT NULL,
+      "updatedAt" text NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS "idx_product_unit_product" ON "ProductUnit" ("productId", "isActive");
+  `);
+
   // 1. Ensure newly added tables exist
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS "InventoryBatch" (
       "id" text PRIMARY KEY NOT NULL,
       "productId" integer NOT NULL,
       "purchaseId" text,
-      "quantity" integer NOT NULL,
-      "remainingQuantity" integer NOT NULL,
+      "quantity" real NOT NULL,
+      "remainingQuantity" real NOT NULL,
       "costPrice" real NOT NULL,
       "purchaseDate" text NOT NULL,
       "expiryDate" text,
@@ -86,7 +114,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       "orderItemId" integer,
       "productId" integer NOT NULL,
       "productName" text NOT NULL,
-      "quantity" integer NOT NULL,
+      "quantity" real NOT NULL,
       "unitPrice" real NOT NULL,
       "costPrice" real DEFAULT 0,
       "taxAmount" real DEFAULT 0,
@@ -120,9 +148,9 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       "id" text PRIMARY KEY NOT NULL,
       "productId" integer NOT NULL,
       "productName" text NOT NULL,
-      "previousQty" integer NOT NULL,
-      "changeQty" integer NOT NULL,
-      "resultingQty" integer NOT NULL,
+      "previousQty" real NOT NULL,
+      "changeQty" real NOT NULL,
+      "resultingQty" real NOT NULL,
       "operationId" text,
       "deviceId" text,
       "reason" text NOT NULL,
@@ -167,7 +195,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       "purchaseReturnId" text NOT NULL,
       "productId" integer NOT NULL,
       "productName" text NOT NULL,
-      "quantity" integer NOT NULL,
+      "quantity" real NOT NULL,
       "costPrice" real NOT NULL,
       "total" real NOT NULL,
       "batchId" text,
@@ -213,7 +241,9 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Product', 'priceInUSD', 'real');
   ensureColumn(sqlite, 'Product', 'minStockLevel', 'integer DEFAULT 5');
   ensureColumn(sqlite, 'Product', 'unit', "text DEFAULT 'piece'");
-  ensureColumn(sqlite, 'Product', 'conversionFactor', 'integer DEFAULT 1');
+  ensureColumn(sqlite, 'Product', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'Product', 'quantityPrecision', 'integer DEFAULT 0');
+  ensureColumn(sqlite, 'Product', 'conversionFactor', 'real DEFAULT 1');
   ensureColumn(sqlite, 'Product', 'expiryDate', 'text');
   ensureColumn(sqlite, 'Product', 'batchNumber', 'text');
 
@@ -227,7 +257,11 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
 
   ensureColumn(sqlite, 'OrderItem', 'returnedQuantity', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'OrderItem', 'unit', "text DEFAULT 'piece'");
-  ensureColumn(sqlite, 'OrderItem', 'conversionFactor', 'integer DEFAULT 1');
+  ensureColumn(sqlite, 'OrderItem', 'conversionFactor', 'real DEFAULT 1');
+  ensureColumn(sqlite, 'OrderItem', 'unitCode', 'text');
+  ensureColumn(sqlite, 'OrderItem', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'OrderItem', 'conversionToBase', 'real');
+  ensureColumn(sqlite, 'OrderItem', 'baseQuantity', 'real');
   ensureColumn(sqlite, 'OrderItem', 'costPriceAtTimeOfSale', 'real DEFAULT 0');
   ensureColumn(sqlite, 'OrderItem', 'discountAmount', 'real DEFAULT 0');
   ensureColumn(sqlite, 'OrderItem', 'batchAllocations', 'text');
@@ -266,14 +300,35 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'PurchaseItem', 'currencyCode', 'text');
   ensureColumn(sqlite, 'PurchaseItem', 'exchangeRate', 'real');
   ensureColumn(sqlite, 'PurchaseItem', 'exchangeRateId', 'text');
+  ensureColumn(sqlite, 'PurchaseItem', 'unitCode', 'text');
+  ensureColumn(sqlite, 'PurchaseItem', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'PurchaseItem', 'conversionToBase', 'real');
+  ensureColumn(sqlite, 'PurchaseItem', 'baseQuantity', 'real');
 
   ensureColumn(sqlite, 'InventoryBatch', 'originalCostPrice', 'real');
   ensureColumn(sqlite, 'InventoryBatch', 'currencyCode', 'text');
   ensureColumn(sqlite, 'InventoryBatch', 'exchangeRate', 'real');
   ensureColumn(sqlite, 'InventoryBatch', 'exchangeRateId', 'text');
+  ensureColumn(sqlite, 'InventoryBatch', 'unitCode', 'text');
+  ensureColumn(sqlite, 'InventoryBatch', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'InventoryBatch', 'conversionToBase', 'real');
+  ensureColumn(sqlite, 'InventoryBatch', 'baseQuantity', 'real');
 
 
-  ensureColumn(sqlite, 'AuditLog', 'operationName', 'text');
+  ensureColumn(sqlite, 'ReturnItem', 'unitCode', 'text');
+  ensureColumn(sqlite, 'ReturnItem', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'ReturnItem', 'conversionToBase', 'real');
+  ensureColumn(sqlite, 'ReturnItem', 'baseQuantity', 'real');
+
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'unitCode', 'text');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'conversionToBase', 'real');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'baseQuantity', 'real');
+
+  ensureColumn(sqlite, 'StocktakingEntry', 'unitCode', 'text');
+  ensureColumn(sqlite, 'StocktakingEntry', 'baseUnitCode', 'text');
+  ensureColumn(sqlite, 'AuditLog', 'unitCode', 'text');
+    ensureColumn(sqlite, 'AuditLog', 'operationName', 'text');
   ensureColumn(sqlite, 'AuditLog', 'productName', 'text');
   ensureColumn(sqlite, 'AuditLog', 'quantity', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'AuditLog', 'value', 'real DEFAULT 0');
