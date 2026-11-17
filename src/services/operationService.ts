@@ -36,6 +36,65 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+async function appendLocalInventoryMovement(
+  operationId: string,
+  syncStatus: 'synced' | 'pending',
+  input: {
+    productId: number;
+    branchId?: number | null;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    sourceLineId?: string | number | null;
+    inputQuantity?: number | null;
+    unitCode?: string | null;
+    baseUnitCode?: string | null;
+    conversionToBase?: number;
+    quantityDeltaBase: number;
+    unitCost?: number;
+    totalCost?: number;
+    batchAllocations?: any[] | string | null;
+    reason?: string | null;
+  }
+) {
+  const movementKey = [
+    input.movementType,
+    input.sourceType,
+    input.sourceId,
+    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
+  ].join(':');
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+
+  // Keep local rows pending until the cursor pull confirms the authoritative server row.
+  const localSyncStatus = syncStatus === 'synced' ? 'pending' : syncStatus;
+  await db.inventoryMovements.put({
+    id: `${operationId}:${movementKey}`,
+    movementKey,
+    productId: Number(input.productId),
+    branchId: input.branchId ?? null,
+    movementType: input.movementType,
+    sourceType: input.sourceType,
+    sourceId: String(input.sourceId),
+    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+    operationId,
+    deviceId: getDeviceId(),
+    createdBy: null,
+    inputQuantity: input.inputQuantity ?? null,
+    unitCode: input.unitCode ?? null,
+    baseUnitCode: input.baseUnitCode ?? null,
+    conversionToBase: Number(input.conversionToBase || 1),
+    quantityDeltaBase: Number(input.quantityDeltaBase),
+    unitCost: Number(input.unitCost || 0),
+    totalCost: Math.abs(Number(input.totalCost || 0)),
+    batchAllocations: allocations,
+    reason: input.reason ?? null,
+    createdAt: new Date().toISOString(),
+    syncStatus: localSyncStatus,
+  });
+}
+
 function generateTempNumericId(): number {
   // 52 random bits remain within JavaScript's safe-integer range and SQLite INTEGER.
   return Number.parseInt(generateUUID().replace(/-/g, '').slice(0, 13), 16) || Date.now() * 1000;
@@ -263,13 +322,13 @@ async function recalculateLocalProductWeightedCost(
   }
 }
 
-async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       await db.orders.put({ ...order, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
@@ -300,6 +359,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             });
           }
           const product = await db.products.get(item.productId);
+          if (product?.isActive === 0) {
+            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
+          }
           if (product) {
             assertLocalBaseUnitMatches(product, item);
             await db.products.update(product.id!, {
@@ -309,11 +371,32 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             });
             await recalculateLocalProductWeightedCost(product.id!, syncStatus);
           }
+          const serverFactor = Number(serverItem.conversionToBase ?? serverItem.conversionFactor ?? 1);
+          const serverTotalCost = Number(serverItem.costPriceAtTimeOfSale || 0) * Number(serverItem.quantity ?? item.quantity ?? 0);
+          await appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(item.productId),
+            branchId: order.branchId ?? null,
+            movementType: 'sale',
+            sourceType: 'order',
+            sourceId: String(order.id),
+            sourceLineId: serverItem.id ?? item.id,
+            inputQuantity: Number(serverItem.quantity ?? item.quantity ?? 0),
+            unitCode: serverItem.unitCode ?? item.unitCode ?? null,
+            baseUnitCode: serverItem.baseUnitCode ?? item.baseUnitCode ?? null,
+            conversionToBase: serverFactor,
+            quantityDeltaBase: -baseQty,
+            unitCost: baseQty > 0 ? serverTotalCost / baseQty : 0,
+            totalCost: serverTotalCost,
+            batchAllocations: parseLocalBatchAllocations(serverItem.batchAllocations),
+          });
         }
       } else {
         for (const item of items) {
           const baseQty = getBaseMovementQuantity(item);
           const product = await db.products.get(item.productId);
+          if (product?.isActive === 0) {
+            throw new Error(`لا يمكن بيع الصنف الموقوف: ${item.productName || item.productId}`);
+          }
           if (product) assertLocalBaseUnitMatches(product, item);
           const factor = Number(item.conversionToBase ?? item.selectedConversionToBase ??
             (item.unit === 'box' || item.selectedUnit === 'box' ? item.conversionFactor : 1) ?? 1);
@@ -325,8 +408,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           );
           const unitCostAtSale = roundMoney(fifo.averageUnitCost * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 
+          const orderItemId = Number(item.id) || generateTempNumericId();
           await db.orderItems.add({
-            id: Number(item.id) || generateTempNumericId(),
+            id: orderItemId,
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
@@ -346,6 +430,23 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             total: item.total,
             batchAllocations: JSON.stringify(fifo.allocations),
             syncStatus,
+          });
+
+          await appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(item.productId),
+            branchId: order.branchId ?? null,
+            movementType: 'sale',
+            sourceType: 'order',
+            sourceId: String(order.id),
+            sourceLineId: orderItemId,
+            inputQuantity: Number(item.quantity || 0),
+            unitCode: item.unitCode || item.selectedUnitCode || null,
+            baseUnitCode: item.baseUnitCode || null,
+            conversionToBase: factor,
+            quantityDeltaBase: -baseQty,
+            unitCost: fifo.averageUnitCost,
+            totalCost: fifo.totalCost,
+            batchAllocations: fifo.allocations,
           });
 
           if (product) {
@@ -397,14 +498,14 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   );
 }
 
-async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) return;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches],
+    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       const origOrder = await db.orders.get(targetOrderId);
       if (!origOrder || origOrder.status === 'void') return;
@@ -419,7 +520,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
         const fallbackBaseCost = factor > 0
           ? Number(oi.costPriceAtTimeOfSale || 0) / factor
           : Number(oi.costPriceAtTimeOfSale || 0);
-        await restoreLocalInventoryFIFO(
+        const restored = await restoreLocalInventoryFIFO(
           oi.productId,
           baseQty,
           parseLocalBatchAllocations(oi.batchAllocations),
@@ -428,6 +529,22 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
           syncStatus,
           `void-${targetOrderId}-${oi.id}`
         );
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(oi.productId),
+          branchId: origOrder.branchId ?? null,
+          movementType: 'sale_void',
+          sourceType: 'order_void',
+          sourceId: targetOrderId,
+          sourceLineId: oi.id,
+          inputQuantity: Number(oi.quantity || 0),
+          unitCode: oi.unitCode || null,
+          baseUnitCode: oi.baseUnitCode || null,
+          conversionToBase: factor,
+          quantityDeltaBase: baseQty,
+          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+          totalCost: restored.totalCostRestored,
+          batchAllocations: restored.restoredAllocations,
+        });
         const product = await db.products.get(oi.productId);
         if (product) {
           assertLocalBaseUnitMatches(product, oi);
@@ -474,14 +591,14 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
   );
 }
 
-async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches],
+    [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.unitDefinitions, db.inventoryBatches, db.inventoryMovements],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
@@ -559,7 +676,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         }
 
         const retItem: ReturnItem = {
-          id: generateUUID(),
+          id: reqItem.id || generateUUID(),
           returnId: id,
           orderItemId: origItem.id,
           productId: origItem.productId,
@@ -578,6 +695,23 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           createdAt: now,
         };
         await db.returnItems.put(retItem);
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(origItem.productId),
+          branchId: branchId ?? origOrder?.branchId ?? null,
+          movementType: 'sale_return',
+          sourceType: 'return',
+          sourceId: String(id),
+          sourceLineId: retItem.id,
+          inputQuantity: qty,
+          unitCode: origItem.unitCode || null,
+          baseUnitCode: origItem.baseUnitCode || null,
+          conversionToBase: factor,
+          quantityDeltaBase: baseQty,
+          unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+          totalCost: restored.totalCostRestored,
+          batchAllocations: restored.restoredAllocations,
+          reason: reason || null,
+        });
       }
 
       if (origOrder) {
@@ -632,7 +766,8 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 async function applyPurchaseLocally(
   type: 'purchase' | 'purchase_update' | 'purchase_delete',
   payload: any,
-  syncStatus: 'synced' | 'pending'
+  syncStatus: 'synced' | 'pending',
+  operationId: string
 ) {
   const now = new Date().toISOString();
 
@@ -724,12 +859,57 @@ async function applyPurchaseLocally(
 
   await db.transaction(
     'rw',
-    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
+    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.inventoryMovements],
     async () => {
       if (type === 'purchase_delete' || type === 'purchase_update') {
         const pid = type === 'purchase_delete' ? payload.id : resolvedPurchase.id;
         const oldPurchase = await db.purchases.get(pid);
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
+        const oldBatches = await db.inventoryBatches.where('purchaseId').equals(pid).toArray();
+        if (oldBatches.length > 0) {
+          for (const batch of oldBatches) {
+            const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
+            await appendLocalInventoryMovement(operationId, syncStatus, {
+              productId: Number(batch.productId),
+              branchId: batch.branchId ?? oldPurchase?.branchId ?? null,
+              movementType: 'purchase_reversal',
+              sourceType: 'purchase',
+              sourceId: String(pid),
+              sourceLineId: batch.id,
+              inputQuantity: baseQty,
+              unitCode: batch.unitCode || null,
+              baseUnitCode: batch.baseUnitCode || null,
+              conversionToBase: Number(batch.conversionToBase || 1),
+              quantityDeltaBase: -baseQty,
+              unitCost: Number(batch.costPrice || 0),
+              totalCost: baseQty * Number(batch.costPrice || 0),
+              batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
+              reason: 'purchase_delete_or_update',
+            });
+          }
+        } else {
+          for (const item of oldItems) {
+            const baseQty = getBaseMovementQuantity(item);
+            const factor = Number(item.conversionToBase || 1);
+            const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
+            await appendLocalInventoryMovement(operationId, syncStatus, {
+              productId: Number(item.productId),
+              branchId: oldPurchase?.branchId ?? null,
+              movementType: 'purchase_reversal',
+              sourceType: 'purchase',
+              sourceId: String(pid),
+              sourceLineId: item.id,
+              inputQuantity: Number(item.quantity || 0),
+              unitCode: item.unitCode || null,
+              baseUnitCode: item.baseUnitCode || null,
+              conversionToBase: factor,
+              quantityDeltaBase: -baseQty,
+              unitCost,
+              totalCost: baseQty * unitCost,
+              reason: 'legacy_purchase_without_batch',
+            });
+          }
+        }
         for (const item of oldItems) {
           const prod = await db.products.get(item.productId);
           if (prod) {
@@ -794,8 +974,9 @@ async function applyPurchaseLocally(
         const conversionToBase = Number(item.conversionToBase || 1);
         const baseQuantity = Number(item.baseQuantity ?? getBaseMovementQuantity(item));
         const baseUnitCost = conversionToBase > 0 ? Number(item.costPrice || 0) / conversionToBase : Number(item.costPrice || 0);
+        const batchId = item.batchId || generateUUID();
         await db.inventoryBatches.put({
-          id: item.batchId || generateUUID(),
+          id: batchId,
           productId: item.productId,
           purchaseId: resolvedPurchase.id,
           quantity: baseQuantity,
@@ -823,6 +1004,22 @@ async function applyPurchaseLocally(
           });
           await recalculateLocalProductWeightedCost(prod.id!, syncStatus);
         }
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(item.productId),
+          branchId: resolvedPurchase.branchId ?? null,
+          movementType: 'purchase_receipt',
+          sourceType: 'purchase',
+          sourceId: String(resolvedPurchase.id),
+          sourceLineId: batchId,
+          inputQuantity: Number(item.quantity || 0),
+          unitCode: item.unitCode || null,
+          baseUnitCode: item.baseUnitCode || null,
+          conversionToBase,
+          quantityDeltaBase: baseQuantity,
+          unitCost: baseUnitCost,
+          totalCost: baseQuantity * baseUnitCost,
+          batchAllocations: [{ batchId, quantity: baseQuantity, costPrice: baseUnitCost }],
+        });
       }
 
       const remaining = Number(resolvedPurchase.totalAmount || 0) - Number(resolvedPurchase.paidAmount || 0);
@@ -840,14 +1037,14 @@ async function applyPurchaseLocally(
   );
 }
 
-async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
 
   await db.transaction(
     'rw',
-    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions],
+    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers, db.unitDefinitions, db.inventoryMovements],
     async () => {
       const origPurchase = await db.purchases.get(String(originalPurchaseId));
       const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
@@ -909,7 +1106,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         }
 
         const itemDoc: PurchaseReturnItem = {
-          id: generateUUID(),
+          id: reqItem.id || generateUUID(),
           purchaseReturnId: id,
           productId: Number(reqItem.productId),
           productName: reqItem.productName || '',
@@ -925,6 +1122,26 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
           createdAt: now,
         };
         await db.purchaseReturnItems.put(itemDoc);
+        const baseUnitCost = conversionToBase > 0 ? cost / conversionToBase : cost;
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(reqItem.productId),
+          branchId: branchId ?? origPurchase?.branchId ?? null,
+          movementType: 'purchase_return',
+          sourceType: 'purchase_return',
+          sourceId: String(id),
+          sourceLineId: itemDoc.id,
+          inputQuantity: qty,
+          unitCode: itemDoc.unitCode || null,
+          baseUnitCode: itemDoc.baseUnitCode || null,
+          conversionToBase,
+          quantityDeltaBase: -baseQuantity,
+          unitCost: baseUnitCost,
+          totalCost: baseQuantity * baseUnitCost,
+          batchAllocations: batch
+            ? [{ batchId: batch.id, quantity: baseQuantity, costPrice: baseUnitCost }]
+            : null,
+          reason: reason || null,
+        });
       }
 
       if (origPurchase) {
@@ -1141,11 +1358,11 @@ async function applyShiftLocally(
   }
 }
 
-async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
+async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending', operationId: string) {
   const requestedTime = payload?.approvedAt ? new Date(payload.approvedAt) : new Date();
   const now = Number.isNaN(requestedTime.getTime()) ? new Date().toISOString() : requestedTime.toISOString();
   const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions], async () => {
+  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.unitDefinitions, db.inventoryMovements], async () => {
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
     for (const entry of entries) {
       const product = await db.products.get(entry.productId);
@@ -1164,13 +1381,15 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
       }
       const difference = actualQuantity - Number(product.stockQuantity || 0);
       if (difference > 1e-9) {
+        const batchId = `stocktake-${sessionId}-${entry.productId}`;
+        const unitCost = Number(product.costPrice || 0);
         await db.inventoryBatches.put({
-          id: `stocktake-${sessionId}-${entry.productId}`,
+          id: batchId,
           productId: entry.productId,
           purchaseId: null,
           quantity: difference,
           remainingQuantity: difference,
-          costPrice: Number(product.costPrice || 0),
+          costPrice: unitCost,
           unitCode: entry.baseUnitCode || product.baseUnitCode || null,
           baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
           conversionToBase: 1,
@@ -1181,13 +1400,45 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
           createdAt: now,
           updatedAt: now,
         });
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(entry.productId),
+          branchId: product.branchId ?? null,
+          movementType: 'stocktake_increase',
+          sourceType: 'stocktake',
+          sourceId: String(sessionId),
+          sourceLineId: batchId,
+          inputQuantity: difference,
+          unitCode: entry.unitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: difference,
+          unitCost,
+          totalCost: difference * unitCost,
+          batchAllocations: [{ batchId, quantity: difference, costPrice: unitCost }],
+        });
       } else if (difference < -1e-9) {
-        await consumeLocalInventoryFIFO(
+        const fifo = await consumeLocalInventoryFIFO(
           entry.productId,
           Math.abs(difference),
           Number(product.costPrice || 0),
           syncStatus
         );
+        await appendLocalInventoryMovement(operationId, syncStatus, {
+          productId: Number(entry.productId),
+          branchId: product.branchId ?? null,
+          movementType: 'stocktake_decrease',
+          sourceType: 'stocktake',
+          sourceId: String(sessionId),
+          sourceLineId: entry.id,
+          inputQuantity: Math.abs(difference),
+          unitCode: entry.unitCode || null,
+          baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: difference,
+          unitCost: fifo.averageUnitCost,
+          totalCost: fifo.totalCost,
+          batchAllocations: fifo.allocations,
+        });
       }
       await db.products.update(entry.productId, {
         stockQuantity: actualQuantity,
@@ -1208,7 +1459,8 @@ async function applyEntityLocally(
   type: 'entity_upsert' | 'entity_delete',
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any
+  serverResult?: any,
+  operationId = String(payload?.operationId || '')
 ) {
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
@@ -1246,8 +1498,9 @@ async function applyEntityLocally(
       if (existingBatchCount === 0) {
         const openingQuantity = Number(finalRecord.stockQuantity);
         const createdAt = finalRecord.createdAt || new Date().toISOString();
+        const openingBatchId = `opening-${finalRecord.id}`;
         await db.inventoryBatches.put({
-          id: `opening-${finalRecord.id}`,
+          id: openingBatchId,
           productId: finalRecord.id,
           purchaseId: null,
           quantity: openingQuantity,
@@ -1263,6 +1516,28 @@ async function applyEntityLocally(
           createdAt,
           updatedAt: new Date().toISOString(),
         });
+        if (operationId) {
+          await appendLocalInventoryMovement(operationId, syncStatus, {
+            productId: Number(finalRecord.id),
+            branchId: finalRecord.branchId ?? null,
+            movementType: 'opening_balance',
+            sourceType: 'product',
+            sourceId: String(finalRecord.id),
+            sourceLineId: openingBatchId,
+            inputQuantity: openingQuantity,
+            unitCode: finalRecord.baseUnitCode || null,
+            baseUnitCode: finalRecord.baseUnitCode || null,
+            conversionToBase: 1,
+            quantityDeltaBase: openingQuantity,
+            unitCost: Number(finalRecord.costPrice || 0),
+            totalCost: openingQuantity * Number(finalRecord.costPrice || 0),
+            batchAllocations: [{
+              batchId: openingBatchId,
+              quantity: openingQuantity,
+              costPrice: Number(finalRecord.costPrice || 0),
+            }],
+          });
+        }
       }
     }
   }
@@ -1272,23 +1547,24 @@ async function applyOperationLocally(
   type: SyncOperation['type'],
   payload: any,
   syncStatus: 'synced' | 'pending',
-  serverResult?: any
+  serverResult?: any,
+  operationId = String(payload?.operationId || '')
 ) {
   (globalThis as any).__posApplyingOperation = true;
   try {
     switch (type) {
       case 'sale':
-        return await applySaleLocally(payload, syncStatus);
+        return await applySaleLocally(payload, syncStatus, operationId);
       case 'return':
-        return await applyReturnLocally(payload, syncStatus);
+        return await applyReturnLocally(payload, syncStatus, operationId);
       case 'order_void':
-        return await applyOrderVoidLocally(payload, syncStatus);
+        return await applyOrderVoidLocally(payload, syncStatus, operationId);
       case 'purchase':
       case 'purchase_update':
       case 'purchase_delete':
-        return await applyPurchaseLocally(type, payload, syncStatus);
+        return await applyPurchaseLocally(type, payload, syncStatus, operationId);
       case 'purchase_return':
-        return await applyPurchaseReturnLocally(payload, syncStatus);
+        return await applyPurchaseReturnLocally(payload, syncStatus, operationId);
       case 'expense':
       case 'expense_delete':
         return await applyExpenseLocally(type, payload, syncStatus);
@@ -1303,10 +1579,10 @@ async function applyOperationLocally(
       case 'shift_movement':
         return await applyShiftLocally(type, payload, syncStatus);
       case 'stocktake_approve':
-        return await applyStocktakeApproveLocally(payload, syncStatus);
+        return await applyStocktakeApproveLocally(payload, syncStatus, operationId);
       case 'entity_upsert':
       case 'entity_delete':
-        return await applyEntityLocally(type, payload, syncStatus, serverResult);
+        return await applyEntityLocally(type, payload, syncStatus, serverResult, operationId);
     }
   } finally {
     (globalThis as any).__posApplyingOperation = false;
@@ -1338,8 +1614,19 @@ function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
   if (type === 'shift_movement' && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
-  if ((type === 'purchase_return' || type === 'return') && !payload?.id) {
-    return { ...payload, id: generateUUID() };
+  if (type === 'return' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      id: payload.id || generateUUID(),
+      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
+    };
+  }
+  if (type === 'purchase_return' && Array.isArray(payload?.items)) {
+    return {
+      ...payload,
+      id: payload.id || generateUUID(),
+      items: payload.items.map((item: any) => ({ ...item, id: item.id || generateUUID() })),
+    };
   }
   return payload;
 }
@@ -1399,7 +1686,7 @@ async function dispatchOperationSequential(
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-      await applyOperationLocally(type, localPayload, 'synced', response.result);
+      await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
       await reconcileServerSnapshot();
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
@@ -1429,7 +1716,7 @@ async function dispatchOperationSequential(
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
         const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
         // Apply exactly once, using the server's authoritative item snapshots.
-        await applyOperationLocally(type, localPayload, 'synced', response.result);
+        await applyOperationLocally(type, localPayload, 'synced', response.result, operationId);
         await db.syncOperations.update(operationId, {
           status: 'synced',
           updatedAt: new Date().toISOString(),
@@ -1458,7 +1745,7 @@ async function dispatchOperationSequential(
 
   // The server is unavailable (or returned a transient failure): keep the
   // operation in the durable queue and apply it once to the local database.
-  await applyOperationLocally(type, opRecord.payload, 'pending');
+  await applyOperationLocally(type, opRecord.payload, 'pending', undefined, operationId);
   import('./syncService').then(({ syncService }) => syncService.updatePendingCount());
   return { synced: false, operationId };
 

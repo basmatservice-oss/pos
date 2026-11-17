@@ -37,6 +37,278 @@ function ensureColumn(sqlite: Database.Database, table: string, column: string, 
   }
 }
 
+function backfillInventoryMovementLedger(sqlite: Database.Database) {
+  const hasSettings = sqlite.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'Setting'`
+  ).get();
+  if (!hasSettings) return;
+
+  const marker = sqlite.prepare('SELECT value FROM "Setting" WHERE key = ?')
+    .get('inventoryMovementBackfillV1') as { value?: string } | undefined;
+  if (marker?.value === 'completed') return;
+
+  const insert = sqlite.prepare(`
+    INSERT OR IGNORE INTO "InventoryMovement" (
+      "id", "movementKey", "productId", "branchId", "movementType", "sourceType",
+      "sourceId", "sourceLineId", "operationId", "deviceId", "createdBy",
+      "inputQuantity", "unitCode", "baseUnitCode", "conversionToBase",
+      "quantityDeltaBase", "unitCost", "totalCost", "batchAllocations",
+      "reason", "createdAt"
+    ) VALUES (
+      @id, @movementKey, @productId, @branchId, @movementType, @sourceType,
+      @sourceId, @sourceLineId, @operationId, @deviceId, @createdBy,
+      @inputQuantity, @unitCode, @baseUnitCode, @conversionToBase,
+      @quantityDeltaBase, @unitCost, @totalCost, @batchAllocations,
+      @reason, @createdAt
+    )
+  `);
+
+  const now = new Date().toISOString();
+  const transaction = sqlite.transaction(() => {
+    const allocationCost = (raw: any): number | null => {
+      if (!raw) return null;
+      try {
+        const rows = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!Array.isArray(rows) || rows.length === 0) return null;
+        const total = rows.reduce((sum: number, row: any) => {
+          const quantity = Number(row?.quantity);
+          const cost = Number(row?.costPrice);
+          if (!Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(cost) || cost < 0) {
+            return NaN;
+          }
+          return sum + quantity * cost;
+        }, 0);
+        return Number.isFinite(total) ? total : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const save = (movement: any) => {
+      const movementKey = [
+        movement.movementType,
+        movement.sourceType,
+        movement.sourceId,
+        movement.sourceLineId == null ? movement.productId : String(movement.sourceLineId),
+      ].join(':');
+      const operationId = movement.operationId;
+      insert.run({
+        id: `${operationId}:${movementKey}`,
+        movementKey,
+        productId: Number(movement.productId),
+        branchId: movement.branchId == null ? null : Number(movement.branchId),
+        movementType: movement.movementType,
+        sourceType: movement.sourceType,
+        sourceId: String(movement.sourceId),
+        sourceLineId: movement.sourceLineId == null ? null : String(movement.sourceLineId),
+        operationId,
+        deviceId: movement.deviceId || null,
+        createdBy: movement.createdBy || null,
+        inputQuantity: movement.inputQuantity == null ? null : Number(movement.inputQuantity),
+        unitCode: movement.unitCode || null,
+        baseUnitCode: movement.baseUnitCode || null,
+        conversionToBase: Number(movement.conversionToBase || 1),
+        quantityDeltaBase: Number(movement.quantityDeltaBase),
+        unitCost: Number(movement.unitCost || 0),
+        totalCost: Math.abs(Number(movement.totalCost || 0)),
+        batchAllocations: movement.batchAllocations || null,
+        reason: 'legacy_backfill',
+        createdAt: movement.createdAt || now,
+      });
+    };
+
+    const batches = sqlite.prepare(`
+      SELECT id, productId, purchaseId, quantity, baseQuantity, costPrice,
+             unitCode, baseUnitCode, conversionToBase, branchId, purchaseDate, createdAt
+      FROM "InventoryBatch"
+      WHERE purchaseId IS NOT NULL
+         OR id LIKE 'opening-%'
+         OR id LIKE 'stocktake-%'
+    `).all() as any[];
+
+    for (const batch of batches) {
+      const quantity = Number(batch.baseQuantity ?? batch.quantity ?? 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      const unitCost = Number(batch.costPrice || 0);
+      const isPurchase = Boolean(batch.purchaseId);
+      const isStocktake = !isPurchase && String(batch.id).startsWith('stocktake-');
+      const movementType = isPurchase
+        ? 'purchase_receipt'
+        : isStocktake ? 'stocktake_increase' : 'opening_balance';
+      const sourceType = isPurchase ? 'purchase' : isStocktake ? 'stocktake' : 'product';
+      const batchId = String(batch.id);
+      const stocktakeSessionId = isStocktake
+        ? batchId.slice('stocktake-'.length, batchId.length - String(batch.productId).length - 1)
+        : null;
+      const sourceId = isPurchase ? String(batch.purchaseId) : isStocktake ? String(stocktakeSessionId) : String(batch.productId);
+      const operationId = `legacy:batch:${batch.id}`;
+      const factor = Number(batch.conversionToBase || 1);
+      save({
+        productId: batch.productId,
+        branchId: batch.branchId,
+        movementType,
+        sourceType,
+        sourceId,
+        sourceLineId: batch.id,
+        operationId,
+        inputQuantity: quantity / (factor > 0 ? factor : 1),
+        unitCode: batch.unitCode,
+        baseUnitCode: batch.baseUnitCode,
+        conversionToBase: factor,
+        quantityDeltaBase: quantity,
+        unitCost,
+        totalCost: quantity * unitCost,
+        batchAllocations: JSON.stringify([{ batchId: batch.id, quantity, costPrice: unitCost }]),
+        createdAt: batch.purchaseDate || batch.createdAt || now,
+      });
+    }
+
+    const sales = sqlite.prepare(`
+      SELECT oi.id, oi.orderId, oi.productId, oi.quantity, oi.unitCode, oi.baseUnitCode,
+             oi.conversionToBase, oi.conversionFactor, oi.baseQuantity,
+             oi.costPriceAtTimeOfSale, oi.batchAllocations,
+             o.branchId, o.deviceId, o.createdBy, o.createdAt, o.updatedAt, o.status
+      FROM "OrderItem" oi
+      LEFT JOIN "Order" o ON o.id = oi.orderId
+    `).all() as any[];
+
+    for (const item of sales) {
+      const quantity = Number(item.quantity || 0);
+      const factor = Number(item.conversionToBase ?? item.conversionFactor ?? 1);
+      const safeFactor = factor > 0 ? factor : 1;
+      const baseQuantity = Number(item.baseQuantity ?? quantity * safeFactor);
+      if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) continue;
+      const inputCost = Number(item.costPriceAtTimeOfSale || 0);
+      const allocations = item.batchAllocations || null;
+      const totalCost = allocationCost(allocations) ?? inputCost * quantity;
+      save({
+        productId: item.productId,
+        branchId: item.branchId,
+        movementType: 'sale',
+        sourceType: 'order',
+        sourceId: String(item.orderId),
+        sourceLineId: item.id,
+        operationId: `legacy:sale:${item.id}`,
+        deviceId: item.deviceId,
+        createdBy: item.createdBy,
+        inputQuantity: quantity,
+        unitCode: item.unitCode,
+        baseUnitCode: item.baseUnitCode,
+        conversionToBase: safeFactor,
+        quantityDeltaBase: -baseQuantity,
+        unitCost: totalCost / baseQuantity,
+        totalCost,
+        batchAllocations: allocations,
+        createdAt: item.createdAt || item.updatedAt || now,
+      });
+
+      if (item.status === 'void') {
+        save({
+          productId: item.productId,
+          branchId: item.branchId,
+          movementType: 'sale_void',
+          sourceType: 'order_void',
+          sourceId: String(item.orderId),
+          sourceLineId: item.id,
+          operationId: `legacy:void:${item.orderId}`,
+          deviceId: item.deviceId,
+          createdBy: item.createdBy,
+          inputQuantity: quantity,
+          unitCode: item.unitCode,
+          baseUnitCode: item.baseUnitCode,
+          conversionToBase: safeFactor,
+          quantityDeltaBase: baseQuantity,
+          unitCost: totalCost / baseQuantity,
+          totalCost,
+          batchAllocations: allocations,
+          createdAt: item.updatedAt || item.createdAt || now,
+        });
+      }
+    }
+
+    const returns = sqlite.prepare(`
+      SELECT ri.id, ri.returnId, ri.productId, ri.quantity, ri.unitCode, ri.baseUnitCode,
+             ri.conversionToBase, ri.baseQuantity, ri.costPrice, ri.batchAllocations,
+             r.branchId, r.createdAt
+      FROM "ReturnItem" ri
+      LEFT JOIN "Return" r ON r.id = ri.returnId
+    `).all() as any[];
+
+    for (const item of returns) {
+      const quantity = Number(item.quantity || 0);
+      const factor = Number(item.conversionToBase || 1);
+      const safeFactor = factor > 0 ? factor : 1;
+      const baseQuantity = Number(item.baseQuantity ?? quantity * safeFactor);
+      if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) continue;
+      const totalCost = allocationCost(item.batchAllocations) ?? Number(item.costPrice || 0) * quantity;
+      save({
+        productId: item.productId,
+        branchId: item.branchId,
+        movementType: 'sale_return',
+        sourceType: 'return',
+        sourceId: String(item.returnId),
+        sourceLineId: item.id,
+        operationId: `legacy:return:${item.id}`,
+        inputQuantity: quantity,
+        unitCode: item.unitCode,
+        baseUnitCode: item.baseUnitCode,
+        conversionToBase: safeFactor,
+        quantityDeltaBase: baseQuantity,
+        unitCost: totalCost / baseQuantity,
+        totalCost,
+        batchAllocations: item.batchAllocations,
+        createdAt: item.createdAt || now,
+      });
+    }
+
+    const purchaseReturns = sqlite.prepare(`
+      SELECT pri.id, pri.purchaseReturnId, pri.productId, pri.quantity, pri.unitCode,
+             pri.baseUnitCode, pri.conversionToBase, pri.baseQuantity, pri.costPrice,
+             pri.batchId, pr.branchId, pr.createdAt
+      FROM "PurchaseReturnItem" pri
+      LEFT JOIN "PurchaseReturn" pr ON pr.id = pri.purchaseReturnId
+    `).all() as any[];
+
+    for (const item of purchaseReturns) {
+      const quantity = Number(item.quantity || 0);
+      const factor = Number(item.conversionToBase || 1);
+      const safeFactor = factor > 0 ? factor : 1;
+      const baseQuantity = Number(item.baseQuantity ?? quantity * safeFactor);
+      if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) continue;
+      const unitCost = Number(item.costPrice || 0) / safeFactor;
+      const totalCost = baseQuantity * unitCost;
+      save({
+        productId: item.productId,
+        branchId: item.branchId,
+        movementType: 'purchase_return',
+        sourceType: 'purchase_return',
+        sourceId: String(item.purchaseReturnId),
+        sourceLineId: item.id,
+        operationId: `legacy:purchase-return:${item.id}`,
+        inputQuantity: quantity,
+        unitCode: item.unitCode,
+        baseUnitCode: item.baseUnitCode,
+        conversionToBase: safeFactor,
+        quantityDeltaBase: -baseQuantity,
+        unitCost,
+        totalCost,
+        batchAllocations: item.batchId
+          ? JSON.stringify([{ batchId: item.batchId, quantity: baseQuantity, costPrice: unitCost }])
+          : null,
+        createdAt: item.createdAt || now,
+      });
+    }
+
+    sqlite.prepare(`
+      INSERT INTO "Setting" ("key", "value", "isSynced", "createdAt", "updatedAt")
+      VALUES (?, 'completed', 1, ?, ?)
+      ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = excluded."updatedAt"
+    `).run('inventoryMovementBackfillV1', now, now);
+  });
+
+  transaction();
+}
+
 export function ensureSchemaUpgrades(sqlite: Database.Database) {
   // Unit definitions and per-product conversion units (additive; legacy unit fields remain intact).
   sqlite.exec(`
@@ -243,6 +515,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Product', 'unit', "text DEFAULT 'piece'");
   ensureColumn(sqlite, 'Product', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'Product', 'quantityPrecision', 'integer DEFAULT 0');
+  ensureColumn(sqlite, 'Product', 'isActive', 'integer NOT NULL DEFAULT 1');
   ensureColumn(sqlite, 'Product', 'conversionFactor', 'real DEFAULT 1');
   ensureColumn(sqlite, 'Product', 'expiryDate', 'text');
   ensureColumn(sqlite, 'Product', 'batchNumber', 'text');
@@ -254,6 +527,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Order', 'shiftId', 'text');
   ensureColumn(sqlite, 'Order', 'deviceId', 'text');
   ensureColumn(sqlite, 'Order', 'operationId', 'text');
+  ensureColumn(sqlite, 'Order', 'updatedAt', 'text');
 
   ensureColumn(sqlite, 'OrderItem', 'returnedQuantity', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'OrderItem', 'unit', "text DEFAULT 'piece'");
@@ -319,11 +593,15 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'ReturnItem', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'ReturnItem', 'conversionToBase', 'real');
   ensureColumn(sqlite, 'ReturnItem', 'baseQuantity', 'real');
+  ensureColumn(sqlite, 'ReturnItem', 'costPrice', 'real DEFAULT 0');
+  ensureColumn(sqlite, 'ReturnItem', 'batchAllocations', 'text');
 
   ensureColumn(sqlite, 'PurchaseReturnItem', 'unitCode', 'text');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'conversionToBase', 'real');
   ensureColumn(sqlite, 'PurchaseReturnItem', 'baseQuantity', 'real');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'batchId', 'text');
+  ensureColumn(sqlite, 'PurchaseReturnItem', 'costPrice', 'real DEFAULT 0');
 
   ensureColumn(sqlite, 'StocktakingEntry', 'unitCode', 'text');
   ensureColumn(sqlite, 'StocktakingEntry', 'baseUnitCode', 'text');
@@ -377,6 +655,48 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
       ON "ExchangeRate" ("baseCurrencyCode", "quoteCurrencyCode", "effectiveAt");
   `);
 
+  // Immutable, idempotent inventory movement ledger. Existing stock/FIFO tables remain authoritative.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS "InventoryMovement" (
+      "id" text PRIMARY KEY NOT NULL,
+      "movementKey" text NOT NULL,
+      "productId" integer NOT NULL,
+      "branchId" integer,
+      "movementType" text NOT NULL,
+      "sourceType" text NOT NULL,
+      "sourceId" text NOT NULL,
+      "sourceLineId" text,
+      "operationId" text NOT NULL,
+      "deviceId" text,
+      "createdBy" text,
+      "inputQuantity" real,
+      "unitCode" text,
+      "baseUnitCode" text,
+      "conversionToBase" real NOT NULL DEFAULT 1,
+      "quantityDeltaBase" real NOT NULL,
+      "unitCost" real NOT NULL DEFAULT 0,
+      "totalCost" real NOT NULL DEFAULT 0,
+      "batchAllocations" text,
+      "reason" text,
+      "createdAt" text NOT NULL
+    );
+    DROP INDEX IF EXISTS "idx_inventory_movement_operation_key";
+    DELETE FROM "InventoryMovement"
+      WHERE rowid NOT IN (
+        SELECT MIN(rowid) FROM "InventoryMovement" GROUP BY "movementKey"
+      );
+    CREATE UNIQUE INDEX IF NOT EXISTS "idx_inventory_movement_key"
+      ON "InventoryMovement" ("movementKey");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_product_date"
+      ON "InventoryMovement" ("productId", "createdAt");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_branch_date"
+      ON "InventoryMovement" ("branchId", "createdAt");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_created_at"
+      ON "InventoryMovement" ("createdAt", "id");
+    CREATE INDEX IF NOT EXISTS "idx_inventory_movement_source"
+      ON "InventoryMovement" ("sourceType", "sourceId");
+  `);
+
   // Helpful indexes for performance
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS "idx_batch_product_rem" ON "InventoryBatch" ("productId", "remainingQuantity", "purchaseDate");
@@ -389,6 +709,8 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS "idx_cust_pay_cust" ON "CustomerPayment" ("customerId");
     CREATE INDEX IF NOT EXISTS "idx_sup_pay_sup" ON "SupplierPayment" ("supplierId");
   `);
+
+  backfillInventoryMovementLedger(sqlite);
 }
 
 export async function runMigrations() {

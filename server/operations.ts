@@ -31,6 +31,7 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  inventoryMovements,
   productUnits,
   unitDefinitions,
   processedOperations,
@@ -48,6 +49,68 @@ import { getBasePerDocumentUnit } from '../src/utils/currencyConversion.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function appendInventoryMovement(
+  tx: any,
+  ctx: { operationId: string; deviceId: string; actor: string; now: string },
+  input: {
+    productId: number;
+    branchId?: number | null;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    sourceLineId?: string | number | null;
+    inputQuantity?: number | null;
+    unitCode?: string | null;
+    baseUnitCode?: string | null;
+    conversionToBase?: number;
+    quantityDeltaBase: number;
+    unitCost?: number;
+    totalCost?: number;
+    batchAllocations?: any[] | string | null;
+    reason?: string | null;
+  }
+) {
+  const movementKey = [
+    input.movementType,
+    input.sourceType,
+    input.sourceId,
+    input.sourceLineId == null ? input.productId : String(input.sourceLineId),
+  ].join(':');
+  const id = `${ctx.operationId}:${movementKey}`;
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+
+  tx.insert(inventoryMovements)
+    .values({
+      id,
+      movementKey,
+      productId: Number(input.productId),
+      branchId: input.branchId ?? null,
+      movementType: input.movementType,
+      sourceType: input.sourceType,
+      sourceId: String(input.sourceId),
+      sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+      operationId: ctx.operationId,
+      deviceId: ctx.deviceId,
+      createdBy: ctx.actor,
+      inputQuantity: input.inputQuantity ?? null,
+      unitCode: input.unitCode ?? null,
+      baseUnitCode: input.baseUnitCode ?? null,
+      conversionToBase: Number(input.conversionToBase || 1),
+      quantityDeltaBase: Number(input.quantityDeltaBase),
+      unitCost: Number(input.unitCost || 0),
+      totalCost: Math.abs(Number(input.totalCost || 0)),
+      batchAllocations: allocations,
+      reason: input.reason ?? null,
+      createdAt: ctx.now,
+    })
+    .onConflictDoNothing()
+    .run();
+
+  return id;
 }
 
 type MovementUnitSnapshot = {
@@ -314,7 +377,7 @@ export function executeBusinessOperation(
         break;
       }
       case 'entity_upsert': {
-        result = handleEntityUpsert(tx, payload, now);
+        result = handleEntityUpsert(tx, payload, { operationId, deviceId, actor, now });
         break;
       }
       case 'entity_delete': {
@@ -364,6 +427,13 @@ function handleSale(
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new OperationError('كمية البيع يجب أن تكون رقماً موجباً', 400);
     }
+    const saleProduct = tx.select().from(products).where(eq(products.id, Number(item.productId))).get();
+    if (!saleProduct) {
+      throw new OperationError(`Product not found: ${item.productId}`, 404);
+    }
+    if (saleProduct.isActive === 0) {
+      throw new OperationError(`Product is inactive: ${item.productId}`, 409);
+    }
     const unitSnapshot = resolveMovementUnit(tx, Number(item.productId), item, qty);
     const factor = unitSnapshot.conversionToBase;
     const baseQty = unitSnapshot.baseQuantity;
@@ -407,6 +477,22 @@ function handleSale(
       .returning()
       .get();
 
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(item.productId),
+      branchId: order.branchId ?? null,
+      movementType: 'sale',
+      sourceType: 'order',
+      sourceId: String(order.id),
+      sourceLineId: insertedItem.id,
+      inputQuantity: qty,
+      unitCode: unitSnapshot.unitCode,
+      baseUnitCode: unitSnapshot.baseUnitCode,
+      conversionToBase: factor,
+      quantityDeltaBase: -baseQty,
+      unitCost: fifo.averageUnitCost,
+      totalCost: fifo.totalCost,
+      batchAllocations: fifo.allocations,
+    });
     savedItems.push(insertedItem);
   }
 
@@ -714,7 +800,7 @@ function handleReturn(
     const retItem = tx
       .insert(returnItems)
       .values({
-        id: crypto.randomUUID(),
+        id: reqItem.id || crypto.randomUUID(),
         returnId,
         orderItemId: origItem.id,
         productId: Number(origItem.productId),
@@ -735,6 +821,23 @@ function handleReturn(
       .returning()
       .get();
 
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(origItem.productId),
+      branchId: branchId ?? origOrder.branchId ?? null,
+      movementType: 'sale_return',
+      sourceType: 'return',
+      sourceId: String(returnId),
+      sourceLineId: retItem.id,
+      inputQuantity: qtyToReturn,
+      unitCode: origItem.unitCode || null,
+      baseUnitCode: origItem.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+      totalCost: restored.totalCostRestored,
+      batchAllocations: restored.restoredAllocations,
+      reason: reason || null,
+    });
     savedReturnItems.push(retItem);
   }
 
@@ -910,13 +1013,29 @@ function handleOrderVoid(
     const baseCostFallback =
       factor > 0 ? Number(oi.costPriceAtTimeOfSale || 0) / factor : Number(oi.costPriceAtTimeOfSale || 0);
 
-    restoreInventoryFIFO(tx, {
+    const restored = restoreInventoryFIFO(tx, {
       productId: Number(oi.productId),
       quantityInBaseUnits: baseQty,
       allocations,
       fallbackCost: baseCostFallback,
       branchId: origOrder.branchId,
       batchIdPrefix: `void-${targetOrderId}-${oi.id}`,
+    });
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(oi.productId),
+      branchId: origOrder.branchId ?? null,
+      movementType: 'sale_void',
+      sourceType: 'order_void',
+      sourceId: targetOrderId,
+      sourceLineId: oi.id,
+      inputQuantity: Number(oi.quantity || 0),
+      unitCode: oi.unitCode || null,
+      baseUnitCode: oi.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseQty > 0 ? restored.totalCostRestored / baseQty : 0,
+      totalCost: restored.totalCostRestored,
+      batchAllocations: restored.restoredAllocations,
     });
   }
 
@@ -1149,9 +1268,10 @@ function handlePurchaseCreate(
       .get();
     savedItems.push(pItem);
 
+    const batchId = item.batchId ? String(item.batchId) : crypto.randomUUID();
     tx.insert(inventoryBatches)
       .values({
-        id: item.batchId ? String(item.batchId) : crypto.randomUUID(),
+        id: batchId,
         productId: Number(item.productId),
         purchaseId: purchase.id,
         quantity: baseQty,
@@ -1172,6 +1292,23 @@ function handlePurchaseCreate(
         updatedAt: ctx.now,
       })
       .run();
+
+    appendInventoryMovement(tx, ctx, {
+      productId: Number(item.productId),
+      branchId: purchase.branchId || null,
+      movementType: 'purchase_receipt',
+      sourceType: 'purchase',
+      sourceId: String(purchase.id),
+      sourceLineId: batchId,
+      inputQuantity: qty,
+      unitCode: unitSnapshot.unitCode,
+      baseUnitCode: unitSnapshot.baseUnitCode,
+      conversionToBase: factor,
+      quantityDeltaBase: baseQty,
+      unitCost: baseUnitCost,
+      totalCost: baseQty * baseUnitCost,
+      batchAllocations: [{ batchId, quantity: baseQty, costPrice: baseUnitCost }],
+    });
 
     tx.update(products)
       .set({
@@ -1288,6 +1425,54 @@ function handlePurchaseDelete(
   assertPurchaseMutable(tx, purchaseId);
 
   const oldItems = tx.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId)).all();
+  const oldBatches = tx.select().from(inventoryBatches)
+    .where(eq(inventoryBatches.purchaseId, purchaseId))
+    .all();
+  if (oldBatches.length > 0) {
+    for (const batch of oldBatches) {
+      const baseQty = Number(batch.remainingQuantity ?? batch.quantity ?? 0);
+      appendInventoryMovement(tx, ctx, {
+        productId: Number(batch.productId),
+        branchId: batch.branchId ?? existing.branchId ?? null,
+        movementType: 'purchase_reversal',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+        sourceLineId: batch.id,
+        inputQuantity: baseQty,
+        unitCode: batch.unitCode || null,
+        baseUnitCode: batch.baseUnitCode || null,
+        conversionToBase: Number(batch.conversionToBase || 1),
+        quantityDeltaBase: -baseQty,
+        unitCost: Number(batch.costPrice || 0),
+        totalCost: baseQty * Number(batch.costPrice || 0),
+        batchAllocations: [{ batchId: batch.id, quantity: baseQty, costPrice: Number(batch.costPrice || 0) }],
+        reason: 'purchase_delete_or_update',
+      });
+    }
+  } else {
+    for (const item of oldItems) {
+      const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
+      const factor = Number(item.conversionToBase || 1);
+      const unitCost = factor > 0 ? Number(item.costPrice || 0) / factor : Number(item.costPrice || 0);
+      appendInventoryMovement(tx, ctx, {
+        productId: Number(item.productId),
+        branchId: existing.branchId ?? null,
+        movementType: 'purchase_reversal',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+        sourceLineId: item.id,
+        inputQuantity: Number(item.quantity || 0),
+        unitCode: item.unitCode || null,
+        baseUnitCode: item.baseUnitCode || null,
+        conversionToBase: factor,
+        quantityDeltaBase: -baseQty,
+        unitCost,
+        totalCost: baseQty * unitCost,
+        reason: 'legacy_purchase_without_batch',
+      });
+    }
+  }
+
   for (const item of oldItems) {
     const baseQty = Number(item.baseQuantity ?? (Number(item.quantity || 0) * Number(item.conversionToBase || 1)));
     tx.update(products)
@@ -1459,7 +1644,7 @@ function handlePurchaseReturn(
     const insertedItem = tx
       .insert(purchaseReturnItems)
       .values({
-        id: crypto.randomUUID(),
+        id: reqItem.id || crypto.randomUUID(),
         purchaseReturnId: returnId,
         productId: prodId,
         productName: reqItem.productName || '',
@@ -1477,6 +1662,26 @@ function handlePurchaseReturn(
       .returning()
       .get();
 
+    const baseUnitCost = factor > 0 ? cost / factor : cost;
+    appendInventoryMovement(tx, ctx, {
+      productId: prodId,
+      branchId: branchId ?? origPurchase.branchId ?? null,
+      movementType: 'purchase_return',
+      sourceType: 'purchase_return',
+      sourceId: String(returnId),
+      sourceLineId: insertedItem.id,
+      inputQuantity: qtyToReturn,
+      unitCode: matchingBatch?.unitCode || null,
+      baseUnitCode: matchingBatch?.baseUnitCode || null,
+      conversionToBase: factor,
+      quantityDeltaBase: -baseQty,
+      unitCost: baseUnitCost,
+      totalCost: baseQty * baseUnitCost,
+      batchAllocations: matchingBatch
+        ? [{ batchId: matchingBatch.id, quantity: baseQty, costPrice: baseUnitCost }]
+        : null,
+      reason: reason || null,
+    });
     savedItems.push(insertedItem);
   }
 
@@ -2048,9 +2253,10 @@ function handleStocktakeApprove(
 
     if (diff > 0) {
       const unitCost = Number(product.costPrice || 0);
+      const stocktakeBatchId = `stocktake-${sessionId}-${product.id}`;
       tx.insert(inventoryBatches)
         .values({
-          id: `stocktake-${sessionId}-${product.id}`,
+          id: stocktakeBatchId,
           productId: product.id,
           purchaseId: null,
           quantity: diff,
@@ -2071,6 +2277,26 @@ function handleStocktakeApprove(
         .set({ stockQuantity: Number(entry.actualQuantity), updatedAt: approvedAt, isSynced: 0 })
         .where(eq(products.id, product.id))
         .run();
+      appendInventoryMovement(tx, ctx, {
+        productId: product.id,
+        branchId: session.branchId || null,
+        movementType: 'stocktake_increase',
+        sourceType: 'stocktake',
+        sourceId: String(sessionId),
+        sourceLineId: stocktakeBatchId,
+        inputQuantity: diff,
+        unitCode: entry.unitCode || null,
+        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: diff,
+        unitCost,
+        totalCost: diff * unitCost,
+        batchAllocations: [{
+          batchId: stocktakeBatchId,
+          quantity: diff,
+          costPrice: unitCost,
+        }],
+      });
       netAdjustmentValue = roundMoney(netAdjustmentValue + diff * unitCost);
     } else {
       const fifo = consumeInventoryFIFO(tx, {
@@ -2080,6 +2306,22 @@ function handleStocktakeApprove(
         deviceId: ctx.deviceId,
         productName: product.name,
         allowNegative: true,
+      });
+      appendInventoryMovement(tx, ctx, {
+        productId: product.id,
+        branchId: session.branchId || null,
+        movementType: 'stocktake_decrease',
+        sourceType: 'stocktake',
+        sourceId: String(sessionId),
+        sourceLineId: entry.id,
+        inputQuantity: Math.abs(diff),
+        unitCode: entry.unitCode || null,
+        baseUnitCode: entry.baseUnitCode || product.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: diff,
+        unitCost: fifo.averageUnitCost,
+        totalCost: fifo.totalCost,
+        batchAllocations: fifo.allocations,
       });
       netAdjustmentValue = roundMoney(netAdjustmentValue - fifo.totalCost);
     }
@@ -2152,7 +2394,8 @@ function getEntityTable(tableName: string) {
   return map[tableName];
 }
 
-function handleEntityUpsert(tx: any, payload: any, now: string) {
+function handleEntityUpsert(tx: any, payload: any, ctx: { operationId: string; deviceId: string; actor: string; now: string }) {
+  const now = ctx.now;
   const { table: tableName, record } = payload;
   const table = getEntityTable(tableName);
   if (!table || !record) {
@@ -2295,6 +2538,26 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
           createdAt: updatedProduct.createdAt || now,
           updatedAt: now,
         }).run();
+        appendInventoryMovement(tx, ctx, {
+          productId: updatedProduct.id,
+          branchId: updatedProduct.branchId || null,
+          movementType: 'opening_balance',
+          sourceType: 'product',
+          sourceId: String(updatedProduct.id),
+          sourceLineId: `opening-${updatedProduct.id}`,
+          inputQuantity: Number(updatedProduct.stockQuantity),
+          unitCode: updatedProduct.baseUnitCode || null,
+          baseUnitCode: updatedProduct.baseUnitCode || null,
+          conversionToBase: 1,
+          quantityDeltaBase: Number(updatedProduct.stockQuantity),
+          unitCost: Number(updatedProduct.costPrice || 0),
+          totalCost: Number(updatedProduct.stockQuantity) * Number(updatedProduct.costPrice || 0),
+          batchAllocations: [{
+            batchId: `opening-${updatedProduct.id}`,
+            quantity: Number(updatedProduct.stockQuantity),
+            costPrice: Number(updatedProduct.costPrice || 0),
+          }],
+        });
       }
       return updatedProduct;
     }
@@ -2402,6 +2665,26 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
           updatedAt: now,
         })
         .run();
+      appendInventoryMovement(tx, ctx, {
+        productId: savedRecord.id,
+        branchId: savedRecord.branchId || null,
+        movementType: 'opening_balance',
+        sourceType: 'product',
+        sourceId: String(savedRecord.id),
+        sourceLineId: `opening-${savedRecord.id}`,
+        inputQuantity: Number(savedRecord.stockQuantity),
+        unitCode: savedRecord.baseUnitCode || null,
+        baseUnitCode: savedRecord.baseUnitCode || null,
+        conversionToBase: 1,
+        quantityDeltaBase: Number(savedRecord.stockQuantity),
+        unitCost: Number(savedRecord.costPrice || 0),
+        totalCost: Number(savedRecord.stockQuantity) * Number(savedRecord.costPrice || 0),
+        batchAllocations: [{
+          batchId: `opening-${savedRecord.id}`,
+          quantity: Number(savedRecord.stockQuantity),
+          costPrice: Number(savedRecord.costPrice || 0),
+        }],
+      });
     }
   }
 
@@ -2418,6 +2701,35 @@ function handleEntityDelete(tx: any, payload: any) {
   if (!table) {
     throw new OperationError(`Unsupported entity table: ${tableName}`, 400);
   }
+
+  if (tableName === 'categories') {
+    const linkedProducts = tx.select().from(products)
+      .where(eq(products.categoryId, Number(id))).limit(1).get();
+    if (linkedProducts) {
+      throw new OperationError(
+        'لا يمكن حذف تصنيف مرتبط بأصناف. انقل الأصناف أو عطّلها أولاً.',
+        409
+      );
+    }
+  }
+
+  if (tableName === 'products') {
+    const productId = Number(id);
+    const product = tx.select().from(products).where(eq(products.id, productId)).get();
+    if (product) {
+      const batch = tx.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.productId, productId)).limit(1).get();
+      const movement = tx.select().from(inventoryMovements)
+        .where(eq(inventoryMovements.productId, productId)).limit(1).get();
+      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
+        throw new OperationError(
+          'لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.',
+          409
+        );
+      }
+    }
+  }
+
   tx.delete(table).where(eq(table.id, id)).run();
   return { table: tableName, deleted: id };
 }

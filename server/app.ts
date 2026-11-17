@@ -7,7 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gt, gte, lte, or, inArray } from 'drizzle-orm';
 import { db, sqliteInstance, getDbPath } from '../drizzle/db.js';
 import { normalizeUnitDefinition, normalizeProductUnit, assertCompatibleUnitDimensions, assertBaseUnitChangeAllowed } from '../src/utils/unitConversion.js';
 import { getHistoricalCostAmount } from '../src/utils/inventoryUnits.js';
@@ -43,6 +43,7 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  inventoryMovements,
   inventoryAlerts,
   syncQueue,
   currencies,
@@ -84,6 +85,56 @@ export const getLocalIPAddress = () => {
   }
   return '127.0.0.1';
 };
+
+async function appendApiInventoryMovement(input: {
+  operationId: string;
+  movementKey: string;
+  productId: number;
+  branchId?: number | null;
+  movementType: string;
+  sourceType: string;
+  sourceId: string;
+  sourceLineId?: string | number | null;
+  deviceId?: string | null;
+  createdBy?: string | null;
+  inputQuantity?: number | null;
+  unitCode?: string | null;
+  baseUnitCode?: string | null;
+  conversionToBase?: number;
+  quantityDeltaBase: number;
+  unitCost?: number;
+  totalCost?: number;
+  batchAllocations?: any[] | string | null;
+  reason?: string | null;
+  createdAt: string;
+}, executor: any = db) {
+  const allocations = typeof input.batchAllocations === 'string'
+    ? input.batchAllocations
+    : input.batchAllocations ? JSON.stringify(input.batchAllocations) : null;
+  await executor.insert(inventoryMovements).values({
+    id: `${input.operationId}:${input.movementKey}`,
+    movementKey: input.movementKey,
+    productId: Number(input.productId),
+    branchId: input.branchId ?? null,
+    movementType: input.movementType,
+    sourceType: input.sourceType,
+    sourceId: String(input.sourceId),
+    sourceLineId: input.sourceLineId == null ? null : String(input.sourceLineId),
+    operationId: input.operationId,
+    deviceId: input.deviceId ?? null,
+    createdBy: input.createdBy ?? null,
+    inputQuantity: input.inputQuantity ?? null,
+    unitCode: input.unitCode ?? null,
+    baseUnitCode: input.baseUnitCode ?? null,
+    conversionToBase: Number(input.conversionToBase || 1),
+    quantityDeltaBase: Number(input.quantityDeltaBase),
+    unitCost: Number(input.unitCost || 0),
+    totalCost: Math.abs(Number(input.totalCost || 0)),
+    batchAllocations: allocations,
+    reason: input.reason ?? null,
+    createdAt: input.createdAt,
+  }).onConflictDoNothing();
+}
 
 const SAFE_PUBLIC_SETTING_KEYS = new Set([
   'businessName',
@@ -691,22 +742,47 @@ export function createPosApp() {
           .from(inventoryBatches)
           .where(eq(inventoryBatches.productId, product.id));
         if (existingBatches.length === 0) {
-          await db.insert(inventoryBatches).values({
-            id: `opening-${product.id}`,
-            productId: product.id,
-            purchaseId: null,
-            quantity: Number(product.stockQuantity),
-            remainingQuantity: Number(product.stockQuantity),
-            costPrice: Number(product.costPrice || 0),
-            unitCode: product.baseUnitCode || null,
-            baseUnitCode: product.baseUnitCode || null,
-            conversionToBase: 1,
-            baseQuantity: Number(product.stockQuantity),
-            purchaseDate: product.createdAt || now,
-            branchId: product.branchId || null,
-            isSynced: 0,
-            createdAt: product.createdAt || now,
-            updatedAt: now,
+          const openingBatchId = `opening-${product.id}`;
+          const openingQuantity = Number(product.stockQuantity);
+          const openingUnitCost = Number(product.costPrice || 0);
+          await db.transaction(async (tx: any) => {
+            await tx.insert(inventoryBatches).values({
+              id: openingBatchId,
+              productId: product.id,
+              purchaseId: null,
+              quantity: openingQuantity,
+              remainingQuantity: openingQuantity,
+              costPrice: openingUnitCost,
+              unitCode: product.baseUnitCode || null,
+              baseUnitCode: product.baseUnitCode || null,
+              conversionToBase: 1,
+              baseQuantity: openingQuantity,
+              purchaseDate: product.createdAt || now,
+              branchId: product.branchId || null,
+              isSynced: 0,
+              createdAt: product.createdAt || now,
+              updatedAt: now,
+            });
+            const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
+            await appendApiInventoryMovement({
+              operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
+              movementKey,
+              productId: product.id,
+              branchId: product.branchId || null,
+              movementType: 'opening_balance',
+              sourceType: 'product',
+              sourceId: String(product.id),
+              sourceLineId: openingBatchId,
+              inputQuantity: openingQuantity,
+              unitCode: product.baseUnitCode || null,
+              baseUnitCode: product.baseUnitCode || null,
+              conversionToBase: 1,
+              quantityDeltaBase: openingQuantity,
+              unitCost: openingUnitCost,
+              totalCost: openingQuantity * openingUnitCost,
+              batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
+              createdAt: product.createdAt || now,
+            }, tx);
           });
         }
       }
@@ -735,23 +811,48 @@ export function createPosApp() {
         .where(eq(products.id, id))
         .returning();
       if (product && !existingBatch && Number(product.stockQuantity || 0) > 0) {
-        await db.insert(inventoryBatches).values({
-          id: `opening-${product.id}`,
-          productId: product.id,
-          purchaseId: null,
-          quantity: Number(product.stockQuantity),
-          remainingQuantity: Number(product.stockQuantity),
-          costPrice: Number(product.costPrice || 0),
-          unitCode: product.baseUnitCode || null,
-          baseUnitCode: product.baseUnitCode || null,
-          conversionToBase: 1,
-          baseQuantity: Number(product.stockQuantity),
-          purchaseDate: product.createdAt || now,
-          branchId: product.branchId || null,
-          isSynced: 0,
-          createdAt: product.createdAt || now,
-          updatedAt: now,
-        }).onConflictDoNothing();
+        const openingBatchId = `opening-${product.id}`;
+        const openingQuantity = Number(product.stockQuantity);
+        const openingUnitCost = Number(product.costPrice || 0);
+        await db.transaction(async (tx: any) => {
+          await tx.insert(inventoryBatches).values({
+            id: openingBatchId,
+            productId: product.id,
+            purchaseId: null,
+            quantity: openingQuantity,
+            remainingQuantity: openingQuantity,
+            costPrice: openingUnitCost,
+            unitCode: product.baseUnitCode || null,
+            baseUnitCode: product.baseUnitCode || null,
+            conversionToBase: 1,
+            baseQuantity: openingQuantity,
+            purchaseDate: product.createdAt || now,
+            branchId: product.branchId || null,
+            isSynced: 0,
+            createdAt: product.createdAt || now,
+            updatedAt: now,
+          }).onConflictDoNothing();
+          const movementKey = `opening_balance:product:${product.id}:${openingBatchId}`;
+          await appendApiInventoryMovement({
+            operationId: `legacy-api:product:${product.id}:${openingBatchId}`,
+            movementKey,
+            productId: product.id,
+            branchId: product.branchId || null,
+            movementType: 'opening_balance',
+            sourceType: 'product',
+            sourceId: String(product.id),
+            sourceLineId: openingBatchId,
+            inputQuantity: openingQuantity,
+            unitCode: product.baseUnitCode || null,
+            baseUnitCode: product.baseUnitCode || null,
+            conversionToBase: 1,
+            quantityDeltaBase: openingQuantity,
+            unitCost: openingUnitCost,
+            totalCost: openingQuantity * openingUnitCost,
+            batchAllocations: [{ batchId: openingBatchId, quantity: openingQuantity, costPrice: openingUnitCost }],
+            createdAt: product.createdAt || now,
+          }, tx);
+        });
       }
       res.json(product);
     } catch {
@@ -759,12 +860,24 @@ export function createPosApp() {
     }
   });
 
-  app.delete('/api/products/:id', requirePermission('delete_product'), async (req, res) => {
+  app.delete('/api/products/:id', async (req, res) => {
     try {
-      await db.delete(products).where(eq(products.id, parseInt(req.params.id)));
-      res.json({ message: 'Product deleted' });
-    } catch {
-      res.status(500).json({ error: 'Failed to delete product' });
+      const productId = Number(req.params.id);
+      const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const [batch] = await db.select().from(inventoryBatches)
+        .where(eq(inventoryBatches.productId, productId)).limit(1);
+      const [movement] = await db.select().from(inventoryMovements)
+        .where(eq(inventoryMovements.productId, productId)).limit(1);
+      if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || batch || movement) {
+        return res.status(409).json({
+          error: 'Product has stock or inventory history. Deactivate it instead of deleting it.',
+        });
+      }
+      await db.delete(products).where(eq(products.id, productId));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -809,7 +922,13 @@ export function createPosApp() {
 
   app.delete('/api/categories/:id', requirePermission('manage_categories'), async (req, res) => {
     try {
-      await db.delete(categories).where(eq(categories.id, parseInt(req.params.id)));
+      const categoryId = parseInt(req.params.id);
+      const [linkedProduct] = await db.select().from(products)
+        .where(eq(products.categoryId, categoryId)).limit(1);
+      if (linkedProduct) {
+        return res.status(409).json({ error: 'Category still contains products. Move or delete eligible products first.' });
+      }
+      await db.delete(categories).where(eq(categories.id, categoryId));
       res.json({ message: 'Category deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete category' });
@@ -1022,6 +1141,157 @@ export function createPosApp() {
     }
   });
 
+  // --- Immutable Inventory Movement Ledger ---
+  app.get('/api/inventoryMovements', async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(String(req.query.limit || '500'), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(2000, parsedLimit)) : 500;
+      const parsedOffset = Number.parseInt(String(req.query.offset || '0'), 10);
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.min(500000, parsedOffset)) : 0;
+      const productId = Number(req.query.productId);
+      const afterCreatedAt = typeof req.query.afterCreatedAt === 'string' ? req.query.afterCreatedAt : '';
+      const afterId = typeof req.query.afterId === 'string' ? req.query.afterId : '';
+      const movementKeys = typeof req.query.movementKeys === 'string'
+        ? req.query.movementKeys.split(',').filter(Boolean).slice(0, 200)
+        : [];
+      const latest = req.query.latest === 'true';
+      const branchId = Number(req.query.branchId);
+      const sourceType = typeof req.query.sourceType === 'string' ? req.query.sourceType : '';
+      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
+      const filters: any[] = [];
+
+      if (movementKeys.length > 0) {
+        filters.push(inArray(inventoryMovements.movementKey, movementKeys));
+      } else {
+        if (Number.isSafeInteger(productId) && productId > 0) {
+          filters.push(eq(inventoryMovements.productId, productId));
+        }
+        if (Number.isSafeInteger(branchId) && branchId > 0) {
+          filters.push(eq(inventoryMovements.branchId, branchId));
+        }
+        if (sourceType) filters.push(eq(inventoryMovements.sourceType, sourceType));
+        if (startDate) filters.push(gte(inventoryMovements.createdAt, startDate));
+        if (endDate) filters.push(lte(inventoryMovements.createdAt, `${endDate}T23:59:59.999Z`));
+      }
+      if (movementKeys.length === 0 && afterCreatedAt && afterId) {
+        filters.push(or(
+          gt(inventoryMovements.createdAt, afterCreatedAt),
+          and(
+            eq(inventoryMovements.createdAt, afterCreatedAt),
+            gt(inventoryMovements.id, afterId)
+          )
+        ));
+      }
+
+      let query: any = db.select().from(inventoryMovements);
+      if (filters.length === 1) query = query.where(filters[0]);
+      else if (filters.length > 1) query = query.where(and(...filters));
+
+      const orderedQuery = query.orderBy(
+        latest && movementKeys.length === 0
+          ? desc(inventoryMovements.createdAt)
+          : asc(inventoryMovements.createdAt),
+        latest && movementKeys.length === 0
+          ? desc(inventoryMovements.id)
+          : asc(inventoryMovements.id)
+      );
+      const rows = await (latest && movementKeys.length === 0 ? orderedQuery.offset(offset) : orderedQuery)
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const last = items[items.length - 1];
+      res.json({
+        items,
+        hasMore,
+        nextCursor: latest || movementKeys.length > 0 || !last
+          ? null
+          : { createdAt: last.createdAt, id: last.id },
+        nextOffset: latest && movementKeys.length === 0 && hasMore ? offset + limit : null,
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch inventory movements' });
+    }
+  });
+
+  app.get('/api/inventoryMovements/reconciliation', async (_req, res) => {
+    try {
+      const [stockRows, batchRows, ledgerRows] = await Promise.all([
+        db.select({
+          productId: products.id,
+          productName: products.name,
+          baseUnitCode: products.baseUnitCode,
+          stockQuantity: products.stockQuantity,
+        }).from(products),
+        db.select({
+          productId: inventoryBatches.productId,
+          batchQuantity: sql<number>`COALESCE(SUM(${inventoryBatches.remainingQuantity}), 0)`,
+          batchCount: sql<number>`COUNT(*)`,
+        }).from(inventoryBatches).groupBy(inventoryBatches.productId),
+        db.select({
+          productId: inventoryMovements.productId,
+          ledgerQuantity: sql<number>`COALESCE(SUM(${inventoryMovements.quantityDeltaBase}), 0)`,
+          movementCount: sql<number>`COUNT(*)`,
+        }).from(inventoryMovements).groupBy(inventoryMovements.productId),
+      ]);
+      const batchesByProduct = new Map(
+        batchRows.map((row) => [row.productId, {
+          batchQuantity: Number(row.batchQuantity || 0),
+          batchCount: Number(row.batchCount || 0),
+        }])
+      );
+      const ledgerByProduct = new Map(
+        ledgerRows.map((row) => [row.productId, {
+          ledgerQuantity: Number(row.ledgerQuantity || 0),
+          movementCount: Number(row.movementCount || 0),
+        }])
+      );
+      const allProductIds = new Set([
+        ...stockRows.map((row) => row.productId),
+        ...batchRows.map((row) => row.productId),
+        ...ledgerRows.map((row) => row.productId),
+      ]);
+      const stockByProduct = new Map(stockRows.map((row) => [row.productId, row]));
+      const items = [...allProductIds].map((productId) => {
+        const product = stockByProduct.get(productId);
+        const batch = batchesByProduct.get(productId);
+        const ledger = ledgerByProduct.get(productId);
+        const stockQuantity = Number(product?.stockQuantity || 0);
+        const batchQuantity = batch?.batchQuantity || 0;
+        const ledgerQuantity = ledger?.ledgerQuantity || 0;
+        return {
+          productId,
+          productName: product?.productName || `#${productId} (صنف غير موجود)`,
+          baseUnitCode: product?.baseUnitCode || null,
+          stockQuantity,
+          batchQuantity,
+          ledgerQuantity,
+          stockVsBatchDifference: stockQuantity - batchQuantity,
+          batchVsLedgerDifference: batchQuantity - ledgerQuantity,
+          stockVsLedgerDifference: stockQuantity - ledgerQuantity,
+          batchCount: batch?.batchCount || 0,
+          movementCount: ledger?.movementCount || 0,
+        };
+      });
+      const hasDifference = (item: any) =>
+        Math.abs(item.stockVsBatchDifference) > 1e-6 ||
+        Math.abs(item.batchVsLedgerDifference) > 1e-6;
+      const mismatched = items.filter(hasDifference);
+      res.json({
+        items: mismatched,
+        summary: {
+          productsChecked: items.length,
+          productsWithMovements: items.filter((item) => item.movementCount > 0).length,
+          productsWithBatchMismatch: items.filter((item) => Math.abs(item.stockVsBatchDifference) > 1e-6).length,
+          productsWithLedgerMismatch: items.filter((item) => Math.abs(item.batchVsLedgerDifference) > 1e-6).length,
+          mismatchedProducts: mismatched.length,
+        },
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to reconcile stock, FIFO batches and movement ledger' });
+    }
+  });
+
   // --- Inventory Batches & Alerts ---
   app.get('/api/inventoryBatches', async (_req, res) => {
     try {
@@ -1034,22 +1304,72 @@ export function createPosApp() {
   app.post('/api/inventoryBatches', requirePermission('edit_product'), async (req, res) => {
     try {
       const now = new Date().toISOString();
-      const [batch] = await db
-        .insert(inventoryBatches)
-        .values({
-          id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
-          productId: Number(req.body.productId),
-          purchaseId: req.body.purchaseId || null,
-          quantity: Number(req.body.quantity || 0),
-          remainingQuantity: Number(req.body.remainingQuantity ?? req.body.quantity ?? 0),
-          costPrice: Number(req.body.costPrice || 0),
-          purchaseDate: req.body.purchaseDate || now,
-          branchId: req.body.branchId || null,
-          isSynced: 0,
+      const batchId = req.body.id ? String(req.body.id) : crypto.randomUUID();
+      const batchQuantity = Number(req.body.baseQuantity ?? req.body.quantity ?? 0);
+      const factor = Number(req.body.conversionToBase || 1);
+      const remainingQuantity = Number(req.body.remainingQuantity ?? batchQuantity);
+      const costPrice = Number(req.body.costPrice || 0);
+      if (!Number.isFinite(batchQuantity) || batchQuantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0 ||
+          !Number.isFinite(remainingQuantity) || remainingQuantity < 0 || remainingQuantity > batchQuantity ||
+          !Number.isFinite(costPrice) || costPrice < 0) {
+        return res.status(400).json({ error: 'Invalid inventory batch quantity, conversion or cost' });
+      }
+      const batch = await db.transaction(async (tx: any) => {
+        const [createdBatch] = await tx
+          .insert(inventoryBatches)
+          .values({
+            id: batchId,
+            productId: Number(req.body.productId),
+            purchaseId: req.body.purchaseId || null,
+            quantity: batchQuantity,
+            remainingQuantity,
+            costPrice,
+            originalCostPrice: req.body.originalCostPrice ?? null,
+            currencyCode: req.body.currencyCode ?? null,
+            exchangeRate: req.body.exchangeRate ?? null,
+            exchangeRateId: req.body.exchangeRateId ?? null,
+            unitCode: req.body.unitCode ?? null,
+            baseUnitCode: req.body.baseUnitCode ?? null,
+            conversionToBase: factor,
+            baseQuantity: batchQuantity,
+            purchaseDate: req.body.purchaseDate || now,
+            expiryDate: req.body.expiryDate ?? null,
+            batchNumber: req.body.batchNumber ?? null,
+            branchId: req.body.branchId || null,
+            isSynced: 0,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        const movementType = createdBatch.purchaseId ? 'purchase_receipt' : 'opening_balance';
+        const sourceType = createdBatch.purchaseId ? 'purchase' : 'product';
+        const sourceId = createdBatch.purchaseId ? String(createdBatch.purchaseId) : String(createdBatch.productId);
+        const operationId = String(req.body.operationId || `legacy-api:batch:${createdBatch.id}`);
+        const movementKey = `${movementType}:${sourceType}:${sourceId}:${createdBatch.id}`;
+        await appendApiInventoryMovement({
+          operationId,
+          movementKey,
+          productId: createdBatch.productId,
+          branchId: createdBatch.branchId,
+          movementType,
+          sourceType,
+          sourceId,
+          sourceLineId: createdBatch.id,
+          deviceId: req.body.deviceId,
+          createdBy: req.body.createdBy,
+          inputQuantity: factor > 0 ? batchQuantity / factor : batchQuantity,
+          unitCode: createdBatch.unitCode,
+          baseUnitCode: createdBatch.baseUnitCode,
+          conversionToBase: factor,
+          quantityDeltaBase: batchQuantity,
+          unitCost: createdBatch.costPrice,
+          totalCost: batchQuantity * createdBatch.costPrice,
+          batchAllocations: [{ batchId: createdBatch.id, quantity: batchQuantity, costPrice: createdBatch.costPrice }],
           createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
+        }, tx);
+        return createdBatch;
+      });
       res.status(201).json(batch);
     } catch {
       res.status(500).json({ error: 'Failed to create inventory batch' });
@@ -1058,12 +1378,80 @@ export function createPosApp() {
 
   app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), async (req, res) => {
     try {
-      const [batch] = await db
-        .update(inventoryBatches)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(inventoryBatches.id, String(req.params.id)))
-        .returning();
-      res.json(batch);
+      const batchId = String(req.params.id);
+      const now = new Date().toISOString();
+      const updateData = { ...req.body };
+      delete updateData.id;
+      delete updateData.productId;
+      delete updateData.purchaseId;
+      delete updateData.quantity;
+      delete updateData.baseQuantity;
+      delete updateData.costPrice;
+      delete updateData.unitCode;
+      delete updateData.baseUnitCode;
+      delete updateData.conversionToBase;
+      delete updateData.operationId;
+      delete updateData.deviceId;
+      delete updateData.createdBy;
+      delete updateData.isSynced;
+      delete updateData.createdAt;
+      delete updateData.updatedAt;
+      delete updateData.remainingQuantity;
+
+      const result = await db.transaction(async (tx: any) => {
+        const [existing] = await tx.select().from(inventoryBatches)
+          .where(eq(inventoryBatches.id, batchId)).limit(1);
+        if (!existing) return { status: 404 as const };
+
+        const nextRemaining = Number(req.body.remainingQuantity ?? existing.remainingQuantity);
+        if (!Number.isFinite(nextRemaining) || nextRemaining < 0 ||
+            nextRemaining > Number(existing.quantity) + 1e-9) {
+          return { status: 400 as const };
+        }
+
+        const [batch] = await tx
+          .update(inventoryBatches)
+          .set({ ...updateData, remainingQuantity: nextRemaining, isSynced: 0, updatedAt: now })
+          .where(eq(inventoryBatches.id, batchId))
+          .returning();
+
+        const delta = nextRemaining - Number(existing.remainingQuantity || 0);
+        if (Math.abs(delta) > 1e-9) {
+          const operationId = String(req.body.operationId || `legacy-api:batch-adjust:${batchId}:${now}`);
+          const movementKey = `legacy_batch_adjustment:inventory_batch:${batchId}:${now}`;
+          await appendApiInventoryMovement({
+            operationId,
+            movementKey,
+            productId: existing.productId,
+            branchId: existing.branchId,
+            movementType: 'legacy_batch_adjustment',
+            sourceType: 'inventory_batch',
+            sourceId: batchId,
+            sourceLineId: batchId,
+            deviceId: req.body.deviceId,
+            createdBy: req.body.createdBy,
+            inputQuantity: Math.abs(delta) / Number(existing.conversionToBase || 1),
+            unitCode: existing.unitCode,
+            baseUnitCode: existing.baseUnitCode,
+            conversionToBase: Number(existing.conversionToBase || 1),
+            quantityDeltaBase: delta,
+            unitCost: Number(existing.costPrice || 0),
+            totalCost: Math.abs(delta * Number(existing.costPrice || 0)),
+            batchAllocations: [{ batchId, quantity: Math.abs(delta), costPrice: Number(existing.costPrice || 0) }],
+            reason: 'legacy_batch_update',
+            createdAt: now,
+          }, tx);
+        }
+        return { batch };
+      });
+
+      if ('status' in result && result.status === 404) {
+        return res.status(404).json({ error: 'Inventory batch not found' });
+      }
+      if ('status' in result && result.status === 400) {
+        return res.status(400).json({ error: 'Remaining quantity must stay within the original batch quantity' });
+      }
+      res.json(result.batch);
     } catch {
       res.status(500).json({ error: 'Failed to update inventory batch' });
     }

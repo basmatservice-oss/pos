@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, Supplier } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
-import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler } from 'lucide-react';
+import { Plus, Search, Filter, ArrowUpDown, MoreVertical, Edit, Trash2, Package, Smartphone, QrCode, X, FilterX, Download, Upload, Loader2, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, Ruler, Power } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
@@ -13,6 +13,8 @@ import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { apiService } from '../services/apiService';
 import ConfirmationModal from '../components/ConfirmationModal';
+import InventoryMovementHistory from '../components/InventoryMovementHistory';
+import InventoryMovementLedger from '../components/InventoryMovementLedger';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -24,7 +26,7 @@ export default function Inventory() {
   const [unitDraft, setUnitDraft] = useState({ unitCode: '', conversionToBase: '1', isBaseUnit: true, sellingPrice: '', barcode: '' });
   const [unitSaving, setUnitSaving] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'movements'>('products');
   const { user } = useAuth();
   
   const hasPermission = (permission: string) => {
@@ -488,9 +490,18 @@ export default function Inventory() {
         try {
           const category = await db.categories.get(id);
           const productsToDelete = await db.products.where('categoryId').equals(id).toArray();
-          for (const p of productsToDelete) {
-            if (p.id !== undefined) {
-              await dispatchOperation('entity_delete', { table: 'products', id: p.id }, user?.branchId);
+          for (const product of productsToDelete) {
+            if (product.id === undefined) continue;
+            const movementCount = await db.inventoryMovements.where('productId').equals(product.id).count();
+            const batchCount = await db.inventoryBatches.where('productId').equals(product.id).count();
+            if (Math.abs(Number(product.stockQuantity || 0)) > 1e-9 || movementCount > 0 || batchCount > 0) {
+              toast.error(`لا يمكن حذف التصنيف؛ الصنف "${product.name}" لديه رصيد أو تاريخ مخزون. عطّل الصنف بدلاً من حذفه.`);
+              return;
+            }
+          }
+          for (const product of productsToDelete) {
+            if (product.id !== undefined) {
+              await dispatchOperation('entity_delete', { table: 'products', id: product.id }, user?.branchId);
             }
           }
           await dispatchOperation('entity_delete', { table: 'categories', id }, user?.branchId);
@@ -592,6 +603,16 @@ export default function Inventory() {
       action: async () => {
         try {
           const product = await db.products.get(id);
+          const movementCount = await db.inventoryMovements.where('productId').equals(id).count();
+          const batchCount = await db.inventoryBatches.where('productId').equals(id).count();
+          if (product && (
+            Math.abs(Number(product.stockQuantity || 0)) > 1e-9 ||
+            movementCount > 0 ||
+            batchCount > 0
+          )) {
+            toast.error('لا يمكن حذف صنف له رصيد أو دفعات أو سجل حركة. عطّل الصنف بدلاً من حذف تاريخه.');
+            return;
+          }
           await dispatchOperation('entity_delete', { table: 'products', id }, user?.branchId);
           await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
           toast.success('تم حذف المنتج بنجاح');
@@ -601,6 +622,34 @@ export default function Inventory() {
         }
       },
     });
+  };
+
+  const handleToggleProductActive = async (product: Product) => {
+    if (product.id === undefined) return;
+    try {
+      const nextActive = product.isActive === 0 ? 1 : 0;
+      await dispatchOperation(
+        'entity_upsert',
+        {
+          table: 'products',
+          record: { ...product, isActive: nextActive, updatedAt: new Date().toISOString() },
+        },
+        user?.branchId
+      );
+      await logAction(
+        user?.name || 'Unknown',
+        nextActive ? 'تفعيل منتج' : 'إيقاف منتج',
+        'product',
+        `${nextActive ? 'تم تفعيل' : 'تم إيقاف'} الصنف: ${product.name}`,
+        0,
+        0,
+        product.name
+      );
+      toast.success(nextActive ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف');
+    } catch (error) {
+      console.error(error);
+      toast.error('تعذر تغيير حالة الصنف');
+    }
   };
 
   const handleUpdatePricesFromExchangeRate = () => {
@@ -837,7 +886,7 @@ export default function Inventory() {
                 </>
               )}
             </>
-          ) : (
+          ) : activeTab === 'categories' ? (
             <>
               {hasPermission('manage_categories') && (
                 <button 
@@ -849,7 +898,7 @@ export default function Inventory() {
                 </button>
               )}
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -876,6 +925,17 @@ export default function Inventory() {
         >
           <Tags className="w-5 h-5" />
           التصنيفات
+        </button>
+        <button
+          onClick={() => setActiveTab('movements')}
+          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${
+            activeTab === 'movements'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+          }`}
+        >
+          <RefreshCcw className="w-5 h-5" />
+          حركة المخزون
         </button>
       </div>
 
@@ -965,6 +1025,11 @@ export default function Inventory() {
                       </div>
                       <div className="mr-4">
                         <div className="text-sm font-bold text-gray-900">{product.name}</div>
+                        {product.isActive === 0 && (
+                          <span className="inline-flex mt-1 px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[10px] font-bold">
+                            موقوف
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -1032,13 +1097,24 @@ export default function Inventory() {
                         <Printer className="w-4 h-4" />
                       </button>
                       {hasPermission('edit_product') && (
-                        <button 
-                          onClick={() => handleOpenModal(product)}
-                          className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
-                          title="تعديل"
-                        >
-                          <Plus className="w-4 h-4 rotate-45" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleToggleProductActive(product)}
+                            className={product.isActive === 0
+                              ? 'text-emerald-700 hover:text-emerald-900 p-2 bg-emerald-50 rounded-lg'
+                              : 'text-gray-600 hover:text-gray-900 p-2 bg-gray-100 rounded-lg'}
+                            title={product.isActive === 0 ? 'تفعيل الصنف' : 'إيقاف الصنف'}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleOpenModal(product)}
+                            className="text-indigo-600 hover:text-indigo-900 p-2 bg-indigo-50 rounded-lg"
+                            title="تعديل"
+                          >
+                            <Plus className="w-4 h-4 rotate-45" />
+                          </button>
+                        </>
                       )}
                       {hasPermission('delete_product') && (
                         <button 
@@ -1105,6 +1181,10 @@ export default function Inventory() {
         </div>
       )}
 
+      {activeTab === 'movements' && (
+        <InventoryMovementLedger currency={storeSettings.currency} />
+      )}
+
       {/* Hidden Barcode for Printing */}
       <div className="absolute -left-[9999px]">
         <div ref={barcodeRef} className="p-4 flex flex-col items-center justify-center w-[200px] text-center bg-white">
@@ -1128,7 +1208,7 @@ export default function Inventory() {
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b border-gray-100">
               <h3 className="text-xl font-bold text-gray-900">
                 {editingProduct ? 'تعديل منتج' : 'إضافة منتج جديد'}
@@ -1395,6 +1475,14 @@ export default function Inventory() {
                 </button>
               </div>
             </form>
+            {editingProduct?.id !== undefined && (
+              <div className="px-6 pb-6">
+                <InventoryMovementHistory
+                  productId={Number(editingProduct.id)}
+                  currency={storeSettings.currency}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

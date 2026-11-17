@@ -195,6 +195,10 @@ export default function POS() {
   };
 
   const handleAddProduct = (product: (typeof allProducts)[number]) => {
+    if (product.isActive === 0) {
+      toast.error('هذا الصنف موقوف ولا يمكن بيعه');
+      return;
+    }
     const rows = liveProductUnits.filter((unit) => unit.productId === product.id && unit.isActive === 1);
     const base = rows.find((unit) => unit.isBaseUnit === 1) ||
       rows.find((unit) => unit.unitCode === product.baseUnitCode);
@@ -209,12 +213,20 @@ export default function POS() {
     const alternate = liveProductUnits.find((unit) => unit.barcode === barcode && unit.isActive === 1);
     if (alternate) {
       const product = allProducts.find((item) => item.id === alternate.productId);
+      if (product?.isActive === 0) {
+        toast.error('هذا الصنف موقوف ولا يمكن بيعه');
+        return null;
+      }
       if (product) {
         addItem(product, alternate.unitCode, getUnitSelection(product.id!, alternate.unitCode));
         return product;
       }
     }
-    const product = getProductByBarcode(barcode) || allProducts.find((item) => item.barcode === barcode);
+    const product = allProducts.find((item) => item.barcode === barcode) || getProductByBarcode(barcode);
+    if (product?.isActive === 0) {
+      toast.error('هذا الصنف موقوف ولا يمكن بيعه');
+      return null;
+    }
     if (product) handleAddProduct(product);
     return product || null;
   };
@@ -256,7 +268,7 @@ export default function POS() {
   }, [searchQuery]);
 
   const filteredProducts = useMemo(() => {
-    let list = allProducts;
+    let list = allProducts.filter((product) => product.isActive !== 0);
     if (selectedCategory !== 'all') {
       const categoryId = parseInt(selectedCategory, 10);
       list = allProducts.filter((p) => p.categoryId === categoryId);

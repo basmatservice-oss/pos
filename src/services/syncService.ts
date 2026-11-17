@@ -2,6 +2,8 @@ import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 
+const INVENTORY_MOVEMENT_CURSOR_KEY = '__local_inventory_movement_cursor__';
+
 export const syncService = {
   cachedRole: null as string | null,
 
@@ -52,6 +54,7 @@ export const syncService = {
         'stocktakingSessions',
         'stocktakingEntries',
         'inventoryBatches',
+        'inventoryMovements',
       ];
       let pendingRecords = 0;
       for (const table of tables) {
@@ -89,6 +92,7 @@ export const syncService = {
         await this.pushAll();
       }
       await this.pullAll();
+      await this.pullInventoryMovements();
       await this.pullCurrencyLedger();
       await this.pullUnitCatalog();
 
@@ -139,13 +143,18 @@ export const syncService = {
 
       const retryCount = (op.retryCount || 0) + 1;
       const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+      const failedStatus = retryCount >= 8 ? 'conflict' : 'error';
       await db.syncOperations.update(op.id, {
-        status: retryCount >= 8 ? 'conflict' : 'error',
+        status: failedStatus,
         retryCount,
         lastError: result?.error || 'Unknown sync error',
         nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      await db.inventoryMovements
+        .where('operationId')
+        .equals(op.id)
+        .modify({ syncStatus: failedStatus });
       break;
     }
   },
@@ -189,6 +198,125 @@ export const syncService = {
         await db.productUnits.put({ ...unit, syncStatus: 'synced' });
       }
     });
+  },
+
+  // Inventory movements are append-only and paged by a stable (createdAt, id) cursor.
+  // This avoids pulling the full ledger on every sync while preserving every historical row.
+  async pullInventoryMovements() {
+    if (!getAuthToken()) return;
+    let cursorSetting = await db.settings.where('key').equals(INVENTORY_MOVEMENT_CURSOR_KEY).first();
+    let cursor: { createdAt: string; id: string } | null = null;
+    if (cursorSetting?.value) {
+      try {
+        cursor = JSON.parse(String(cursorSetting.value));
+      } catch {
+        cursor = null;
+      }
+    }
+
+    const saveMovementRows = async (items: any[]) => {
+      if (items.length === 0) return;
+      await db.transaction('rw', db.inventoryMovements, db.syncOperations, async () => {
+        const movementKeys = items.map((movement: any) => movement.movementKey);
+        const localMatches = await db.inventoryMovements
+          .where('movementKey')
+          .anyOf(movementKeys)
+          .toArray();
+        const serverIds = new Set(items.map((movement: any) => movement.id));
+        const staleLocalIds = localMatches
+          .filter((movement) => !serverIds.has(movement.id))
+          .map((movement) => movement.id);
+        if (staleLocalIds.length > 0) {
+          await db.inventoryMovements.bulkDelete(staleLocalIds);
+        }
+        await db.inventoryMovements.bulkPut(
+          items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+        );
+        for (const movement of items) {
+          // A historical backfill may have a legacy operationId, while a local
+          // pending row for the same immutable source key carries the real one.
+          const localOperationIds = localMatches
+            .filter((local) => local.movementKey === movement.movementKey)
+            .map((local) => local.operationId);
+          const operationIds = [...new Set([movement.operationId, ...localOperationIds].filter(Boolean))];
+          for (const operationId of operationIds) {
+            const operation = await db.syncOperations.get(operationId);
+            if (operation && operation.status !== 'synced') {
+              await db.syncOperations.update(operation.id, {
+                status: 'synced',
+                lastError: undefined,
+                nextRetryAt: undefined,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      });
+    };
+
+    // Reconcile pending rows by immutable source key first. This also handles
+    // a movement that was backfilled before a device's cursor was established.
+    const pendingRows = await db.inventoryMovements
+      .where('syncStatus')
+      .anyOf(['pending', 'error', 'conflict'])
+      .toArray();
+    const pendingKeys = [...new Set(pendingRows.map((movement) => movement.movementKey))];
+    for (let index = 0; index < pendingKeys.length; index += 50) {
+      let response: any;
+      try {
+        response = await apiService.getInventoryMovements({
+          movementKeys: pendingKeys.slice(index, index + 50).join(','),
+          limit: 500,
+        });
+      } catch (error: any) {
+        if (error?.response?.status === 404) return;
+        throw error;
+      }
+      if (!response || !Array.isArray(response.items)) {
+        throw new Error('Invalid inventory movement reconciliation response');
+      }
+      await saveMovementRows(response.items);
+    }
+
+    for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+      let response: any;
+      try {
+        response = await apiService.getInventoryMovements({
+          afterCreatedAt: cursor?.createdAt,
+          afterId: cursor?.id,
+          limit: 500,
+        });
+      } catch (error: any) {
+        // Allow a newer terminal to connect to an older server during staged LAN upgrades.
+        if (error?.response?.status === 404) return;
+        throw error;
+      }
+      if (!response || !Array.isArray(response.items)) {
+        throw new Error('Invalid inventory movement page response');
+      }
+
+      await saveMovementRows(response.items);
+      if (response.nextCursor?.createdAt && response.nextCursor?.id) {
+        const setting = {
+          ...(cursorSetting || {}),
+          key: INVENTORY_MOVEMENT_CURSOR_KEY,
+          value: JSON.stringify(response.nextCursor),
+          syncStatus: 'synced' as const,
+          createdAt: cursorSetting?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        if (cursorSetting?.id !== undefined) {
+          await db.settings.put({ ...setting, id: cursorSetting.id });
+          cursorSetting = { ...setting, id: cursorSetting.id };
+        } else {
+          const id = await db.settings.add(setting);
+          cursorSetting = { ...setting, id };
+        }
+      }
+
+      if (!response.hasMore || !response.nextCursor) break;
+      cursor = response.nextCursor;
+    }
   },
 
   async pushAll() {
@@ -342,6 +470,9 @@ export const syncService = {
       // failed entity writes from pushAll and must remain retryable.
       if (pendingOpsCount === 0) {
         for (const table of db.tables) {
+          // The movement ledger is reconciled by its cursor endpoint. Keep local
+          // movements pending until the matching server movement is actually pulled.
+          if (table.name === 'inventoryMovements') continue;
           if (!table.schema.indexes.some((index: any) => index.name === 'syncStatus')) continue;
           await table.where('syncStatus').equals('pending').modify({ syncStatus: 'synced' });
         }
@@ -362,7 +493,7 @@ export const syncService = {
         { table: db.suppliers, api: () => apiService.getSuppliers() },
         { table: db.supplierPayments, api: () => apiService.getSupplierPayments(), authoritativeReplaceSynced: true },
         { table: db.employees, api: () => apiService.getEmployees(), preserveLocalAuth: true },
-        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl'] },
+        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl', INVENTORY_MOVEMENT_CURSOR_KEY] },
         { table: db.branches, api: () => apiService.getBranches() },
         { table: db.offers, api: () => apiService.getOffers() },
         { table: db.shifts, api: () => apiService.getShifts() },

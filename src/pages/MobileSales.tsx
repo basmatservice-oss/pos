@@ -167,6 +167,10 @@ const MobileSales: React.FC = () => {
   }, [isScannerOpen, products, scannerMode, lang]);
 
   const addToCart = (product: Product, unit: 'piece' | 'box' = 'piece') => {
+    if (product.isActive === 0) {
+      toast.error('هذا الصنف موقوف ولا يمكن بيعه');
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id && item.unit === unit);
       if (existing) {
@@ -396,8 +400,9 @@ const MobileSales: React.FC = () => {
 
   const filteredProducts = products.filter(
     (p) =>
-      (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.barcode || '').includes(searchTerm)
+      p.isActive !== 0 &&
+      ((p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.barcode || '').includes(searchTerm))
   );
 
   const renderSales = () => (
