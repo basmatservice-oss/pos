@@ -105,7 +105,11 @@ jobs:
           mkdir -p artifacts
           cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/SmartPOS-Android-1.apk
           cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/SmartPOS-Android-2.apk
-          sha256sum artifacts/*.apk
+          APK1_SHA=$(sha256sum artifacts/SmartPOS-Android-1.apk | cut -d ' ' -f 1)
+          APK2_SHA=$(sha256sum artifacts/SmartPOS-Android-2.apk | cut -d ' ' -f 1)
+          echo "Android APK 1 SHA256: $APK1_SHA"
+          echo "Android APK 2 SHA256: $APK2_SHA"
+          test "$APK1_SHA" = "$APK2_SHA"
 
       - name: Upload Android APKs
         uses: actions/upload-artifact@v4
