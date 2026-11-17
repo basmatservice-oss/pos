@@ -146,14 +146,15 @@ class PosLocalDatabasePlugin : Plugin() {
         try {
             val rows = JSArray()
             helper.readableDatabase.query(
-                "pos_records", arrayOf("json", "sync_state", "updated_at"),
-                "entity = ?", arrayOf(entity), null, null, "updated_at ASC"
+                "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
             ).use { cursor ->
                 while (cursor.moveToNext()) {
                     val item = JSObject()
-                    item.put("record", JSONObject(cursor.getString(0)))
-                    item.put("syncState", cursor.getString(1))
-                    item.put("updatedAt", cursor.getLong(2))
+                    item.put("recordId", cursor.getString(0))
+                    item.put("record", JSONObject(cursor.getString(1)))
+                    item.put("syncState", cursor.getString(2))
+                    item.put("updatedAt", cursor.getLong(3))
                     rows.put(item)
                 }
             }
