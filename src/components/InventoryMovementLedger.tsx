@@ -132,6 +132,40 @@ export default function InventoryMovementLedger({ currency }: Props) {
     () => [...new Set(movements.map((movement) => movement.sourceType))].sort(),
     [movements]
   );
+  const exportCsv = () => {
+    const textCell = (value: unknown) => {
+      const raw = String(value ?? '');
+      const safe = /^[=+@\\-\\t\\r]/.test(raw) ? `'${raw}` : raw;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+    const rows = [
+      ['التاريخ', 'الصنف', 'نوع الحركة', 'المصدر', 'معرف المصدر', 'الفرع', 'الكمية بوحدة الأساس', 'رمز وحدة الأساس', 'تكلفة الوحدة', 'قيمة التكلفة', 'حالة المزامنة'],
+      ...filtered.map((movement) => [
+        movement.createdAt,
+        productMap.get(movement.productId)?.name || `#${movement.productId}`,
+        MOVEMENT_LABELS[movement.movementType] || movement.movementType,
+        movement.sourceType,
+        movement.sourceId,
+        branches.find((row) => row.id === movement.branchId)?.name || movement.branchId || '',
+        Number(movement.quantityDeltaBase || 0),
+        movement.baseUnitCode || '',
+        Number(movement.unitCost || 0),
+        Number(movement.totalCost || 0),
+        movement.syncStatus,
+      ]),
+    ];
+    const csv = '\uFEFF' + rows.map((row) => row.map((value, index) =>
+      typeof value === 'number' ? String(value) : textCell(value)
+    ).join(',')).join('\\r\\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `inventory-movements-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return movements.filter((movement) => {
@@ -161,6 +195,14 @@ export default function InventoryMovementLedger({ currency }: Props) {
             <h3 className="font-bold text-gray-900">سجل حركة المخزون</h3>
             <p className="text-xs text-gray-500 mt-1">أحدث الحركات المتاحة محلياً ومن الخادم</p>
           </div>
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          >
+            تصدير CSV
+          </button>
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
