@@ -16,6 +16,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
   purchase_return: 'مرتجع مشتريات',
   stocktake_increase: 'زيادة جرد',
   stocktake_decrease: 'نقص جرد',
+  legacy_batch_adjustment: 'تسوية دفعة قديمة',
   adjustment: 'تسوية مخزون',
 };
 
