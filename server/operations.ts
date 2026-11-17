@@ -705,6 +705,8 @@ function handleReturn(
       })
       .where(eq(orderItems.id, origItem.id))
       .run();
+    origItem.returnedQuantity = alreadyReturned + qtyToReturn;
+    origItem.batchAllocations = JSON.stringify(restored.remainingAllocations);
 
     const retItem = tx
       .insert(returnItems)
