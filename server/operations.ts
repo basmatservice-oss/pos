@@ -2230,6 +2230,8 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       // Stock is changed only by stock movements/stocktaking, never by a stale
       // product form or a background entity sync.
       delete productData.stockQuantity;
+      delete productData.baseUnitCode;
+      delete productData.quantityPrecision;
       const existingBatch = tx.select({ id: inventoryBatches.id })
         .from(inventoryBatches).where(eq(inventoryBatches.productId, existingProduct.id)).limit(1).get();
       if (existingBatch) delete productData.costPrice;
