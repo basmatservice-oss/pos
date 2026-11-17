@@ -955,8 +955,12 @@ export default function Inventory() {
                       product.stockQuantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 
                       'bg-rose-50 text-rose-700 border-rose-200'
                     }`}>
-                      {product.stockQuantity} {product.unit === 'box' ? 'صندوق' : 'حبة'}
-                      {product.unit === 'box' && ` (${product.conversionFactor} حبة)`}
+                      {product.stockQuantity} {product.baseUnitCode
+                        ? (unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.symbol ||
+                          unitDefinitions.find((unit) => unit.code === product.baseUnitCode)?.name ||
+                          product.baseUnitCode)
+                        : (product.unit === 'box' ? 'صندوق' : 'حبة')}
+                      {!product.baseUnitCode && product.unit === 'box' && ` (${product.conversionFactor} حبة)`}
                     </span>
                   </td>
                   {storeSettings.businessType === 'pharmacy' && (
