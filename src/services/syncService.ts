@@ -201,8 +201,6 @@ export const syncService = {
       'offers',
       'settings',
       'auditLogs',
-      'stocktakingSessions',
-      'stocktakingEntries',
     ];
 
     for (const table of tables) {
