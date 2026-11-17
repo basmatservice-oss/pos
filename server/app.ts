@@ -1167,6 +1167,11 @@ export function createPosApp() {
       if (!/^[a-z][a-z0-9_-]{0,19}$/.test(code) || !name || !allowedDimensions.has(dimension) || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 6) {
         return res.status(400).json({ error: 'رمز الوحدة والاسم والبُعد ودقة الكمية غير صالحة' });
       }
+      const [existingDefinition] = await db.select().from(unitDefinitions).where(eq(unitDefinitions.code, code));
+      if (existingDefinition && existingDefinition.dimension !== dimension) {
+        const linkedUnits = await db.select().from(productUnits).where(eq(productUnits.unitCode, code));
+        if (linkedUnits.length > 0) return res.status(409).json({ error: 'لا يمكن تغيير بُعد وحدة مستخدمة في أصناف؛ أنشئ رمز وحدة جديداً' });
+      }
       const now = new Date().toISOString();
       const [saved] = await db.insert(unitDefinitions).values({
         code, name, symbol, dimension, decimalPlaces, isFractional: decimalPlaces > 0 ? 1 : 0,
