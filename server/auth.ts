@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
 import { eq } from 'drizzle-orm';
 import { db } from '../drizzle/db.js';
-import { settings } from '../drizzle/schema.js';
+import { settings, employees } from '../drizzle/schema.js';
 
 export interface AuthPayload {
   userId: number;
@@ -65,7 +65,7 @@ function base64UrlDecode(input: string): string {
 
 export async function signToken(
   user: Omit<AuthPayload, 'iat' | 'exp'>,
-  ttlSeconds = 60 * 60 * 24 * 30
+  ttlSeconds = 60 * 60 * 24 * 14
 ): Promise<string> {
   const secret = await getAuthSecret();
   const nowSec = Math.floor(Date.now() / 1000);
@@ -185,6 +185,20 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   const payload = await verifyToken(token);
   if (!payload) {
     return res.status(401).json({ error: 'Invalid or expired session token' });
+  }
+
+  // Always use the CURRENT role/permissions/status from the database, not the values
+  // frozen inside the token, so disabling a user or changing permissions applies at once.
+  try {
+    const [emp] = await db.select().from(employees).where(eq(employees.id, payload.userId));
+    if (!emp || (emp.status && emp.status !== 'active')) {
+      return res.status(401).json({ error: 'Account disabled or removed' });
+    }
+    payload.role = emp.role as AuthPayload['role'];
+    payload.branchId = emp.branchId;
+    payload.permissions = parsePermissions(emp.permissions);
+  } catch {
+    return res.status(500).json({ error: 'Failed to verify session' });
   }
 
   req.authUser = payload;

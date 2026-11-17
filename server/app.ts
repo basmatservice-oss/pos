@@ -152,7 +152,7 @@ export async function seedDefaultUsersAndAccounts() {
       name: 'المدير العام',
       username: 'admin',
       password: hashSecret('123456'),
-      pinCode: hashSecret('1234'),
+      pinCode: null,
       mustChangePassword: 1,
       role: 'admin',
       phone: '0000000000',

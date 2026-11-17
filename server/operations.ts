@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import {
   products,
   categories,
@@ -34,6 +34,8 @@ import {
   serviceRecipes,
   exchangeRateHistory,
   fiscalPeriods,
+  journalEntries,
+  transactions,
 } from '../drizzle/schema.js';
 import {
   postJournalEntry,
@@ -341,6 +343,25 @@ function handleSale(
 
   const createdAt = order.createdAt ? new Date(order.createdAt).toISOString() : ctx.now;
   assertOpenFiscalPeriod(tx, createdAt, payload, ctx.userRole);
+
+  // Basic integrity checks on client-supplied totals
+  {
+    const n = roundMoney(Number(order.netAmount || 0));
+    const t = roundMoney(Number(order.totalAmount || 0));
+    const x = roundMoney(Number(order.taxAmount || 0));
+    if (n < 0 || t < 0 || x < 0) {
+      throw new OperationError('قيم الفاتورة لا يمكن أن تكون سالبة', 400);
+    }
+    if (n > roundMoney(t + x) + 0.05) {
+      throw new OperationError('صافي الفاتورة أكبر من إجماليها مع الضريبة', 400);
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new OperationError('الفاتورة لا تحتوي على أصناف', 400);
+    }
+    if (String(order.paymentMethod || 'cash') === 'credit' && !order.customerId) {
+      throw new OperationError('البيع الآجل يتطلب تحديد العميل', 400);
+    }
+  }
 
   const { allowNegative } = getStockPolicy(tx, payload, ctx.userRole);
   const valuationMethod = getValuationMethod(tx);
@@ -702,13 +723,18 @@ function handleReturn(
 
   const returnId = id || crypto.randomUUID();
   const retNum = returnNumber || `RET-${Date.now()}`;
-  const effectiveRefundMethod =
+  let effectiveRefundMethod =
     refundMethod ||
     (origOrder.paymentMethod === 'credit'
       ? 'credit_adjustment'
       : origOrder.paymentMethod === 'card'
       ? 'card'
       : 'cash');
+
+  // Never pay cash back for a sale that was not paid in cash/card (credit sale)
+  if (origOrder.paymentMethod === 'credit') {
+    effectiveRefundMethod = 'credit_adjustment';
+  }
 
   let totalSub = 0;
   let totalDiscount = 0;
@@ -1242,6 +1268,9 @@ function handlePurchaseCreate(
     extraCostsPaymentMethod === 'supplier' ? roundMoney(goodsTotal + extraLandedCost) : goodsTotal;
   const remaining = roundMoney(invoicePayable - paidAmount);
   const paymentStatus = remaining <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+  if (remaining > 0.005 && !purchase.supplierId) {
+    throw new OperationError('الشراء الآجل أو الجزئي يتطلب تحديد المورد', 400);
+  }
 
   const savedPurchase = tx
     .insert(purchases)
@@ -1532,7 +1561,21 @@ function handlePurchaseDelete(
   const extraLandedCost = roundMoney(
     Number(existing.shippingCost || 0) + Number(existing.customsCost || 0) + Number(existing.otherCosts || 0)
   );
-  const oldRemaining = roundMoney(Number(existing.totalAmount || 0) - Number(existing.paidAmount || 0));
+  // Outstanding supplier balance taken from the ledger (account 2100), so supplier-financed
+  // landed costs are reversed correctly too.
+  let ledgerPayable = 0;
+  const postedEntries = tx
+    .select()
+    .from(journalEntries)
+    .where(and(eq(journalEntries.referenceId, purchaseId), eq(journalEntries.status, 'posted')))
+    .all();
+  for (const je of postedEntries) {
+    const lines = tx.select().from(transactions).where(eq(transactions.journalEntryId, je.id)).all();
+    for (const l of lines) {
+      if (l.accountId === '2100') ledgerPayable += Number(l.credit || 0) - Number(l.debit || 0);
+    }
+  }
+  const oldRemaining = roundMoney(ledgerPayable);
   if (existing.supplierId && oldRemaining > 0) {
     tx.update(suppliers)
       .set({
