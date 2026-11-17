@@ -840,7 +840,8 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
             );
         if (reqItem.unitCode && !batch) throw new Error('لا يمكن إرجاع وحدة شراء دون العثور على دفعتها الأصلية');
         const unitCode = batch?.unitCode || null;
-        if (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode)) {
+        if ((reqItem.batchId && !batch) ||
+            (reqItem.unitCode && (!batch || batch.unitCode !== reqItem.unitCode))) {
           throw new Error('وحدة مرتجع المشتريات لا تطابق دفعتها الأصلية');
         }
         if (unitCode) {
