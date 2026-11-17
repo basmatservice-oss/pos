@@ -1,4 +1,4 @@
-name: Unit tests
+name: Unit tests and frontend validation
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - main
 
 jobs:
-  numeric-format-tests:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -19,5 +19,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install dependencies
+        run: npm install --ignore-scripts
       - name: Run unit tests
-        run: node --test tests/numberFormat.test.js
+        run: npm run test:unit
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
