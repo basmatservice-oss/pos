@@ -611,7 +611,9 @@ function handleReturn(
 
   for (const reqItem of items) {
     const qtyToReturn = Number(reqItem.quantity || 0);
-    if (qtyToReturn <= 0) continue;
+    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
+      throw new OperationError('كمية المرتجع يجب أن تكون رقماً موجباً', 400);
+    }
 
     const origItem = reqItem.orderItemId
       ? origItems.find((oi: any) => oi.id === Number(reqItem.orderItemId))
@@ -622,6 +624,19 @@ function handleReturn(
 
     if (!origItem) {
       throw new OperationError(`Item ${reqItem.productName || reqItem.productId} not found in original order`, 400);
+    }
+
+    if (origItem.unitCode) {
+      const unitDefinition = tx.select().from(unitDefinitions)
+        .where(eq(unitDefinitions.code, origItem.unitCode)).get();
+      if (!unitDefinition || !unitDefinition.isActive) {
+        throw new OperationError('تعريف وحدة المرتجع الأصلية غير متاح', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
+        throw new OperationError('كمية المرتجع لا تتوافق مع دقة وحدة البيع الأصلية', 400);
+      }
     }
 
     const alreadyReturned = Number(origItem.returnedQuantity || 0);
@@ -1335,7 +1350,9 @@ function handlePurchaseReturn(
 
   for (const reqItem of items) {
     const qtyToReturn = Number(reqItem.quantity || 0);
-    if (qtyToReturn <= 0) continue;
+    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) {
+      throw new OperationError('كمية مرتجع المشتريات يجب أن تكون رقماً موجباً', 400);
+    }
     const prodId = Number(reqItem.productId);
 
     const matchingBatch = reqItem.batchId
@@ -1346,6 +1363,19 @@ function handlePurchaseReturn(
         ) || purchaseBatches.find((b: any) => b.productId === prodId);
     if (reqItem.unitCode && !matchingBatch) {
       throw new OperationError('لا يمكن إرجاع وحدة شراء مخصصة دون العثور على دفعتها الأصلية', 409);
+    }
+    const unitCode = matchingBatch?.unitCode || null;
+    if (unitCode) {
+      const unitDefinition = tx.select().from(unitDefinitions)
+        .where(eq(unitDefinitions.code, unitCode)).get();
+      if (!unitDefinition || !unitDefinition.isActive) {
+        throw new OperationError('تعريف وحدة مرتجع المشتريات غير متاح', 409);
+      }
+      const precision = Math.max(0, Math.min(6, Number(unitDefinition.decimalPlaces || 0)));
+      const scale = 10 ** precision;
+      if (Math.abs(qtyToReturn * scale - Math.round(qtyToReturn * scale)) > 1e-7) {
+        throw new OperationError('كمية مرتجع المشتريات لا تتوافق مع دقة وحدة الشراء الأصلية', 400);
+      }
     }
     const factor = Number(matchingBatch?.conversionToBase || 1);
     const baseQty = qtyToReturn * factor;
