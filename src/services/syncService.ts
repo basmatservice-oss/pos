@@ -2,6 +2,8 @@ import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 
+const INVENTORY_MOVEMENT_CURSOR_KEY = '__local_inventory_movement_cursor__';
+
 export const syncService = {
   cachedRole: null as string | null,
 
@@ -52,6 +54,7 @@ export const syncService = {
         'stocktakingSessions',
         'stocktakingEntries',
         'inventoryBatches',
+        'inventoryMovements',
       ];
       let pendingRecords = 0;
       for (const table of tables) {
@@ -89,6 +92,7 @@ export const syncService = {
         await this.pushAll();
       }
       await this.pullAll();
+      await this.pullInventoryMovements();
       await this.pullCurrencyLedger();
       await this.pullUnitCatalog();
 
@@ -189,6 +193,57 @@ export const syncService = {
         await db.productUnits.put({ ...unit, syncStatus: 'synced' });
       }
     });
+  },
+
+  // Inventory movements are append-only and paged by a stable (createdAt, id) cursor.
+  // This avoids pulling the full ledger on every sync while preserving every historical row.
+  async pullInventoryMovements() {
+    if (!getAuthToken()) return;
+    const cursorSetting = await db.settings.where('key').equals(INVENTORY_MOVEMENT_CURSOR_KEY).first();
+    let cursor: { createdAt: string; id: string } | null = null;
+    if (cursorSetting?.value) {
+      try {
+        cursor = JSON.parse(String(cursorSetting.value));
+      } catch {
+        cursor = null;
+      }
+    }
+
+    for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+      const response = await apiService.getInventoryMovements({
+        afterCreatedAt: cursor?.createdAt,
+        afterId: cursor?.id,
+        limit: 500,
+      });
+      if (!response || !Array.isArray(response.items)) {
+        throw new Error('Invalid inventory movement page response');
+      }
+
+      await db.transaction('rw', db.inventoryMovements, db.settings, async () => {
+        if (response.items.length > 0) {
+          await db.inventoryMovements.bulkPut(
+            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+          );
+        }
+        if (response.nextCursor?.createdAt && response.nextCursor?.id) {
+          const setting = {
+            ...(cursorSetting || {}),
+            key: INVENTORY_MOVEMENT_CURSOR_KEY,
+            value: JSON.stringify(response.nextCursor),
+            syncStatus: 'synced' as const,
+            updatedAt: new Date().toISOString(),
+          };
+          if (cursorSetting?.id !== undefined) {
+            await db.settings.put({ ...setting, id: cursorSetting.id });
+          } else {
+            await db.settings.add(setting);
+          }
+        }
+      });
+
+      if (!response.hasMore || !response.nextCursor) break;
+      cursor = response.nextCursor;
+    }
   },
 
   async pushAll() {
@@ -362,7 +417,7 @@ export const syncService = {
         { table: db.suppliers, api: () => apiService.getSuppliers() },
         { table: db.supplierPayments, api: () => apiService.getSupplierPayments(), authoritativeReplaceSynced: true },
         { table: db.employees, api: () => apiService.getEmployees(), preserveLocalAuth: true },
-        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl'] },
+        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl', INVENTORY_MOVEMENT_CURSOR_KEY] },
         { table: db.branches, api: () => apiService.getBranches() },
         { table: db.offers, api: () => apiService.getOffers() },
         { table: db.shifts, api: () => apiService.getShifts() },
