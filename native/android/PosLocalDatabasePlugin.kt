@@ -438,7 +438,7 @@ class PosLocalDatabasePlugin : Plugin() {
                 val expected = JSONTokener(valueJson).nextValue()
                 database.query(
                     "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
-                    "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC" + if (requestedLimit > 0) " LIMIT $requestedLimit" else ""
+                    "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
                         val record = JSONObject(cursor.getString(1))
@@ -455,6 +455,7 @@ class PosLocalDatabasePlugin : Plugin() {
                                     .put("syncState", cursor.getString(2))
                                     .put("updatedAt", cursor.getLong(3))
                             )
+                            if (requestedLimit > 0 && rows.length() >= requestedLimit) break
                         }
                     }
                 }
