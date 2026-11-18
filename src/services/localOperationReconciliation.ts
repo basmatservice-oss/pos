@@ -77,16 +77,19 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const orderId = String(payload?.originalOrderId || '');
     if (returnId) { await db.returns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.returnItems, (row) => String(row.returnId) === returnId); }
     if (orderId && canMark('orders', orderId)) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
+    if (orderId) { const originalOrder = await db.orders.get(orderId); if (originalOrder?.customerId && canMark('customers', originalOrder.customerId)) await db.customers.update(Number(originalOrder.customerId), { syncStatus: 'synced' }); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
   } else if (type === 'order_void') {
     const orderId = String(payload?.orderId || payload?.id || '');
     if (orderId && canMark('orders', orderId)) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
+    if (orderId) { const originalOrder = await db.orders.get(orderId); if (originalOrder?.customerId && canMark('customers', originalOrder.customerId)) await db.customers.update(Number(originalOrder.customerId), { syncStatus: 'synced' }); }
   } else if (type === 'purchase' || type === 'purchase_update') {
     const purchaseId = String(payload?.purchase?.id || '');
     if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
     for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await db.products.update(Number(productId), { syncStatus: 'synced' });
     if (payload?.purchase?.supplierId && canMark('suppliers', payload.purchase.supplierId)) await db.suppliers.update(Number(payload.purchase.supplierId), { syncStatus: 'synced' });
+    if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await db.suppliers.update(Number(payload._localAffectedSupplierId), { syncStatus: 'synced' });
   } else if (type === 'purchase_delete') {
     for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await db.products.update(Number(productId), { syncStatus: 'synced' });
     if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await db.suppliers.update(Number(payload._localAffectedSupplierId), { syncStatus: 'synced' });
@@ -95,6 +98,10 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const purchaseId = String(payload?.originalPurchaseId || '');
     if (returnId) { await db.purchaseReturns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseReturnItems, (row) => String(row.purchaseReturnId) === returnId); }
     if (purchaseId && canMark('purchases', purchaseId)) await db.purchases.update(purchaseId, { syncStatus: 'synced' });
+    const originalPurchase = purchaseId ? await db.purchases.get(purchaseId) : undefined;
+    if (originalPurchase?.supplierId && canMark('suppliers', originalPurchase.supplierId)) await db.suppliers.update(Number(originalPurchase.supplierId), { syncStatus: 'synced' });
+    const returnedProductIds = new Set((payload?.items || []).map((item: any) => String(item.productId)));
+    if (purchaseId) await markRowsSynced(db.inventoryBatches, (batch) => String(batch.purchaseId) === purchaseId && returnedProductIds.has(String(batch.productId)));
     for (const item of payload?.items || []) {
       if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
       if (item.batchId) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
