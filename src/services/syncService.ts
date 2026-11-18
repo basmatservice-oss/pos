@@ -15,7 +15,8 @@ export const syncService = {
   cachedRole: null as string | null,
 
   async getDeviceRole() {
-    if (this.cachedRole) return this.cachedRole;
+    // Read the persisted role each time: onboarding can switch a device to
+    // standalone after the sync service has already been initialized.
     const setting = await db.settings.where('key').equals('deviceRole').first();
     this.cachedRole = setting ? setting.value : 'server';
     return this.cachedRole;
