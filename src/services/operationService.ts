@@ -1061,8 +1061,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     if (await nativePosRepository.get<any>('purchaseReturns', id)) return;
     const origPurchase = await nativePosRepository.get<any>('purchases', String(originalPurchaseId));
     if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
-    const [allBatches, products, supplier, existingMovements, accounts] = await Promise.all([
+    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
+      nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getAll<any>('products'),
       origPurchase.supplierId ? nativePosRepository.get<any>('suppliers', origPurchase.supplierId) : Promise.resolve(null),
       nativePosRepository.getAll<any>('inventoryMovements'),
@@ -1070,7 +1071,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     ]);
     const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
-    const batchMap = new Map<string, any>(allBatches.map((b: any) => [String(b.id), b]));
+    const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
     const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
     const changes: any[] = [];
     const itemDocs: any[] = [];
@@ -1096,7 +1097,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         throw new Error('المخزون المتاح لا يكفي لإرجاع المنتج ' + String(reqItem.productName || productId));
       }
       if (product) {
-        const activeBatches = [...batchMap.values()].filter((entry: any) =>
+        const effectiveBatches = new Map<string, any>(allBatches.map((entry: any) => [String(entry.id), entry]));
+        for (const [batchId, updatedBatch] of batchMap) effectiveBatches.set(batchId, updatedBatch);
+        const activeBatches = [...effectiveBatches.values()].filter((entry: any) =>
           Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
         const activeQty = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0), 0);
         const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
@@ -1214,8 +1217,14 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       };
       changes.push({ action: 'put', entity: 'auditLogs', record: audit, syncState: syncStatus });
     }
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
+    const uniqueChanges = new Map<string, any>();
+    for (const change of changes) {
+      const keyField = change.entity === 'accounts' ? 'code' : 'id';
+      uniqueChanges.set(String(change.entity) + ':' + String(change.record[keyField]), change);
+    }
+    const finalChanges = [...uniqueChanges.values()];
+    const applied = await nativePosRepository.applyChanges(finalChanges);
+    if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
     await db.transaction('rw', [
       db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products,
       db.suppliers, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
@@ -1223,7 +1232,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       await db.purchaseReturns.put(retDoc);
       if (itemDocs.length) await db.purchaseReturnItems.bulkPut(itemDocs);
       await db.purchases.put(updatedPurchase);
-      for (const change of changes) {
+      for (const change of finalChanges) {
         if (change.entity === 'inventoryBatches') await db.inventoryBatches.put(change.record);
         else if (change.entity === 'products') await db.products.put(change.record);
         else if (change.entity === 'inventoryMovements') await db.inventoryMovements.put(change.record);
