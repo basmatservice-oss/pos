@@ -45,6 +45,8 @@ function money(value: number): number {
 }
 
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
+  const deviceRole = await db.settings.where('key').equals('deviceRole').first();
+  const journalSyncStatus = deviceRole?.value === 'standalone' ? 'synced' : 'pending';
   const lines = input.lines
     .map((line) => ({ ...line, debit: money(line.debit), credit: money(line.credit) }))
     .filter((line) => line.debit > 0 || line.credit > 0);
@@ -92,7 +94,7 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     status: 'posted',
     createdBy: input.createdBy || 'System',
     branchId: input.branchId,
-    syncStatus: 'pending',
+    syncStatus: journalSyncStatus,
     createdAt: now,
   });
 
@@ -113,7 +115,7 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
       orderId: line.orderId,
       purchaseId: line.purchaseId,
       returnId: line.returnId,
-      syncStatus: 'pending',
+      syncStatus: journalSyncStatus,
       createdAt: now,
     });
 
