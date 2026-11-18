@@ -178,7 +178,7 @@ export const syncService = {
             lastError: undefined,
             updatedAt: new Date().toISOString(),
           });
-          await reconcileLocalOperationAfterAck(op.type, op.payload, op.id);
+          await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
           if (isNativeAndroid() && nativeIds.has(op.id)) {
             await acknowledgeNativePosOperation(op.id).catch((error) =>
               console.error('Could not acknowledge Android SQLite operation:', error)
