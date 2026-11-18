@@ -305,8 +305,11 @@ export const syncService = {
       return;
     }
     if (serverRes && typeof serverRes === 'object' && serverRes.id !== undefined) {
-      if (localRecord.id !== undefined && localRecord.id !== serverRes.id) {
-        await table.delete(localRecord.id).catch(() => {});
+      if (localRecord.id !== undefined && String(localRecord.id) !== String(serverRes.id)) {
+        // REST entity creation uses a separate path from entity_upsert queue
+        // operations, so it must perform the same dependent-ID remapping.
+        await remapPendingEntityReferences(tableName, localRecord.id, serverRes.id);
+        await table.delete(localRecord.id);
       }
       await table.put({ ...localRecord, ...serverRes, syncStatus: 'synced' });
     } else if (localRecord.id !== undefined) {
