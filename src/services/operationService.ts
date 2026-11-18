@@ -80,6 +80,8 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
       db.accounts, db.journalEntries, db.transactions,
     ],
     async () => {
+      const existingLocalOrder = await db.orders.get(order.id);
+      if (existingLocalOrder) return;
       await db.orders.put({ ...order, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
 
@@ -248,7 +250,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
         const debitLines: any[] = [];
         if (cashAmount > 0) debitLines.push({ accountCode: '1010', debit: cashAmount, credit: 0, orderId: order.id });
         if (cardAmount > 0) debitLines.push({ accountCode: '1020', debit: cardAmount, credit: 0, orderId: order.id });
-        if (paymentMethod === 'credit' && netAmount > 0) debitLines.push({ accountCode: '1100', debit: netAmount, credit: 0, orderId: order.id });
+        if (paymentMethod !== 'mixed' && paymentMethod !== 'cash' && paymentMethod !== 'card' && netAmount > 0) debitLines.push({ accountCode: '1100', debit: netAmount, credit: 0, orderId: order.id });
         const revenueLines = [
           ...debitLines,
           ...(discountAmount > 0 ? [{ accountCode: '4300', debit: discountAmount, credit: 0, orderId: order.id }] : []),
@@ -368,6 +370,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
     'rw',
     [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.serviceRecipes, db.inventoryBatches, db.inventoryMovements, db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions],
     async () => {
+      if (await db.returns.get(id)) return;
       const origOrder = await db.orders.get(originalOrderId);
       if (!origOrder || origOrder.status === 'void') throw new Error('لا يمكن إرجاع فاتورة غير موجودة أو ملغاة');
       const effectiveRefundMethod = refundMethod || (origOrder.paymentMethod === 'credit' ? 'credit_adjustment' : origOrder.paymentMethod === 'card' ? 'card' : 'cash');
@@ -481,7 +484,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
             });
           }
           totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCost);
-        } else if (condition === 'damaged') {
+        } else if (condition === 'damaged' && itemType !== 'service') {
           lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
           totalDamagedCostReversed = roundMoney(totalDamagedCostReversed + lineCost);
           const damagedProduct = await db.products.get(Number(origItem.productId));
