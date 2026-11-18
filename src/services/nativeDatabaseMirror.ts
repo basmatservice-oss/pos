@@ -73,6 +73,8 @@ export function installNativeDatabaseMirrorHooks(): void {
 
 export async function mirrorNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const invalidated = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: 'in_progress' });
+  if (!invalidated.saved) throw new Error('تعذر إبطال علامة لقطة SQLite السابقة');
   const failedEntities: string[] = [];
   for (const entity of MIRRORED_TABLES) {
     try {
@@ -97,7 +99,8 @@ export async function mirrorNativePosDatabase(): Promise<void> {
   if (failedEntities.length > 0) {
     throw new Error('SQLite business snapshot incomplete; failed entities: ' + failedEntities.join(', '));
   }
-  await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' });
+  const completed = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' });
+  if (!completed.saved) throw new Error('تعذر تأكيد اكتمال لقطة SQLite');
 }
 
 async function persistNativePosRecord(entity: string, row: any): Promise<void> {
