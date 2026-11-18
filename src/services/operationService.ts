@@ -532,7 +532,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
       if (origOrder) {
         const updatedItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
-        const fullReturn = updatedItems.every((i) => Number(i.returnedQuantity || 0) >= Number(i.quantity));
+        const fullReturn = updatedItems.every((i) => roundQty(Number(i.returnedQuantity || 0)) >= roundQty(Number(i.quantity || 0)) - 1e-6);
 
         await db.orders.update(originalOrderId, {
           status: fullReturn ? 'returned' : 'partially_returned',
