@@ -94,7 +94,7 @@ export async function listNativePendingPosOperations() {
 export async function updateNativePendingOperationPayload(operationId: string, payload: Record<string, unknown>): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.updatePendingOperationPayload({ operationId, payload });
-  return result.updated;
+  return result.updated === true && result.rows === 1;
 }
 
 export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
