@@ -1254,6 +1254,9 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'entity_upsert' && ['products', 'categories', 'customers', 'suppliers', 'expenses'].includes(String(payload?.table)) && payload?.record && !payload.record.id) {
+    return { ...payload, record: { ...payload.record, id: Date.now() } };
+  }
   if (type === 'payroll' && !payload?.id) {
     return { ...payload, id: Date.now() };
   }
