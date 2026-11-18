@@ -726,11 +726,7 @@ async function applyPurchaseLocally(
         }
         const landedTotal = roundMoney(lineTotal + allocatedExtra);
         const landedCostPerBaseUnit =
-          item.landedCostPerBaseUnit !== undefined
-            ? Number(item.landedCostPerBaseUnit)
-            : baseQty > 0
-            ? Math.round((landedTotal / baseQty) * 10000) / 10000
-            : unitPurchaseCost;
+          baseQty > 0 ? Math.round((landedTotal / baseQty) * 10000) / 10000 : 0;
 
         if (!Array.isArray(_serverItems) || _serverItems.length === 0) {
           await db.purchaseItems.add({
