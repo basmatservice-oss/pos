@@ -394,6 +394,47 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun deleteRecords(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val requestedIds = call.getArray("recordIds")
+        if (entity.isBlank() || requestedIds == null) {
+            call.reject("entity و recordIds مطلوبان للحذف الجماعي")
+            return
+        }
+        try {
+            val ids = LinkedHashSet<String>()
+            for (index in 0 until requestedIds.length()) {
+                val id = requestedIds.optString(index).trim()
+                if (id.isBlank()) throw IllegalArgumentException("recordIds يحتوي على معرف فارغ")
+                ids.add(id)
+            }
+            if (ids.isEmpty()) {
+                call.resolve(JSObject().put("deleted", 0))
+                return
+            }
+
+            val db = helper.writableDatabase
+            var deleted = 0
+            db.beginTransaction()
+            try {
+                ids.toList().chunked(900).forEach { chunk ->
+                    val placeholders = List(chunk.size) { "?" }.joinToString(",")
+                    val args = arrayOf(entity) + chunk.toTypedArray()
+                    deleted += db.delete(
+                        "pos_records", "entity = ? AND record_id IN ($placeholders)", args
+                    )
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("deleted", deleted))
+        } catch (error: Exception) {
+            call.reject("تعذر حذف مجموعة السجلات المحلية بصورة ذرية", error)
+        }
+    }
+
+    @PluginMethod
     fun enqueueOperation(call: PluginCall) {
         val operationId = call.getString("operationId")?.trim().orEmpty()
         val type = call.getString("type")?.trim().orEmpty()
