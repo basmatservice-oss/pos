@@ -58,6 +58,8 @@ const entityReferenceKeys: Record<string, string[]> = {
   customers: ['customerId'],
   suppliers: ['supplierId'],
   categories: ['categoryId'],
+  employees: ['employeeId'],
+  branches: ['branchId'],
 };
 
 function replaceEntityReferences(value: any, keys: Set<string>, oldId: string, newId: string): any {
@@ -89,6 +91,14 @@ const localReferenceStores: Record<string, Record<string, string[]>> = {
     purchases: ['supplierId'], supplierPayments: ['supplierId'], purchaseReturns: ['supplierId'],
   },
   categories: { products: ['categoryId'] },
+  employees: { attendance: ['employeeId'], payroll: ['employeeId'] },
+  branches: {
+    products: ['branchId'], categories: ['branchId'], orders: ['branchId'],
+    returns: ['branchId'], shifts: ['branchId'], shiftMovements: ['branchId'],
+    expenses: ['branchId'], purchases: ['branchId'], purchaseReturns: ['branchId'],
+    employees: ['branchId'], payroll: ['branchId'], offers: ['branchId'],
+    stocktakingSessions: ['branchId'], inventoryMovements: ['branchId'],
+  },
 };
 
 async function remapLocalEntityReferences(tableName: string, oldId: string, newId: string) {
