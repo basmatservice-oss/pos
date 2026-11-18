@@ -224,6 +224,7 @@ export function reverseJournalEntriesByReference(
     .all();
 
   for (const entry of entries) {
+    if (String(entry.description || '').startsWith('قيد عكسي - ')) continue;
     const lines = tx
       .select()
       .from(transactions)
