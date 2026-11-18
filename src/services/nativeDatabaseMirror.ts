@@ -1,5 +1,6 @@
 import { db } from '../db/db';
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
+import { getNativePosRecordId } from '../native/nativePosRepository';
 
 const MIRRORED_TABLES = [
   'products', 'categories', 'orders', 'orderItems', 'returns', 'returnItems', 'accounts', 'shifts',
@@ -19,14 +20,11 @@ function serializeDexieKey(value: unknown): string {
 }
 
 function getRecordId(entity: string, row: any): string {
-  const primaryKey = (db as any)[entity]?.schema?.primKey?.keyPath;
-  const value = Array.isArray(primaryKey)
-    ? primaryKey.map((path: string) => row?.[path])
-    : typeof primaryKey === 'string'
-      ? row?.[primaryKey]
-      : row?.id ?? row?.code ?? row?.key;
-  if (Array.isArray(value) && value.some((part) => part === undefined || part === null)) return '';
-  return serializeDexieKey(value);
+  try {
+    return getNativePosRecordId(entity, row);
+  } catch {
+    return '';
+  }
 }
 
 let nativeMirrorHooksInstalled = false;
