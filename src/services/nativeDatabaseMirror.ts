@@ -19,6 +19,7 @@ function getRecordId(row: any): string {
 let nativeMirrorHooksInstalled = false;
 let nativeMirrorWriteQueue: Promise<void> = Promise.resolve();
 let nativeMirrorWriteFailure: unknown = null;
+let nativeSnapshotNeedsRefresh = false;
 
 function enqueueNativeMirrorWrite(write: () => Promise<void>): Promise<void> {
   const next = nativeMirrorWriteQueue.then(write, write);
@@ -42,7 +43,12 @@ export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
     if (!invalidated.saved) {
       throw new Error('Android SQLite mirror write failed and the business snapshot could not be invalidated: ' + String(error));
     }
+    nativeSnapshotNeedsRefresh = true;
     throw error instanceof Error ? error : new Error(String(error));
+  }
+  if (nativeSnapshotNeedsRefresh) {
+    await mirrorNativePosDatabase();
+    nativeSnapshotNeedsRefresh = false;
   }
 }
 
