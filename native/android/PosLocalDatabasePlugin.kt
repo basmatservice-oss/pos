@@ -11,6 +11,7 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 @CapacitorPlugin(name = "PosLocalDatabase")
 class PosLocalDatabasePlugin : Plugin() {
@@ -410,23 +411,51 @@ class PosLocalDatabasePlugin : Plugin() {
             return
         }
         try {
-            // JSON1 filters inside SQLite, avoiding transfer of the full entity to the WebView.
+            // Prefer SQLite JSON1; Android builds without JSON1 use a native-side
+            // cursor fallback so Android 8 remains functional without WebView scans.
             val path = "\$." + field
             val rows = JSArray()
-            helper.readableDatabase.rawQuery(
-                "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
-                    "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\$') " +
-                    "ORDER BY updated_at ASC, record_id ASC",
-                arrayOf(entity, path, valueJson)
-            ).use { cursor ->
-                while (cursor.moveToNext()) {
-                    rows.put(
-                        JSObject()
-                            .put("recordId", cursor.getString(0))
-                            .put("record", JSONObject(cursor.getString(1)))
-                            .put("syncState", cursor.getString(2))
-                            .put("updatedAt", cursor.getLong(3))
-                    )
+            val database = helper.readableDatabase
+            try {
+                database.rawQuery(
+                    "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
+                        "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\$') " +
+                        "ORDER BY updated_at ASC, record_id ASC",
+                    arrayOf(entity, path, valueJson)
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        rows.put(
+                            JSObject()
+                                .put("recordId", cursor.getString(0))
+                                .put("record", JSONObject(cursor.getString(1)))
+                                .put("syncState", cursor.getString(2))
+                                .put("updatedAt", cursor.getLong(3))
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                val expected = JSONTokener(valueJson).nextValue()
+                database.query(
+                    "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                    "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val record = JSONObject(cursor.getString(1))
+                        val actual = record.opt(field)
+                        val matches = when {
+                            actual is Number && expected is Number -> actual.toDouble() == expected.toDouble()
+                            else -> actual == expected
+                        }
+                        if (matches) {
+                            rows.put(
+                                JSObject()
+                                    .put("recordId", cursor.getString(0))
+                                    .put("record", record)
+                                    .put("syncState", cursor.getString(2))
+                                    .put("updatedAt", cursor.getLong(3))
+                            )
+                        }
+                    }
                 }
             }
             call.resolve(JSObject().put("records", rows))
