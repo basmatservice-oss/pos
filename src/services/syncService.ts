@@ -93,6 +93,7 @@ export const syncService = {
   },
 
   async syncAll() {
+    if (await this.getDeviceRole() === 'standalone') return false;
     const token = getAuthToken();
     if (!token) return false;
 
