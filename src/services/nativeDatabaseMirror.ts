@@ -118,6 +118,11 @@ export async function mirrorNativePosRecord(entity: string, row: any): Promise<v
 }
 export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
+  if (snapshotState.value === 'in_progress') {
+    throw new Error('Android SQLite contains an interrupted business snapshot; refusing to restore partial data');
+  }
+  if (snapshotState.value !== '1') return;
   const failedEntities: string[] = [];
   for (const entity of MIRRORED_TABLES) {
     try {
