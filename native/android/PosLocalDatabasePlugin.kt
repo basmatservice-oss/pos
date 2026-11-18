@@ -63,6 +63,50 @@ class PosLocalDatabasePlugin : Plugin() {
         }
     }
 
+    @PluginMethod
+    fun replaceRecords(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val records = call.getArray("records")
+        if (entity.isBlank() || records == null) {
+            call.reject("entity و records مطلوبان لاستبدال سجلات الكيان")
+            return
+        }
+        val db = helper.writableDatabase
+        try {
+            var savedCount = 0
+            db.beginTransaction()
+            try {
+                db.delete("pos_records", "entity = ?", arrayOf(entity))
+                for (index in 0 until records.length()) {
+                    val item = records.getJSONObject(index)
+                    val recordId = item.optString("recordId").trim()
+                    val record = item.optJSONObject("record")
+                    val syncState = item.optString("syncState", "local")
+                    if (recordId.isBlank() || record == null || syncState !in setOf("local", "pending", "synced", "error")) {
+                        throw IllegalArgumentException("سجل محلي غير صالح ضمن الكيان $entity")
+                    }
+                    val values = ContentValues().apply {
+                        put("entity", entity)
+                        put("record_id", recordId)
+                        put("json", record.toString())
+                        put("updated_at", System.currentTimeMillis())
+                        put("sync_state", syncState)
+                    }
+                    if (db.insertOrThrow("pos_records", null, values) == -1L) {
+                        throw IllegalStateException("تعذر حفظ سجل ضمن الكيان $entity")
+                    }
+                    savedCount += 1
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("replaced", true).put("count", savedCount))
+        } catch (error: Exception) {
+            call.reject("تعذر استبدال سجلات الكيان في SQLite", error)
+        }
+    }
+
     /**
      * Atomically persists a local record and its synchronization operation.
      * This prevents a committed local write from being lost between separate
