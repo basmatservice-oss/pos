@@ -88,14 +88,14 @@ function requireAndroid(): void {
 
 async function readEquals<T extends Record<string, unknown>>(
   entity: NativePosEntity,
-  indexName: string,
+  fieldName: string,
   value: string | number | boolean,
   limit = 0,
 ): Promise<T[]> {
   requireAndroid();
   assertEntity(entity);
-  if (!indexName.trim()) throw new Error('A field name is required');
-  const items = await getNativePosRecordsByField(entity, indexName, value, limit);
+  if (!fieldName.trim()) throw new Error('A field name is required');
+  const items = await getNativePosRecordsByField(entity, fieldName, value, limit);
   return items.map((item) => item.record as T);
 }
 
@@ -140,22 +140,22 @@ function requireAndroid(): void {
 
 async function readEquals<T extends Record<string, unknown>>(
   entity: NativePosEntity,
-  indexName: string,
+  fieldName: string,
   value: string | number | boolean,
   limit = 0,
 ): Promise<T[]> {
   requireAndroid();
   assertEntity(entity);
-  if (!indexName.trim()) throw new Error('A Dexie index name is required');
+  if (!fieldName.trim()) throw new Error('A Dexie index name is required');
   const table = (db as any)[entity];
   const indexes = [table?.schema?.primKey, ...(table?.schema?.indexes ?? [])];
   const index = indexes.find((candidate: any) =>
-    candidate?.name === indexName || candidate?.keyPath === indexName
+    candidate?.name === fieldName || candidate?.keyPath === fieldName
   );
   if (!index || Array.isArray(index.keyPath)) {
-    throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
+    throw new Error(`Unsupported or unknown scalar index ${fieldName} on ${entity}`);
   }
-  const items = await getNativePosRecordsByField(entity, indexName, value, limit);
+  const items = await getNativePosRecordsByField(entity, fieldName, value, limit);
   return items.map((item) => item.record as T);
 }
 
@@ -185,18 +185,18 @@ export const nativePosRepository = {
 
   async whereEquals<T extends Record<string, unknown>>(
     entity: NativePosEntity,
-    indexName: string,
+    fieldName: string,
     value: string | number | boolean,
   ): Promise<T[]> {
-    return readEquals<T>(entity, indexName, value);
+    return readEquals<T>(entity, fieldName, value);
   },
 
   async firstWhereEquals<T extends Record<string, unknown>>(
     entity: NativePosEntity,
-    indexName: string,
+    fieldName: string,
     value: string | number | boolean,
   ): Promise<T | null> {
-    const records = await readEquals<T>(entity, indexName, value, 1);
+    const records = await readEquals<T>(entity, fieldName, value, 1);
     return records[0] ?? null;
   },
 
