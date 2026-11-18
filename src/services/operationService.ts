@@ -1004,7 +1004,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
   await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions], async () => {
-    const paymentId = payload.paymentId || payload.operationId || generateUUID();
+    const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.supplierPayments.get(paymentId)) return;
     const sup = await db.suppliers.get(Number(payload.supplierId));
     if (!sup || payAmount <= 0) throw new Error('بيانات سداد المورد غير صالحة');
@@ -1031,7 +1031,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       id: paymentId,
       supplierId: Number(payload.supplierId),
       supplierName: sup?.name || payload.supplierName,
-      purchaseId: payload.purchaseId,
+      purchaseId: payload.purchaseId ? String(payload.purchaseId) : undefined,
       amount: payAmount,
       paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
       notes: payload.notes,
