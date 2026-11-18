@@ -66,7 +66,7 @@ function replaceEntityReferences(value: any, keys: Set<string>, oldId: string, n
   const updated: any = {};
   for (const [key, child] of Object.entries(value)) {
     if (keys.has(key) && child !== null && child !== undefined && String(child) === oldId) {
-      updated[key] = /^\\d+$/.test(newId) ? Number(newId) : newId;
+      updated[key] = /^\d+$/.test(newId) ? Number(newId) : newId;
     } else {
       updated[key] = replaceEntityReferences(child, keys, oldId, newId);
     }
@@ -86,7 +86,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
     let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
     if (operation.type === 'entity_upsert' && operation.payload?.table === tableName &&
         operation.payload?.record?.id !== undefined && String(operation.payload.record.id) === oldKey) {
-      nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\\d+$/.test(newKey) ? Number(newKey) : newKey } };
+      nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\d+$/.test(newKey) ? Number(newKey) : newKey } };
     }
     if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
       await db.syncOperations.update(operation.id, { payload: nextPayload });
@@ -104,7 +104,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
       let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
       if (operation.type === 'entity_upsert' && operation.payload?.table === tableName &&
           operation.payload?.record?.id !== undefined && String(operation.payload.record.id) === oldKey) {
-        nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\\d+$/.test(newKey) ? Number(newKey) : newKey } };
+        nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\d+$/.test(newKey) ? Number(newKey) : newKey } };
       }
       if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
         await updateNativePendingOperationPayload(operation.operationId, nextPayload);
