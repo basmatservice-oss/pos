@@ -11,12 +11,22 @@ const MIRRORED_TABLES = [
   'productUnits', 'inventoryMovements',
 ] as const;
 
-function getRecordId(row: any): string {
-  const value = row?.id ?? row?.code ?? row?.key;
+function serializeDexieKey(value: unknown): string {
   if (value === undefined || value === null) return '';
-  // Dexie distinguishes numeric and string keys (for example 12 and "12").
-  // Preserve that distinction in SQLite's TEXT primary-key column.
-  return `${typeof value}:${String(value)}`;
+  // JSON preserves the distinction between numeric and string Dexie keys,
+  // and also supports compound keys without collapsing their components.
+  return JSON.stringify(value);
+}
+
+function getRecordId(entity, entity: string, row: any): string {
+  const primaryKey = (db as any)[entity]?.schema?.primKey?.keyPath;
+  const value = Array.isArray(primaryKey)
+    ? primaryKey.map((path: string) => row?.[path])
+    : typeof primaryKey === 'string'
+      ? row?.[primaryKey]
+      : row?.id ?? row?.code ?? row?.key;
+  if (Array.isArray(value) && value.some((part) => part === undefined || part === null)) return '';
+  return serializeDexieKey(value);
 }
 
 let nativeMirrorHooksInstalled = false;
@@ -70,7 +80,7 @@ export function installNativeDatabaseMirrorHooks(): void {
 
     table.hook('creating', function (primKey: any, obj: any, transaction: any) {
       transaction.on('complete', () => {
-        const key = primKey ?? getRecordId(obj);
+        const key = primKey ?? getRecordId(entity, obj);
         if (key === undefined || key === null || key === '') return;
         enqueueNativeMirrorWrite(async () => {
           const row = await table.get(key);
@@ -89,7 +99,7 @@ export function installNativeDatabaseMirrorHooks(): void {
     });
 
     table.hook('deleting', function (primKey: any, obj: any, transaction: any) {
-      const recordId = getRecordId(obj) || String(primKey ?? '');
+      const recordId = serializeDexieKey(primKey) || getRecordId(entity, obj);
       transaction.on('complete', () => {
         if (!recordId || (entity === 'settings' && obj?.key === 'authSecret')) return;
         enqueueNativeMirrorWrite(() => deleteNativePosRecord(entity, recordId))
@@ -111,7 +121,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
       const rows = await table.toArray();
       const businessRows = rows.filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'));
       const records = businessRows.map((row: any) => {
-        const recordId = getRecordId(row);
+        const recordId = getRecordId(entity, row);
         if (!recordId) {
           throw new Error(`A record in ${entity} has no stable primary-key value; refusing to replace the SQLite snapshot`);
         }
@@ -145,7 +155,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
 async function persistNativePosRecord(entity: string, row: any): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   if (entity === 'settings' && row?.key === 'authSecret') return;
-  const recordId = getRecordId(row);
+  const recordId = getRecordId(entity, row);
   if (!recordId) return;
   const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
     ? row.syncStatus : 'local';
@@ -172,7 +182,7 @@ export async function restoreNativePosDatabase(): Promise<void> {
       if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid record collection');
       if (result.records.length === 0) continue;
       const existingRows = await table.toArray();
-      const existingIds = new Set(existingRows.map((row: any) => getRecordId(row)).filter(Boolean));
+      const existingIds = new Set(existingRows.map((row: any) => getRecordId(entity, row)).filter(Boolean));
       const missingRows = result.records
         .filter((item) => item.recordId && !existingIds.has(String(item.recordId)))
         .map((item) => ({
