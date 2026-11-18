@@ -424,10 +424,10 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const condition: 'resalable' | 'damaged' =
           reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
 
-        totalSub += lineSub;
-        totalDiscount += lineDiscount;
-        totalTax += lineTax;
-        totalRefund += lineTotal;
+        totalSub = roundMoney(totalSub + lineSub);
+        totalDiscount = roundMoney(totalDiscount + lineDiscount);
+        totalTax = roundMoney(totalTax + lineTax);
+        totalRefund = roundMoney(totalRefund + lineTotal);
 
         const nextReturned = roundQty(Number(origItem.returnedQuantity || 0) + qty);
         origItem.returnedQuantity = nextReturned;
