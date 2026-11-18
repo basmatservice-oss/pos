@@ -15,6 +15,7 @@ import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalA
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { flushNativeDatabaseMirrorWrites } from './nativeDatabaseMirror';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 let currentDeviceRole: 'server' | 'client' | 'standalone' = 'server';
@@ -31,7 +32,9 @@ export function getDeviceId(): string {
 
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
-    const setting = await db.settings.where('key').equals('deviceRole').first();
+    const setting = isNativeAndroid()
+      ? await nativePosRepository.firstWhereEquals<{ key: string; value: unknown }>('settings', 'key', 'deviceRole')
+      : await db.settings.where('key').equals('deviceRole').first();
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
     return currentDeviceRole;
   } catch {
