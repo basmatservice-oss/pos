@@ -1,9 +1,7 @@
 name: Build Smart POS Android and Windows Packages
 
 on:
-  push:
-    branches:
-      - "packaging/**"
+  # Packaging is intentionally manual until the offline business engine is complete.
   workflow_dispatch:
 
 permissions:
