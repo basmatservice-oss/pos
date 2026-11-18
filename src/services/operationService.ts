@@ -1179,6 +1179,131 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
 async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
+  const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
+
+  if (isNativeAndroid()) {
+    if (await nativePosRepository.get<any>('supplierPayments', paymentId)) return;
+    const supplierId = Number(payload.supplierId);
+    const supplier = await nativePosRepository.get<any>('suppliers', supplierId);
+    if (!supplier || !Number.isFinite(payAmount) || payAmount <= 0) {
+      throw new Error('بيانات سداد المورد غير صالحة');
+    }
+    const purchaseId = payload.purchaseId ? String(payload.purchaseId) : undefined;
+    const purchase = purchaseId ? await nativePosRepository.get<any>('purchases', purchaseId) : null;
+    const paymentMethod = payload.paymentMethod === 'card' ? 'card' : 'cash';
+    const branchId = payload.branchId ?? supplier.branchId;
+    const payment = {
+      id: paymentId, supplierId, supplierName: supplier.name || payload.supplierName,
+      purchaseId, amount: payAmount, paymentMethod, notes: payload.notes,
+      shiftId: payload.shiftId, branchId, createdBy: payload.createdBy,
+      operationId: payload.operationId, syncStatus, createdAt: now,
+    };
+    const updatedSupplier = {
+      ...supplier, balance: roundMoney(Number(supplier.balance || 0) - payAmount),
+      updatedAt: now, syncStatus,
+    };
+    const changes: any[] = [
+      { action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus },
+      { action: 'put', entity: 'supplierPayments', record: payment, syncState: syncStatus },
+    ];
+    let updatedPurchase: any = null;
+    if (purchase) {
+      const paidAmount = roundMoney(Number(purchase.paidAmount || 0) + payAmount);
+      const netPayable = Math.max(0, roundMoney(Number(purchase.totalAmount || 0) - Number(purchase.returnedAmount || 0)));
+      updatedPurchase = {
+        ...purchase, paidAmount,
+        paymentStatus: paidAmount >= netPayable ? 'paid' : 'partial',
+        syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'purchases', record: updatedPurchase, syncState: syncStatus });
+    }
+
+    const accountingRecords: any[] = [];
+    if (shouldPostLocalAccounting(syncStatus)) {
+      const cashCode = paymentMethod === 'card' ? '1020' : '1010';
+      const definitions = [
+        { code: '2100', name: 'ذمم الموردين', type: 'liability' },
+        { code: cashCode, name: paymentMethod === 'card' ? 'البنك / الشبكة' : 'الصندوق', type: 'asset' },
+      ];
+      const accounts = new Map<string, any>();
+      for (const definition of definitions) {
+        const current = await nativePosRepository.get<any>('accounts', definition.code);
+        accounts.set(definition.code, current || {
+          ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+        });
+      }
+      const entryId = `local-je:payment:${paymentId}:supplier-payment-${String(payload.operationId || paymentId)}`;
+      if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+        const entry = {
+          id: entryId, entryNumber: `LOCAL-supplier-payment-${paymentId.slice(0, 8)}`,
+          date: now, referenceId: paymentId, referenceType: 'payment',
+          description: 'سداد دفعة للمورد: ' + String(supplier.name || payload.supplierName || ''),
+          totalDebit: payAmount, totalCredit: payAmount, status: 'posted',
+          createdBy: payload.createdBy || 'System', branchId, syncStatus, createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: syncStatus });
+        accountingRecords.push(entry);
+        const lines = [
+          { accountCode: '2100', debit: payAmount, credit: 0 },
+          { accountCode: cashCode, debit: 0, credit: payAmount },
+        ];
+        for (let index = 0; index < lines.length; index++) {
+          const line = lines[index];
+          const account = accounts.get(line.accountCode);
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+          accounts.set(line.accountCode, {
+            ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now,
+          });
+          const transaction = {
+            id: `${entryId}:${index}`, journalEntryId: entryId,
+            accountId: line.accountCode, accountName: account.name,
+            type: line.debit > 0 ? 'debit' : 'credit', amount: payAmount,
+            debit: line.debit, credit: line.credit,
+            description: entry.description, purchaseId, syncStatus, createdAt: now,
+          };
+          changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: syncStatus });
+          accountingRecords.push(transaction);
+        }
+        for (const account of accounts.values()) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+          accountingRecords.push(account);
+        }
+      }
+    }
+
+    let auditRecord: any = null;
+    if (currentDeviceRole === 'standalone') {
+      auditRecord = {
+        id: generateUUID(), date: now, userName: payload.createdBy || 'System',
+        type: 'supplier_payment', action: 'سداد مورد', operationName: 'دفع مستحقات مورد',
+        details: 'سداد ' + payAmount + ' للمورد ' + String(supplier.name || ''),
+        quantity: 1, value: payAmount, branchId,
+        entityId: String(supplier.id), entityName: supplier.name, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+    }
+
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات سداد المورد');
+    await db.transaction('rw', [
+      db.suppliers, db.purchases, db.supplierPayments, db.accounts,
+      db.journalEntries, db.transactions, db.auditLogs,
+    ], async () => {
+      await db.suppliers.put(updatedSupplier);
+      if (updatedPurchase) await db.purchases.put(updatedPurchase);
+      await db.supplierPayments.put(payment);
+      for (const record of accountingRecords) {
+        if (record.code) await db.accounts.put(record);
+        else if (record.referenceType === 'payment') await db.journalEntries.put(record);
+        else if (record.journalEntryId) await db.transactions.put(record);
+      }
+      if (auditRecord) await db.auditLogs.put(auditRecord);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
+
   await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.supplierPayments.get(paymentId)) return;
