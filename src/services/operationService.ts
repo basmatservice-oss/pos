@@ -592,6 +592,7 @@ async function applyPurchaseLocally(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.purchaseReturns, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions],
     async () => {
+      if (type === 'purchase' && payload?.purchase?.id && await db.purchases.get(String(payload.purchase.id))) return;
       if (type === 'purchase_delete' || type === 'purchase_update') {
         const pid = type === 'purchase_delete' ? payload.id : payload.purchase.id;
         const oldPurchase = await db.purchases.get(pid);
