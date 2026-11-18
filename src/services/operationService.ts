@@ -469,7 +469,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
                 operationId,
                 deviceId,
                 sourceId: String(id),
-                movementKeySuffix: `recipe-${recipeIndex}-${ingredient.ingredientProductId}`,
+                movementKeySuffix: `rec-${processedItems}-${ingredient.ingredientProductId}`,
                 branchId: branchId ?? origOrder?.branchId,
                 reason: reason || 'مرتجع مبيعات',
                 createdBy,
