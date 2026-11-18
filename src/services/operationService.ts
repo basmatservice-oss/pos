@@ -11,7 +11,7 @@ import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
-import { postLocalJournalEntry, removeLocalJournalEntriesForReference } from './localAccountingEngine';
+import { postLocalJournalEntry, removeLocalJournalEntriesForReference, reverseLocalJournalEntriesByReference } from './localAccountingEngine';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
@@ -279,88 +279,73 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
 
 async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const targetOrderId = String(payload?.orderId || payload?.id || '');
-  if (!targetOrderId) return;
+  if (!targetOrderId) throw new Error('Missing orderId for void operation');
   const now = new Date().toISOString();
-
-  await db.transaction(
-    'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.serviceRecipes],
-    async () => {
-      const origOrder = await db.orders.get(targetOrderId);
-      if (!origOrder || origOrder.status === 'void') return;
-
-      const origItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
-      for (const oi of origItems) {
-        const itemType = String(oi.itemType || 'stock');
-        if (itemType === 'service') continue;
-        const factor = Number(oi.conversionFactor || 1);
-        const baseQty = roundQty(Number(oi.quantity || 0) * factor);
-        const product = await db.products.get(oi.productId);
-        if (product) {
-          if (itemType === 'service_with_materials' || itemType === 'bundle') {
-            const recipes = await db.serviceRecipes
-              .where('parentProductId')
-              .equals(Number(product.id))
-              .toArray();
-            if (recipes.length > 0) {
-              for (const rec of recipes) {
-                const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
-                const ingProd = await db.products.get(Number(rec.ingredientProductId));
-                if (ingProd && ingQty > 0) {
-                  await db.products.update(ingProd.id!, {
-                    stockQuantity: roundQty(ingProd.stockQuantity + ingQty),
-                    updatedAt: now,
-                    syncStatus,
-                  });
-                }
-              }
-              continue;
-            }
-            if (itemType === 'service_with_materials') continue;
-          }
-
-          await db.products.update(product.id!, {
-            stockQuantity: roundQty(product.stockQuantity + baseQty),
-            updatedAt: now,
-            syncStatus,
+  const operationId = String(payload.operationId || targetOrderId);
+  const deviceId = String(payload.deviceId || 'local-device');
+  await db.transaction('rw', [
+    db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.serviceRecipes,
+    db.inventoryBatches, db.inventoryMovements, db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions,
+  ], async () => {
+    const order = await db.orders.get(targetOrderId);
+    if (!order || order.status === 'void') return;
+    if (Number(order.returnedAmount || 0) > 0 || order.status === 'returned' || order.status === 'partially_returned') {
+      throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
+    }
+    const orderItems = await db.orderItems.where('orderId').equals(targetOrderId).toArray();
+    for (const item of orderItems) {
+      const itemType = String(item.itemType || 'stock');
+      if (itemType === 'service') continue;
+      const factor = Number(item.conversionFactor || 1);
+      const baseQty = roundQty(Number(item.quantity || 0) * factor);
+      if (baseQty <= 0) continue;
+      let parsedAlloc: any = [];
+      try { parsedAlloc = typeof item.batchAllocations === 'string' ? JSON.parse(item.batchAllocations) : item.batchAllocations || []; } catch { parsedAlloc = []; }
+      if (parsedAlloc?.kind === 'service') continue;
+      if (parsedAlloc?.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+        for (const ingredient of parsedAlloc.ingredients) {
+          const ingredientQty = roundQty(Number(ingredient.quantityConsumed || 0));
+          if (ingredientQty <= 0) continue;
+          await restoreLocalInventoryFIFO({
+            productId: Number(ingredient.ingredientProductId), quantityInBaseUnits: ingredientQty,
+            allocations: Array.isArray(ingredient.allocations) ? ingredient.allocations : [], fallbackCost: 0,
+            operationId, deviceId, sourceId: targetOrderId,
+            movementKeySuffix: 'recipe-' + String(item.id) + '-' + String(ingredient.ingredientProductId),
+            movementType: 'sale_void', sourceType: 'order_void', branchId: order.branchId,
+            reason: String(payload.reason || 'إلغاء فاتورة مبيعات'), createdBy: payload.createdBy, createdAt: now, syncStatus,
           });
         }
+        continue;
       }
-
-      if (origOrder.customerId) {
-        const customer = await db.customers.get(origOrder.customerId);
-        if (customer) {
-          const orderLoyalty = await db.loyaltyTransactions
-            .where('orderId')
-            .equals(targetOrderId)
-            .toArray();
-          let pointsDelta = 0;
-          for (const lt of orderLoyalty) {
-            if (lt.type === 'earn') pointsDelta -= Number(lt.points || 0);
-            if (lt.type === 'redeem') pointsDelta += Number(lt.points || 0);
-          }
-          const balanceDelta =
-            origOrder.paymentMethod === 'credit' ? -Number(origOrder.netAmount || 0) : 0;
-
-          await db.customers.update(customer.id!, {
-            balance: roundMoney((customer.balance || 0) + balanceDelta),
-            points: Math.max(0, (customer.points || 0) + pointsDelta),
-            updatedAt: now,
-            syncStatus,
-          });
-        }
-      }
-
-      await db.orders.update(targetOrderId, {
-        status: 'void',
-        paidAmount: 0,
-        updatedAt: now,
-        syncStatus,
+      const allocations = Array.isArray(parsedAlloc) ? parsedAlloc : [];
+      const fallbackCost = factor > 0 ? Number(item.costPriceAtTimeOfSale || 0) / factor : Number(item.costPriceAtTimeOfSale || 0);
+      await restoreLocalInventoryFIFO({
+        productId: Number(item.productId), quantityInBaseUnits: baseQty, allocations, fallbackCost,
+        operationId, deviceId, sourceId: targetOrderId, movementKeySuffix: String(item.id),
+        movementType: 'sale_void', sourceType: 'order_void', branchId: order.branchId,
+        reason: String(payload.reason || 'إلغاء فاتورة مبيعات'), createdBy: payload.createdBy, createdAt: now, syncStatus,
       });
     }
-  );
+    if (order.customerId) {
+      const loyalty = await db.loyaltyTransactions.where('orderId').equals(targetOrderId).toArray();
+      let pointsDelta = 0;
+      for (const entry of loyalty) {
+        if (entry.type === 'earn') pointsDelta -= Number(entry.points || 0);
+        if (entry.type === 'redeem') pointsDelta += Number(entry.points || 0);
+      }
+      const balanceDelta = order.paymentMethod === 'credit' ? -Number(order.netAmount || 0) : 0;
+      const customer = await db.customers.get(order.customerId);
+      if (customer) await db.customers.update(customer.id!, {
+        balance: roundMoney(Number(customer.balance || 0) + balanceDelta),
+        points: Math.max(0, Number(customer.points || 0) + pointsDelta), updatedAt: now, syncStatus,
+      });
+    }
+    await db.orders.update(targetOrderId, { status: 'void', paidAmount: 0, updatedAt: now, syncStatus });
+    if (syncStatus === 'pending') {
+      await reverseLocalJournalEntriesByReference(targetOrderId, String(payload.reason || 'إلغاء فاتورة مبيعات'), payload.createdBy);
+    }
+  });
 }
-
 async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
