@@ -1,5 +1,5 @@
 import { db } from '../db/db';
-import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
+import { deleteNativePosRecord, ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
 
 const MIRRORED_TABLES = [
   'products', 'categories', 'orders', 'orderItems', 'returns', 'returnItems', 'accounts', 'shifts',
@@ -14,6 +14,49 @@ const MIRRORED_TABLES = [
 function getRecordId(row: any): string {
   const value = row?.id ?? row?.code ?? row?.key;
   return value === undefined || value === null ? '' : String(value);
+}
+
+let nativeMirrorHooksInstalled = false;
+
+/**
+ * Keep the Android SQLite copy current after every committed Dexie mutation.
+ * Dexie remains the current UI data layer; this is a durability bridge, not
+ * yet a replacement SQLite-backed repository.
+ */
+export function installNativeDatabaseMirrorHooks(): void {
+  if (nativeMirrorHooksInstalled || !isNativeAndroid()) return;
+  nativeMirrorHooksInstalled = true;
+
+  for (const entity of MIRRORED_TABLES) {
+    const table = (db as any)[entity];
+    if (!table) continue;
+
+    table.hook('creating', function (primKey: any, obj: any, transaction: any) {
+      transaction.on('complete', () => {
+        const key = primKey ?? getRecordId(obj);
+        Promise.resolve(table.get(key))
+          .then((row: any) => row && mirrorNativePosRecord(entity, row))
+          .catch((error: any) => console.warn('Android SQLite create mirror failed:', entity, error));
+      });
+    });
+
+    table.hook('updating', function (_changes: any, primKey: any, _obj: any, transaction: any) {
+      transaction.on('complete', () => {
+        Promise.resolve(table.get(primKey))
+          .then((row: any) => row && mirrorNativePosRecord(entity, row))
+          .catch((error: any) => console.warn('Android SQLite update mirror failed:', entity, error));
+      });
+    });
+
+    table.hook('deleting', function (primKey: any, obj: any, transaction: any) {
+      const recordId = getRecordId(obj) || String(primKey ?? '');
+      transaction.on('complete', () => {
+        if (!recordId || (entity === 'settings' && obj?.key === 'authSecret')) return;
+        deleteNativePosRecord(entity, recordId)
+          .catch((error) => console.warn('Android SQLite delete mirror failed:', entity, error));
+      });
+    });
+  }
 }
 
 export async function mirrorNativePosDatabase(): Promise<void> {
