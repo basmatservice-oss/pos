@@ -70,7 +70,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   const policyRow = await db.settings.where('key').equals('offlineStockPolicy').first();
   const legacyPolicy = await db.settings.where('key').equals('allowNegativeStock').first();
   const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
-  const allowNegative = stockPolicy !== 'block' || Boolean(payload.managerOverride || payload.allowNegativeOverride);
+  const actorRole = String(payload.actor?.role || payload.userRole || payload.role || '').toLowerCase();
+  const isPrivilegedOverride = Boolean(payload.managerOverride || payload.allowNegativeOverride) && (actorRole === 'admin' || actorRole === 'manager');
+  const allowNegative = !['block', 'manager_override'].includes(String(stockPolicy)) || isPrivilegedOverride;
   let totalCogs = 0;
 
   await db.transaction(
