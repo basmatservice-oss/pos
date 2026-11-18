@@ -19,10 +19,23 @@ export const syncService = {
 
   async updatePendingCount() {
     try {
-      const pendingOps = await db.syncOperations
+      const pendingDexieOperations = await db.syncOperations
         .where('status')
         .anyOf(['pending', 'error'])
-        .count();
+        .toArray();
+      let pendingOps = pendingDexieOperations.length;
+
+      // Include native-only Android outbox entries after an IndexedDB reset.
+      // Entries mirrored in Dexie are counted once.
+      if (isNativeAndroid()) {
+        try {
+          const dexieIds = new Set(pendingDexieOperations.map((operation) => operation.id));
+          const nativePending = await listNativePendingPosOperations();
+          pendingOps += nativePending.filter((operation) => !dexieIds.has(operation.operationId)).length;
+        } catch (error) {
+          console.error('Failed to count Android SQLite outbox:', error);
+        }
+      }
 
       const tables: string[] = [
         'categories',
