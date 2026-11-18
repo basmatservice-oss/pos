@@ -253,6 +253,32 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getRecord(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val recordId = call.getString("recordId")?.trim().orEmpty()
+        if (entity.isBlank() || recordId.isBlank()) {
+            call.reject("entity و recordId مطلوبان لقراءة سجل محدد")
+            return
+        }
+        try {
+            val result = helper.readableDatabase.query(
+                "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                "entity = ? AND record_id = ?", arrayOf(entity, recordId),
+                null, null, null, "1"
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) null else JSObject()
+                    .put("recordId", cursor.getString(0))
+                    .put("record", JSONObject(cursor.getString(1)))
+                    .put("syncState", cursor.getString(2))
+                    .put("updatedAt", cursor.getLong(3))
+            }
+            call.resolve(JSObject().put("found", result != null).put("item", result))
+        } catch (error: Exception) {
+            call.reject("تعذر قراءة السجل المحلي المحدد", error)
+        }
+    }
+
+    @PluginMethod
     fun getRecords(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
         if (entity.isBlank()) {
