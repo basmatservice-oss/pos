@@ -129,10 +129,6 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
     }
     if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
       await db.syncOperations.update(operation.id, { payload: nextPayload });
-      if (isNativeAndroid()) {
-        const updated = await updateNativePendingOperationPayload(operation.id, nextPayload);
-        if (!updated) throw new Error(`Native outbox payload was not updated: ${operation.id}`);
-      }
     }
   }
   if (isNativeAndroid()) {
