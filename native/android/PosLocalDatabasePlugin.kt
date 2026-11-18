@@ -242,6 +242,24 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun deleteRecord(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val recordId = call.getString("recordId")?.trim().orEmpty()
+        if (entity.isBlank() || recordId.isBlank()) {
+            call.reject("entity و recordId مطلوبان")
+            return
+        }
+        try {
+            val rows = helper.writableDatabase.delete(
+                "pos_records", "entity = ? AND record_id = ?", arrayOf(entity, recordId)
+            )
+            call.resolve(JSObject().put("deleted", rows > 0).put("rows", rows))
+        } catch (error: Exception) {
+            call.reject("تعذر حذف السجل المحلي", error)
+        }
+    }
+
+    @PluginMethod
     fun enqueueOperation(call: PluginCall) {
         val operationId = call.getString("operationId")?.trim().orEmpty()
         val type = call.getString("type")?.trim().orEmpty()
