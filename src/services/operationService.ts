@@ -787,105 +787,93 @@ async function applyPurchaseLocally(
 }
 
 async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } =
-    payload;
+  const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
-
-  await db.transaction(
-    'rw',
-    [db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers],
-    async () => {
-      const origPurchase = await db.purchases.get(String(originalPurchaseId));
-      const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
-
-      let totalReturn = 0;
-      for (const reqItem of items) {
-        const qty = Number(reqItem.quantity || 0);
-        if (qty <= 0) continue;
-        const cost = Number(reqItem.costPrice || 0);
-        const lineTotal = roundMoney(qty * cost);
-        totalReturn = roundMoney(totalReturn + lineTotal);
-
-        const batch = reqItem.batchId
-          ? batches.find((b) => b.id === reqItem.batchId)
-          : batches.find((b) => b.productId === reqItem.productId && (b.remainingQuantity ?? b.quantity) >= qty) ||
-            batches.find((b) => b.productId === reqItem.productId);
-
-        if (batch && batch.id) {
-          const curRem = Number(batch.remainingQuantity ?? batch.quantity);
-          await db.inventoryBatches.update(batch.id, {
-            remainingQuantity: Math.max(0, curRem - qty),
-            updatedAt: now,
-            syncStatus,
-          });
-        }
-
-        const prod = await db.products.get(Number(reqItem.productId));
-        if (prod) {
-          await db.products.update(prod.id!, {
-            stockQuantity: Math.max(0, prod.stockQuantity - qty),
-            updatedAt: now,
-            syncStatus,
-          });
-        }
-
-        const itemDoc: PurchaseReturnItem = {
-          id: generateUUID(),
-          purchaseReturnId: id,
-          productId: Number(reqItem.productId),
-          productName: reqItem.productName || '',
-          quantity: qty,
-          costPrice: cost,
-          total: lineTotal,
-          batchId: batch?.id ? String(batch.id) : undefined,
-          syncStatus,
-          createdAt: now,
-        };
-        await db.purchaseReturnItems.put(itemDoc);
+  const operationId = String(payload.operationId || id);
+  await db.transaction('rw', [
+    db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers,
+    db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
+  ], async () => {
+    if (await db.purchaseReturns.get(id)) return;
+    const origPurchase = await db.purchases.get(String(originalPurchaseId));
+    if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
+    const batches = await db.inventoryBatches.where('purchaseId').equals(String(originalPurchaseId)).toArray();
+    let totalReturn = 0;
+    let processedItems = 0;
+    for (const reqItem of items) {
+      const qty = roundQty(Number(reqItem.quantity || 0));
+      if (qty <= 0) continue;
+      const productId = Number(reqItem.productId);
+      const batch = reqItem.batchId
+        ? batches.find((entry) => String(entry.id) === String(reqItem.batchId))
+        : batches.find((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) >= qty) || batches.find((entry) => Number(entry.productId) === productId);
+      if (batch && batch.id) {
+        const remaining = Number(batch.remainingQuantity || 0);
+        if (remaining < qty) throw new Error('الكمية المتبقية في الدفعة أقل من كمية مرتجع المشتريات');
+        await db.inventoryBatches.update(batch.id, { remainingQuantity: roundQty(remaining - qty), updatedAt: now, syncStatus });
       }
-
-      if (origPurchase) {
-        const newReturned = roundMoney((origPurchase.returnedAmount || 0) + totalReturn);
-        const netPayable = Math.max(0, roundMoney(origPurchase.totalAmount - newReturned));
-        await db.purchases.update(origPurchase.id!, {
-          returnedAmount: newReturned,
-          paymentStatus: origPurchase.paidAmount >= netPayable ? 'paid' : origPurchase.paidAmount > 0 ? 'partial' : 'unpaid',
-          syncStatus,
+      const product = await db.products.get(productId);
+      if (!batch && (!product || Number(product.stockQuantity || 0) < qty)) throw new Error('المخزون المتاح لا يكفي لإرجاع المنتج ' + String(reqItem.productName || productId));
+      if (product) {
+        const activeBatches = (await db.inventoryBatches.toArray()).filter((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity ?? entry.quantity) > 0);
+        const activeQty = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity ?? entry.quantity), 0);
+        const activeValue = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity ?? entry.quantity) * Number(entry.costPrice || 0), 0);
+        await db.products.update(product.id!, {
+          stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
+          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
+          updatedAt: now, syncStatus,
         });
-
-        if (refundMethod === 'credit_adjustment' && origPurchase.supplierId) {
-          const sup = await db.suppliers.get(origPurchase.supplierId);
-          if (sup) {
-            await db.suppliers.update(sup.id!, {
-              balance: roundMoney((sup.balance || 0) - totalReturn),
-              updatedAt: now,
-              syncStatus,
-            });
-          }
-        }
       }
-
-      const retDoc: PurchaseReturn = {
-        id,
-        returnNumber,
-        originalPurchaseId: String(originalPurchaseId),
-        supplierId: origPurchase?.supplierId,
-        supplierName: origPurchase?.supplierName,
-        branchId: branchId ?? origPurchase?.branchId,
-        shiftId,
-        refundMethod,
-        totalReturn,
-        reason,
-        createdBy,
-        createdAt: now,
-        updatedAt: now,
-        syncStatus,
+      const cost = Number(reqItem.costPrice ?? batch?.costPrice ?? 0);
+      const lineTotal = roundMoney(qty * cost);
+      totalReturn = roundMoney(totalReturn + lineTotal);
+      const itemDoc: PurchaseReturnItem = {
+        id: generateUUID(), purchaseReturnId: id, productId, productName: reqItem.productName || '',
+        quantity: qty, costPrice: cost, total: lineTotal, batchId: batch?.id ? String(batch.id) : undefined,
+        syncStatus, createdAt: now,
       };
-      await db.purchaseReturns.put(retDoc);
+      await db.purchaseReturnItems.put(itemDoc);
+      processedItems += 1;
+      await recordLocalInventoryMovement({
+        movementKey: 'purchase_return:' + String(id) + ':out:' + String(productId) + ':' + String(processedItems),
+        productId, movementType: 'purchase_return', sourceType: 'purchase_return', sourceId: String(id),
+        quantityDeltaBase: -qty, unitCost: cost, totalCost: lineTotal, branchId: branchId ?? origPurchase.branchId,
+        operationId, reason: reason || 'مرتجع مشتريات للمورد', createdBy, createdAt: now, syncStatus,
+      });
     }
-  );
+    if (processedItems === 0) throw new Error('لا توجد أصناف صالحة لمرتجع المشتريات');
+    const newReturned = roundMoney(Number(origPurchase.returnedAmount || 0) + totalReturn);
+    if (newReturned > roundMoney(Number(origPurchase.totalAmount || 0)) + 0.05) throw new Error('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء');
+    const netPayable = Math.max(0, roundMoney(Number(origPurchase.totalAmount || 0) - newReturned));
+    const paid = roundMoney(Number(origPurchase.paidAmount || 0));
+    await db.purchases.update(origPurchase.id!, {
+      returnedAmount: newReturned,
+      paymentStatus: paid >= netPayable ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+      updatedAt: now, syncStatus,
+    });
+    if (refundMethod === 'credit_adjustment' && origPurchase.supplierId) {
+      const supplier = await db.suppliers.get(origPurchase.supplierId);
+      if (supplier) await db.suppliers.update(supplier.id!, { balance: roundMoney(Number(supplier.balance || 0) - totalReturn), updatedAt: now, syncStatus });
+    }
+    const retDoc: PurchaseReturn = {
+      id, returnNumber, originalPurchaseId: String(originalPurchaseId), supplierId: origPurchase.supplierId,
+      supplierName: origPurchase.supplierName, branchId: branchId ?? origPurchase.branchId, shiftId,
+      refundMethod, totalReturn, reason, createdBy, createdAt: now, updatedAt: now, syncStatus,
+    };
+    await db.purchaseReturns.put(retDoc);
+    if (syncStatus === 'pending' && totalReturn > 0) {
+      const debitAccount = refundMethod === 'cash' ? '1010' : refundMethod === 'card' ? '1020' : '2100';
+      await postLocalJournalEntry({
+        referenceId: String(id), referenceType: 'purchase_return', entryKey: 'purchase-return-' + operationId, date: now,
+        description: 'مرتجع مشتريات ' + String(returnNumber || id) + ' للمورد ' + String(origPurchase.supplierName || ''),
+        lines: [
+          { accountCode: debitAccount, debit: totalReturn, credit: 0, purchaseId: String(originalPurchaseId) },
+          { accountCode: '1200', debit: 0, credit: totalReturn, purchaseId: String(originalPurchaseId) },
+        ], createdBy, branchId: branchId ?? origPurchase.branchId,
+      });
+    }
+  });
 }
-
 async function applyExpenseLocally(
   type: 'expense' | 'expense_delete',
   payload: any,
