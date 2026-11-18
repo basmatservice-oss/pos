@@ -76,9 +76,10 @@ class PosLocalDatabasePlugin : Plugin() {
             var savedCount = 0
             db.beginTransaction()
             try {
-                // Merge the incoming Dexie snapshot instead of deleting the
-                // whole entity first. SQLite may contain newer/native-only
-                // records that are not present in the current IndexedDB view.
+                // This method receives a complete Dexie snapshot for one entity.
+                // Replace the entity atomically so deleted Dexie rows cannot be
+                // resurrected from stale SQLite records after a restart.
+                db.delete("pos_records", "entity = ?", arrayOf(entity))
                 for (index in 0 until records.length()) {
                     val item = records.getJSONObject(index)
                     val recordId = item.optString("recordId").trim()
