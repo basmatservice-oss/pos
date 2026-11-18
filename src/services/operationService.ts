@@ -338,7 +338,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
             productId: Number(ingredient.ingredientProductId), quantityInBaseUnits: ingredientQty,
             allocations: Array.isArray(ingredient.allocations) ? ingredient.allocations : [], fallbackCost: 0,
             operationId, deviceId, sourceId: targetOrderId,
-            movementKeySuffix: 'recipe-' + String(item.id) + '-' + String(ingredient.ingredientProductId),
+            movementKeySuffix: 'rec-' + String(item.id) + '-' + String(ingredient.ingredientProductId),
             movementType: 'sale_void', sourceType: 'order_void', branchId: order.branchId,
             reason: String(payload.reason || 'إلغاء فاتورة مبيعات'), createdBy: payload.createdBy, createdAt: now, syncStatus,
           });
