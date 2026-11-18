@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -142,6 +142,8 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Rebuild native modules for Electron 22.3.27
+        env:
+          GYP_DEFINES: openssl_fips=
         run: npx electron-builder install-app-deps
 
       - name: Build Windows x64 NSIS installer
