@@ -2,7 +2,7 @@ import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
-import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
+import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 
 async function updateRecordWithoutSyncHook(tableName: string, key: any, changes: Record<string, unknown>) {
@@ -192,6 +192,9 @@ export const syncService = {
             await acknowledgeNativePosOperation(op.id).catch((error) =>
               console.error('Could not acknowledge Android SQLite operation:', error)
             );
+          }
+          if (op.type === 'entity_upsert' && op.payload?.record?.id !== undefined && res.result?.id !== undefined) {
+            await remapPendingEntityReferences(op.payload.table, op.payload.record.id, res.result.id, op.id);
           }
           await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
         } else {
