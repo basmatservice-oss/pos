@@ -722,6 +722,11 @@ class PosLocalDatabasePlugin : Plugin() {
                     values.putNull("next_retry_at")
                     db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 }
+                // Never update the business operation record if its durable outbox
+                // entry is missing. Throwing rolls back the transaction unchanged.
+                if (outboxRows != 1) {
+                    throw IllegalStateException("Durable outbox operation was not found: $operationId")
+                }
                 // Keep the durable operation record and its outbox state aligned
                 // in the same SQLite transaction after acknowledgement or failure.
                 val recordSyncState = if (status == "synced") "synced" else "error"
