@@ -34,6 +34,59 @@ let nativeMirrorWriteQueue: Promise<void> = Promise.resolve();
 let nativeMirrorWriteFailure: unknown = null;
 let nativeSnapshotNeedsRefresh = false;
 
+type PendingTransactionChange = { entity: string; table: any; key: any };
+const transactionChanges = new WeakMap<object, Map<string, PendingTransactionChange>>();
+
+function collectTransactionChange(entity: string, table: any, key: any, transaction: any): void {
+  if (key === undefined || key === null) {
+    throw new Error(`Cannot mirror ${entity} mutation without its Dexie primary key`);
+  }
+  let changes = transactionChanges.get(transaction);
+  if (!changes) {
+    changes = new Map<string, PendingTransactionChange>();
+    transactionChanges.set(transaction, changes);
+    transaction.on('complete', () => {
+      const committed = Array.from(changes!.values());
+      enqueueNativeMirrorWrite(async () => {
+        const nativeChanges = [];
+        for (const change of committed) {
+          const row = await change.table.get(change.key);
+          const recordId = serializeDexieKey(change.key);
+          if (!recordId) throw new Error(`Cannot resolve committed ${change.entity} record key`);
+          if (!row) {
+            if (!(change.entity === 'settings' && change.key === 'authSecret')) {
+              nativeChanges.push({ action: 'delete' as const, entity: change.entity, recordId });
+            }
+            continue;
+          }
+          if (change.entity === 'settings' && row.key === 'authSecret') continue;
+          const resolvedId = getRecordId(change.entity, row);
+          if (!resolvedId || resolvedId !== recordId) {
+            throw new Error(`Committed ${change.entity} record key does not match its Dexie primary key`);
+          }
+          nativeChanges.push({
+            action: 'put' as const,
+            entity: change.entity,
+            recordId,
+            record: row,
+            syncState: row.syncStatus === 'pending' || row.syncStatus === 'synced' || row.syncStatus === 'error'
+              ? row.syncStatus : 'local',
+          });
+        }
+        if (nativeChanges.length) {
+          const result = await posLocalDatabase.applyRecordChanges({ changes: nativeChanges });
+          if (result.count !== nativeChanges.length || !Number.isInteger(result.applied) ||
+              result.applied < 0 || result.applied > nativeChanges.length) {
+            throw new Error('SQLite did not confirm the committed Dexie transaction mirror');
+          }
+        }
+      }).catch((error) => console.warn('Android SQLite transaction mirror failed:', error));
+    });
+  }
+  const identity = JSON.stringify([entity, key]);
+  changes.set(identity, { entity, table, key });
+}
+
 function enqueueNativeMirrorWrite(write: () => Promise<void>): Promise<void> {
   const next = nativeMirrorWriteQueue.then(write, write);
   nativeMirrorWriteQueue = next.catch((error) => {
@@ -79,36 +132,21 @@ export function installNativeDatabaseMirrorHooks(): void {
     if (!table) continue;
 
     table.hook('creating', function (primKey: any, obj: any, transaction: any) {
-      transaction.on('complete', () => {
-        const key = primKey ?? getRecordId(entity, obj);
-        enqueueNativeMirrorWrite(async () => {
-          if (key === undefined || key === null || key === '') {
-            throw new Error(`Created ${entity} record has no resolvable Dexie primary key`);
-          }
-          const row = await table.get(key);
-          if (!row) throw new Error(`Created ${entity} record could not be read back from Dexie`);
-          await persistNativePosRecord(entity, row);
-        }).catch((error) => console.warn('Android SQLite create mirror failed:', entity, error));
-      });
+      const key = primKey ?? (typeof table.schema.primKey.keyPath === 'string'
+        ? obj?.[table.schema.primKey.keyPath]
+        : Array.isArray(table.schema.primKey.keyPath)
+          ? table.schema.primKey.keyPath.map((part: string) => obj?.[part])
+          : undefined);
+      collectTransactionChange(entity, table, key, transaction);
     });
 
     table.hook('updating', function (_changes: any, primKey: any, _obj: any, transaction: any) {
-      transaction.on('complete', () => {
-        enqueueNativeMirrorWrite(async () => {
-          const row = await table.get(primKey);
-          if (!row) throw new Error(`Updated ${entity} record could not be read back from Dexie`);
-          await persistNativePosRecord(entity, row);
-        }).catch((error) => console.warn('Android SQLite update mirror failed:', entity, error));
-      });
+      collectTransactionChange(entity, table, primKey, transaction);
     });
 
     table.hook('deleting', function (primKey: any, obj: any, transaction: any) {
-      const recordId = serializeDexieKey(primKey) || getRecordId(entity, obj);
-      transaction.on('complete', () => {
-        if (!recordId || (entity === 'settings' && obj?.key === 'authSecret')) return;
-        enqueueNativeMirrorWrite(() => deleteNativePosRecord(entity, recordId))
-          .catch((error) => console.warn('Android SQLite delete mirror failed:', entity, error));
-      });
+      if (entity === 'settings' && obj?.key === 'authSecret') return;
+      collectTransactionChange(entity, table, primKey, transaction);
     });
   }
 }
