@@ -369,12 +369,18 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
     [db.returns, db.returnItems, db.orders, db.orderItems, db.products, db.customers, db.serviceRecipes, db.inventoryBatches, db.inventoryMovements, db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions],
     async () => {
       const origOrder = await db.orders.get(originalOrderId);
+      if (!origOrder || origOrder.status === 'void') throw new Error('لا يمكن إرجاع فاتورة غير موجودة أو ملغاة');
+      const effectiveRefundMethod = refundMethod || (origOrder.paymentMethod === 'credit' ? 'credit_adjustment' : origOrder.paymentMethod === 'card' ? 'card' : 'cash');
       const origItems = await db.orderItems.where('orderId').equals(originalOrderId).toArray();
 
       let totalRefund = 0;
       let totalTax = 0;
       let totalSub = 0;
       let totalCostReversed = 0;
+      let totalDiscount = 0;
+      let totalResalableCostReversed = 0;
+      let totalDamagedCostReversed = 0;
+      let processedItems = 0;
       const operationId = String(payload.operationId || id);
       const deviceId = String(payload.deviceId || 'local-device');
 
@@ -390,16 +396,20 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
         const qty = roundQty(Number(reqItem.quantity));
         if (qty <= 0) continue;
+        const remainingReturnable = roundQty(Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0));
+        if (qty > remainingReturnable + 1e-6) throw new Error('الكمية المرتجعة تتجاوز الكمية المتبقية القابلة للإرجاع للمنتج ' + origItem.productName);
 
         const ratio = qty / Number(origItem.quantity);
         const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
         const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
         const lineTotal = roundMoney(Number(origItem.total) * ratio);
+        const lineDiscount = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
         let lineCost = 0;
         const condition: 'resalable' | 'damaged' =
           reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
 
         totalSub += lineSub;
+        totalDiscount += lineDiscount;
         totalTax += lineTax;
         totalRefund += lineTotal;
 
@@ -462,7 +472,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
               operationId,
               deviceId,
               sourceId: String(id),
-              movementKeySuffix: String(savedReturnItems.length),
+              movementKeySuffix: String(origItem.id || origItem.productId),
               branchId: branchId ?? origOrder?.branchId,
               reason: reason || 'مرتجع مبيعات',
               createdBy,
@@ -470,10 +480,21 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
               syncStatus,
             });
           }
+          totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCost);
         } else if (condition === 'damaged') {
           lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
+          totalDamagedCostReversed = roundMoney(totalDamagedCostReversed + lineCost);
+          const damagedProduct = await db.products.get(Number(origItem.productId));
+          await db.inventoryAlerts.put({
+            id: 'damaged-return:' + operationId + ':' + String(processedItems),
+            productId: Number(origItem.productId), productName: origItem.productName,
+            previousQty: Number(damagedProduct?.stockQuantity || 0), changeQty: 0,
+            resultingQty: Number(damagedProduct?.stockQuantity || 0), operationId, deviceId,
+            reason: 'damaged_return (' + qty + ')', resolved: 0, createdAt: now,
+          });
         }
         totalCostReversed = roundMoney(totalCostReversed + lineCost);
+        processedItems += 1;
 
         const retItem: ReturnItem = {
           id: generateUUID(),
@@ -504,7 +525,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
           syncStatus,
         });
 
-        if (origOrder.customerId && refundMethod === 'credit_adjustment') {
+        if (origOrder.customerId && effectiveRefundMethod === 'credit_adjustment') {
           const customer = await db.customers.get(origOrder.customerId);
           if (customer) {
             await db.customers.update(customer.id!, {
@@ -525,9 +546,9 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         customerName: origOrder?.customerName,
         branchId: branchId ?? origOrder?.branchId,
         shiftId: shiftId ?? origOrder?.shiftId,
-        refundMethod,
+        refundMethod: effectiveRefundMethod,
         subTotal: roundMoney(totalSub),
-        discountAmount: 0,
+        discountAmount: roundMoney(totalDiscount),
         taxAmount: roundMoney(totalTax),
         totalRefund: roundMoney(totalRefund),
         totalCostReversed: roundMoney(totalCostReversed),
@@ -538,7 +559,36 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         syncStatus,
       };
       await db.returns.put(retDoc);
-    }
+      if (processedItems === 0) throw new Error('لا توجد أصناف صالحة للإرجاع');
+      if (roundMoney(totalRefund) > roundMoney(Number(origOrder.netAmount || 0) - Number(origOrder.returnedAmount || 0)) + 0.05) throw new Error('إجمالي المرتجع يتجاوز المتبقي من الفاتورة الأصلية');
+      if (syncStatus === 'pending' && totalRefund > 0) {
+        const creditAccountCode = effectiveRefundMethod === 'cash' ? '1010' : effectiveRefundMethod === 'card' ? '1020' : '1100';
+        await postLocalJournalEntry({
+          referenceId: String(id), referenceType: 'return', entryKey: 'return-refund', date: now,
+          description: 'مرتجع مبيعات ' + String(returnNumber || id),
+          lines: [
+            { accountCode: '4200', debit: roundMoney(totalRefund - totalTax), credit: 0, orderId: originalOrderId, returnId: id },
+            ...(totalTax > 0 ? [{ accountCode: '2200', debit: roundMoney(totalTax), credit: 0, orderId: originalOrderId, returnId: id }] : []),
+            { accountCode: creditAccountCode, debit: 0, credit: roundMoney(totalRefund), orderId: originalOrderId, returnId: id },
+          ], createdBy, branchId: branchId ?? origOrder.branchId,
+        });
+        if (totalResalableCostReversed > 0) await postLocalJournalEntry({
+          referenceId: String(id), referenceType: 'return', entryKey: 'return-resalable-cogs', date: now,
+          description: 'عكس تكلفة مرتجع صالح لإعادة البيع ' + String(returnNumber || id),
+          lines: [
+            { accountCode: '1200', debit: totalResalableCostReversed, credit: 0, orderId: originalOrderId, returnId: id },
+            { accountCode: '5100', debit: 0, credit: totalResalableCostReversed, orderId: originalOrderId, returnId: id },
+          ], createdBy, branchId: branchId ?? origOrder.branchId,
+        });
+        if (totalDamagedCostReversed > 0) await postLocalJournalEntry({
+          referenceId: String(id), referenceType: 'return', entryKey: 'return-damaged-cogs', date: now,
+          description: 'تسوية تكلفة مرتجع تالف ' + String(returnNumber || id),
+          lines: [
+            { accountCode: '5400', debit: totalDamagedCostReversed, credit: 0, orderId: originalOrderId, returnId: id },
+            { accountCode: '5100', debit: 0, credit: totalDamagedCostReversed, orderId: originalOrderId, returnId: id },
+          ], createdBy, branchId: branchId ?? origOrder.branchId,
+        });
+      }    }
   );
 }
 
