@@ -303,6 +303,26 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun updatePendingOperationPayload(call: PluginCall) {
+        val operationId = call.getString("operationId")?.trim().orEmpty()
+        val payload = call.getObject("payload")
+        if (operationId.isBlank() || payload == null) {
+            call.reject("operationId و payload مطلوبان")
+            return
+        }
+        try {
+            val values = ContentValues().apply { put("payload", payload.toString()) }
+            val rows = helper.writableDatabase.update(
+                "pos_outbox", values, "operation_id = ? AND status IN ('pending', 'error')",
+                arrayOf(operationId)
+            )
+            call.resolve(JSObject().put("updated", rows > 0).put("rows", rows))
+        } catch (error: Exception) {
+            call.reject("تعذر تحديث مراجع العملية المعلقة", error)
+        }
+    }
+
+    @PluginMethod
     fun acknowledgeOperation(call: PluginCall) {
         updateOperationStatus(call, "synced", null)
     }
