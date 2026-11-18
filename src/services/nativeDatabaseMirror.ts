@@ -118,12 +118,18 @@ export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
  */
 export function installNativeDatabaseMirrorHooks(): void {
   if (nativeMirrorHooksInstalled || !isNativeAndroid()) return;
-  nativeMirrorHooksInstalled = true;
 
-  for (const entity of MIRRORED_TABLES) {
+  // Validate the complete registry before installing any hooks. Silently
+  // skipping a missing table would leave SQLite stale while startup succeeds.
+  const tables = MIRRORED_TABLES.map((entity) => {
     const table = (db as any)[entity];
-    if (!table) continue;
+    if (!table || typeof table.hook !== 'function' || !table.schema?.primKey) {
+      throw new Error(`Cannot install Android SQLite mirror hooks: Dexie table ${entity} is unavailable or invalid`);
+    }
+    return { entity, table };
+  });
 
+  for (const { entity, table } of tables) {
     table.hook('creating', function (primKey: any, obj: any, transaction: any) {
       const key = primKey ?? (typeof table.schema.primKey.keyPath === 'string'
         ? obj?.[table.schema.primKey.keyPath]
@@ -142,6 +148,9 @@ export function installNativeDatabaseMirrorHooks(): void {
       collectTransactionChange(entity, table, primKey, transaction);
     });
   }
+
+  // Mark installed only after every registered table has its hooks.
+  nativeMirrorHooksInstalled = true;
 }
 
 export async function mirrorNativePosDatabase(): Promise<void> {
