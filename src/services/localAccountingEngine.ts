@@ -50,8 +50,8 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     .filter((line) => line.debit > 0 || line.credit > 0);
   if (lines.length === 0) return null;
 
-  const totalDebit = money(lines.reduce((sum, line) => sum + line.debit, 0));
-  const totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
+  let totalDebit = money(lines.reduce((sum, line) => sum + line.debit, 0));
+  let totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
   const difference = money(totalDebit - totalCredit);
   if (Math.abs(difference) > 0.02) {
     throw new Error(`قيد محاسبي غير متوازن: ${input.description} (مدين ${totalDebit} / دائن ${totalCredit})`);
@@ -60,6 +60,8 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     const last = lines[lines.length - 1];
     if (last.credit > 0) last.credit = money(last.credit + difference);
     else last.debit = money(last.debit - difference);
+    totalDebit = money(lines.reduce((sum, line) => sum + line.debit, 0));
+    totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
   }
 
   const entryId = `local-je:${input.referenceType}:${input.referenceId}:${input.entryKey}`;
