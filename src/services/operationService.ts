@@ -1009,27 +1009,33 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
 
 async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  await db.payroll.put({
-    id: payload.id,
-    employeeId: Number(payload.employeeId),
-    employeeName: payload.employeeName,
-    periodStart: payload.periodStart,
-    periodEnd: payload.periodEnd,
-    salaryType: payload.salaryType === 'hourly' ? 'hourly' : 'monthly',
-    totalHours: Number(payload.totalHours || 0),
-    hourlyRate: Number(payload.hourlyRate || 0),
-    basicSalary: Number(payload.basicSalary || 0),
-    bonuses: Number(payload.bonuses || 0),
-    deductions: Number(payload.deductions || 0),
-    netSalary: Number(payload.netSalary || 0),
-    paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
-    branchId: payload.branchId,
-    paymentDate: payload.paymentDate || now,
-    status: payload.status || 'paid',
-    syncStatus,
+  const payrollId = Number(payload.id);
+  if (!Number.isSafeInteger(payrollId) || payrollId <= 0) throw new Error('معرّف مسير الراتب غير صالح');
+  await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions], async () => {
+    if (await db.payroll.get(payrollId)) return;
+    const record = {
+      id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
+      periodStart: payload.periodStart, periodEnd: payload.periodEnd,
+      salaryType: payload.salaryType === 'hourly' ? 'hourly' : 'monthly',
+      totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
+      basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
+      deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
+      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash', branchId: payload.branchId,
+      paymentDate: payload.paymentDate || now, status: payload.status || 'paid', syncStatus,
+    };
+    await db.payroll.put(record);
+    if (syncStatus === 'pending' && record.netSalary > 0 && record.status === 'paid') {
+      await postLocalJournalEntry({
+        referenceId: String(payrollId), referenceType: 'payroll', entryKey: 'payroll-' + String(payload.operationId || payrollId),
+        date: record.paymentDate, description: 'صرف راتب الموظف: ' + String(record.employeeName || ''),
+        lines: [
+          { accountCode: '5300', debit: roundMoney(record.netSalary), credit: 0 },
+          { accountCode: record.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: roundMoney(record.netSalary) },
+        ], createdBy: payload.createdBy, branchId: record.branchId,
+      });
+    }
   });
 }
-
 async function applyShiftLocally(
   type: 'shift_open' | 'shift_close' | 'shift_movement',
   payload: any,
@@ -1162,6 +1168,9 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'payroll' && !payload?.id) {
+    return { ...payload, id: Date.now() };
+  }
   if (type === 'expense' && !payload?.id) {
     return { ...payload, id: Date.now() };
   }
