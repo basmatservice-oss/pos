@@ -1,6 +1,7 @@
 import { db } from '../db/db';
 import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
+import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
 
 function collectPendingReferences(value: any, refs: Record<string, Set<string>>) {
   if (!value || typeof value !== 'object') return;
@@ -164,4 +165,5 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       }
     }
   }
+  await mirrorNativePosDatabase().catch((error) => console.warn('SQLite reconciliation snapshot failed:', error));
 }
