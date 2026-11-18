@@ -682,7 +682,9 @@ async function applyPurchaseLocally(
     const changes: any[] = [];
     const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
-    const itemDocs: any[] = [];
+    const itemDocs: any[] = Array.isArray(payload._serverItems) && payload._serverItems.length
+      ? payload._serverItems.map((item: any) => ({ ...item, syncStatus }))
+      : [];
     const batchDocs: any[] = [];
     const movementDocs: any[] = [];
     const productUpdates = new Map<number, any>();
@@ -701,12 +703,14 @@ async function applyPurchaseLocally(
       }
       const landedTotal = roundMoney(item.lineTotal + allocatedExtra);
       const landedCost = baseQty > 0 ? Math.round(landedTotal / baseQty * 10000) / 10000 : 0;
-      const purchaseItem = {
-        id: generateUUID(), purchaseId: String(purchase.id), productId: Number(item.productId),
-        productName: item.productName || product.name, quantity: item.quantity, unit: item.unit || 'piece',
-        conversionFactor: item.factor, costPrice: item.unitCost, landedCostPerBaseUnit: landedCost,
-        total: item.lineTotal, expiryDate: item.expiryDate, batchNumber: item.batchNumber, syncStatus,
-      };
+      if (!Array.isArray(payload._serverItems) || payload._serverItems.length === 0) {
+        itemDocs.push({
+          id: generateUUID(), purchaseId: String(purchase.id), productId: Number(item.productId),
+          productName: item.productName || product.name, quantity: item.quantity, unit: item.unit || 'piece',
+          conversionFactor: item.factor, costPrice: item.unitCost, landedCostPerBaseUnit: landedCost,
+          total: item.lineTotal, expiryDate: item.expiryDate, batchNumber: item.batchNumber, syncStatus,
+        });
+      }
       const batch = {
         id: item.batchId || generateUUID(), productId: Number(item.productId), purchaseId: String(purchase.id),
         quantity: baseQty, remainingQuantity: baseQty, costPrice: landedCost, currency: purchase.currency,
