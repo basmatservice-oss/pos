@@ -142,7 +142,9 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
       db.accounts, db.journalEntries, db.transactions,
     ],
     async () => {
-      const existingLocalOrder = await db.orders.get(order.id);
+      const existingLocalOrder = isNativeAndroid()
+        ? await nativePosRepository.get<any>('orders', order.id)
+        : await db.orders.get(order.id);
       if (existingLocalOrder) return;
       await db.orders.put({ ...normalizedOrder, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
