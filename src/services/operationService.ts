@@ -14,6 +14,7 @@ import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInvent
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
+import { flushNativeDatabaseMirrorWrites } from './nativeDatabaseMirror';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 let currentDeviceRole: 'server' | 'client' | 'standalone' = 'server';
@@ -1530,6 +1531,9 @@ export async function dispatchOperation(
     // Standalone transactions are committed locally and are not placed in a
     // server synchronization queue.
     await applyOperationLocally(type, opRecord.payload, 'synced');
+    if (isNativeAndroid()) {
+      await flushNativeDatabaseMirrorWrites();
+    }
     return { synced: true, operationId };
   }
 
