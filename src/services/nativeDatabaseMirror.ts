@@ -73,10 +73,11 @@ export function installNativeDatabaseMirrorHooks(): void {
 
 export async function mirrorNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const failedEntities: string[] = [];
   for (const entity of MIRRORED_TABLES) {
     try {
       const table = (db as any)[entity];
-      if (!table) continue;
+      if (!table) throw new Error('Dexie table is unavailable');
       const rows = await table.toArray();
       const records = rows
         .filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'))
@@ -86,12 +87,17 @@ export async function mirrorNativePosDatabase(): Promise<void> {
           syncState: row.syncStatus === 'pending' || row.syncStatus === 'synced' || row.syncStatus === 'error' ? row.syncStatus : 'local',
         }))
         .filter((entry: any) => entry.recordId.length > 0);
-      await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
+      const saved = await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
+      if (!saved) throw new Error('SQLite snapshot write was not confirmed');
     } catch (error) {
-      console.warn('تعذر حفظ لقطة SQLite للجدول ' + entity, error);
+      failedEntities.push(entity);
+      console.error('تعذر حفظ لقطة SQLite للجدول ' + entity, error);
     }
   }
-  await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' }).catch(() => {});
+  if (failedEntities.length > 0) {
+    throw new Error('SQLite business snapshot incomplete; failed entities: ' + failedEntities.join(', '));
+  }
+  await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' });
 }
 
 async function persistNativePosRecord(entity: string, row: any): Promise<void> {
