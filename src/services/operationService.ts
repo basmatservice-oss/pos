@@ -27,9 +27,10 @@ export function getDeviceId(): string {
   return id;
 }
 
-async function getDeviceRole(): Promise<'server' | 'client'> {
+async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
     const setting = await db.settings.where('key').equals('deviceRole').first();
+    if (setting?.value === 'standalone') return 'standalone';
     return setting?.value === 'client' ? 'client' : 'server';
   } catch {
     return 'server';
