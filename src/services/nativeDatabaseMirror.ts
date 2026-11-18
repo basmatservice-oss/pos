@@ -106,14 +106,25 @@ export async function mirrorNativePosDatabase(): Promise<void> {
       const table = (db as any)[entity];
       if (!table) throw new Error('Dexie table is unavailable');
       const rows = await table.toArray();
-      const records = rows
-        .filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'))
-        .map((row: any) => ({
-          recordId: getRecordId(row),
+      const businessRows = rows.filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'));
+      const records = businessRows.map((row: any) => {
+        const recordId = getRecordId(row);
+        if (!recordId) {
+          throw new Error(`A record in ${entity} has no stable primary-key value; refusing to replace the SQLite snapshot`);
+        }
+        return {
+          recordId,
           record: row as Record<string, unknown>,
           syncState: row.syncStatus === 'pending' || row.syncStatus === 'synced' || row.syncStatus === 'error' ? row.syncStatus : 'local',
-        }))
-        .filter((entry: any) => entry.recordId.length > 0);
+        };
+      });
+      const recordIds = new Set<string>();
+      for (const record of records) {
+        if (recordIds.has(record.recordId)) {
+          throw new Error(`Duplicate primary-key value ${record.recordId} in ${entity}; refusing to replace the SQLite snapshot`);
+        }
+        recordIds.add(record.recordId);
+      }
       const saved = await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
       if (!saved) throw new Error('SQLite snapshot write was not confirmed');
     } catch (error) {
