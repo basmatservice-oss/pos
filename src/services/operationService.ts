@@ -333,6 +333,8 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
       let totalTax = 0;
       let totalSub = 0;
       let totalCostReversed = 0;
+      const operationId = String(payload.operationId || id);
+      const deviceId = String(payload.deviceId || 'local-device');
 
       for (const reqItem of items) {
         const origItem = reqItem.orderItemId
@@ -351,14 +353,13 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
         const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
         const lineTotal = roundMoney(Number(origItem.total) * ratio);
-        const lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
+        let lineCost = 0;
         const condition: 'resalable' | 'damaged' =
           reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
 
         totalSub += lineSub;
         totalTax += lineTax;
         totalRefund += lineTotal;
-        totalCostReversed += lineCost;
 
         const nextReturned = roundQty(Number(origItem.returnedQuantity || 0) + qty);
         origItem.returnedQuantity = nextReturned;
@@ -374,41 +375,61 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
         const baseQty = roundQty(qty * factor);
 
         if (condition === 'resalable' && itemType !== 'service') {
-          const product = await db.products.get(origItem.productId);
-          if (product) {
-            if (itemType === 'service_with_materials' || itemType === 'bundle') {
-              const recipes = await db.serviceRecipes
-                .where('parentProductId')
-                .equals(Number(product.id))
-                .toArray();
-              if (recipes.length > 0) {
-                for (const rec of recipes) {
-                  const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
-                  const ingProd = await db.products.get(Number(rec.ingredientProductId));
-                  if (ingProd && ingQty > 0) {
-                    await db.products.update(ingProd.id!, {
-                      stockQuantity: roundQty(ingProd.stockQuantity + ingQty),
-                      updatedAt: now,
-                      syncStatus,
-                    });
-                  }
-                }
-              } else if (itemType === 'bundle') {
-                await db.products.update(product.id!, {
-                  stockQuantity: roundQty(product.stockQuantity + baseQty),
-                  updatedAt: now,
-                  syncStatus,
-                });
-              }
-            } else {
-              await db.products.update(product.id!, {
-                stockQuantity: roundQty(product.stockQuantity + baseQty),
-                updatedAt: now,
-                syncStatus,
-              });
-            }
+          let parsedAlloc: any = [];
+          try {
+            parsedAlloc = typeof origItem.batchAllocations === 'string'
+              ? JSON.parse(origItem.batchAllocations)
+              : origItem.batchAllocations || [];
+          } catch {
+            parsedAlloc = [];
           }
+
+          const fallbackCostPerBase = factor > 0
+            ? Number(origItem.costPriceAtTimeOfSale || 0) / factor
+            : Number(origItem.costPriceAtTimeOfSale || 0);
+
+          if (parsedAlloc?.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+            for (let recipeIndex = 0; recipeIndex < parsedAlloc.ingredients.length; recipeIndex++) {
+              const ingredient = parsedAlloc.ingredients[recipeIndex];
+              const ingredientQty = roundQty(Number(ingredient.quantityConsumed || 0) * (qty / Number(origItem.quantity || 1)));
+              if (ingredientQty <= 0) continue;
+              const restoredCost = await restoreLocalInventoryFIFO({
+                productId: Number(ingredient.ingredientProductId),
+                quantityInBaseUnits: ingredientQty,
+                allocations: Array.isArray(ingredient.allocations) ? ingredient.allocations : [],
+                fallbackCost: 0,
+                operationId,
+                deviceId,
+                sourceId: String(id),
+                movementKeySuffix: `recipe-${recipeIndex}-${ingredient.ingredientProductId}`,
+                branchId: branchId ?? origOrder?.branchId,
+                reason: reason || 'مرتجع مبيعات',
+                createdBy,
+                createdAt: now,
+              });
+              lineCost = roundMoney(lineCost + restoredCost);
+            }
+          } else if (parsedAlloc?.kind !== 'service') {
+            const allocations = Array.isArray(parsedAlloc) ? parsedAlloc : [];
+            lineCost = await restoreLocalInventoryFIFO({
+              productId: Number(origItem.productId),
+              quantityInBaseUnits: baseQty,
+              allocations,
+              fallbackCost: fallbackCostPerBase,
+              operationId,
+              deviceId,
+              sourceId: String(id),
+              movementKeySuffix: String(index),
+              branchId: branchId ?? origOrder?.branchId,
+              reason: reason || 'مرتجع مبيعات',
+              createdBy,
+              createdAt: now,
+            });
+          }
+        } else if (condition === 'damaged') {
+          lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
         }
+        totalCostReversed = roundMoney(totalCostReversed + lineCost);
 
         const retItem: ReturnItem = {
           id: generateUUID(),
