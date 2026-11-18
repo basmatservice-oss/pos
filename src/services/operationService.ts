@@ -589,13 +589,23 @@ async function applyPurchaseLocally(
 
   await db.transaction(
     'rw',
-    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches],
+    [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.purchaseReturns, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions],
     async () => {
       if (type === 'purchase_delete' || type === 'purchase_update') {
         const pid = type === 'purchase_delete' ? payload.id : payload.purchase.id;
         const oldPurchase = await db.purchases.get(pid);
+        if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
+        const existingReturns = await db.purchaseReturns.where('originalPurchaseId').equals(String(pid)).count();
+        if (existingReturns > 0) throw new Error('لا يمكن تعديل أو حذف فاتورة شراء لها مرتجعات مسجلة');
+        const oldBatches = await db.inventoryBatches.where('purchaseId').equals(String(pid)).toArray();
+        if (oldBatches.some((batch) => Number(batch.remainingQuantity ?? batch.quantity) < Number(batch.quantity || 0))) {
+          throw new Error('لا يمكن تعديل أو حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
+        }
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
-        for (const item of oldItems) {
+        const operationId = String(payload.operationId || oldPurchase.operationId || pid);
+        await reverseLocalJournalEntriesByReference(String(pid), 'تعديل أو حذف فاتورة مشتريات', payload.createdBy);
+        for (let oldIndex = 0; oldIndex < oldItems.length; oldIndex++) {
+          const item = oldItems[oldIndex];
           const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
           const baseQty = roundQty(Number(item.quantity || 0) * factor);
           const prod = await db.products.get(item.productId);
@@ -606,6 +616,14 @@ async function applyPurchaseLocally(
               syncStatus,
             });
           }
+          await recordLocalInventoryMovement({
+            movementKey: 'purchase:' + String(pid) + ':' + operationId + ':out:' + String(item.productId) + ':' + String(oldIndex),
+            productId: Number(item.productId), movementType: 'purchase_reversal', sourceType: 'purchase', sourceId: String(pid),
+            quantityDeltaBase: -baseQty, unitCost: Number(item.landedCostPerBaseUnit || item.costPrice || 0),
+            totalCost: roundMoney(baseQty * Number(item.landedCostPerBaseUnit || item.costPrice || 0)),
+            branchId: oldPurchase.branchId, operationId, reason: 'عكس فاتورة مشتريات', createdBy: payload.createdBy,
+            createdAt: now, syncStatus,
+          });
         }
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
@@ -614,7 +632,7 @@ async function applyPurchaseLocally(
             Number(oldPurchase.shippingCost || 0) +
             Number(oldPurchase.customsCost || 0) +
             Number(oldPurchase.otherCosts || 0);
-          const oldRemaining = oldPurchase.totalAmount - oldPurchase.paidAmount;
+          const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) + (oldPurchase.extraCostsPaymentMethod === 'supplier' ? oldExtra : 0) - Number(oldPurchase.paidAmount || 0));
           const sup = await db.suppliers.get(oldPurchase.supplierId);
           if (sup && oldRemaining > 0) {
             await db.suppliers.update(sup.id!, {
@@ -623,7 +641,6 @@ async function applyPurchaseLocally(
               syncStatus,
             });
           }
-          void oldExtra;
         }
         if (type === 'purchase_delete') {
           await db.purchases.delete(pid);
@@ -632,6 +649,7 @@ async function applyPurchaseLocally(
       }
 
       const { purchase, items = [], _serverItems } = payload;
+      const operationId = String(payload.operationId || purchase.operationId || purchase.id);
       await db.purchases.put({ ...purchase, returnedAmount: purchase.returnedAmount || 0, syncStatus });
       await db.purchaseItems.where('purchaseId').equals(purchase.id).delete();
 
