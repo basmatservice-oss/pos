@@ -81,10 +81,13 @@ export function installNativeDatabaseMirrorHooks(): void {
     table.hook('creating', function (primKey: any, obj: any, transaction: any) {
       transaction.on('complete', () => {
         const key = primKey ?? getRecordId(entity, obj);
-        if (key === undefined || key === null || key === '') return;
         enqueueNativeMirrorWrite(async () => {
+          if (key === undefined || key === null || key === '') {
+            throw new Error(`Created ${entity} record has no resolvable Dexie primary key`);
+          }
           const row = await table.get(key);
-          if (row) await persistNativePosRecord(entity, row);
+          if (!row) throw new Error(`Created ${entity} record could not be read back from Dexie`);
+          await persistNativePosRecord(entity, row);
         }).catch((error) => console.warn('Android SQLite create mirror failed:', entity, error));
       });
     });
@@ -93,7 +96,8 @@ export function installNativeDatabaseMirrorHooks(): void {
       transaction.on('complete', () => {
         enqueueNativeMirrorWrite(async () => {
           const row = await table.get(primKey);
-          if (row) await persistNativePosRecord(entity, row);
+          if (!row) throw new Error(`Updated ${entity} record could not be read back from Dexie`);
+          await persistNativePosRecord(entity, row);
         }).catch((error) => console.warn('Android SQLite update mirror failed:', entity, error));
       });
     });
@@ -156,7 +160,7 @@ async function persistNativePosRecord(entity: string, row: any): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   if (entity === 'settings' && row?.key === 'authSecret') return;
   const recordId = getRecordId(entity, row);
-  if (!recordId) return;
+  if (!recordId) throw new Error(`Cannot mirror ${entity} record without its Dexie primary key`);
   const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
     ? row.syncStatus : 'local';
   await posLocalDatabase.putRecord({ entity, recordId, record: row, syncState }).then(() => undefined);
