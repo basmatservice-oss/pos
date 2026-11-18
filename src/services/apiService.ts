@@ -44,6 +44,35 @@ const initApiBase = async () => {
       return;
     }
 
+    const desktopApi = (window as any).electronAPI;
+    if (desktopApi?.getDeviceRole) {
+      const runtimeRole = await desktopApi.getDeviceRole();
+      const runtimeServerUrl = runtimeRole === 'client' && desktopApi.getServerUrl
+        ? await desktopApi.getServerUrl()
+        : null;
+      if (runtimeRole === 'server' || runtimeRole === 'client') {
+        const updatedAt = new Date().toISOString();
+        await db.settings.put({
+          key: 'deviceRole',
+          value: runtimeRole,
+          syncStatus: 'synced',
+          updatedAt,
+        });
+        if (runtimeRole === 'client' && runtimeServerUrl) {
+          await db.settings.put({
+            key: 'serverUrl',
+            value: runtimeServerUrl,
+            syncStatus: 'synced',
+            updatedAt,
+          });
+          API_BASE = formatUrl(runtimeServerUrl);
+        } else {
+          API_BASE = '/api';
+        }
+        return;
+      }
+    }
+
     const deviceRoleSetting = await db.settings.where('key').equals('deviceRole').first();
     const deviceRole = deviceRoleSetting ? deviceRoleSetting.value : 'server';
 
