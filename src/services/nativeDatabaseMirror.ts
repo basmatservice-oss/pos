@@ -242,16 +242,22 @@ export async function restoreNativePosDatabase(): Promise<void> {
         }
         restoredIds.add(item.recordId);
       }
-      if (validRecords.length === 0) continue;
-      const existingRows = await table.toArray();
-      const existingIds = new Set(existingRows.map((row: any) => getRecordId(entity, row)).filter(Boolean));
-      const missingRows = validRecords
-        .filter((item) => !existingIds.has(item.recordId))
-        .map((item) => ({
-          ...item.record,
-          ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
-        }));
-      if (missingRows.length) await table.bulkPut(missingRows);
+      // A completed SQLite snapshot is authoritative. Reconcile the entire
+      // Dexie entity, including deletions and changed rows; an additive restore
+      // could otherwise resurrect records deleted before the last shutdown.
+      const restoredRows = validRecords.map((item) => ({
+        ...item.record,
+        ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
+      }));
+      await db.transaction('rw', table, async () => {
+        const existingRows = await table.toArray();
+        const staleKeys = existingRows
+          .filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'))
+          .filter((row: any) => !restoredIds.has(getRecordId(entity, row)))
+          .map((row: any) => table.schema.primKey.extractKey(row));
+        if (staleKeys.length) await table.bulkDelete(staleKeys);
+        if (restoredRows.length) await table.bulkPut(restoredRows);
+      });
     } catch (error) {
       failedEntities.push(entity);
       console.error('تعذر استعادة SQLite إلى IndexedDB للجدول ' + entity, error);
