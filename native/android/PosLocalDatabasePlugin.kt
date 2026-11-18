@@ -714,11 +714,8 @@ class PosLocalDatabasePlugin : Plugin() {
                     val nextRetry = System.currentTimeMillis() +
                         minOf(60000L, 2000L * (1L shl (currentRetry + 1).coerceAtMost(8)))
                     values.put("next_retry_at", nextRetry)
-                    db.execSQL(
-                        "UPDATE pos_outbox SET retry_count = retry_count + 1, next_retry_at = ?, status = ?, last_error = ? WHERE operation_id = ?",
-                        arrayOf(nextRetry, status, message, operationId)
-                    )
-                    db.changes()
+                    values.put("retry_count", currentRetry + 1)
+                    db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 } else {
                     values.putNull("next_retry_at")
                     db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
