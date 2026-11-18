@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Store, Pill, Shirt, Coffee, Smartphone, Wrench, BookOpen, Layers, ArrowLeft, Server, MonitorSmartphone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { db } from '../db/db';
@@ -14,7 +14,7 @@ export type BusinessType =
   | 'bookstore' 
   | 'multi';
 
-export type DeviceRole = 'server' | 'client';
+export type DeviceRole = 'server' | 'client' | 'standalone';
 
 interface OnboardingProps {
   onComplete: (type: BusinessType, role: DeviceRole) => void;
@@ -38,14 +38,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const [serverUrl, setServerUrl] = useState('http://192.168.1.100:3000');
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    // Check if it's a mobile device (Capacitor/Cordova)
-    const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
-    if (isMobileApp) {
-      setDeviceRole('client');
-      setStep(2);
-    }
-  }, []);
+  const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
 
   const handleRoleSelection = async (role: DeviceRole) => {
     setDeviceRole(role);
@@ -59,6 +52,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      if (deviceRole === 'standalone') {
+        if (!selectedType) return;
+        const now = new Date().toISOString();
+        await db.settings.put({ key: 'deviceRole', value: 'standalone', syncStatus: 'synced', updatedAt: now });
+        await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'synced', updatedAt: now });
+        toast.success('تم إعداد التطبيق للعمل محليًا على هذا الجهاز');
+        onComplete(selectedType, 'standalone');
+        return;
+      }
+
       if (deviceRole === 'server') {
         if (!selectedType) return;
         
@@ -163,7 +166,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 max-w-2xl mx-auto">
-              <button
+              {!isMobileApp && <button
                 onClick={() => handleRoleSelection('server')}
                 className={`p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
                   deviceRole === 'server' 
@@ -182,7 +185,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 <p className={`text-base leading-relaxed ${deviceRole === 'server' ? 'text-indigo-700' : 'text-gray-500'}`}>
                   هذا الجهاز سيحتوي على قاعدة البيانات الرئيسية، وسيتحكم في الإعدادات والصلاحيات لجميع الأجهزة الأخرى.
                 </p>
-              </button>
+              </button>}
 
               <button
                 onClick={() => handleRoleSelection('client')}
@@ -204,11 +207,34 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   هذا الجهاز سيتصل بالسيرفر الرئيسي لمزامنة البيانات. الإعدادات ستُدار من السيرفر.
                 </p>
               </button>
+
+              {isMobileApp && (
+                <button
+                  onClick={() => handleRoleSelection('standalone')}
+                  className={`p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
+                    deviceRole === 'standalone'
+                      ? 'border-indigo-600 bg-indigo-50 shadow-md transform scale-[1.02]'
+                      : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-6 ${
+                    deviceRole === 'standalone' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    <Smartphone className="w-8 h-8" />
+                  </div>
+                  <h3 className={`text-2xl font-bold mb-3 ${deviceRole === 'standalone' ? 'text-indigo-900' : 'text-gray-900'}`}>
+                    تشغيل مستقل
+                  </h3>
+                  <p className={`text-base leading-relaxed ${deviceRole === 'standalone' ? 'text-indigo-700' : 'text-gray-500'}`}>
+                    قاعدة بيانات محلية والعمل دون الحاجة إلى كمبيوتر أو خادم أو اتصال بالإنترنت.
+                  </p>
+                </button>
+              )}
             </div>
           </div>
         )}
 
-        {step === 2 && deviceRole === 'server' && (
+        {step === 2 && (deviceRole === 'server' || deviceRole === 'standalone') && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-10">
               <h2 className="text-3xl font-black text-gray-900 mb-4">تحديد نوع النشاط</h2>
