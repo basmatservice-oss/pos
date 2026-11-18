@@ -39,6 +39,15 @@ export async function mirrorNativePosDatabase(): Promise<void> {
   await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' }).catch(() => {});
 }
 
+export async function mirrorNativePosRecord(entity: string, row: any): Promise<void> {
+  if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  if (entity === 'settings' && row?.key === 'authSecret') return;
+  const recordId = getRecordId(row);
+  if (!recordId) return;
+  const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
+    ? row.syncStatus : 'local';
+  await posLocalDatabase.putRecord({ entity, recordId, record: row, syncState });
+}
 export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   for (const entity of MIRRORED_TABLES) {
