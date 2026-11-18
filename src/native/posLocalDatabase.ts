@@ -7,6 +7,10 @@ export interface PosLocalRecord {
   syncState?: 'local' | 'pending' | 'synced' | 'error';
 }
 
+export type PosLocalRecordChange =
+  | { action: 'put'; entity: string; recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }
+  | { action: 'delete'; entity: string; recordId: string };
+
 export interface PosQueuedOperation {
   operationId: string;
   type: string;
@@ -22,6 +26,7 @@ export interface PosLocalDatabasePlugin {
   initialize(): Promise<{ ready: boolean; schemaVersion: number; database: string }>;
   putRecord(options: PosLocalRecord): Promise<{ saved: boolean; recordId: string }>;
   putRecords(options: { records: PosLocalRecord[] }): Promise<{ saved: boolean; count: number }>;
+  applyRecordChanges(options: { changes: PosLocalRecordChange[] }): Promise<{ applied: number; count: number }>;
   applyRecordChanges(options: { changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }> }): Promise<{ applied: number; count: number }>;
   replaceRecords(options: { entity: string; records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }> }): Promise<{ replaced: boolean; count: number }>;
   saveRecordAndEnqueueOperation(options: PosLocalRecord & PosQueuedOperation): Promise<{
@@ -202,4 +207,27 @@ export async function replaceNativePosRecords(
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.replaceRecords({ entity, records });
   return result.replaced === true && result.count === records.length;
+}
+
+export async function applyNativePosRecordChanges(changes: PosLocalRecordChange[]): Promise<number> {
+  if (!(await ensureNativePosDatabase())) return 0;
+  if (changes.length === 0) return 0;
+  const identities = new Set<string>();
+  for (const change of changes) {
+    if (!change.entity.trim() || !change.recordId.trim()) {
+      throw new Error('Native SQLite record changes require entity and record ID');
+    }
+    const identity = JSON.stringify([change.entity, change.recordId]);
+    if (identities.has(identity)) throw new Error('Duplicate native SQLite record change');
+    identities.add(identity);
+    if (change.action === 'put' && (!change.record || typeof change.record !== 'object' || Array.isArray(change.record))) {
+      throw new Error('Native SQLite put changes require a record object');
+    }
+  }
+  const result = await posLocalDatabase.applyRecordChanges({ changes });
+  if (!Number.isInteger(result.count) || result.count !== changes.length ||
+      !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length) {
+    throw new Error('SQLite returned an invalid atomic record-change result');
+  }
+  return result.applied;
 }
