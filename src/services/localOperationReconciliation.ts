@@ -74,12 +74,51 @@ function replaceEntityReferences(value: any, keys: Set<string>, oldId: string, n
   return updated;
 }
 
+const localReferenceStores: Record<string, Record<string, string[]>> = {
+  products: {
+    orderItems: ['productId'], returnItems: ['productId'], purchaseItems: ['productId'],
+    purchaseReturnItems: ['productId'], stocktakingEntries: ['productId'], inventoryBatches: ['productId'],
+    serviceRecipes: ['parentProductId', 'ingredientProductId'], productUnits: ['productId'],
+    inventoryMovements: ['productId'], inventoryAlerts: ['productId'],
+  },
+  customers: {
+    orders: ['customerId'], customerPayments: ['customerId'], loyaltyTransactions: ['customerId'],
+    heldOrders: ['customerId'],
+  },
+  suppliers: {
+    purchases: ['supplierId'], supplierPayments: ['supplierId'], purchaseReturns: ['supplierId'],
+  },
+  categories: { products: ['categoryId'] },
+};
+
+async function remapLocalEntityReferences(tableName: string, oldId: string, newId: string) {
+  const stores = localReferenceStores[tableName] || {};
+  const replacement: any = /^[0-9]+$/.test(newId) ? Number(newId) : newId;
+  for (const [storeName, fields] of Object.entries(stores)) {
+    const table = (db as any)[storeName];
+    if (!table) continue;
+    const rows = await table.toArray();
+    for (const row of rows) {
+      const changes: Record<string, any> = {};
+      for (const field of fields) {
+        if (row[field] !== undefined && String(row[field]) === oldId) changes[field] = replacement;
+      }
+      if (Object.keys(changes).length) {
+        const keyPath = table.schema.primKey.keyPath;
+        const key = typeof keyPath === 'string' ? row[keyPath] : undefined;
+        if (key !== undefined) await table.update(key, changes);
+      }
+    }
+  }
+}
+
 /** Rewrites references in both durable queues after the server assigns a canonical entity ID. */
 export async function remapPendingEntityReferences(tableName: string, oldId: any, newId: any, acknowledgedOperationId?: string) {
   const keys = new Set(entityReferenceKeys[tableName] || []);
   if (!keys.size || oldId === undefined || newId === undefined || String(oldId) === String(newId)) return;
   const oldKey = String(oldId);
   const newKey = String(newId);
+  await remapLocalEntityReferences(tableName, oldKey, newKey);
   const dexiePending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   for (const operation of dexiePending) {
     if (operation.id === acknowledgedOperationId) continue;
@@ -91,9 +130,8 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
     if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
       await db.syncOperations.update(operation.id, { payload: nextPayload });
       if (isNativeAndroid()) {
-        await updateNativePendingOperationPayload(operation.id, nextPayload).catch((error) =>
-          console.warn('تعذر تحديث مرجع العملية في SQLite:', operation.id, error)
-        );
+        const updated = await updateNativePendingOperationPayload(operation.id, nextPayload);
+        if (!updated) throw new Error(`Native outbox payload was not updated: ${operation.id}`);
       }
     }
   }
@@ -107,7 +145,8 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
         nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\d+$/.test(newKey) ? Number(newKey) : newKey } };
       }
       if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
-        await updateNativePendingOperationPayload(operation.operationId, nextPayload);
+        const updated = await updateNativePendingOperationPayload(operation.operationId, nextPayload);
+      if (!updated) throw new Error(`Native outbox payload was not updated: ${operation.operationId}`);
       }
     }
   }
