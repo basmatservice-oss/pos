@@ -235,7 +235,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
       if (order.customerId) {
         const customer = await db.customers.get(order.customerId);
         if (customer) {
-          const balanceDelta = order.paymentMethod === 'credit' ? Number(order.netAmount || 0) : 0;
+          const balanceDelta = paymentMethod === 'credit' ? netAmount : 0;
           const pointsDelta = Number(pointsEarned || 0) - Number(pointsRedeemed || 0);
           await db.customers.update(customer.id!, {
             balance: roundMoney((customer.balance || 0) + balanceDelta),
