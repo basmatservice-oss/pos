@@ -603,6 +603,8 @@ async function applyPurchaseLocally(
           throw new Error('لا يمكن تعديل أو حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
         }
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
+        payload._localAffectedProductIds = oldItems.map((item) => Number(item.productId));
+        payload._localAffectedSupplierId = oldPurchase.supplierId;
         const operationId = String(payload.operationId || oldPurchase.operationId || pid);
         await reverseLocalJournalEntriesByReference(String(pid), 'تعديل أو حذف فاتورة مشتريات', payload.createdBy);
         for (let oldIndex = 0; oldIndex < oldItems.length; oldIndex++) {
@@ -1301,6 +1303,9 @@ export async function dispatchOperation(
 
   await db.syncOperations.put(opRecord);
   await applyOperationLocally(type, opRecord.payload, 'pending');
+  if (type === 'purchase_update' || type === 'purchase_delete') {
+    await db.syncOperations.update(operationId, { payload: opRecord.payload });
+  }
 
   // Android keeps a second, durable copy of every business operation in native
   // SQLite so the outbox survives WebView/IndexedDB lifecycle failures.
