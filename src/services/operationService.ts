@@ -1243,7 +1243,7 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        const localReferenceId = String(opRecord.payload?.order?.id || opRecord.payload?.purchase?.id || opRecord.payload?.id || operationId);
+        const localReferenceId = String(opRecord.payload?.order?.id || opRecord.payload?.purchase?.id || opRecord.payload?.orderId || opRecord.payload?.id || operationId);
         await removeLocalJournalEntriesForReference(localReferenceId);
         await removeLocalInventoryArtifactsForOperation(operationId);
         // The operation was already applied to the local Dexie database before
