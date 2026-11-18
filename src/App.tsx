@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { io } from 'socket.io-client';
 import { syncService } from './services/syncService';
+import { apiService } from './services/apiService';
 import Layout from './components/Layout';
 import POS from './pages/POS';
 import Dashboard from './pages/Dashboard';
@@ -224,16 +225,20 @@ function AppContent() {
           } else {
             // Fallback to server if not found locally (for existing setups, desktop only)
             try {
-              const res = await fetch('/api/settings/businessType');
-              if (res.ok) {
-                const data = await res.json();
-                if (data && data.value) {
-                  setBusinessType(data.value as BusinessType);
-                  // Assume server role if it was already set up before this update
-                  if (!roleSetting) {
-                    setDeviceRole('server');
-                    await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'synced', updatedAt: new Date().toISOString() });
-                  }
+              const data = await apiService.get('/settings/businessType');
+              if (data && data.value) {
+                setBusinessType(data.value as BusinessType);
+                await db.settings.put({
+                  key: 'businessType',
+                  value: data.value,
+                  syncStatus: 'synced',
+                  updatedAt: new Date().toISOString(),
+                });
+                // Preserve the role supplied by Electron runtime config. Only
+                // default to server when no desktop role exists.
+                if (!roleSetting && !(window as any).electronAPI?.getDeviceRole) {
+                  setDeviceRole('server');
+                  await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'synced', updatedAt: new Date().toISOString() });
                 }
               }
             } catch (e) {
