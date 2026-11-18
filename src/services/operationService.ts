@@ -37,7 +37,8 @@ async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
       : await db.settings.where('key').equals('deviceRole').first();
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
     return currentDeviceRole;
-  } catch {
+  } catch (error) {
+    if (isNativeAndroid()) throw error;
     currentDeviceRole = 'server';
     return currentDeviceRole;
   }
