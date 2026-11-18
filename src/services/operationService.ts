@@ -10,6 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
+import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 
@@ -1067,6 +1068,24 @@ export async function dispatchOperation(
   await db.syncOperations.put(opRecord);
   await applyOperationLocally(type, opRecord.payload, 'pending');
 
+  // Android keeps a second, durable copy of every business operation in native
+  // SQLite so the outbox survives WebView/IndexedDB lifecycle failures.
+  if (isNativeAndroid()) {
+    try {
+      await enqueueNativePosOperation({
+        operationId,
+        type,
+        payload: opRecord.payload,
+        deviceId,
+        branchId: branchId === undefined ? undefined : String(branchId),
+        schemaVersion: 1,
+      });
+    } catch (error) {
+      // Keep the existing Dexie queue as a recovery path if native storage fails.
+      console.error('Android SQLite outbox write failed; retaining Dexie queue:', error);
+    }
+  }
+
   if (token) {
     const reachable = await apiService.checkServerReachability(2000);
     if (reachable) {
@@ -1081,6 +1100,11 @@ export async function dispatchOperation(
           lastError: undefined,
           updatedAt: new Date().toISOString(),
         });
+        if (isNativeAndroid()) {
+          await acknowledgeNativePosOperation(operationId).catch((error) =>
+            console.error('Could not acknowledge Android SQLite outbox item:', error)
+          );
+        }
         useSyncStore.getState().setLastSynced(new Date());
         import('./syncService').then(({ syncService }) => {
           syncService.updatePendingCount();
@@ -1094,12 +1118,16 @@ export async function dispatchOperation(
           err.response.status < 500 &&
           err.response.status !== 401
         ) {
+          const message = err.response?.data?.error || err.message;
           await db.syncOperations.update(operationId, {
             status: 'conflict',
-            lastError: err.response?.data?.error || err.message,
+            lastError: message,
             updatedAt: new Date().toISOString(),
           });
-          throw new Error(err.response?.data?.error || err.message);
+          if (isNativeAndroid()) {
+            await markNativePosOperationError(operationId, message).catch(() => {});
+          }
+          throw new Error(message);
         }
       }
     }
