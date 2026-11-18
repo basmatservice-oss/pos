@@ -74,7 +74,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
   } else if (type === 'order_void') {
     const orderId = String(payload?.orderId || payload?.id || '');
-    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); }
+    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
   } else if (type === 'purchase' || type === 'purchase_update') {
     const purchaseId = String(payload?.purchase?.id || '');
     if (purchaseId) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
@@ -87,7 +87,10 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const purchaseId = String(payload?.originalPurchaseId || '');
     if (returnId) { await db.purchaseReturns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseReturnItems, (row) => String(row.purchaseReturnId) === returnId); }
     if (purchaseId) await db.purchases.update(purchaseId, { syncStatus: 'synced' });
-    for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
+    for (const item of payload?.items || []) {
+      if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
+      if (item.batchId) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
+    }
   } else if (type === 'expense') {
     if (payload?.id !== undefined) await db.expenses.update(Number(payload.id), { syncStatus: 'synced' });
   } else if (type === 'customer_payment') {
