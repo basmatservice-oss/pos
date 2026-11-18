@@ -134,7 +134,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const originalPurchase = purchaseId ? await db.purchases.get(purchaseId) : undefined;
     if (originalPurchase?.supplierId && canMark('suppliers', originalPurchase.supplierId)) await db.suppliers.update(Number(originalPurchase.supplierId), { syncStatus: 'synced' });
     const returnedProductIds = new Set((payload?.items || []).map((item: any) => String(item.productId)));
-    if (purchaseId) await markRowsSynced(db.inventoryBatches, (batch) => String(batch.purchaseId) === purchaseId && returnedProductIds.has(String(batch.productId)) && !pendingRefs.batches.has(String(batch.id)));
+    if (purchaseId) await markRowsSynced(db.inventoryBatches, (batch) => String(batch.purchaseId) === purchaseId && returnedProductIds.has(String(batch.productId)) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
     for (const item of payload?.items || []) {
       if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
       if (item.batchId && !pendingRefs.batches.has(String(item.batchId)) && !pendingRefs.products.has(String(item.productId))) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
@@ -166,7 +166,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       for (const entry of entries) {
         if (canMark('products', entry.productId)) {
           await db.products.update(Number(entry.productId), { syncStatus: 'synced' });
-          await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(entry.productId) && !pendingRefs.batches.has(String(batch.id)));
+          await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(entry.productId) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
         }
       }
     }
@@ -180,7 +180,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       }
       if (payload?.table === 'products') {
         await db.products.update(Number(serverId), { syncStatus: 'synced' });
-        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) && !pendingRefs.batches.has(String(batch.id)));
+        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
       } else {
         await table.update(serverId, { syncStatus: 'synced' });
       }
