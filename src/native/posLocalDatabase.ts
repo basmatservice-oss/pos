@@ -144,6 +144,17 @@ export async function getNativePosRecord(entity: string, recordId: string) {
   return result.item;
 }
 
+export async function updateNativePosRecordSyncState(
+  entity: string,
+  recordId: string,
+  syncState: 'local' | 'pending' | 'synced' | 'error'
+): Promise<boolean> {
+  if (!(await ensureNativePosDatabase())) return false;
+  if (!entity.trim() || !recordId.trim()) return false;
+  const result = await posLocalDatabase.updateRecordSyncState({ entity, recordId, syncState });
+  return result.updated === true && result.rows === 1;
+}
+
 export async function putNativePosRecord(record: PosLocalRecord): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.putRecord(record);
