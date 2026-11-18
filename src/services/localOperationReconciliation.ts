@@ -80,7 +80,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
   } else if (type === 'order_void') {
     const orderId = String(payload?.orderId || payload?.id || '');
-    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
+    if (orderId && canMark('orders', orderId)) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
   } else if (type === 'purchase' || type === 'purchase_update') {
     const purchaseId = String(payload?.purchase?.id || '');
     if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
