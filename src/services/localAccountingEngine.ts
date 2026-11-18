@@ -155,7 +155,7 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
 export async function reverseLocalJournalEntriesByReference(referenceId: string, reason: string, createdBy?: string): Promise<void> {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   for (const entry of entries) {
-    if (entry.status !== 'posted') continue;
+    if (entry.status !== 'posted' || String(entry.description || '').startsWith('قيد عكسي - ')) continue;
     const lines = await db.transactions.where('journalEntryId').equals(String(entry.id)).toArray();
     if (!lines.length) continue;
     const reversalLines = lines.map((line: any) => ({
