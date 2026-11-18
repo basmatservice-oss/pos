@@ -35,7 +35,7 @@ function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-async function recordLocalMovement(input: {
+export async function recordLocalInventoryMovement(input: {
   movementKey: string;
   productId: number;
   movementType: string;
@@ -155,7 +155,7 @@ export async function consumeLocalInventoryFIFO(
   }
 
   const averageUnitCost = totalCost / qtyNeeded;
-  await recordLocalMovement({
+  await recordLocalInventoryMovement({
     movementKey: `${params.sourceType || 'order'}:${params.sourceId}:out:${params.productId}:${params.movementKeySuffix}`,
     productId: params.productId,
     movementType: params.movementType || 'sale',
