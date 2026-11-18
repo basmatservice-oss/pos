@@ -706,6 +706,7 @@ async function applyPurchaseLocally(
       }).filter((item: any) => item.qty > 0);
       const itemsGoodsSum = roundMoney(normalizedItems.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
       const goodsTotal = Number(purchase.totalAmount || 0) > 0 ? roundMoney(Number(purchase.totalAmount)) : itemsGoodsSum;
+      await db.purchases.update(purchase.id, { totalAmount: goodsTotal, updatedAt: now, syncStatus });
       let remainingExtra = extraCost;
 
       for (let itemIndex = 0; itemIndex < normalizedItems.length; itemIndex++) {
@@ -785,8 +786,8 @@ async function applyPurchaseLocally(
 
       const invoicePayable =
         purchase.extraCostsPaymentMethod === 'supplier'
-          ? roundMoney(Number(purchase.totalAmount || 0) + extraCost)
-          : Number(purchase.totalAmount || 0);
+          ? roundMoney(goodsTotal + extraCost)
+          : goodsTotal;
       const remaining = roundMoney(invoicePayable - Number(purchase.paidAmount || 0));
       if (purchase.supplierId && remaining > 0) {
         const sup = await db.suppliers.get(purchase.supplierId);
