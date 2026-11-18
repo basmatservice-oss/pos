@@ -264,7 +264,7 @@ export async function restoreLocalInventoryFIFO(params: {
     });
   }
 
-  await recordLocalMovement({
+  await recordLocalInventoryMovement({
     movementKey: `${params.sourceType || 'return'}:${params.sourceId}:in:${params.productId}:${params.movementKeySuffix}`,
     productId: params.productId,
     movementType: params.movementType || 'sale_return',
