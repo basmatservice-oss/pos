@@ -632,10 +632,6 @@ async function applyPurchaseLocally(
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
         if (oldPurchase && oldPurchase.supplierId) {
-          const oldExtra =
-            Number(oldPurchase.shippingCost || 0) +
-            Number(oldPurchase.customsCost || 0) +
-            Number(oldPurchase.otherCosts || 0);
           const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
           const sup = await db.suppliers.get(oldPurchase.supplierId);
           if (sup && oldRemaining > 0) {
