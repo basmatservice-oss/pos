@@ -107,7 +107,7 @@ export const updateApiBase = async (url: string) => {
       return;
     }
 
-    const deviceRoleSetting = await db.settings.where('key').equals('deviceRole').first();
+    const deviceRoleSetting = await getRuntimeSetting('deviceRole');
     const deviceRole = deviceRoleSetting ? deviceRoleSetting.value : 'server';
 
     if (deviceRole === 'server') {
