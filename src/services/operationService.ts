@@ -1166,34 +1166,48 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
     }
   });
 }
-async function applyEntityLocally(
-  type: 'entity_upsert' | 'entity_delete',
-  payload: any,
-  syncStatus: 'synced' | 'pending',
-  serverResult?: any
-) {
+async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', payload: any, syncStatus: 'synced' | 'pending', serverResult?: any) {
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
   if (!table) return;
-
-  if (type === 'entity_delete') {
-    await table.delete(payload.id);
-    return;
+  if (type === 'entity_delete') { await table.delete(payload.id); return; }
+  if (!payload?.record) return;
+  const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
+  if (payload.record.id !== undefined && finalRecord.id !== undefined && payload.record.id !== finalRecord.id) {
+    await table.delete(payload.record.id).catch(() => {});
   }
-
-  if (payload?.record) {
-    const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
-    if (
-      payload.record.id !== undefined &&
-      finalRecord.id !== undefined &&
-      payload.record.id !== finalRecord.id
-    ) {
-      await table.delete(payload.record.id).catch(() => {});
-    }
-    await table.put({ ...finalRecord, syncStatus });
-  }
+  if (tableName !== 'products') { await table.put({ ...finalRecord, syncStatus }); return; }
+  const now = new Date().toISOString();
+  const productId = Number(finalRecord.id);
+  await db.transaction('rw', [db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
+    await db.products.put({ ...finalRecord, syncStatus });
+    if (Number(finalRecord.stockQuantity || 0) <= 0 || (finalRecord.itemType && finalRecord.itemType !== 'stock')) return;
+    const existingBatchCount = await db.inventoryBatches.where('productId').equals(productId).count();
+    if (existingBatchCount > 0) return;
+    const quantity = roundQty(Number(finalRecord.stockQuantity || 0));
+    const unitCost = Number(finalRecord.costPrice || 0);
+    const batchId = generateUUID();
+    await db.inventoryBatches.put({
+      id: batchId, productId, purchaseId: null, quantity, remainingQuantity: quantity, costPrice: unitCost,
+      purchaseDate: now, branchId: finalRecord.branchId, syncStatus, createdAt: now, updatedAt: now,
+    });
+    const openingValue = roundMoney(quantity * unitCost);
+    await recordLocalInventoryMovement({
+      movementKey: 'opening:' + String(productId), productId, movementType: 'opening_balance',
+      sourceType: 'product', sourceId: String(productId), quantityDeltaBase: quantity, unitCost, totalCost: openingValue,
+      branchId: finalRecord.branchId, operationId: String(payload.operationId || productId), reason: 'رصيد افتتاحي للصنف',
+      createdBy: payload.createdBy || 'System', createdAt: now, syncStatus,
+    });
+    if (syncStatus === 'pending' && openingValue > 0) await postLocalJournalEntry({
+      referenceId: 'opening:' + String(productId), referenceType: 'opening', entryKey: 'opening-' + String(payload.operationId || productId),
+      date: now, description: 'رصيد افتتاحي للمخزون: ' + String(finalRecord.name || productId),
+      lines: [
+        { accountCode: '1200', debit: openingValue, credit: 0 },
+        { accountCode: '3100', debit: 0, credit: openingValue },
+      ], createdBy: payload.createdBy || 'System', branchId: finalRecord.branchId,
+    });
+  });
 }
-
 async function applyOperationLocally(
   type: SyncOperation['type'],
   payload: any,
