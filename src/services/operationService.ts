@@ -953,7 +953,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
   await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions], async () => {
-    const paymentId = payload.paymentId || payload.operationId || generateUUID();
+    const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.customerPayments.get(paymentId)) return;
     const cust = await db.customers.get(Number(payload.customerId));
     if (!cust || payAmount <= 0) throw new Error('بيانات تحصيل العميل غير صالحة');
@@ -983,7 +983,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
       notes: payload.notes,
       shiftId: payload.shiftId,
-      branchId: payload.branchId,
+      branchId: payload.branchId ?? cust.branchId,
       createdBy: payload.createdBy,
       operationId: payload.operationId,
       syncStatus,
@@ -995,7 +995,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       lines: [
         { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: payAmount, credit: 0, orderId: payload.orderId },
         { accountCode: '1100', debit: 0, credit: payAmount, orderId: payload.orderId },
-      ], createdBy: payload.createdBy, branchId: payload.branchId,
+      ], createdBy: payload.createdBy, branchId: payload.branchId ?? cust.branchId,
     });
   });
 }
