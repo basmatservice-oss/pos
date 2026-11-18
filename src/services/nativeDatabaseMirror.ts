@@ -1,16 +1,8 @@
 import { db } from '../db/db';
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
-import { getNativePosRecordId } from '../native/nativePosRepository';
+import { getNativePosRecordId, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
-const MIRRORED_TABLES = [
-  'products', 'categories', 'orders', 'orderItems', 'returns', 'returnItems', 'accounts', 'shifts',
-  'shiftMovements', 'customers', 'customerPayments', 'expenses', 'suppliers', 'supplierPayments',
-  'employees', 'settings', 'purchases', 'purchaseItems', 'purchaseReturns', 'purchaseReturnItems',
-  'attendance', 'loyaltyTransactions', 'branches', 'payroll', 'offers', 'auditLogs', 'journalEntries',
-  'transactions', 'stocktakingSessions', 'stocktakingEntries', 'inventoryBatches', 'inventoryAlerts',
-  'heldOrders', 'serviceRecipes', 'exchangeRateHistory', 'fiscalPeriods', 'unitDefinitions',
-  'productUnits', 'inventoryMovements',
-] as const;
+const MIRRORED_TABLES = NATIVE_POS_ENTITIES;;
 
 function serializeDexieKey(value: unknown): string {
   if (value === undefined || value === null) return '';
