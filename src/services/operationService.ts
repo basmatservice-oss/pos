@@ -627,7 +627,7 @@ async function applyPurchaseLocally(
         const existingReturns = await db.purchaseReturns.where('originalPurchaseId').equals(String(pid)).count();
         if (existingReturns > 0) throw new Error('لا يمكن تعديل أو حذف فاتورة شراء لها مرتجعات مسجلة');
         const oldBatches = await db.inventoryBatches.where('purchaseId').equals(String(pid)).toArray();
-        if (oldBatches.some((batch) => Number(batch.remainingQuantity ?? batch.quantity) < Number(batch.quantity || 0))) {
+        if (oldBatches.some((batch) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
           throw new Error('لا يمكن تعديل أو حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
         }
         const oldItems = await db.purchaseItems.where('purchaseId').equals(pid).toArray();
@@ -659,8 +659,8 @@ async function applyPurchaseLocally(
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
         for (const productId of new Set(oldItems.map((item) => Number(item.productId)))) {
-          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === productId && Number(batch.remainingQuantity ?? batch.quantity) > 0);
-          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity), 0);
+          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === productId && Number(batch.remainingQuantity || 0) > 0);
+          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
           const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
           if (activeQty > 0) await db.products.update(productId, { costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus });
         }
@@ -751,8 +751,8 @@ async function applyPurchaseLocally(
         });
         const prod = await db.products.get(item.productId);
         if (prod) {
-          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === Number(item.productId) && Number(batch.remainingQuantity ?? batch.quantity) > 0);
-          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity), 0);
+          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === Number(item.productId) && Number(batch.remainingQuantity || 0) > 0);
+          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
           const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
           const weightedCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCostPerBaseUnit;
           await db.products.update(prod.id!, {
@@ -848,8 +848,8 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       const product = await db.products.get(productId);
       if (!batch && (!product || Number(product.stockQuantity || 0) < qty)) throw new Error('المخزون المتاح لا يكفي لإرجاع المنتج ' + String(reqItem.productName || productId));
       if (product) {
-        const activeBatches = (await db.inventoryBatches.toArray()).filter((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity ?? entry.quantity) > 0);
-        const activeQty = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity ?? entry.quantity), 0);
+        const activeBatches = (await db.inventoryBatches.toArray()).filter((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
+        const activeQty = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity || 0), 0);
         const activeValue = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity ?? entry.quantity) * Number(entry.costPrice || 0), 0);
         await db.products.update(product.id!, {
           stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
