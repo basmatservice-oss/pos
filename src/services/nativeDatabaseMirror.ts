@@ -2,7 +2,7 @@ import { db } from '../db/db';
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
 import { getNativePosRecordId, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
-const MIRRORED_TABLES = NATIVE_POS_ENTITIES;;
+const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
 function serializeDexieKey(value: unknown): string {
   if (value === undefined || value === null) return '';
