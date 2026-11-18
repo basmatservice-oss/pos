@@ -1389,6 +1389,70 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
   return payload;
 }
 
+async function assertLocalOpenFiscalPeriod(dateValues: Array<string | undefined>, payload: any): Promise<void> {
+  const periods = await db.fiscalPeriods.toArray();
+  if (!periods.length) return;
+  let userRole = '';
+  try { userRole = JSON.parse(localStorage.getItem('user') || 'null')?.role || ''; } catch {}
+  const adminOverride = Boolean(payload?.allowClosedPeriodOverride) && (userRole === 'admin' || userRole === 'manager');
+  for (const value of dateValues) {
+    const targetDay = String(value || new Date().toISOString()).slice(0, 10);
+    const closed = periods.find((period) =>
+      period.status === 'closed' &&
+      String(period.startDate || '').slice(0, 10) <= targetDay &&
+      String(period.endDate || '').slice(0, 10) >= targetDay
+    );
+    if (closed && !adminOverride) {
+      throw new Error(`الفترة المالية (${closed.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`);
+    }
+  }
+}
+
+async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], payload: any): Promise<void> {
+  const now = new Date().toISOString();
+  const dates: Array<string | undefined> = [];
+  switch (type) {
+    case 'sale':
+      dates.push(payload?.order?.createdAt || now);
+      break;
+    case 'return':
+      dates.push(payload?.returnDate || now);
+      break;
+    case 'order_void': {
+      const order = await db.orders.get(String(payload?.orderId || payload?.id || ''));
+      dates.push(order?.createdAt || now);
+      break;
+    }
+    case 'purchase':
+      dates.push(payload?.purchase?.date || now);
+      break;
+    case 'purchase_update': {
+      const oldPurchase = await db.purchases.get(String(payload?.purchase?.id || ''));
+      dates.push(oldPurchase?.date || now, payload?.purchase?.date || now);
+      break;
+    }
+    case 'purchase_delete': {
+      const oldPurchase = await db.purchases.get(String(payload?.id || ''));
+      if (oldPurchase) dates.push(oldPurchase.date || now);
+      break;
+    }
+    case 'purchase_return':
+    case 'customer_payment':
+    case 'supplier_payment':
+    case 'shift_movement':
+    case 'stocktake_approve':
+      dates.push(now);
+      break;
+    case 'expense':
+      dates.push(payload?.date || now);
+      break;
+    case 'payroll':
+      dates.push(payload?.paymentDate || now);
+      break;
+  }
+  if (dates.length) await assertLocalOpenFiscalPeriod(dates, payload);
+}
+
 export async function dispatchOperation(
   type: SyncOperation['type'],
   rawPayload: any,
@@ -1430,6 +1494,8 @@ export async function dispatchOperation(
   };
 
   if (role === 'standalone') {
+    // Apply the same closed-period posting restriction used by the server.
+    await validateStandaloneFiscalPeriod(type, opRecord.payload);
     // Standalone transactions are committed locally and are not placed in a
     // server synchronization queue.
     await applyOperationLocally(type, opRecord.payload, 'synced');
