@@ -1416,7 +1416,7 @@ export async function dispatchOperation(
         await db.syncOperations.update(operationId, {
           status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
         });
-        await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId);
+        await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId, response.result);
         // The operation was already applied to the local Dexie database before
         // it was sent. Reapplying the business mutation here would deduct stock,
         // restore returns, or change balances a second time. Mark it acknowledged
