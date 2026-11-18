@@ -621,7 +621,7 @@ async function applyPurchaseLocally(
             });
           }
           await recordLocalInventoryMovement({
-            movementKey: 'purchase:' + String(pid) + ':' + operationId + ':out:' + String(item.productId) + ':' + String(oldIndex),
+            movementKey: 'purchase_reversal:' + String(pid) + ':' + operationId + ':out:' + String(item.productId) + ':' + String(oldIndex),
             productId: Number(item.productId), movementType: 'purchase_reversal', sourceType: 'purchase', sourceId: String(pid),
             quantityDeltaBase: -baseQty, unitCost: Number(item.landedCostPerBaseUnit || item.costPrice || 0),
             totalCost: roundMoney(baseQty * Number(item.landedCostPerBaseUnit || item.costPrice || 0)),
@@ -636,7 +636,7 @@ async function applyPurchaseLocally(
             Number(oldPurchase.shippingCost || 0) +
             Number(oldPurchase.customsCost || 0) +
             Number(oldPurchase.otherCosts || 0);
-          const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) + (oldPurchase.extraCostsPaymentMethod === 'supplier' ? oldExtra : 0) - Number(oldPurchase.paidAmount || 0));
+          const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
           const sup = await db.suppliers.get(oldPurchase.supplierId);
           if (sup && oldRemaining > 0) {
             await db.suppliers.update(sup.id!, {
