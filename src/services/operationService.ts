@@ -1478,7 +1478,7 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
 }
 
 async function assertLocalOpenFiscalPeriod(dateValues: Array<string | undefined>, payload: any): Promise<void> {
-  const periods = await db.fiscalPeriods.toArray();
+  const periods = await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
   let userRole = '';
   try { userRole = JSON.parse(localStorage.getItem('user') || 'null')?.role || ''; } catch {}
@@ -1507,7 +1507,7 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.returnDate || now);
       break;
     case 'order_void': {
-      const order = await db.orders.get(String(payload?.orderId || payload?.id || ''));
+      const order = await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
       dates.push(order?.createdAt || now);
       break;
     }
@@ -1515,12 +1515,12 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.purchase?.date || now);
       break;
     case 'purchase_update': {
-      const oldPurchase = await db.purchases.get(String(payload?.purchase?.id || ''));
+      const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
       dates.push(oldPurchase?.date || now, payload?.purchase?.date || now);
       break;
     }
     case 'purchase_delete': {
-      const oldPurchase = await db.purchases.get(String(payload?.id || ''));
+      const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.id || ''));
       if (oldPurchase) dates.push(oldPurchase.date || now);
       break;
     }
