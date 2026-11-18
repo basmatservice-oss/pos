@@ -28,7 +28,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
         .map((row: any) => ({
           recordId: getRecordId(row),
           record: row as Record<string, unknown>,
-          syncState: row.syncStatus || 'local',
+          syncState: row.syncStatus === 'pending' || row.syncStatus === 'synced' || row.syncStatus === 'error' ? row.syncStatus : 'local',
         }))
         .filter((entry: any) => entry.recordId.length > 0);
       await replaceNativePosRecords(entity, records);
