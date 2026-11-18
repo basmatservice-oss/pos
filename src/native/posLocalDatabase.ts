@@ -34,6 +34,7 @@ export interface PosLocalDatabasePlugin {
     duplicate: boolean;
     operationId: string;
   }>;
+  getRecordsByField(options: { entity: string; field: string; valueJson: string }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecords(options: { entity: string }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecordsByIds(options: { entity: string; recordIds: string[] }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecord(options: { entity: string; recordId: string }): Promise<{ found: boolean; item?: { recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number } | null }>;
@@ -164,6 +165,16 @@ export async function putNativePosRecord(record: PosLocalRecord): Promise<boolea
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.putRecord(record);
   return result.saved === true && result.recordId === record.recordId;
+}
+
+export async function getNativePosRecordsByField(entity: string, field: string, value: string | number | boolean) {
+  if (!(await ensureNativePosDatabase())) return [];
+  if (!entity.trim() || !field.trim()) return [];
+  const valueJson = JSON.stringify(value);
+  if (valueJson === undefined) throw new Error('Unsupported SQLite field lookup value');
+  const result = await posLocalDatabase.getRecordsByField({ entity, field, valueJson });
+  if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid field lookup result');
+  return result.records.filter((item) => item.record && typeof item.record === 'object');
 }
 
 export async function getAllNativePosRecords(entity: string) {
