@@ -872,6 +872,186 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const operationId = String(payload.operationId || id);
+  if (isNativeAndroid()) {
+    if (await nativePosRepository.get<any>('purchaseReturns', id)) return;
+    const origPurchase = await nativePosRepository.get<any>('purchases', String(originalPurchaseId));
+    if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
+    const [allBatches, products, supplier, existingMovements, accounts] = await Promise.all([
+      nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
+      nativePosRepository.getAll<any>('products'),
+      origPurchase.supplierId ? nativePosRepository.get<any>('suppliers', origPurchase.supplierId) : Promise.resolve(null),
+      nativePosRepository.getAll<any>('inventoryMovements'),
+      nativePosRepository.getAll<any>('accounts'),
+    ]);
+    const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
+    const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
+    const batchMap = new Map<string, any>(allBatches.map((b: any) => [String(b.id), b]));
+    const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
+    const changes: any[] = [];
+    const itemDocs: any[] = [];
+    let totalReturn = 0;
+    let processedItems = 0;
+    for (const reqItem of items) {
+      const qty = roundQty(Number(reqItem.quantity || 0));
+      if (qty <= 0) continue;
+      const productId = Number(reqItem.productId);
+      const batch = reqItem.batchId
+        ? batchMap.get(String(reqItem.batchId))
+        : [...batchMap.values()].find((entry: any) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) >= qty)
+          || [...batchMap.values()].find((entry: any) => Number(entry.productId) === productId);
+      if (batch) {
+        const remaining = Number(batch.remainingQuantity || 0);
+        if (remaining < qty) throw new Error('الكمية المتبقية في الدفعة أقل من كمية مرتجع المشتريات');
+        const updatedBatch = { ...batch, remainingQuantity: roundQty(remaining - qty), updatedAt: now, syncStatus };
+        batchMap.set(String(batch.id), updatedBatch);
+        changes.push({ action: 'put', entity: 'inventoryBatches', record: updatedBatch, syncState: syncStatus });
+      }
+      const product = productMap.get(productId);
+      if (!batch && (!product || Number(product.stockQuantity || 0) < qty)) {
+        throw new Error('المخزون المتاح لا يكفي لإرجاع المنتج ' + String(reqItem.productName || productId));
+      }
+      if (product) {
+        const activeBatches = [...batchMap.values()].filter((entry: any) =>
+          Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
+        const activeQty = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0), 0);
+        const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
+        const updatedProduct = {
+          ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
+          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
+          updatedAt: now, syncStatus,
+        };
+        productMap.set(productId, updatedProduct);
+        changes.push({ action: 'put', entity: 'products', record: updatedProduct, syncState: syncStatus });
+      }
+      const cost = Number(reqItem.costPrice ?? batch?.costPrice ?? 0);
+      const lineTotal = roundMoney(qty * cost);
+      totalReturn = roundMoney(totalReturn + lineTotal);
+      const itemDoc: any = {
+        id: generateUUID(), purchaseReturnId: id, productId, productName: reqItem.productName || '',
+        quantity: qty, costPrice: cost, total: lineTotal, batchId: batch?.id ? String(batch.id) : undefined,
+        syncStatus, createdAt: now,
+      };
+      itemDocs.push(itemDoc);
+      changes.push({ action: 'put', entity: 'purchaseReturnItems', record: itemDoc, syncState: syncStatus });
+      processedItems += 1;
+      const movementKey = 'purchase_return:' + String(id) + ':out:' + String(productId) + ':' + String(processedItems);
+      if (!movementKeys.has(movementKey)) {
+        const movement = {
+          id: generateUUID(), movementKey, productId, movementType: 'purchase_return',
+          sourceType: 'purchase_return', sourceId: String(id), quantityDeltaBase: -qty,
+          baseUnitCode: product?.baseUnitCode || product?.unit || 'piece',
+          unitCost: cost, totalCost: lineTotal, branchId: branchId ?? origPurchase.branchId,
+          operationId, reason: reason || 'مرتجع مشتريات للمورد', createdBy: createdBy || 'System',
+          createdAt: now, syncStatus,
+        };
+        changes.push({ action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus });
+        movementKeys.add(movementKey);
+      }
+    }
+    if (processedItems === 0) throw new Error('لا توجد أصناف صالحة لمرتجع المشتريات');
+    const newReturned = roundMoney(Number(origPurchase.returnedAmount || 0) + totalReturn);
+    if (newReturned > roundMoney(Number(origPurchase.totalAmount || 0)) + 0.05) throw new Error('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء');
+    const netPayable = Math.max(0, roundMoney(Number(origPurchase.totalAmount || 0) - newReturned));
+    const paid = roundMoney(Number(origPurchase.paidAmount || 0));
+    const updatedPurchase = {
+      ...origPurchase, returnedAmount: newReturned,
+      paymentStatus: paid >= netPayable ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+      updatedAt: now, syncStatus,
+    };
+    changes.push({ action: 'put', entity: 'purchases', record: updatedPurchase, syncState: syncStatus });
+    let updatedSupplier: any = null;
+    if (refundMethod === 'credit_adjustment' && supplier) {
+      updatedSupplier = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - totalReturn), updatedAt: now, syncStatus };
+      changes.push({ action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus });
+    }
+    const retDoc: any = {
+      id, returnNumber, originalPurchaseId: String(originalPurchaseId), supplierId: origPurchase.supplierId,
+      supplierName: origPurchase.supplierName, branchId: branchId ?? origPurchase.branchId, shiftId,
+      refundMethod, totalReturn, reason, createdBy, createdAt: now, updatedAt: now, syncStatus,
+    };
+    changes.push({ action: 'put', entity: 'purchaseReturns', record: retDoc, syncState: syncStatus });
+    let journalEntry: any = null;
+    const journalLines: any[] = [];
+    if (shouldPostLocalAccounting(syncStatus) && totalReturn > 0) {
+      const debitCode = refundMethod === 'cash' ? '1010' : refundMethod === 'card' ? '1020' : '2100';
+      const definitions: any = {
+        [debitCode]: debitCode === '1010' ? { name: 'الصندوق', type: 'asset' } : debitCode === '1020' ? { name: 'البنك / الشبكة', type: 'asset' } : { name: 'ذمم الموردين', type: 'liability' },
+        '1200': { name: 'المخزون', type: 'asset' },
+      };
+      const entryId = `local-je:purchase_return:${id}:purchase-return-${operationId}`;
+      if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+        const lines = [
+          { accountCode: debitCode, debit: totalReturn, credit: 0 },
+          { accountCode: '1200', debit: 0, credit: totalReturn },
+        ];
+        for (const line of lines) {
+          const definition = definitions[line.accountCode];
+          const account = accountMap.get(line.accountCode) || {
+            code: line.accountCode, name: definition.name, type: definition.type,
+            balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+          };
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+          const updatedAccount = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
+          accountMap.set(line.accountCode, updatedAccount);
+          changes.push({ action: 'put', entity: 'accounts', record: updatedAccount, syncState: syncStatus });
+        }
+        journalEntry = {
+          id: entryId, entryNumber: `LOCAL-purchase-return-${String(id).slice(0, 8)}`, date: now,
+          referenceId: String(id), referenceType: 'purchase_return',
+          description: 'مرتجع مشتريات ' + String(returnNumber || id) + ' للمورد ' + String(origPurchase.supplierName || ''),
+          totalDebit: totalReturn, totalCredit: totalReturn, status: 'posted',
+          createdBy: createdBy || 'System', branchId: branchId ?? origPurchase.branchId,
+          syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: journalEntry, syncState: journalEntry.syncStatus });
+        lines.forEach((line, index) => {
+          const transaction = {
+            id: `${entryId}:${index}`, journalEntryId: entryId, accountId: line.accountCode,
+            accountName: accountMap.get(line.accountCode)?.name || line.accountCode,
+            type: line.debit > 0 ? 'debit' : 'credit', amount: line.debit || line.credit,
+            debit: line.debit, credit: line.credit, description: journalEntry.description,
+            purchaseId: String(originalPurchaseId), syncStatus: journalEntry.syncStatus, createdAt: now,
+          };
+          journalLines.push(transaction);
+          changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: journalEntry.syncStatus });
+        });
+      }
+    }
+    let audit: any = null;
+    if (currentDeviceRole === 'standalone') {
+      audit = {
+        id: generateUUID(), date: now, userName: createdBy || 'System', type: 'purchase_return',
+        action: 'مرتجع مشتريات', operationName: 'إرجاع مشتريات للمورد',
+        details: 'مرتجع ' + String(returnNumber || id) + ' للمورد ' + String(origPurchase.supplierName || ''),
+        quantity: processedItems, value: totalReturn, branchId: branchId ?? origPurchase.branchId,
+        entityId: String(id), entityName: String(returnNumber || id), syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'auditLogs', record: audit, syncState: syncStatus });
+    }
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
+    await db.transaction('rw', [
+      db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products,
+      db.suppliers, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
+    ], async () => {
+      await db.purchaseReturns.put(retDoc);
+      if (itemDocs.length) await db.purchaseReturnItems.bulkPut(itemDocs);
+      await db.purchases.put(updatedPurchase);
+      for (const change of changes) {
+        if (change.entity === 'inventoryBatches') await db.inventoryBatches.put(change.record);
+        else if (change.entity === 'products') await db.products.put(change.record);
+        else if (change.entity === 'inventoryMovements') await db.inventoryMovements.put(change.record);
+        else if (change.entity === 'suppliers') await db.suppliers.put(change.record);
+        else if (change.entity === 'accounts') await db.accounts.put(change.record);
+        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
+        else if (change.entity === 'transactions') await db.transactions.put(change.record);
+        else if (change.entity === 'auditLogs') await db.auditLogs.put(change.record);
+      }
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
   await db.transaction('rw', [
     db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers,
     db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
