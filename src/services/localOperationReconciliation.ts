@@ -85,9 +85,11 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const purchaseId = String(payload?.purchase?.id || '');
     if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
+    for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await db.products.update(Number(productId), { syncStatus: 'synced' });
     if (payload?.purchase?.supplierId && canMark('suppliers', payload.purchase.supplierId)) await db.suppliers.update(Number(payload.purchase.supplierId), { syncStatus: 'synced' });
   } else if (type === 'purchase_delete') {
-    // The deleted purchase and its child rows no longer need local push status.
+    for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await db.products.update(Number(productId), { syncStatus: 'synced' });
+    if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await db.suppliers.update(Number(payload._localAffectedSupplierId), { syncStatus: 'synced' });
   } else if (type === 'purchase_return') {
     const returnId = String(payload?.id || '');
     const purchaseId = String(payload?.originalPurchaseId || '');
