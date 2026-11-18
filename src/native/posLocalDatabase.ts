@@ -30,6 +30,7 @@ export interface PosLocalDatabasePlugin {
     operationId: string;
   }>;
   getRecords(options: { entity: string }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
+  getRecordsByIds(options: { entity: string; recordIds: string[] }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecord(options: { entity: string; recordId: string }): Promise<{ found: boolean; item?: { recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number } | null }>;
   updateRecordSyncState(options: { entity: string; recordId: string; syncState: 'local' | 'pending' | 'synced' | 'error' }): Promise<{ updated: boolean; rows: number }>;
   deleteRecord(options: { entity: string; recordId: string }): Promise<{ deleted: boolean; rows: number }>;
@@ -120,6 +121,19 @@ export async function markNativePosOperationConflict(operationId: string, messag
       syncState: 'error',
     });
   }
+}
+
+export async function getNativePosRecordsByIds(entity: string, recordIds: string[]) {
+  if (!(await ensureNativePosDatabase())) return [];
+  if (!entity.trim() || recordIds.length === 0) return [];
+  const uniqueIds = Array.from(new Set(recordIds.map((id) => id.trim())));
+  if (uniqueIds.some((id) => !id)) throw new Error('Record IDs must not be empty');
+  const result = await posLocalDatabase.getRecordsByIds({ entity, recordIds: uniqueIds });
+  if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid record collection');
+  const requested = new Set(uniqueIds);
+  return result.records.filter((item) =>
+    requested.has(item.recordId) && item.record && typeof item.record === 'object'
+  );
 }
 
 export async function getNativePosRecord(entity: string, recordId: string) {
