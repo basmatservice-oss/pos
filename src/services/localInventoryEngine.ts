@@ -22,6 +22,7 @@ export interface ConsumeLocalInventoryParams {
   createdBy?: string;
   createdAt: string;
   allowNegative: boolean;
+  syncStatus?: 'synced' | 'pending';
 }
 
 export interface ConsumeLocalInventoryResult {
@@ -48,6 +49,7 @@ async function recordLocalMovement(input: {
   reason?: string;
   createdBy?: string;
   createdAt: string;
+  syncStatus?: 'synced' | 'pending';
 }) {
   const existing = await db.inventoryMovements.where('movementKey').equals(input.movementKey).first();
   if (existing) return;
@@ -67,7 +69,7 @@ async function recordLocalMovement(input: {
     operationId: input.operationId,
     reason: input.reason,
     createdBy: input.createdBy || 'System',
-    syncStatus: 'pending',
+    syncStatus: input.syncStatus || 'pending',
     createdAt: input.createdAt,
   });
 }
@@ -116,7 +118,7 @@ export async function consumeLocalInventoryFIFO(
     await db.inventoryBatches.update(batch.id!, {
       remainingQuantity: roundQty(Math.max(0, available - take)),
       updatedAt: params.createdAt,
-      syncStatus: 'pending',
+      syncStatus: params.syncStatus || 'pending',
     });
     const costPrice = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
     totalCost += take * costPrice;
@@ -133,7 +135,7 @@ export async function consumeLocalInventoryFIFO(
   await db.products.update(product.id!, {
     stockQuantity: nextQty,
     updatedAt: params.createdAt,
-    syncStatus: 'pending',
+    syncStatus: params.syncStatus || 'pending',
   });
 
   if (nextQty < -1e-6) {
@@ -167,6 +169,7 @@ export async function consumeLocalInventoryFIFO(
     reason: params.reason,
     createdBy: params.createdBy,
     createdAt: params.createdAt,
+    syncStatus: params.syncStatus,
   });
 
   return {
@@ -189,6 +192,7 @@ export async function restoreLocalInventoryFIFO(params: {
   reason?: string;
   createdBy?: string;
   createdAt: string;
+  syncStatus?: 'synced' | 'pending';
 }): Promise<number> {
   const qtyToRestore = roundQty(params.quantityInBaseUnits);
   if (qtyToRestore <= 0) return 0;
@@ -209,7 +213,7 @@ export async function restoreLocalInventoryFIFO(params: {
       await db.inventoryBatches.update(batch.id!, {
         remainingQuantity: roundQty(current + putBack),
         updatedAt: params.createdAt,
-        syncStatus: 'pending',
+        syncStatus: params.syncStatus || 'pending',
       });
     } else {
       const batchId = generateUUID();
@@ -222,7 +226,7 @@ export async function restoreLocalInventoryFIFO(params: {
         costPrice: Number(allocation.costPrice ?? params.fallbackCost),
         purchaseDate: params.createdAt,
         branchId: params.branchId,
-        syncStatus: 'pending',
+        syncStatus: params.syncStatus || 'pending',
         createdAt: params.createdAt,
         updatedAt: params.createdAt,
       });
@@ -272,6 +276,14 @@ export async function restoreLocalInventoryFIFO(params: {
     reason: params.reason,
     createdBy: params.createdBy,
     createdAt: params.createdAt,
+    syncStatus: params.syncStatus,
   });
   return roundMoney(totalCost);
+}
+
+export async function removeLocalInventoryArtifactsForOperation(operationId: string): Promise<void> {
+  const movements = await db.inventoryMovements.where('operationId').equals(operationId).toArray();
+  if (movements.length) await db.inventoryMovements.bulkDelete(movements.map((movement) => movement.id));
+  const alerts = await db.inventoryAlerts.where('operationId').equals(operationId).toArray();
+  if (alerts.length) await db.inventoryAlerts.bulkDelete(alerts.map((alert) => alert.id));
 }
