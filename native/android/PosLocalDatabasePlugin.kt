@@ -412,7 +412,7 @@ class PosLocalDatabasePlugin : Plugin() {
         try {
             // JSON1 performs the equality lookup in SQLite instead of loading
             // every entity record into the WebView for JavaScript filtering.
-            val path = "$." + field
+            val path = "\$." + field
             val rows = JSArray()
             helper.readableDatabase.rawQuery(
                 "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
