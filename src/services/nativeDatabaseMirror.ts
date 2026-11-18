@@ -15,7 +15,7 @@ function serializeDexieKey(value: unknown): string {
   if (value === undefined || value === null) return '';
   // JSON preserves the distinction between numeric and string Dexie keys,
   // and also supports compound keys without collapsing their components.
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? '';
 }
 
 function getRecordId(entity: string, row: any): string {
