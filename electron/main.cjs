@@ -189,8 +189,10 @@ ipcMain.handle('app:set-device-role', (_event, role) => {
   }
   const previousRole = readConfiguredRole();
   const configPath = getRoleConfigPath();
+  const config = readRuntimeConfig();
+  config.deviceRole = role;
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify({ deviceRole: role }, null, 2), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
   // Restart once when the role changes so the local backend binds to the correct interface.
   if (!IS_DEV && previousRole !== role) {
