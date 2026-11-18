@@ -51,7 +51,7 @@ async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record
 }
 
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string) {
-  const referenceId = String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || operationId);
+  const referenceId = String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
 
