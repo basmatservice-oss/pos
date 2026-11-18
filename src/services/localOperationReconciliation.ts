@@ -9,6 +9,8 @@ function collectPendingReferences(value: any, refs: Record<string, Set<string>>)
       if (key === 'productId' || key === 'ingredientProductId') refs.products.add(String(child));
       if (key === 'customerId') refs.customers.add(String(child));
       if (key === 'supplierId') refs.suppliers.add(String(child));
+      if (key === 'orderId' || key === 'originalOrderId') refs.orders.add(String(child));
+      if (key === 'purchaseId' || key === 'originalPurchaseId') refs.purchases.add(String(child));
     } else if (child && typeof child === 'object') collectPendingReferences(child, refs);
   }
 }
@@ -50,13 +52,13 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   await removeLocalInventoryArtifactsForOperation(operationId);
 
   const pending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
-  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>() };
+  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>() };
   for (const operation of pending) collectPendingReferences(operation.payload, pendingRefs);
-  const canMark = (kind: 'products' | 'customers' | 'suppliers', id: any) => !pendingRefs[kind].has(String(id));
+  const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
 
   if (type === 'sale') {
     const orderId = String(payload?.order?.id || '');
-    if (orderId) {
+    if (orderId && canMark('orders', orderId)) {
       await db.orders.update(orderId, { syncStatus: 'synced' });
       await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId);
       await markRowsSynced(db.loyaltyTransactions, (row) => String(row.orderId) === orderId);
@@ -70,14 +72,14 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const returnId = String(payload?.id || '');
     const orderId = String(payload?.originalOrderId || '');
     if (returnId) { await db.returns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.returnItems, (row) => String(row.returnId) === returnId); }
-    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
+    if (orderId && canMark('orders', orderId)) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
   } else if (type === 'order_void') {
     const orderId = String(payload?.orderId || payload?.id || '');
     if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
   } else if (type === 'purchase' || type === 'purchase_update') {
     const purchaseId = String(payload?.purchase?.id || '');
-    if (purchaseId) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
+    if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
     if (payload?.purchase?.supplierId && canMark('suppliers', payload.purchase.supplierId)) await db.suppliers.update(Number(payload.purchase.supplierId), { syncStatus: 'synced' });
   } else if (type === 'purchase_delete') {
@@ -86,7 +88,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const returnId = String(payload?.id || '');
     const purchaseId = String(payload?.originalPurchaseId || '');
     if (returnId) { await db.purchaseReturns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseReturnItems, (row) => String(row.purchaseReturnId) === returnId); }
-    if (purchaseId) await db.purchases.update(purchaseId, { syncStatus: 'synced' });
+    if (purchaseId && canMark('purchases', purchaseId)) await db.purchases.update(purchaseId, { syncStatus: 'synced' });
     for (const item of payload?.items || []) {
       if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
       if (item.batchId) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
@@ -97,12 +99,12 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const paymentId = String(payload?.paymentId || operationId);
     await db.customerPayments.update(paymentId, { syncStatus: 'synced' });
     if (payload?.customerId && canMark('customers', payload.customerId)) await db.customers.update(Number(payload.customerId), { syncStatus: 'synced' });
-    if (payload?.orderId) await db.orders.update(String(payload.orderId), { syncStatus: 'synced' });
+    if (payload?.orderId && canMark('orders', payload.orderId)) await db.orders.update(String(payload.orderId), { syncStatus: 'synced' });
   } else if (type === 'supplier_payment') {
     const paymentId = String(payload?.paymentId || operationId);
     await db.supplierPayments.update(paymentId, { syncStatus: 'synced' });
     if (payload?.supplierId && canMark('suppliers', payload.supplierId)) await db.suppliers.update(Number(payload.supplierId), { syncStatus: 'synced' });
-    if (payload?.purchaseId) await db.purchases.update(String(payload.purchaseId), { syncStatus: 'synced' });
+    if (payload?.purchaseId && canMark('purchases', payload.purchaseId)) await db.purchases.update(String(payload.purchaseId), { syncStatus: 'synced' });
   } else if (type === 'payroll') {
     if (payload?.id !== undefined) await db.payroll.update(Number(payload.id), { syncStatus: 'synced' });
   } else if (type === 'shift_open' || type === 'shift_close') {
