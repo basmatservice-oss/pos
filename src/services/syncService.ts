@@ -174,7 +174,7 @@ export const syncService = {
         if (!op) continue;
 
         if (res.status === 'ok' || res.status === 'duplicate') {
-          const localReferenceId = String(op.payload?.order?.id || op.payload?.purchase?.id || op.payload?.id || op.id);
+          const localReferenceId = String(op.payload?.order?.id || op.payload?.purchase?.id || op.payload?.orderId || op.payload?.id || op.id);
           await removeLocalJournalEntriesForReference(localReferenceId);
           await removeLocalInventoryArtifactsForOperation(op.id);
           await db.syncOperations.update(op.id, {
