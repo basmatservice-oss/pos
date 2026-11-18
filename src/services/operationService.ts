@@ -918,6 +918,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
     const paymentId = payload.paymentId || payload.operationId || generateUUID();
     if (await db.customerPayments.get(paymentId)) return;
     const cust = await db.customers.get(Number(payload.customerId));
+    if (!cust || payAmount <= 0) throw new Error('بيانات تحصيل العميل غير صالحة');
     if (cust) {
       await db.customers.update(cust.id!, {
         balance: roundMoney((cust.balance || 0) - payAmount),
@@ -968,6 +969,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
     const paymentId = payload.paymentId || payload.operationId || generateUUID();
     if (await db.supplierPayments.get(paymentId)) return;
     const sup = await db.suppliers.get(Number(payload.supplierId));
+    if (!sup || payAmount <= 0) throw new Error('بيانات سداد المورد غير صالحة');
     if (sup) {
       await db.suppliers.update(sup.id!, {
         balance: roundMoney((sup.balance || 0) - payAmount),
