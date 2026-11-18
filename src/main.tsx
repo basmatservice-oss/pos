@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { db, ensureDatabaseReady } from './db/db';
-import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
+import { installNativeDatabaseMirrorHooks, mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 
 async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
@@ -41,6 +41,7 @@ ensureDatabaseReady()
       console.error('Failed to restore Android SQLite business snapshot:', err);
     }
     await restoreDesktopRuntimeConfig();
+    installNativeDatabaseMirrorHooks();
     try {
       await mirrorNativePosDatabase();
     } catch (err) {
