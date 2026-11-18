@@ -1393,14 +1393,6 @@ export async function dispatchOperation(
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
 
-  if (isNativeAndroid()) {
-    try {
-      const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
-      await mirrorNativePosDatabase();
-    } catch (mirrorError) {
-      console.warn('Android SQLite business snapshot could not be updated:', mirrorError);
-    }
-  }
 
   // Android keeps a second, durable copy of every business operation in native
   // SQLite so the outbox survives WebView/IndexedDB lifecycle failures.
@@ -1417,6 +1409,15 @@ export async function dispatchOperation(
     } catch (error) {
       // Keep the existing Dexie queue as a recovery path if native storage fails.
       console.error('Android SQLite outbox write failed; retaining Dexie queue:', error);
+    }
+  }
+
+  if (isNativeAndroid()) {
+    try {
+      const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
+      await mirrorNativePosDatabase();
+    } catch (mirrorError) {
+      console.warn('Android SQLite business snapshot could not be updated:', mirrorError);
     }
   }
 
