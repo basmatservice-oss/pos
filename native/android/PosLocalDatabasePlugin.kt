@@ -176,7 +176,11 @@ class PosLocalDatabasePlugin : Plugin() {
             var applied = 0
             db.beginTransaction()
             try {
-                for (change in validated) {\n                    val action = change.action\n                    val entity = change.entity\n                    val recordId = change.recordId\n                    val values = change.values
+                for (change in validated) {
+                    val action = change.action
+                    val entity = change.entity
+                    val recordId = change.recordId
+                    val values = change.values
                     if (action == "put") {
                         val inserted = db.insertWithOnConflict(
                             "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
