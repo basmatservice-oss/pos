@@ -403,6 +403,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
       for (const reqItem of items) {
         const requestedQuantity = roundQty(Number(reqItem.quantity || 0));
+        if (requestedQuantity <= 0) continue;
         const origItem = reqItem.orderItemId !== undefined && reqItem.orderItemId !== null
           ? origItems.find((oi) => Number(oi.id) === Number(reqItem.orderItemId))
           : origItems.find((oi) => Number(oi.productId) === Number(reqItem.productId) &&
@@ -410,8 +411,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
             || origItems.find((oi) => Number(oi.productId) === Number(reqItem.productId));
         if (!origItem) throw new Error('الصنف غير موجود في الفاتورة الأصلية: ' + String(reqItem.productName || reqItem.productId));
 
-        const qty = roundQty(Number(reqItem.quantity));
-        if (qty <= 0) continue;
+        const qty = requestedQuantity;
         const remainingReturnable = roundQty(Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0));
         if (qty > remainingReturnable + 1e-6) throw new Error('الكمية المرتجعة تتجاوز الكمية المتبقية القابلة للإرجاع للمنتج ' + origItem.productName);
 
