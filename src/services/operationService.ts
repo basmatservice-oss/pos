@@ -755,6 +755,33 @@ async function applyPurchaseLocally(
           });
         }
       }
+
+      if (syncStatus === 'pending') {
+        const extraPaymentMethod = String(purchase.extraCostsPaymentMethod || 'cash');
+        const totalCapitalized = roundMoney(goodsTotal + extraCost);
+        const credits: any[] = [];
+        if (extraPaymentMethod === 'supplier') {
+          credits.push({ accountCode: '2100', debit: 0, credit: totalCapitalized, purchaseId: purchase.id });
+        } else {
+          if (goodsTotal > 0) credits.push({ accountCode: '2100', debit: 0, credit: goodsTotal, purchaseId: purchase.id });
+          if (extraCost > 0) credits.push({ accountCode: extraPaymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: extraCost, purchaseId: purchase.id });
+        }
+        if (totalCapitalized > 0) await postLocalJournalEntry({
+          referenceId: String(purchase.id), referenceType: 'purchase', entryKey: 'purchase-inventory-' + operationId, date: purchase.date || now,
+          description: 'فاتورة مشتريات من المورد: ' + String(purchase.supplierName || ''),
+          lines: [{ accountCode: '1200', debit: totalCapitalized, credit: 0, purchaseId: purchase.id }, ...credits],
+          createdBy: purchase.createdBy, branchId: purchase.branchId,
+        });
+        const paidAmount = roundMoney(Number(purchase.paidAmount || 0));
+        if (paidAmount > 0) await postLocalJournalEntry({
+          referenceId: String(purchase.id), referenceType: 'payment', entryKey: 'purchase-payment-' + operationId, date: purchase.date || now,
+          description: 'سداد للمورد عن فاتورة مشتريات: ' + String(purchase.supplierName || ''),
+          lines: [
+            { accountCode: '2100', debit: paidAmount, credit: 0, purchaseId: purchase.id },
+            { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paidAmount, purchaseId: purchase.id },
+          ], createdBy: purchase.createdBy, branchId: purchase.branchId,
+        });
+      }
     }
   );
 }
