@@ -176,9 +176,10 @@ function AppContent() {
       setSocket(newSocket);
     };
 
-    syncService.initAutoSync();
-
-    initSocket();
+    if (deviceRole !== 'standalone') {
+      syncService.initAutoSync();
+      initSocket();
+    }
 
     return () => {
       isMounted = false;
