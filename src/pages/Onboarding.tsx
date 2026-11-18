@@ -129,7 +129,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           await db.settings.put({ key: 'businessType', value: fetchedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
 
           const desktopApi = (window as any).electronAPI;
-          if (desktopApi?.setDeviceRole) desktopApi.setDeviceRole('client').catch((error: unknown) => console.error('Failed to persist desktop role:', error));
+          if (desktopApi?.setServerUrl && desktopApi?.setDeviceRole) {
+            await desktopApi.setServerUrl(cleanUrl);
+            await desktopApi.setDeviceRole('client');
+          }
           toast.success('تم الاتصال بالسيرفر بنجاح!');
           onComplete(fetchedType, 'client');
         } catch {
