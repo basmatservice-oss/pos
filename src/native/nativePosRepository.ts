@@ -1,4 +1,3 @@
-import { db } from '../db/db';
 import {
   applyNativePosRecordChanges,
   deleteNativePosRecord,
@@ -16,17 +15,90 @@ import {
   type PosLocalRecordChange,
 } from './posLocalDatabase';
 
-const NATIVE_ENTITIES = [
-  'products', 'categories', 'orders', 'orderItems', 'returns', 'returnItems', 'accounts', 'shifts',
-  'shiftMovements', 'customers', 'customerPayments', 'expenses', 'suppliers', 'supplierPayments',
-  'employees', 'settings', 'purchases', 'purchaseItems', 'purchaseReturns', 'purchaseReturnItems',
-  'attendance', 'loyaltyTransactions', 'branches', 'payroll', 'offers', 'auditLogs', 'journalEntries',
-  'transactions', 'stocktakingSessions', 'stocktakingEntries', 'inventoryBatches', 'inventoryAlerts',
-  'heldOrders', 'serviceRecipes', 'exchangeRateHistory', 'fiscalPeriods', 'unitDefinitions',
-  'productUnits', 'inventoryMovements',
-] as const;
+const NATIVE_PRIMARY_KEYS = {
+  products: 'id',
+  categories: 'id',
+  orders: 'id',
+  orderItems: 'id',
+  returns: 'id',
+  returnItems: 'id',
+  accounts: 'code',
+  shifts: 'id',
+  shiftMovements: 'id',
+  customers: 'id',
+  customerPayments: 'id',
+  expenses: 'id',
+  suppliers: 'id',
+  supplierPayments: 'id',
+  employees: 'id',
+  settings: 'id',
+  purchases: 'id',
+  purchaseItems: 'id',
+  purchaseReturns: 'id',
+  purchaseReturnItems: 'id',
+  attendance: 'id',
+  loyaltyTransactions: 'id',
+  branches: 'id',
+  payroll: 'id',
+  offers: 'id',
+  auditLogs: 'id',
+  journalEntries: 'id',
+  transactions: 'id',
+  stocktakingSessions: 'id',
+  stocktakingEntries: 'id',
+  inventoryBatches: 'id',
+  inventoryAlerts: 'id',
+  heldOrders: 'id',
+  serviceRecipes: 'id',
+  exchangeRateHistory: 'id',
+  fiscalPeriods: 'id',
+  unitDefinitions: 'code',
+  productUnits: 'id',
+  inventoryMovements: 'id',
+} as const;
 
-export type NativePosEntity = typeof NATIVE_ENTITIES[number];
+export type NativePosEntity = keyof typeof NATIVE_PRIMARY_KEYS;
+
+function assertEntity(entity: string): asserts entity is NativePosEntity {
+  if (!Object.prototype.hasOwnProperty.call(NATIVE_PRIMARY_KEYS, entity)) {
+    throw new Error(`Unsupported native POS entity: ${entity}`);
+  }
+}
+
+function serializeKey(value: unknown): string {
+  if (value === undefined || value === null) {
+    throw new Error('A native POS record must have a complete primary key');
+  }
+  const serialized = JSON.stringify(value);
+  if (!serialized) throw new Error('Could not serialize native POS primary key');
+  return serialized;
+}
+
+function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): string {
+  return serializeKey(record[NATIVE_PRIMARY_KEYS[entity]]);
+}
+
+function recordIdForKey(_entity: NativePosEntity, key: unknown): string {
+  return serializeKey(key);
+}
+
+function requireAndroid(): void {
+  if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
+}
+
+async function readEquals<T extends Record<string, unknown>>(
+  entity: NativePosEntity,
+  indexName: string,
+  value: string | number | boolean,
+  limit = 0,
+): Promise<T[]> {
+  requireAndroid();
+  assertEntity(entity);
+  if (!indexName.trim()) throw new Error('A field name is required');
+  const items = await getNativePosRecordsByField(entity, indexName, value, limit);
+  return items.map((item) => item.record as T);
+}
+
 export type NativePosSyncState = 'local' | 'pending' | 'synced' | 'error';
 
 function assertEntity(entity: string): asserts entity is NativePosEntity {
