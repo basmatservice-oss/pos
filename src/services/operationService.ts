@@ -1164,7 +1164,10 @@ async function applyShiftLocally(
   if (type === 'shift_movement') {
     if (isNativeAndroid()) {
       const shiftId = String(payload.shiftId);
-      const shift = await nativePosRepository.get<any>('shifts', shiftId);
+      const shiftKey = payload.shiftId !== undefined && payload.shiftId !== null && String(payload.shiftId).trim() !== '' && Number.isFinite(Number(payload.shiftId))
+        ? Number(payload.shiftId)
+        : shiftId;
+      const shift = await nativePosRepository.get<any>('shifts', shiftKey);
       if (!shift || shift.status !== 'open') throw new Error('لا يمكن تسجيل حركة نقدية على وردية غير مفتوحة');
       const movementId = String(payload.id || generateUUID());
       const existingMovement = await nativePosRepository.get<any>('shiftMovements', movementId);
@@ -1175,7 +1178,7 @@ async function applyShiftLocally(
       const createdAt = payload.createdAt || now;
       const branchId = payload.branchId ?? shift.branchId;
       const movement = {
-        id: movementId, shiftId, type: movementType, amount,
+        id: movementId, shiftId: payload.shiftId, type: movementType, amount,
         reason: payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق'),
         createdBy: payload.createdBy, branchId,
         operationId: payload.operationId, createdAt, syncStatus,
@@ -1294,7 +1297,7 @@ async function applyShiftLocally(
     // SQLite is the authoritative Android store. Read it first so an existing
     // shift is never recreated from a stale Dexie cache.
     if (isNativeAndroid()) {
-      const existing = await nativePosRepository.get<any>('shifts', shiftId);
+      const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (existing) return;
       const record = {
         id: payload.id,
@@ -1321,7 +1324,7 @@ async function applyShiftLocally(
   } else if (type === 'shift_close') {
     if (isNativeAndroid()) {
       const shiftId = String(payload.id);
-      const existing = await nativePosRepository.get<any>('shifts', shiftId);
+      const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (!existing) return;
       const record = {
         ...existing,
