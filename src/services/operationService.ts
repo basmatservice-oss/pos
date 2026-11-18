@@ -488,7 +488,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
               operationId,
               deviceId,
               sourceId: String(id),
-              movementKeySuffix: String(origItem.id || origItem.productId),
+              movementKeySuffix: String(processedItems),
               branchId: branchId ?? origOrder?.branchId,
               reason: reason || 'مرتجع مبيعات',
               createdBy,
