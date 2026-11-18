@@ -189,6 +189,6 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
       branchId: entry.branchId,
     });
     await db.journalEntries.update(entry.id as any, { status: 'reversed', reversedEntryId: reversalId || undefined });
-    });
-}
+  }
+  });
 }
