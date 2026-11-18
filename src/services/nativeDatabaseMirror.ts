@@ -18,13 +18,28 @@ function getRecordId(row: any): string {
 
 let nativeMirrorHooksInstalled = false;
 let nativeMirrorWriteQueue: Promise<void> = Promise.resolve();
+let nativeMirrorWriteFailure: unknown = null;
 
 function enqueueNativeMirrorWrite(write: () => Promise<void>): Promise<void> {
   const next = nativeMirrorWriteQueue.then(write, write);
   nativeMirrorWriteQueue = next.catch((error) => {
-    console.warn('Android SQLite mirror write failed:', error);
+    nativeMirrorWriteFailure = error;
+    console.error('Android SQLite mirror write failed:', error);
   });
   return next;
+}
+
+/**
+ * Wait until every Dexie mutation already observed by the hooks is durable in SQLite.
+ * A failed write is surfaced to the caller instead of being silently forgotten.
+ */
+export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
+  await nativeMirrorWriteQueue;
+  if (nativeMirrorWriteFailure) {
+    const error = nativeMirrorWriteFailure;
+    nativeMirrorWriteFailure = null;
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 /**
