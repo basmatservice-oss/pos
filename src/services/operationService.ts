@@ -15,7 +15,7 @@ import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalA
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { flushNativeDatabaseMirrorWrites } from './nativeDatabaseMirror';
-import { nativePosRepository } from '../native/nativePosRepository';
+import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 let currentDeviceRole: 'server' | 'client' | 'standalone' = 'server';
@@ -1333,13 +1333,31 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
   if (!table) return;
-  if (type === 'entity_delete') { await table.delete(payload.id); return; }
+  if (type === 'entity_delete') {
+    if (isNativeAndroid() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
+      await nativePosRepository.delete(tableName as any, payload.id);
+      await table.delete(payload.id);
+      await flushNativeDatabaseMirrorWrites();
+      return;
+    }
+    await table.delete(payload.id);
+    return;
+  }
   if (!payload?.record) return;
   const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
   if (payload.record.id !== undefined && finalRecord.id !== undefined && payload.record.id !== finalRecord.id) {
     await table.delete(payload.record.id).catch(() => {});
   }
-  if (tableName !== 'products') { await table.put({ ...finalRecord, syncStatus }); return; }
+  if (tableName !== 'products') {
+    if (isNativeAndroid() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
+      await nativePosRepository.put(tableName as any, { ...finalRecord, syncStatus }, syncStatus);
+      await table.put({ ...finalRecord, syncStatus });
+      await flushNativeDatabaseMirrorWrites();
+      return;
+    }
+    await table.put({ ...finalRecord, syncStatus });
+    return;
+  }
   const now = new Date().toISOString();
   const productId = Number(finalRecord.id);
   await db.transaction('rw', [db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
