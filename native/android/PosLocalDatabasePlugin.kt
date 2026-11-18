@@ -231,8 +231,9 @@ class PosLocalDatabasePlugin : Plugin() {
         try {
             val rows = JSArray()
             helper.readableDatabase.query(
-                "pos_outbox", null, "status IN ('pending','error')",
-                null, null, null, "created_at ASC"
+                "pos_outbox", null,
+                "status = 'pending' OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= ?))",
+                arrayOf(System.currentTimeMillis().toString()), null, null, "created_at ASC"
             ).use { cursor ->
                 while (cursor.moveToNext()) {
                     val item = JSObject()
@@ -246,6 +247,8 @@ class PosLocalDatabasePlugin : Plugin() {
                     item.put("schemaVersion", cursor.getInt(cursor.getColumnIndexOrThrow("schema_version")))
                     item.put("createdAt", cursor.getLong(cursor.getColumnIndexOrThrow("created_at")))
                     item.put("retryCount", cursor.getInt(cursor.getColumnIndexOrThrow("retry_count")))
+                    val nextRetryAt = cursor.getLong(cursor.getColumnIndexOrThrow("next_retry_at"))
+                    if (nextRetryAt > 0) item.put("nextRetryAt", nextRetryAt)
                     rows.put(item)
                 }
             }
@@ -284,9 +287,21 @@ class PosLocalDatabasePlugin : Plugin() {
             val db = helper.writableDatabase
             db.beginTransaction()
             try {
-                db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 if (status == "error") {
-                    db.execSQL("UPDATE pos_outbox SET retry_count = retry_count + 1 WHERE operation_id = ?", arrayOf(operationId))
+                    val currentRetry = db.query(
+                        "pos_outbox", arrayOf("retry_count"), "operation_id = ?",
+                        arrayOf(operationId), null, null, null
+                    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+                    val nextRetry = System.currentTimeMillis() +
+                        minOf(60000L, 2000L * (1L shl (currentRetry + 1).coerceAtMost(8)))
+                    values.put("next_retry_at", nextRetry)
+                    db.execSQL(
+                        "UPDATE pos_outbox SET retry_count = retry_count + 1, next_retry_at = ?, status = ?, last_error = ? WHERE operation_id = ?",
+                        arrayOf(nextRetry, status, message, operationId)
+                    )
+                } else {
+                    values.putNull("next_retry_at")
+                    db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 }
                 db.setTransactionSuccessful()
             } finally {
@@ -324,11 +339,11 @@ class PosLocalDatabasePlugin : Plugin() {
 }
 
 private class PosDatabaseHelper(context: android.content.Context) :
-    SQLiteOpenHelper(context, "pos-local.db", null, 2) {
+    SQLiteOpenHelper(context, "pos-local.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE pos_records (entity TEXT NOT NULL, record_id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, sync_state TEXT NOT NULL DEFAULT 'local', PRIMARY KEY(entity, record_id))")
         db.execSQL("CREATE INDEX idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
-        db.execSQL("CREATE TABLE pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '', schema_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
+        db.execSQL("CREATE TABLE pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '', schema_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_retry_at INTEGER)")
         db.execSQL("CREATE INDEX idx_pos_outbox_status_created ON pos_outbox(status, created_at)")
         db.execSQL("CREATE TABLE pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
@@ -337,6 +352,9 @@ private class PosDatabaseHelper(context: android.content.Context) :
             db.execSQL("ALTER TABLE pos_outbox ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE pos_outbox ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE pos_outbox ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN next_retry_at INTEGER")
         }
     }
 }
