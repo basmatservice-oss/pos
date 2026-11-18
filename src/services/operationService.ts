@@ -661,7 +661,7 @@ async function applyPurchaseLocally(
         for (const productId of new Set(oldItems.map((item) => Number(item.productId)))) {
           const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === productId && Number(batch.remainingQuantity || 0) > 0);
           const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
-          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
+          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
           if (activeQty > 0) await db.products.update(productId, { costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus });
         }
         if (oldPurchase && oldPurchase.supplierId) {
@@ -753,7 +753,7 @@ async function applyPurchaseLocally(
         if (prod) {
           const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === Number(item.productId) && Number(batch.remainingQuantity || 0) > 0);
           const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
-          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
+          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
           const weightedCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCostPerBaseUnit;
           await db.products.update(prod.id!, {
             stockQuantity: roundQty(prod.stockQuantity + baseQty),
@@ -850,7 +850,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       if (product) {
         const activeBatches = (await db.inventoryBatches.toArray()).filter((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
         const activeQty = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity || 0), 0);
-        const activeValue = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity ?? entry.quantity) * Number(entry.costPrice || 0), 0);
+        const activeValue = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
         await db.products.update(product.id!, {
           stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
           ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
