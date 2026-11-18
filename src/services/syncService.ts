@@ -162,8 +162,11 @@ export const syncService = {
 
     if (readyOps.length === 0) return;
 
-    for (let i = 0; i < readyOps.length; i += 20) {
-      const batch = readyOps.slice(i, i + 20);
+    // Process operations in creation order, one at a time. A create operation may
+    // establish server-side identifiers needed by the next queued operation;
+    // batching dependent operations would send stale temporary references.
+    for (let i = 0; i < readyOps.length; i += 1) {
+      const batch = [readyOps[i]];
       const response = await apiService.executeOperationsBatch(
         batch.map((op) => ({
           id: op.id,
