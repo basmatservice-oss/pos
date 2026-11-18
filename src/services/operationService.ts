@@ -1429,6 +1429,13 @@ export async function dispatchOperation(
     updatedAt: now,
   };
 
+  if (role === 'standalone') {
+    // Standalone transactions are committed locally and are not placed in a
+    // server synchronization queue.
+    await applyOperationLocally(type, opRecord.payload, 'synced');
+    return { synced: true, operationId };
+  }
+
   if (role === 'server' && token) {
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
