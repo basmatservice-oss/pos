@@ -118,7 +118,18 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   } else if (type === 'shift_movement') {
     if (payload?.id !== undefined) await db.shiftMovements.update(String(payload.id), { syncStatus: 'synced' });
   } else if (type === 'stocktake_approve') {
-    if (payload?.sessionId) { await db.stocktakingSessions.update(String(payload.sessionId), { syncStatus: 'synced' }); await markRowsSynced(db.stocktakingEntries, (row) => String(row.sessionId) === String(payload.sessionId)); }
+    if (payload?.sessionId) {
+      const sessionId = String(payload.sessionId);
+      await db.stocktakingSessions.update(sessionId, { syncStatus: 'synced' });
+      const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
+      await markRowsSynced(db.stocktakingEntries, (row) => String(row.sessionId) === sessionId);
+      for (const entry of entries) {
+        if (canMark('products', entry.productId)) {
+          await db.products.update(Number(entry.productId), { syncStatus: 'synced' });
+          await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(entry.productId));
+        }
+      }
+    }
   } else if (type === 'entity_upsert') {
     const table = (db as any)[payload?.table];
     if (table && payload?.record?.id !== undefined) await table.update(payload.record.id, { syncStatus: 'synced' });
