@@ -38,6 +38,10 @@ export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
   if (nativeMirrorWriteFailure) {
     const error = nativeMirrorWriteFailure;
     nativeMirrorWriteFailure = null;
+    const invalidated = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: 'in_progress' });
+    if (!invalidated.saved) {
+      throw new Error('Android SQLite mirror write failed and the business snapshot could not be invalidated: ' + String(error));
+    }
     throw error instanceof Error ? error : new Error(String(error));
   }
 }
