@@ -101,64 +101,6 @@ async function readEquals<T extends Record<string, unknown>>(
 
 export type NativePosSyncState = 'local' | 'pending' | 'synced' | 'error';
 
-function assertEntity(entity: string): asserts entity is NativePosEntity {
-  if (!(NATIVE_ENTITIES as readonly string[]).includes(entity)) {
-    throw new Error(`Unsupported native POS entity: ${entity}`);
-  }
-}
-
-function serializeKey(value: unknown): string {
-  if (value === undefined || value === null) {
-    throw new Error('A native POS record must have a complete primary key');
-  }
-  const serialized = JSON.stringify(value);
-  if (!serialized) throw new Error('Could not serialize native POS primary key');
-  return serialized;
-}
-
-function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): string {
-  const table = (db as any)[entity];
-  const keyPath = table?.schema?.primKey?.keyPath;
-  if (Array.isArray(keyPath)) {
-    const key = keyPath.map((part: string) => record[part]);
-    if (key.some((part: unknown) => part === undefined || part === null)) {
-      throw new Error(`Incomplete compound primary key for ${entity}`);
-    }
-    return serializeKey(key);
-  }
-  if (typeof keyPath !== 'string') throw new Error(`Missing Dexie primary-key schema for ${entity}`);
-  return serializeKey(record[keyPath]);
-}
-
-function recordIdForKey(entity: NativePosEntity, key: unknown): string {
-  return serializeKey(key);
-}
-
-function requireAndroid(): void {
-  if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
-}
-
-async function readEquals<T extends Record<string, unknown>>(
-  entity: NativePosEntity,
-  fieldName: string,
-  value: string | number | boolean,
-  limit = 0,
-): Promise<T[]> {
-  requireAndroid();
-  assertEntity(entity);
-  if (!fieldName.trim()) throw new Error('A Dexie index name is required');
-  const table = (db as any)[entity];
-  const indexes = [table?.schema?.primKey, ...(table?.schema?.indexes ?? [])];
-  const index = indexes.find((candidate: any) =>
-    candidate?.name === fieldName || candidate?.keyPath === fieldName
-  );
-  if (!index || Array.isArray(index.keyPath)) {
-    throw new Error(`Unsupported or unknown scalar index ${fieldName} on ${entity}`);
-  }
-  const items = await getNativePosRecordsByField(entity, fieldName, value, limit);
-  return items.map((item) => item.record as T);
-}
-
 export const nativePosRepository = {
   async isReady(): Promise<boolean> {
     return ensureNativePosDatabase();
