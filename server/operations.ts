@@ -2107,7 +2107,7 @@ function handlePayrollCreate(tx: any, payload: any, ctx: { actor: string; now: s
   const saved = tx
     .insert(payrolls)
     .values({
-      ...(rawId && Number(rawId) < 1000000 ? { id: Number(rawId) } : {}),
+      ...(rawId && Number.isSafeInteger(Number(rawId)) && Number(rawId) > 0 ? { id: Number(rawId) } : {}),
       employeeId: Number(rest.employeeId),
       employeeName: String(rest.employeeName || ''),
       periodStart: String(rest.periodStart || ctx.now.split('T')[0]),
