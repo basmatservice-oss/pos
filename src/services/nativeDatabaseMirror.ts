@@ -44,14 +44,18 @@ export async function restoreNativePosDatabase(): Promise<void> {
   for (const entity of MIRRORED_TABLES) {
     try {
       const table = (db as any)[entity];
-      if (!table || await table.count() > 0) continue;
+      if (!table) continue;
       const result = await posLocalDatabase.getRecords({ entity });
       if (!Array.isArray(result.records) || result.records.length === 0) continue;
-      const rows = result.records.map((item) => ({
-        ...item.record,
-        ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
-      }));
-      await table.bulkPut(rows);
+      const existingRows = await table.toArray();
+      const existingIds = new Set(existingRows.map((row: any) => getRecordId(row)).filter(Boolean));
+      const missingRows = result.records
+        .filter((item) => item.recordId && !existingIds.has(String(item.recordId)))
+        .map((item) => ({
+          ...item.record,
+          ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
+        }));
+      if (missingRows.length) await table.bulkPut(missingRows);
     } catch (error) {
       console.warn('تعذر استعادة SQLite إلى IndexedDB للجدول ' + entity, error);
     }
