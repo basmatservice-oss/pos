@@ -2,8 +2,7 @@ import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
-import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
-import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
+import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 
 export const syncService = {
   cachedRole: null as string | null,
@@ -174,9 +173,7 @@ export const syncService = {
         if (!op) continue;
 
         if (res.status === 'ok' || res.status === 'duplicate') {
-          const localReferenceId = String(op.payload?.order?.id || op.payload?.purchase?.id || op.payload?.orderId || op.payload?.id || op.id);
-          await removeLocalJournalEntriesForReference(localReferenceId);
-          await removeLocalInventoryArtifactsForOperation(op.id);
+          await reconcileLocalOperationAfterAck(op.type, op.payload, op.id);
           await db.syncOperations.update(op.id, {
             status: 'synced',
             lastError: undefined,
