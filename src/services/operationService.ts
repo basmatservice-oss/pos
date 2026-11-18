@@ -10,7 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
-import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO } from './localInventoryEngine';
+import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
 import { postLocalJournalEntry, removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
@@ -119,6 +119,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
                 createdBy: order.createdBy,
                 createdAt: now,
                 allowNegative,
+                syncStatus,
               });
               costTotal += consumed.totalCost;
               ingredientAllocations.push({
@@ -143,6 +144,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
               createdBy: order.createdBy,
               createdAt: now,
               allowNegative,
+              syncStatus,
             });
             costTotal = consumed.totalCost;
             batchAllocations = consumed.allocations;
@@ -163,6 +165,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             createdBy: order.createdBy,
             createdAt: now,
             allowNegative,
+            syncStatus,
           });
           costTotal = consumed.totalCost;
           batchAllocations = consumed.allocations;
@@ -445,6 +448,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
                 reason: reason || 'مرتجع مبيعات',
                 createdBy,
                 createdAt: now,
+                syncStatus,
               });
               lineCost = roundMoney(lineCost + restoredCost);
             }
@@ -463,6 +467,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
               reason: reason || 'مرتجع مبيعات',
               createdBy,
               createdAt: now,
+              syncStatus,
             });
           }
         } else if (condition === 'damaged') {
@@ -1200,6 +1205,9 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
+        const localReferenceId = String(opRecord.payload?.order?.id || opRecord.payload?.purchase?.id || opRecord.payload?.id || operationId);
+        await removeLocalJournalEntriesForReference(localReferenceId);
+        await removeLocalInventoryArtifactsForOperation(operationId);
         // The operation was already applied to the local Dexie database before
         // it was sent. Reapplying the business mutation here would deduct stock,
         // restore returns, or change balances a second time. Mark it acknowledged
