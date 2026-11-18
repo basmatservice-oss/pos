@@ -44,9 +44,14 @@ function money(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+let standaloneAccountingMode = false;
+
+export function setLocalAccountingStandaloneMode(enabled: boolean): void {
+  standaloneAccountingMode = enabled;
+}
+
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
-  const deviceRole = await db.settings.where('key').equals('deviceRole').first();
-  const journalSyncStatus = deviceRole?.value === 'standalone' ? 'synced' : 'pending';
+  const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
   const lines = input.lines
     .map((line) => ({ ...line, debit: money(line.debit), credit: money(line.credit) }))
     .filter((line) => line.debit > 0 || line.credit > 0);
