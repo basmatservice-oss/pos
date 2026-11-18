@@ -1706,6 +1706,198 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
   const sessionId = String(payload.sessionId);
   const operationId = String(payload.operationId || sessionId);
   const deviceId = String(payload.deviceId || 'local-device');
+  if (isNativeAndroid()) {
+    const session = await nativePosRepository.get<any>('stocktakingSessions', sessionId);
+    if (!session) throw new Error('جلسة الجرد غير موجودة');
+    if (session.status === 'approved') return;
+    const entries = await nativePosRepository.whereEquals<any>('stocktakingEntries', 'sessionId', sessionId);
+    const [products, batches, movements, accounts, existingJournals] = await Promise.all([
+      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getAll<any>('inventoryBatches'),
+      nativePosRepository.getAll<any>('inventoryMovements'),
+      nativePosRepository.getAll<any>('accounts'),
+      nativePosRepository.getAll<any>('journalEntries'),
+    ]);
+    const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
+    const batchMap = new Map<string, any>(batches.map((b: any) => [String(b.id), b]));
+    const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
+    const movementKeys = new Set(movements.map((m: any) => String(m.movementKey)));
+    const changes = new Map<string, { action: 'put'; entity: any; record: any; syncState: any }>();
+    const put = (entity: any, record: any) => {
+      const keyField = entity === 'accounts' ? 'code' : 'id';
+      changes.set(entity + ':' + String(record[keyField]), { action: 'put', entity, record, syncState: syncStatus });
+    };
+    const changedProducts = new Map<number, any>();
+    const changedBatches = new Map<string, any>();
+    const changedMovements: any[] = [];
+    const changedAlerts: any[] = [];
+    let netAdjustmentValue = 0;
+    for (const entry of entries) {
+      const productId = Number(entry.productId);
+      const product = productMap.get(productId);
+      if (!product) continue;
+      const currentProduct = changedProducts.get(productId) || { ...product };
+      const difference = roundQty(Number(entry.actualQuantity) - Number(currentProduct.stockQuantity || 0));
+      if (Math.abs(difference) < 1e-6) continue;
+      if (difference > 0) {
+        const unitCost = Number(currentProduct.costPrice || 0);
+        const batchId = generateUUID();
+        const batch = {
+          id: batchId, productId, purchaseId: null, quantity: difference, remainingQuantity: difference,
+          costPrice: unitCost, purchaseDate: now, branchId: session.branchId, syncStatus,
+          createdAt: now, updatedAt: now,
+        };
+        changedBatches.set(batchId, batch);
+        currentProduct.stockQuantity = roundQty(Number(currentProduct.stockQuantity || 0) + difference);
+        const movementKey = 'stocktake:' + sessionId + ':in:' + String(productId);
+        if (!movementKeys.has(movementKey)) {
+          const movement = {
+            id: generateUUID(), movementKey, productId, movementType: 'stocktake_increase',
+            sourceType: 'stocktake', sourceId: sessionId, quantityDeltaBase: difference,
+            baseUnitCode: currentProduct.baseUnitCode || currentProduct.unit || 'piece',
+            unitCost: Math.round(unitCost * 10000) / 10000, totalCost: roundMoney(difference * unitCost),
+            branchId: session.branchId ?? currentProduct.branchId, operationId,
+            reason: 'زيادة جرد #' + sessionId, createdBy: payload.createdBy || 'System',
+            syncStatus, createdAt: now,
+          };
+          changedMovements.push(movement);
+          movementKeys.add(movementKey);
+        }
+        netAdjustmentValue = roundMoney(netAdjustmentValue + difference * unitCost);
+      } else {
+        const qtyNeeded = Math.abs(difference);
+        const previousQty = roundQty(Number(currentProduct.stockQuantity || 0));
+        const nextQty = roundQty(previousQty - qtyNeeded);
+        const valuation = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod');
+        const weightedAverage = valuation?.value === 'weighted_average';
+        const activeBatches = [...batchMap.values(), ...changedBatches.values()]
+          .filter((b: any) => Number(b.productId) === productId && Number(b.remainingQuantity || 0) > 0)
+          .sort((a: any, b: any) => String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
+            String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+        let weightedUnitCost = Number(currentProduct.costPrice || 0);
+        if (weightedAverage && activeBatches.length) {
+          const activeQty = activeBatches.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0), 0);
+          const activeValue = activeBatches.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0) * Number(b.costPrice || 0), 0);
+          if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
+        }
+        let remaining = qtyNeeded;
+        let totalCost = 0;
+        for (const batch of activeBatches) {
+          if (remaining <= 1e-6) break;
+          const available = Number(batch.remainingQuantity || 0);
+          const take = roundQty(Math.min(remaining, available));
+          if (take <= 0) continue;
+          const updatedBatch = { ...batch, remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
+          changedBatches.set(String(batch.id), updatedBatch);
+          const unitCost = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
+          totalCost += take * unitCost;
+          remaining = roundQty(remaining - take);
+        }
+        if (remaining > 1e-6) totalCost += remaining * (weightedAverage ? weightedUnitCost : Number(currentProduct.costPrice || 0));
+        currentProduct.stockQuantity = nextQty;
+        if (nextQty < -1e-6) {
+          const alert = {
+            id: `offline-oversell:${operationId}:${productId}:${productId}`, productId,
+            productName: currentProduct.name, previousQty, changeQty: -qtyNeeded,
+            resultingQty: nextQty, operationId, deviceId, reason: 'offline_oversell', resolved: 0, createdAt: now,
+          };
+          changedAlerts.push(alert);
+        }
+        const movementKey = `stocktake:${sessionId}:out:${productId}:${productId}`;
+        if (!movementKeys.has(movementKey)) {
+          changedMovements.push({
+            id: generateUUID(), movementKey, productId, movementType: 'stocktake_decrease',
+            sourceType: 'stocktake', sourceId: sessionId, quantityDeltaBase: -qtyNeeded,
+            baseUnitCode: currentProduct.baseUnitCode || currentProduct.unit || 'piece',
+            unitCost: qtyNeeded > 0 ? totalCost / qtyNeeded : 0, totalCost: roundMoney(totalCost),
+            branchId: session.branchId ?? currentProduct.branchId, operationId,
+            reason: 'عجز جرد #' + sessionId, createdBy: payload.createdBy || 'System',
+            syncStatus, createdAt: now,
+          });
+          movementKeys.add(movementKey);
+        }
+        netAdjustmentValue = roundMoney(netAdjustmentValue - totalCost);
+      }
+      currentProduct.updatedAt = now;
+      currentProduct.syncStatus = syncStatus;
+      changedProducts.set(productId, currentProduct);
+    }
+    const updatedSession = { ...session, status: 'approved', syncStatus };
+    put('stocktakingSessions', updatedSession);
+    for (const product of changedProducts.values()) put('products', product);
+    for (const batch of changedBatches.values()) put('inventoryBatches', batch);
+    for (const movement of changedMovements) put('inventoryMovements', movement);
+    for (const alert of changedAlerts) put('inventoryAlerts', alert);
+    if (shouldPostLocalAccounting(syncStatus) && Math.abs(netAdjustmentValue) > 0.001) {
+      const entryId = `local-je:stocktake:${sessionId}:stocktake-${operationId}`;
+      if (!existingJournals.some((entry: any) => String(entry.id) === entryId)) {
+        const amount = Math.abs(netAdjustmentValue);
+        const lines = netAdjustmentValue > 0
+          ? [{ accountCode: '1200', debit: amount, credit: 0 }, { accountCode: '5400', debit: 0, credit: amount }]
+          : [{ accountCode: '5400', debit: amount, credit: 0 }, { accountCode: '1200', debit: 0, credit: amount }];
+        const systemAccounts: Record<string, any> = {
+          '1200': { code: '1200', name: 'المخزون', type: 'asset' },
+          '5400': { code: '5400', name: 'تسويات الجرد', type: 'expense' },
+        };
+        for (const line of lines) {
+          const account = accountMap.get(line.accountCode) || {
+            ...systemAccounts[line.accountCode], balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+          };
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+          const updatedAccount = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
+          accountMap.set(line.accountCode, updatedAccount);
+          put('accounts', updatedAccount);
+        }
+        const total = roundMoney(lines.reduce((sum, line) => sum + line.debit, 0));
+        const journal = {
+          id: entryId, entryNumber: `LOCAL-stocktake-${sessionId.slice(0, 8)}`, date: now,
+          referenceId: sessionId, referenceType: 'stocktake', description: 'تسوية جرد مخزون #' + sessionId,
+          totalDebit: total, totalCredit: total, status: 'posted', createdBy: payload.createdBy || 'System',
+          branchId: session.branchId, syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
+        };
+        put('journalEntries', journal);
+        lines.forEach((line, index) => put('transactions', {
+          id: `${entryId}:${index}`, journalEntryId: entryId, accountId: line.accountCode,
+          accountName: accountMap.get(line.accountCode)?.name || line.accountCode,
+          type: line.debit > 0 ? 'debit' : 'credit', amount: line.debit || line.credit,
+          debit: line.debit, credit: line.credit, description: journal.description,
+          syncStatus: journal.syncStatus, createdAt: now,
+        }));
+      }
+    }
+    let audit: any;
+    if (currentDeviceRole === 'standalone') {
+      audit = {
+        id: generateUUID(), date: now, userName: payload.createdBy || 'System', type: 'stocktake_approve',
+        action: 'اعتماد جرد', operationName: 'تسوية جرد مخزون',
+        details: 'اعتماد جلسة جرد #' + sessionId, quantity: entries.length,
+        value: Math.abs(netAdjustmentValue), branchId: session.branchId,
+        entityId: sessionId, entityName: sessionId, syncStatus,
+      };
+      put('auditLogs', audit);
+    }
+    await nativePosRepository.applyChanges([...changes.values()]);
+    await db.transaction('rw', [
+      db.products, db.stocktakingSessions, db.inventoryBatches, db.inventoryMovements,
+      db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
+    ], async () => {
+      await db.stocktakingSessions.put(updatedSession);
+      if (changedProducts.size) await db.products.bulkPut([...changedProducts.values()]);
+      if (changedBatches.size) await db.inventoryBatches.bulkPut([...changedBatches.values()]);
+      if (changedMovements.length) await db.inventoryMovements.bulkPut(changedMovements);
+      if (changedAlerts.length) await db.inventoryAlerts.bulkPut(changedAlerts);
+      const accountWrites = [...accountMap.values()].filter((account: any) => changes.has('accounts:' + String(account.code)));
+      if (accountWrites.length) await db.accounts.bulkPut(accountWrites);
+      const journalWrites = [...changes.values()].filter((change) => change.entity === 'journalEntries').map((change) => change.record);
+      const transactionWrites = [...changes.values()].filter((change) => change.entity === 'transactions').map((change) => change.record);
+      if (journalWrites.length) await db.journalEntries.bulkPut(journalWrites);
+      if (transactionWrites.length) await db.transactions.bulkPut(transactionWrites);
+      if (audit) await db.auditLogs.put(audit);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
   await db.transaction('rw', [
     db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.inventoryMovements,
     db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions,
