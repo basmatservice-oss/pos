@@ -178,12 +178,12 @@ export const syncService = {
             lastError: undefined,
             updatedAt: new Date().toISOString(),
           });
-          await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
           if (isNativeAndroid() && nativeIds.has(op.id)) {
             await acknowledgeNativePosOperation(op.id).catch((error) =>
               console.error('Could not acknowledge Android SQLite operation:', error)
             );
           }
+          await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
         } else {
           const retryCount = (op.retryCount || 0) + 1;
           const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
