@@ -205,35 +205,35 @@ export async function restoreLocalInventoryFIFO(params: {
     const allocation = params.allocations[i];
     if (!allocation || allocation.quantity <= 0) continue;
     let putBack = roundQty(Math.min(remaining, allocation.quantity));
+    const allocationCost = Number(allocation.costPrice ?? params.fallbackCost);
+    let restoredBatchId: string | null = allocation.batchId;
     if (allocation.batchId) {
       const batch = await db.inventoryBatches.get(allocation.batchId);
-      if (!batch) continue;
-      const current = Number(batch.remainingQuantity ?? batch.quantity);
-      const room = roundQty(Math.max(0, Number(batch.quantity) - current));
-      putBack = roundQty(Math.min(putBack, room));
-      if (putBack <= 1e-6) continue;
-      await db.inventoryBatches.update(batch.id!, {
-        remainingQuantity: roundQty(current + putBack),
-        updatedAt: params.createdAt,
-        syncStatus: params.syncStatus || 'pending',
-      });
+      if (batch) {
+        const current = Number(batch.remainingQuantity ?? batch.quantity);
+        const room = roundQty(Math.max(0, Number(batch.quantity) - current));
+        putBack = roundQty(Math.min(putBack, room));
+        if (putBack <= 1e-6) continue;
+        await db.inventoryBatches.update(batch.id!, {
+          remainingQuantity: roundQty(current + putBack), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending',
+        });
+      } else {
+        restoredBatchId = generateUUID();
+        await db.inventoryBatches.put({
+          id: restoredBatchId, productId: params.productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
+          costPrice: allocationCost, purchaseDate: params.createdAt, branchId: params.branchId,
+          syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt, updatedAt: params.createdAt,
+        });
+      }
     } else {
-      const batchId = generateUUID();
+      restoredBatchId = generateUUID();
       await db.inventoryBatches.put({
-        id: batchId,
-        productId: params.productId,
-        purchaseId: null,
-        quantity: putBack,
-        remainingQuantity: putBack,
-        costPrice: Number(allocation.costPrice ?? params.fallbackCost),
-        purchaseDate: params.createdAt,
-        branchId: params.branchId,
-        syncStatus: params.syncStatus || 'pending',
-        createdAt: params.createdAt,
-        updatedAt: params.createdAt,
+        id: restoredBatchId, productId: params.productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
+        costPrice: allocationCost, purchaseDate: params.createdAt, branchId: params.branchId,
+        syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt, updatedAt: params.createdAt,
       });
     }
-    totalCost += putBack * Number(allocation.costPrice ?? params.fallbackCost);
+    totalCost += putBack * allocationCost;
     remaining = roundQty(remaining - putBack);
   }
 
