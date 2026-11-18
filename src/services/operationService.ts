@@ -1580,6 +1580,9 @@ export async function dispatchOperation(
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
+      if (isNativeAndroid()) {
+        await flushNativeDatabaseMirrorWrites();
+      }
       import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
@@ -1656,12 +1659,9 @@ export async function dispatchOperation(
   }
 
   if (isNativeAndroid()) {
-    try {
-      const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
-      await mirrorNativePosDatabase();
-    } catch (mirrorError) {
-      console.warn('Android SQLite business snapshot could not be updated:', mirrorError);
-    }
+    // Every committed Dexie business transaction is mirrored as one atomic
+    // SQLite batch before the operation can be reported as accepted locally.
+    await flushNativeDatabaseMirrorWrites();
   }
 
   if (token) {
