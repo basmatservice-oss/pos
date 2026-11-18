@@ -100,33 +100,18 @@ export async function updateNativePendingOperationPayload(operationId: string, p
 export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
     await posLocalDatabase.acknowledgeOperation({ operationId });
-    await posLocalDatabase.updateRecordSyncState({
-      entity: 'operations',
-      recordId: operationId,
-      syncState: 'synced',
-    });
   }
 }
 
 export async function markNativePosOperationError(operationId: string, message: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
     await posLocalDatabase.markOperationError({ operationId, message });
-    await posLocalDatabase.updateRecordSyncState({
-      entity: 'operations',
-      recordId: operationId,
-      syncState: 'error',
-    });
   }
 }
 
 export async function markNativePosOperationConflict(operationId: string, message: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
     await posLocalDatabase.markOperationConflict({ operationId, message });
-    await posLocalDatabase.updateRecordSyncState({
-      entity: 'operations',
-      recordId: operationId,
-      syncState: 'error',
-    });
   }
 }
 
