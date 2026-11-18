@@ -1,5 +1,6 @@
 import { db } from '../db/db';
 import {
+  applyNativePosRecordChanges,
   deleteNativePosRecord,
   deleteNativePosRecords,
   ensureNativePosDatabase,
@@ -11,6 +12,7 @@ import {
   putNativePosRecords,
   updateNativePosRecordSyncState,
   type PosLocalRecord,
+  type PosLocalRecordChange,
 } from './posLocalDatabase';
 
 const NATIVE_ENTITIES = [
@@ -53,6 +55,10 @@ function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): 
   }
   if (typeof keyPath !== 'string') throw new Error(`Missing Dexie primary-key schema for ${entity}`);
   return serializeKey(record[keyPath]);
+}
+
+function recordIdForKey(entity: NativePosEntity, key: unknown): string {
+  return serializeKey(key);
 }
 
 function requireAndroid(): void {
@@ -149,6 +155,27 @@ export const nativePosRepository = {
       entity, recordId: recordIdFor(entity, record), record, syncState,
     }));
     if (!(await putNativePosRecords(entries))) throw new Error(`SQLite did not confirm saving all ${entity} records`);
+  },
+
+  async applyChanges(changes: Array<
+    | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
+    | { action: 'delete'; entity: NativePosEntity; key: unknown }
+  >): Promise<number> {
+    requireAndroid();
+    const nativeChanges: PosLocalRecordChange[] = changes.map((change) => {
+      assertEntity(change.entity);
+      if (change.action === 'delete') {
+        return { action: 'delete', entity: change.entity, recordId: recordIdForKey(change.entity, change.key) };
+      }
+      return {
+        action: 'put',
+        entity: change.entity,
+        recordId: recordIdFor(change.entity, change.record),
+        record: change.record,
+        syncState: change.syncState ?? 'local',
+      };
+    });
+    return applyNativePosRecordChanges(nativeChanges);
   },
 
   async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
