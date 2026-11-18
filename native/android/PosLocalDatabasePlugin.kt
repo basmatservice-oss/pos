@@ -63,6 +63,69 @@ class PosLocalDatabasePlugin : Plugin() {
         }
     }
 
+    /**
+     * Atomically writes a batch of records for repository-level mutations.
+     * All input is validated before the transaction starts, so invalid input
+     * cannot leave a partially-applied batch in the local database.
+     */
+    @PluginMethod
+    fun putRecords(call: PluginCall) {
+        val records = call.getArray("records")
+        if (records == null) {
+            call.reject("records حقل مطلوب")
+            return
+        }
+
+        try {
+            val validated = ArrayList<Pair<String, ContentValues>>(records.length())
+            val identities = HashSet<String>()
+            for (index in 0 until records.length()) {
+                val item = records.getJSONObject(index)
+                val entity = item.optString("entity").trim()
+                val recordId = item.optString("recordId").trim()
+                val record = item.optJSONObject("record")
+                val syncState = item.optString("syncState", "local")
+                if (entity.isBlank() || recordId.isBlank() || record == null ||
+                    syncState !in setOf("local", "pending", "synced", "error")) {
+                    throw IllegalArgumentException("سجل غير صالح ضمن دفعة SQLite")
+                }
+                val identity = "$entity\\u0000$recordId"
+                if (!identities.add(identity)) {
+                    throw IllegalArgumentException("مفتاح سجل مكرر ضمن دفعة SQLite")
+                }
+                val values = ContentValues().apply {
+                    put("entity", entity)
+                    put("record_id", recordId)
+                    put("json", record.toString())
+                    put("updated_at", System.currentTimeMillis())
+                    put("sync_state", syncState)
+                }
+                validated.add(Pair(entity, values))
+            }
+
+            val db = helper.writableDatabase
+            var savedCount = 0
+            db.beginTransaction()
+            try {
+                for ((_, values) in validated) {
+                    val inserted = db.insertWithOnConflict(
+                        "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                    if (inserted == -1L) {
+                        throw IllegalStateException("تعذر حفظ دفعة السجلات المحلية")
+                    }
+                    savedCount += 1
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("saved", true).put("count", savedCount))
+        } catch (error: Exception) {
+            call.reject("تعذر حفظ دفعة السجلات المحلية بصورة ذرية", error)
+        }
+    }
+
     @PluginMethod
     fun replaceRecords(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
