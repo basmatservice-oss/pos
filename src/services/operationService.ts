@@ -536,7 +536,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
 
         await db.orders.update(originalOrderId, {
           status: fullReturn ? 'returned' : 'partially_returned',
-          returnedAmount: roundMoney((origOrder.returnedAmount || 0) + totalRefund),
+          returnedAmount: Math.min(roundMoney((origOrder.returnedAmount || 0) + totalRefund), roundMoney(Number(origOrder.netAmount || 0))),
           updatedAt: now,
           syncStatus,
         });
