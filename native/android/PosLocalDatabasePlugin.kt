@@ -704,9 +704,11 @@ class PosLocalDatabasePlugin : Plugin() {
                 if (message != null) put("last_error", message)
             }
             val db = helper.writableDatabase
+            var outboxRows = 0
+            var recordRows = 0
             db.beginTransaction()
             try {
-                val outboxRows = if (status == "error") {
+                outboxRows = if (status == "error") {
                     val currentRetry = db.query(
                         "pos_outbox", arrayOf("retry_count"), "operation_id = ?",
                         arrayOf(operationId), null, null, null
@@ -723,7 +725,7 @@ class PosLocalDatabasePlugin : Plugin() {
                 // Keep the durable operation record and its outbox state aligned
                 // in the same SQLite transaction after acknowledgement or failure.
                 val recordSyncState = if (status == "synced") "synced" else "error"
-                val recordRows = db.update(
+                recordRows = db.update(
                     "pos_records",
                     ContentValues().apply { put("sync_state", recordSyncState); put("updated_at", System.currentTimeMillis()) },
                     "entity = ? AND record_id = ?",
