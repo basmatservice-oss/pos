@@ -691,31 +691,45 @@ async function applyPurchaseLocally(
       }
 
       const fxRate = Number(purchase.exchangeRate || 1) > 0 ? Number(purchase.exchangeRate || 1) : 1;
-      const extraCost =
-        Number(purchase.shippingCost || 0) +
-        Number(purchase.customsCost || 0) +
-        Number(purchase.otherCosts || 0);
-      const itemsGoodsSum = items.reduce((s: number, it: any) => {
-        const c = it.pricesInForeignCurrency ? Number(it.costPrice || 0) * fxRate : Number(it.costPrice || 0);
-        return s + Number(it.quantity || 0) * c;
-      }, 0);
-      const goodsTotal = Number(purchase.totalAmount || 0) > 0 ? roundMoney(Number(purchase.totalAmount)) : roundMoney(itemsGoodsSum);
-
-      for (const item of items) {
+      const extraCost = roundMoney(
+        roundMoney(Number(purchase.shippingCost || 0)) +
+        roundMoney(Number(purchase.customsCost || 0)) +
+        roundMoney(Number(purchase.otherCosts || 0))
+      );
+      const normalizedItems = items.map((item: any) => {
         const qty = roundQty(Number(item.quantity || 0));
         const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
-        const baseQty = roundQty(qty * factor);
         const unitPurchaseCost = item.pricesInForeignCurrency
           ? Number(item.costPrice || 0) * fxRate
           : Number(item.costPrice || 0);
-        const lineTotal = roundMoney(qty * unitPurchaseCost);
-        const share = itemsGoodsSum > 0 ? (lineTotal / itemsGoodsSum) * extraCost : 0;
-        const landedTotal = roundMoney(lineTotal + share);
+        return { ...item, qty, factor, unitPurchaseCost, lineTotal: roundMoney(qty * unitPurchaseCost) };
+      }).filter((item: any) => item.qty > 0);
+      const itemsGoodsSum = roundMoney(normalizedItems.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
+      const goodsTotal = Number(purchase.totalAmount || 0) > 0 ? roundMoney(Number(purchase.totalAmount)) : itemsGoodsSum;
+      let remainingExtra = extraCost;
+
+      for (let itemIndex = 0; itemIndex < normalizedItems.length; itemIndex++) {
+        const item = normalizedItems[itemIndex];
+        const qty = item.qty;
+        const factor = item.factor;
+        const baseQty = roundQty(qty * factor);
+        const unitPurchaseCost = item.unitPurchaseCost;
+        const lineTotal = item.lineTotal;
+        let allocatedExtra = 0;
+        if (extraCost > 0) {
+          if (itemIndex === normalizedItems.length - 1) {
+            allocatedExtra = roundMoney(remainingExtra);
+          } else if (itemsGoodsSum > 0) {
+            allocatedExtra = roundMoney((lineTotal / itemsGoodsSum) * extraCost);
+            remainingExtra = roundMoney(remainingExtra - allocatedExtra);
+          }
+        }
+        const landedTotal = roundMoney(lineTotal + allocatedExtra);
         const landedCostPerBaseUnit =
           item.landedCostPerBaseUnit !== undefined
             ? Number(item.landedCostPerBaseUnit)
             : baseQty > 0
-            ? Math.round(((lineTotal + share) / baseQty) * 10000) / 10000
+            ? Math.round((landedTotal / baseQty) * 10000) / 10000
             : unitPurchaseCost;
 
         if (!Array.isArray(_serverItems) || _serverItems.length === 0) {
@@ -765,7 +779,7 @@ async function applyPurchaseLocally(
           });
         }
         await recordLocalInventoryMovement({
-          movementKey: 'purchase:' + String(purchase.id) + ':' + operationId + ':in:' + String(item.productId) + ':' + String(items.indexOf(item)),
+          movementKey: 'purchase:' + String(purchase.id) + ':' + operationId + ':in:' + String(item.productId) + ':' + String(itemIndex),
           productId: Number(item.productId), movementType: 'purchase_receipt', sourceType: 'purchase', sourceId: String(purchase.id),
           quantityDeltaBase: baseQty, unitCost: landedCostPerBaseUnit, totalCost: landedTotal,
           branchId: purchase.branchId, operationId, reason: 'استلام مشتريات', createdBy: purchase.createdBy,
