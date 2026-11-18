@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rimraf dist release",
     "start": "tsx server.ts",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --external:sqlite3 --external:vite",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --external:vite",
     "package:win": "npm run build && npm run build:server && electron-builder --win nsis --x64 --publish never",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
@@ -54,8 +54,6 @@
     "recharts": "^3.8.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
-    "sqlite": "^5.1.1",
-    "sqlite3": "5.1.7",
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
     "uuid": "9.0.1",
@@ -101,7 +99,6 @@
     "asarUnpack": [
       "dist/**/*",
       "node_modules/better-sqlite3/**/*",
-      "node_modules/sqlite3/**/*",
       "drizzle/migrations/**/*"
     ],
     "win": {
