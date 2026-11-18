@@ -120,7 +120,8 @@ export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
   if (snapshotState.value === 'in_progress') {
-    throw new Error('Android SQLite contains an interrupted business snapshot; refusing to restore partial data');
+    console.warn('Interrupted Android SQLite snapshot detected; partial records will not be restored. A fresh Dexie snapshot will be attempted.');
+    return;
   }
   if (snapshotState.value !== '1') return;
   const failedEntities: string[] = [];
