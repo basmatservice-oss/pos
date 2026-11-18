@@ -394,7 +394,22 @@ export const syncService = {
         { table: db.journalEntries, api: () => apiService.getJournalEntries(), authoritativeReplaceSynced: true },
         { table: db.transactions, api: () => apiService.getTransactions(), authoritativeReplaceSynced: true },
         { table: db.inventoryBatches, api: () => apiService.getInventoryBatches(), authoritativeReplaceSynced: true },
-        { table: db.inventoryAlerts, api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
+        {
+          table: db.inventoryMovements,
+          api: async () => {
+            const allMovements: any[] = [];
+            let offset = 0;
+            do {
+              const page = await apiService.getInventoryMovements({ offset, limit: 2000 });
+              if (Array.isArray(page)) { allMovements.push(...page); break; }
+              if (Array.isArray(page?.items)) allMovements.push(...page.items);
+              if (page?.nextOffset === null || page?.nextOffset === undefined) break;
+              offset = Number(page.nextOffset);
+            } while (Number.isFinite(offset) && offset >= 0);
+            return allMovements;
+          },
+          authoritativeReplaceSynced: true,
+        },        { table: db.inventoryAlerts, api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
         { table: db.loyaltyTransactions, api: () => apiService.getLoyaltyTransactions() },
         { table: db.purchases, api: () => apiService.getPurchases() },
         { table: db.purchaseItems, api: () => apiService.getPurchaseItems(), authoritativeReplaceSynced: true },
