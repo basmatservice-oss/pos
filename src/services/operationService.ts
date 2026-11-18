@@ -1103,6 +1103,8 @@ async function applyShiftLocally(
     return;
   }
   if (type === 'shift_open') {
+    const shiftId = String(payload.id);
+    if (await db.shifts.get(shiftId)) return;
     await db.shifts.put({
       id: payload.id,
       startTime: payload.startTime || now,
