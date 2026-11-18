@@ -70,6 +70,7 @@ async function readEquals<T extends Record<string, unknown>>(
   entity: NativePosEntity,
   indexName: string,
   value: string | number | boolean,
+  limit = 0,
 ): Promise<T[]> {
   requireAndroid();
   assertEntity(entity);
@@ -82,7 +83,7 @@ async function readEquals<T extends Record<string, unknown>>(
   if (!index || Array.isArray(index.keyPath)) {
     throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
   }
-  const items = await getNativePosRecordsByField(entity, indexName, value);
+  const items = await getNativePosRecordsByField(entity, indexName, value, limit);
   return items.map((item) => item.record as T);
 }
 
@@ -123,7 +124,7 @@ export const nativePosRepository = {
     indexName: string,
     value: string | number | boolean,
   ): Promise<T | null> {
-    const records = await readEquals<T>(entity, indexName, value);
+    const records = await readEquals<T>(entity, indexName, value, 1);
     return records[0] ?? null;
   },
 
