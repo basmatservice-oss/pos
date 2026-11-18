@@ -217,14 +217,15 @@ export function reverseJournalEntriesByReference(
   reason: string,
   createdBy?: string
 ) {
-  const entries = tx
+  const allEntries = tx
     .select()
     .from(journalEntries)
-    .where(and(eq(journalEntries.referenceId, referenceId), eq(journalEntries.status, 'posted')))
+    .where(eq(journalEntries.referenceId, referenceId))
     .all();
+  const reversalEntryIds = new Set(allEntries.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+  const entries = allEntries.filter((entry: any) => entry.status === 'posted' && !reversalEntryIds.has(String(entry.id)));
 
   for (const entry of entries) {
-    if (String(entry.description || '').startsWith('قيد عكسي - ')) continue;
     const lines = tx
       .select()
       .from(transactions)
