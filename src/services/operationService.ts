@@ -909,6 +909,8 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
   const now = new Date().toISOString();
   const payAmount = Number(payload.amount || 0);
   await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions], async () => {
+    const paymentId = payload.paymentId || payload.operationId || generateUUID();
+    if (await db.customerPayments.get(paymentId)) return;
     const cust = await db.customers.get(Number(payload.customerId));
     if (cust) {
       await db.customers.update(cust.id!, {
@@ -927,7 +929,6 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
         });
       }
     }
-    const paymentId = payload.paymentId || payload.operationId || generateUUID();
     await db.customerPayments.put({
       id: paymentId,
       customerId: Number(payload.customerId),
@@ -958,6 +959,8 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
   const now = new Date().toISOString();
   const payAmount = Number(payload.amount || 0);
   await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions], async () => {
+    const paymentId = payload.paymentId || payload.operationId || generateUUID();
+    if (await db.supplierPayments.get(paymentId)) return;
     const sup = await db.suppliers.get(Number(payload.supplierId));
     if (sup) {
       await db.suppliers.update(sup.id!, {
@@ -978,7 +981,6 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
         });
       }
     }
-    const paymentId = payload.paymentId || payload.operationId || generateUUID();
     await db.supplierPayments.put({
       id: paymentId,
       supplierId: Number(payload.supplierId),
