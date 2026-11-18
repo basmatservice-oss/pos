@@ -33,6 +33,21 @@ import { useSettings } from './hooks/useSettings';
 import { db, ensureDatabaseReady } from './db/db';
 import { useInventoryStore } from './store/useInventoryStore';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { isNativeAndroid } from './native/posLocalDatabase';
+import { nativePosRepository } from './native/nativePosRepository';
+
+async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
+  if (isNativeAndroid()) {
+    return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
+  }
+  return db.settings.where('key').equals(key).first();
+}
+
+async function writeAppSetting(key: string, value: any): Promise<void> {
+  const record = { key, value, syncStatus: 'synced', updatedAt: new Date().toISOString() };
+  await db.settings.put(record);
+  if (isNativeAndroid()) await nativePosRepository.put('settings', record, 'synced');
+}
 
 function AppContent() {
   const [businessType, setBusinessType] = useState<BusinessType | null>(null);
@@ -134,7 +149,7 @@ function AppContent() {
       let serverUrl = window.location.origin;
 
       if (deviceRole === 'client') {
-        const urlSetting = await db.settings.where('key').equals('serverUrl').first();
+        const urlSetting = await readAppSetting('serverUrl');
         if (urlSetting && urlSetting.value) {
           const raw = String(urlSetting.value).trim().replace(/\/+$/, '');
           serverUrl = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
@@ -202,7 +217,7 @@ function AppContent() {
       try {
         await ensureDatabaseReady();
         // First check local Dexie DB for role and business type
-        const roleSetting = await db.settings.where('key').equals('deviceRole').first();
+        const roleSetting = await readAppSetting('deviceRole');
         const typeSetting = await db.settings.where('key').equals('businessType').first();
         
         // Check if it's a mobile device (Capacitor/Cordova)
@@ -214,7 +229,7 @@ function AppContent() {
           const mobileRole = roleSetting?.value === 'standalone' ? 'standalone' : 'client';
           setDeviceRole(mobileRole as DeviceRole);
           if (!roleSetting) {
-            await db.settings.put({ key: 'deviceRole', value: mobileRole, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+            await writeAppSetting('deviceRole', mobileRole);
           }
           if (typeSetting && typeSetting.value) {
             setBusinessType(typeSetting.value as BusinessType);
@@ -241,7 +256,7 @@ function AppContent() {
                 // default to server when no desktop role exists.
                 if (!roleSetting && !(window as any).electronAPI?.getDeviceRole) {
                   setDeviceRole('server');
-                  await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'synced', updatedAt: new Date().toISOString() });
+                  await writeAppSetting('deviceRole', 'server');
                 }
               }
             } catch (e) {
