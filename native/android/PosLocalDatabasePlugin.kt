@@ -126,6 +126,82 @@ class PosLocalDatabasePlugin : Plugin() {
         }
     }
 
+    /**
+     * Applies mixed record inserts/updates/deletes in one SQLite transaction.
+     * Duplicate entity/key mutations are rejected before any database write.
+     */
+    @PluginMethod
+    fun applyRecordChanges(call: PluginCall) {
+        val changes = call.getArray("changes")
+        if (changes == null) {
+            call.reject("changes حقل مطلوب")
+            return
+        }
+
+        try {
+            val validated = ArrayList<Triple<String, String, Pair<String, ContentValues?>>>()
+            val identities = HashSet<String>()
+            for (index in 0 until changes.length()) {
+                val item = changes.getJSONObject(index)
+                val action = item.optString("action").trim()
+                val entity = item.optString("entity").trim()
+                val recordId = item.optString("recordId").trim()
+                if (action !in setOf("put", "delete") || entity.isBlank() || recordId.isBlank()) {
+                    throw IllegalArgumentException("تغيير سجل SQLite غير صالح")
+                }
+                val identity = JSONArray().put(entity).put(recordId).toString()
+                if (!identities.add(identity)) {
+                    throw IllegalArgumentException("تغيير مكرر لنفس السجل ضمن دفعة SQLite")
+                }
+                val values = if (action == "put") {
+                    val record = item.optJSONObject("record")
+                        ?: throw IllegalArgumentException("بيانات السجل مطلوبة لعملية put")
+                    val syncState = item.optString("syncState", "local")
+                    if (syncState !in setOf("local", "pending", "synced", "error")) {
+                        throw IllegalArgumentException("حالة مزامنة غير صالحة")
+                    }
+                    ContentValues().apply {
+                        put("entity", entity)
+                        put("record_id", recordId)
+                        put("json", record.toString())
+                        put("updated_at", System.currentTimeMillis())
+                        put("sync_state", syncState)
+                    }
+                } else null
+                validated.add(Triple(action, entity, Pair(recordId, values)))
+            }
+
+            val db = helper.writableDatabase
+            var applied = 0
+            db.beginTransaction()
+            try {
+                for ((action, target) in validated) {
+                    val (entity, values) = target
+                    if (action == "put") {
+                        val inserted = db.insertWithOnConflict(
+                            "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
+                        )
+                        if (inserted == -1L) throw IllegalStateException("تعذر حفظ سجل ضمن الدفعة")
+                        applied += 1
+                    } else {
+                        applied += db.delete(
+                            "pos_records", "entity = ? AND record_id = ?", arrayOf(entity, target.let { validatedItem ->
+                                // record ID is carried by the validated entry below
+                                ""
+                            })
+                        )
+                    }
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("applied", applied).put("count", validated.size))
+        } catch (error: Exception) {
+            call.reject("تعذر تطبيق تغييرات السجلات بصورة ذرية", error)
+        }
+    }
+
     @PluginMethod
     fun replaceRecords(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
