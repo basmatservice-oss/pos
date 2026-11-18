@@ -57,6 +57,7 @@ const entityReferenceKeys: Record<string, string[]> = {
   products: ['productId', 'ingredientProductId', 'parentProductId'],
   customers: ['customerId'],
   suppliers: ['supplierId'],
+  categories: ['categoryId'],
 };
 
 function replaceEntityReferences(value: any, keys: Set<string>, oldId: string, newId: string): any {
@@ -82,7 +83,11 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
   const dexiePending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   for (const operation of dexiePending) {
     if (operation.id === acknowledgedOperationId) continue;
-    const nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+    let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+    if (operation.type === 'entity_upsert' && operation.payload?.table === tableName &&
+        operation.payload?.record?.id !== undefined && String(operation.payload.record.id) === oldKey) {
+      nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\\d+$/.test(newKey) ? Number(newKey) : newKey } };
+    }
     if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
       await db.syncOperations.update(operation.id, { payload: nextPayload });
       if (isNativeAndroid()) {
@@ -96,7 +101,11 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
     const nativePending = await listNativePendingPosOperations();
     for (const operation of nativePending) {
       if (operation.operationId === acknowledgedOperationId) continue;
-      const nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+      let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+      if (operation.type === 'entity_upsert' && operation.payload?.table === tableName &&
+          operation.payload?.record?.id !== undefined && String(operation.payload.record.id) === oldKey) {
+        nextPayload = { ...nextPayload, record: { ...nextPayload.record, id: /^\\d+$/.test(newKey) ? Number(newKey) : newKey } };
+      }
       if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
         await updateNativePendingOperationPayload(operation.operationId, nextPayload);
       }
