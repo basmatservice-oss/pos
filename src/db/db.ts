@@ -1236,12 +1236,6 @@ export function ensureDatabaseReady(): Promise<void> {
           }
         }
       }
-      try {
-        const { restoreNativePosDatabase } = await import('../services/nativeDatabaseMirror');
-        await restoreNativePosDatabase();
-      } catch (restoreError) {
-        console.warn('Native SQLite recovery was skipped:', restoreError);
-      }
     })();
   }
   return dbReadyPromise;
