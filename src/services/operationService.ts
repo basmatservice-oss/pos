@@ -951,7 +951,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
 }
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  const payAmount = Number(payload.amount || 0);
+  const payAmount = roundMoney(Number(payload.amount || 0));
   await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions], async () => {
     const paymentId = payload.paymentId || payload.operationId || generateUUID();
     if (await db.customerPayments.get(paymentId)) return;
@@ -1002,7 +1002,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
 
 async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  const payAmount = Number(payload.amount || 0);
+  const payAmount = roundMoney(Number(payload.amount || 0));
   await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions], async () => {
     const paymentId = payload.paymentId || payload.operationId || generateUUID();
     if (await db.supplierPayments.get(paymentId)) return;
