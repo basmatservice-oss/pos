@@ -531,6 +531,7 @@ export function restoreInventoryFIFO(
     if (!alloc || alloc.quantity <= 0) continue;
     let putBack = roundQty(Math.min(remainingToRestore, alloc.quantity));
 
+    const allocationCost = Number(alloc.costPrice ?? fallbackCost);
     if (alloc.batchId) {
       const batch = tx
         .select()
@@ -541,21 +542,26 @@ export function restoreInventoryFIFO(
         const room = roundQty(Math.max(0, Number(batch.quantity) - Number(batch.remainingQuantity)));
         putBack = roundQty(Math.min(putBack, room));
         if (putBack <= 1e-6) continue;
-
         const newRem = roundQty(Number(batch.remainingQuantity) + putBack);
         tx.update(inventoryBatches)
           .set({ remainingQuantity: newRem, updatedAt: now, isSynced: 0 })
           .where(eq(inventoryBatches.id, batch.id))
           .run();
+      } else {
+        const replacementBatchId = crypto.randomUUID();
+        tx.insert(inventoryBatches).values({
+          id: replacementBatchId, productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
+          costPrice: allocationCost, purchaseDate: now, branchId: branchId ?? null, isSynced: 0,
+          createdAt: now, updatedAt: now,
+        }).run();
+        restoredAllocations.push({ batchId: replacementBatchId, quantity: putBack, costPrice: allocationCost });
+        totalCostRestored += putBack * allocationCost;
+        remainingToRestore = roundQty(remainingToRestore - putBack);
+        continue;
       }
     }
-
-    totalCostRestored += putBack * Number(alloc.costPrice ?? fallbackCost);
-    restoredAllocations.push({
-      batchId: alloc.batchId,
-      quantity: putBack,
-      costPrice: Number(alloc.costPrice ?? fallbackCost),
-    });
+    totalCostRestored += putBack * allocationCost;
+    restoredAllocations.push({ batchId: alloc.batchId, quantity: putBack, costPrice: allocationCost });
     remainingToRestore = roundQty(remainingToRestore - putBack);
   }
 
