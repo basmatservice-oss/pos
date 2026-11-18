@@ -166,7 +166,26 @@ export const syncService = {
     // establish server-side identifiers needed by the next queued operation;
     // batching dependent operations would send stale temporary references.
     for (let i = 0; i < readyOps.length; i += 1) {
-      const batch = [readyOps[i]];
+      const queuedOperation = readyOps[i];
+      // Re-read the payload after each acknowledgement: an earlier create may
+      // have remapped IDs inside this operation while readyOps was being sorted.
+      let currentOperation: any = await db.syncOperations.get(queuedOperation.id);
+      if (isNativeAndroid() && nativeIds.has(queuedOperation.id)) {
+        const latestNative = await listNativePendingPosOperations();
+        const nativeOperation = latestNative.find((item) => item.operationId === queuedOperation.id);
+        if (nativeOperation) {
+          currentOperation = {
+            ...currentOperation,
+            id: nativeOperation.operationId,
+            type: nativeOperation.type,
+            payload: nativeOperation.payload,
+            deviceId: nativeOperation.deviceId || currentOperation?.deviceId || '',
+            branchId: nativeOperation.branchId ? Number(nativeOperation.branchId) : currentOperation?.branchId,
+          };
+        }
+      }
+      if (!currentOperation || !['pending', 'error', 'syncing'].includes(currentOperation.status || 'pending')) continue;
+      const batch = [currentOperation];
       const response = await apiService.executeOperationsBatch(
         batch.map((op) => ({
           id: op.id,
