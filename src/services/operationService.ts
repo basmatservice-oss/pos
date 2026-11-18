@@ -874,34 +874,37 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     }
   });
 }
-async function applyExpenseLocally(
-  type: 'expense' | 'expense_delete',
-  payload: any,
-  syncStatus: 'synced' | 'pending'
-) {
+async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  if (type === 'expense_delete') {
-    if (payload?.id !== undefined) {
-      await db.expenses.delete(Number(payload.id));
+  await db.transaction('rw', [db.expenses, db.accounts, db.journalEntries, db.transactions], async () => {
+    if (type === 'expense_delete') {
+      if (payload?.id !== undefined) {
+        await reverseLocalJournalEntriesByReference(String(payload.id), 'حذف مصروف', payload.createdBy);
+        await db.expenses.delete(Number(payload.id));
+      }
+      return;
     }
-    return;
-  }
-
-  await db.expenses.put({
-    id: payload.id,
-    description: payload.description,
-    amount: Number(payload.amount || 0),
-    category: payload.category || 'عام',
-    paymentMethod: payload.paymentMethod || 'cash',
-    shiftId: payload.shiftId,
-    date: payload.date || now,
-    branchId: payload.branchId,
-    createdAt: payload.createdAt || now,
-    updatedAt: now,
-    syncStatus,
+    const expenseId = Number(payload.id);
+    if (!Number.isFinite(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
+    await db.expenses.put({
+      id: expenseId, description: payload.description, amount: Number(payload.amount || 0),
+      category: payload.category || 'عام', paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+      shiftId: payload.shiftId, date: payload.date || now, branchId: payload.branchId,
+      createdAt: payload.createdAt || now, updatedAt: now, syncStatus,
+    });
+    const amount = roundMoney(Number(payload.amount || 0));
+    if (syncStatus === 'pending' && amount > 0) {
+      await postLocalJournalEntry({
+        referenceId: String(expenseId), referenceType: 'expense', entryKey: 'expense-' + String(payload.operationId || expenseId),
+        date: payload.date || now, description: 'مصروف (' + String(payload.category || 'عام') + '): ' + String(payload.description || ''),
+        lines: [
+          { accountCode: '5200', debit: amount, credit: 0 },
+          { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: amount },
+        ], createdBy: payload.createdBy, branchId: payload.branchId,
+      });
+    }
   });
 }
-
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = Number(payload.amount || 0);
@@ -1139,6 +1142,9 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'expense' && !payload?.id) {
+    return { ...payload, id: Date.now() };
+  }
   if (type === 'return' && !payload?.id) {
     return { ...payload, id: generateUUID() };
   }
