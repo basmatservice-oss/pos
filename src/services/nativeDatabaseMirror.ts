@@ -13,7 +13,10 @@ const MIRRORED_TABLES = [
 
 function getRecordId(row: any): string {
   const value = row?.id ?? row?.code ?? row?.key;
-  return value === undefined || value === null ? '' : String(value);
+  if (value === undefined || value === null) return '';
+  // Dexie distinguishes numeric and string keys (for example 12 and "12").
+  // Preserve that distinction in SQLite's TEXT primary-key column.
+  return `${typeof value}:${String(value)}`;
 }
 
 let nativeMirrorHooksInstalled = false;
