@@ -1196,6 +1196,24 @@ async function applyShiftLocally(
   }
   if (type === 'shift_open') {
     const shiftId = String(payload.id);
+    // SQLite is the authoritative Android store. Read it first so an existing
+    // shift is never recreated from a stale Dexie cache.
+    if (isNativeAndroid()) {
+      const existing = await nativePosRepository.get<any>('shifts', shiftId);
+      if (existing) return;
+      const record = {
+        id: payload.id,
+        startTime: payload.startTime || now,
+        openingCash: Number(payload.openingCash || 0),
+        status: 'open',
+        branchId: payload.branchId,
+        syncStatus,
+      };
+      await nativePosRepository.put('shifts', record, syncStatus);
+      await db.shifts.put(record as any);
+      await flushNativeDatabaseMirrorWrites();
+      return;
+    }
     if (await db.shifts.get(shiftId)) return;
     await db.shifts.put({
       id: payload.id,
@@ -1206,6 +1224,23 @@ async function applyShiftLocally(
       syncStatus,
     });
   } else if (type === 'shift_close') {
+    if (isNativeAndroid()) {
+      const shiftId = String(payload.id);
+      const existing = await nativePosRepository.get<any>('shifts', shiftId);
+      if (!existing) return;
+      const record = {
+        ...existing,
+        endTime: payload.endTime || now,
+        expectedCash: Number(payload.expectedCash || 0),
+        actualCash: Number(payload.actualCash || 0),
+        status: 'closed',
+        syncStatus,
+      };
+      await nativePosRepository.put('shifts', record, syncStatus);
+      await db.shifts.put(record as any);
+      await flushNativeDatabaseMirrorWrites();
+      return;
+    }
     await db.shifts.update(payload.id, {
       endTime: payload.endTime || now,
       expectedCash: Number(payload.expectedCash || 0),
