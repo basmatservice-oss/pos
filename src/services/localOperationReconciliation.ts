@@ -52,7 +52,7 @@ async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record
 
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
   const referenceId = type === 'entity_upsert' && payload?.table === 'products'
-    ? 'opening:' + String(serverResult?.id ?? payload?.record?.id)
+    ? 'opening:' + String(payload?.record?.id)
     : String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
@@ -143,7 +143,10 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const table = (db as any)[payload?.table];
     const serverId = serverResult?.id ?? payload?.record?.id;
     if (table && serverId !== undefined) {
-      if (payload?.record?.id !== undefined && payload.record.id !== serverId) await table.delete(payload.record.id).catch(() => {});
+      if (payload?.record?.id !== undefined && payload.record.id !== serverId) {
+        await table.delete(payload.record.id).catch(() => {});
+        if (payload?.table === 'products') await db.inventoryBatches.where('productId').equals(Number(payload.record.id)).delete();
+      }
       if (payload?.table === 'products') {
         await db.products.update(Number(serverId), { syncStatus: 'synced' });
         await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId));
