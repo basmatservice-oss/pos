@@ -43,17 +43,20 @@ export function installNativeDatabaseMirrorHooks(): void {
     table.hook('creating', function (primKey: any, obj: any, transaction: any) {
       transaction.on('complete', () => {
         const key = primKey ?? getRecordId(obj);
-        Promise.resolve(table.get(key))
-          .then((row: any) => row && mirrorNativePosRecord(entity, row))
-          .catch((error: any) => console.warn('Android SQLite create mirror failed:', entity, error));
+        if (key === undefined || key === null || key === '') return;
+        enqueueNativeMirrorWrite(async () => {
+          const row = await table.get(key);
+          if (row) await persistNativePosRecord(entity, row);
+        }).catch((error) => console.warn('Android SQLite create mirror failed:', entity, error));
       });
     });
 
     table.hook('updating', function (_changes: any, primKey: any, _obj: any, transaction: any) {
       transaction.on('complete', () => {
-        Promise.resolve(table.get(primKey))
-          .then((row: any) => row && mirrorNativePosRecord(entity, row))
-          .catch((error: any) => console.warn('Android SQLite update mirror failed:', entity, error));
+        enqueueNativeMirrorWrite(async () => {
+          const row = await table.get(primKey);
+          if (row) await persistNativePosRecord(entity, row);
+        }).catch((error) => console.warn('Android SQLite update mirror failed:', entity, error));
       });
     });
 
@@ -91,16 +94,18 @@ export async function mirrorNativePosDatabase(): Promise<void> {
   await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' }).catch(() => {});
 }
 
-export async function mirrorNativePosRecord(entity: string, row: any): Promise<void> {
+async function persistNativePosRecord(entity: string, row: any): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   if (entity === 'settings' && row?.key === 'authSecret') return;
   const recordId = getRecordId(row);
   if (!recordId) return;
   const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
     ? row.syncStatus : 'local';
-  await enqueueNativeMirrorWrite(() =>
-    posLocalDatabase.putRecord({ entity, recordId, record: row, syncState }).then(() => undefined)
-  );
+  await posLocalDatabase.putRecord({ entity, recordId, record: row, syncState }).then(() => undefined);
+}
+
+export async function mirrorNativePosRecord(entity: string, row: any): Promise<void> {
+  await enqueueNativeMirrorWrite(() => persistNativePosRecord(entity, row));
 }
 export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
