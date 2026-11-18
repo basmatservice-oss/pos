@@ -99,19 +99,22 @@ export async function updateNativePendingOperationPayload(operationId: string, p
 
 export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
-    await posLocalDatabase.acknowledgeOperation({ operationId });
+    const result = await posLocalDatabase.acknowledgeOperation({ operationId });
+    if (result.updated !== true) throw new Error(`SQLite outbox acknowledgement was not confirmed: ${operationId}`);
   }
 }
 
 export async function markNativePosOperationError(operationId: string, message: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
-    await posLocalDatabase.markOperationError({ operationId, message });
+    const result = await posLocalDatabase.markOperationError({ operationId, message });
+    if (result.updated !== true) throw new Error(`SQLite outbox error update was not confirmed: ${operationId}`);
   }
 }
 
 export async function markNativePosOperationConflict(operationId: string, message: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
-    await posLocalDatabase.markOperationConflict({ operationId, message });
+    const result = await posLocalDatabase.markOperationConflict({ operationId, message });
+    if (result.updated !== true) throw new Error(`SQLite outbox conflict update was not confirmed: ${operationId}`);
   }
 }
 
