@@ -1365,6 +1365,103 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
   const now = new Date().toISOString();
   const payrollId = Number(payload.id);
   if (!Number.isSafeInteger(payrollId) || payrollId <= 0) throw new Error('معرّف مسير الراتب غير صالح');
+  if (isNativeAndroid()) {
+    if (await nativePosRepository.get<any>('payroll', payrollId)) return;
+    const record = {
+      id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
+      periodStart: payload.periodStart, periodEnd: payload.periodEnd,
+      salaryType: payload.salaryType === 'hourly' ? 'hourly' : 'monthly',
+      totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
+      basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
+      deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
+      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash', branchId: payload.branchId,
+      paymentDate: payload.paymentDate || now, status: payload.status || 'paid', syncStatus,
+    };
+    if (!Number.isFinite(record.netSalary) || record.netSalary < 0) {
+      throw new Error('صافي الراتب غير صالح');
+    }
+    const changes: any[] = [
+      { action: 'put', entity: 'payroll', record, syncState: syncStatus },
+    ];
+    const accountingRecords: any[] = [];
+    if (shouldPostLocalAccounting(syncStatus) && record.netSalary > 0 && record.status === 'paid') {
+      const cashCode = record.paymentMethod === 'card' ? '1020' : '1010';
+      const definitions = [
+        { code: '5300', name: 'مصروف الرواتب', type: 'expense' },
+        { code: cashCode, name: record.paymentMethod === 'card' ? 'البنك / الشبكة' : 'الصندوق', type: 'asset' },
+      ];
+      const accounts = new Map<string, any>();
+      for (const definition of definitions) {
+        const current = await nativePosRepository.get<any>('accounts', definition.code);
+        accounts.set(definition.code, current || {
+          ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+        });
+      }
+      const entryId = `local-je:payroll:${payrollId}:payroll-${String(payload.operationId || payrollId)}`;
+      if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+        const entry = {
+          id: entryId, entryNumber: `LOCAL-payroll-${payrollId}`,
+          date: record.paymentDate, referenceId: String(payrollId), referenceType: 'payroll',
+          description: 'صرف راتب الموظف: ' + String(record.employeeName || ''),
+          totalDebit: roundMoney(record.netSalary), totalCredit: roundMoney(record.netSalary),
+          status: 'posted', createdBy: payload.createdBy || 'System',
+          branchId: record.branchId, syncStatus, createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: syncStatus });
+        accountingRecords.push(entry);
+        const lines = [
+          { accountCode: '5300', debit: roundMoney(record.netSalary), credit: 0 },
+          { accountCode: cashCode, debit: 0, credit: roundMoney(record.netSalary) },
+        ];
+        for (let index = 0; index < lines.length; index++) {
+          const line = lines[index];
+          const account = accounts.get(line.accountCode);
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+          accounts.set(line.accountCode, {
+            ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now,
+          });
+          const transaction = {
+            id: `${entryId}:${index}`, journalEntryId: entryId,
+            accountId: line.accountCode, accountName: account.name,
+            type: line.debit > 0 ? 'debit' : 'credit',
+            amount: roundMoney(record.netSalary), debit: line.debit, credit: line.credit,
+            description: entry.description, syncStatus, createdAt: now,
+          };
+          changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: syncStatus });
+          accountingRecords.push(transaction);
+        }
+        for (const account of accounts.values()) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+          accountingRecords.push(account);
+        }
+      }
+    }
+    let auditRecord: any = null;
+    if (currentDeviceRole === 'standalone') {
+      auditRecord = {
+        id: generateUUID(), date: record.paymentDate, userName: payload.createdBy || 'System',
+        type: 'payroll', operationName: 'مسير رواتب', action: 'صرف راتب',
+        details: 'صرف راتب ' + String(record.employeeName || '') + ' (' + (record.salaryType === 'hourly' ? 'بالساعة' : 'شهري') + ')',
+        quantity: 1, value: record.netSalary, branchId: record.branchId,
+        entityId: String(payrollId), entityName: record.employeeName, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+    }
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مسير الراتب');
+    await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
+      await db.payroll.put(record);
+      for (const item of accountingRecords) {
+        if (item.code) await db.accounts.put(item);
+        else if (item.referenceType === 'payroll') await db.journalEntries.put(item);
+        else if (item.journalEntryId) await db.transactions.put(item);
+      }
+      if (auditRecord) await db.auditLogs.put(auditRecord);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
   await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     if (await db.payroll.get(payrollId)) return;
     const record = {
