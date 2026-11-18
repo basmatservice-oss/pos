@@ -184,11 +184,29 @@ export async function restoreNativePosDatabase(): Promise<void> {
       if (!table) throw new Error('Dexie table is unavailable');
       const result = await posLocalDatabase.getRecords({ entity });
       if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid record collection');
-      if (result.records.length === 0) continue;
+
+      // Validate the complete SQLite response before writing anything to Dexie.
+      // A mismatched serialized key could otherwise restore a row under the wrong identity.
+      const restoredIds = new Set<string>();
+      const validRecords = result.records.filter((item) => !(entity === 'settings' && item.record?.key === 'authSecret'));
+      for (const item of validRecords) {
+        if (!item || typeof item.recordId !== 'string' || !item.record || typeof item.record !== 'object') {
+          throw new Error(`SQLite returned an invalid record in ${entity}`);
+        }
+        const resolvedId = getRecordId(entity, item.record);
+        if (!resolvedId || resolvedId !== item.recordId) {
+          throw new Error(`SQLite record identity mismatch in ${entity}: stored key does not match the record primary key`);
+        }
+        if (restoredIds.has(item.recordId)) {
+          throw new Error(`SQLite returned a duplicate primary key in ${entity}`);
+        }
+        restoredIds.add(item.recordId);
+      }
+      if (validRecords.length === 0) continue;
       const existingRows = await table.toArray();
       const existingIds = new Set(existingRows.map((row: any) => getRecordId(entity, row)).filter(Boolean));
-      const missingRows = result.records
-        .filter((item) => item.recordId && !existingIds.has(String(item.recordId)))
+      const missingRows = validRecords
+        .filter((item) => !existingIds.has(item.recordId))
         .map((item) => ({
           ...item.record,
           ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
