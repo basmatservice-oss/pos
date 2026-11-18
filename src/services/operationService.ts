@@ -419,7 +419,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
               operationId,
               deviceId,
               sourceId: String(id),
-              movementKeySuffix: String(index),
+              movementKeySuffix: String(savedReturnItems.length),
               branchId: branchId ?? origOrder?.branchId,
               reason: reason || 'مرتجع مبيعات',
               createdBy,
@@ -1011,6 +1011,9 @@ async function applyOperationLocally(
 }
 
 function enrichPayloadWithStableIds(type: SyncOperation['type'], payload: any) {
+  if (type === 'return' && !payload?.id) {
+    return { ...payload, id: generateUUID() };
+  }
   if ((type === 'purchase' || type === 'purchase_update') && Array.isArray(payload?.items)) {
     return {
       ...payload,
