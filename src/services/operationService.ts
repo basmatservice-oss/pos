@@ -10,7 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
-import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, isNativeAndroid } from '../native/posLocalDatabase';
+import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
 
@@ -1125,7 +1125,7 @@ export async function dispatchOperation(
             updatedAt: new Date().toISOString(),
           });
           if (isNativeAndroid()) {
-            await markNativePosOperationError(operationId, message).catch(() => {});
+            await markNativePosOperationConflict(operationId, message).catch(() => {});
           }
           throw new Error(message);
         }
