@@ -1,0 +1,140 @@
+import { db } from '../db/db';
+import {
+  deleteNativePosRecord,
+  deleteNativePosRecords,
+  ensureNativePosDatabase,
+  getAllNativePosRecords,
+  getNativePosRecord,
+  getNativePosRecordsByIds,
+  isNativeAndroid,
+  putNativePosRecord,
+  putNativePosRecords,
+  updateNativePosRecordSyncState,
+  type PosLocalRecord,
+} from './posLocalDatabase';
+
+const NATIVE_ENTITIES = [
+  'products', 'categories', 'orders', 'orderItems', 'returns', 'returnItems', 'accounts', 'shifts',
+  'shiftMovements', 'customers', 'customerPayments', 'expenses', 'suppliers', 'supplierPayments',
+  'employees', 'settings', 'purchases', 'purchaseItems', 'purchaseReturns', 'purchaseReturnItems',
+  'attendance', 'loyaltyTransactions', 'branches', 'payroll', 'offers', 'auditLogs', 'journalEntries',
+  'transactions', 'stocktakingSessions', 'stocktakingEntries', 'inventoryBatches', 'inventoryAlerts',
+  'heldOrders', 'serviceRecipes', 'exchangeRateHistory', 'fiscalPeriods', 'unitDefinitions',
+  'productUnits', 'inventoryMovements',
+] as const;
+
+export type NativePosEntity = typeof NATIVE_ENTITIES[number];
+export type NativePosSyncState = 'local' | 'pending' | 'synced' | 'error';
+
+function assertEntity(entity: string): asserts entity is NativePosEntity {
+  if (!(NATIVE_ENTITIES as readonly string[]).includes(entity)) {
+    throw new Error(`Unsupported native POS entity: ${entity}`);
+  }
+}
+
+function serializeKey(value: unknown): string {
+  if (value === undefined || value === null) {
+    throw new Error('A native POS record must have a complete primary key');
+  }
+  const serialized = JSON.stringify(value);
+  if (!serialized) throw new Error('Could not serialize native POS primary key');
+  return serialized;
+}
+
+function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): string {
+  const table = (db as any)[entity];
+  const keyPath = table?.schema?.primKey?.keyPath;
+  if (Array.isArray(keyPath)) {
+    const key = keyPath.map((part: string) => record[part]);
+    if (key.some((part: unknown) => part === undefined || part === null)) {
+      throw new Error(`Incomplete compound primary key for ${entity}`);
+    }
+    return serializeKey(key);
+  }
+  if (typeof keyPath !== 'string') throw new Error(`Missing Dexie primary-key schema for ${entity}`);
+  return serializeKey(record[keyPath]);
+}
+
+function requireAndroid(): void {
+  if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
+}
+
+export const nativePosRepository = {
+  async isReady(): Promise<boolean> {
+    return ensureNativePosDatabase();
+  },
+
+  async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
+    requireAndroid();
+    assertEntity(entity);
+    const item = await getNativePosRecord(entity, serializeKey(key));
+    return item ? item.record as T : null;
+  },
+
+  async getMany<T extends Record<string, unknown>>(
+    entity: NativePosEntity,
+    keys: unknown[],
+  ): Promise<T[]> {
+    requireAndroid();
+    assertEntity(entity);
+    const ids = Array.from(new Set(keys.map(serializeKey)));
+    const items = await getNativePosRecordsByIds(entity, ids);
+    const byId = new Map(items.map((item) => [item.recordId, item.record as T]));
+    return ids.flatMap((id) => byId.has(id) ? [byId.get(id)!] : []);
+  },
+
+  async getAll<T extends Record<string, unknown>>(entity: NativePosEntity): Promise<T[]> {
+    requireAndroid();
+    assertEntity(entity);
+    const items = await getAllNativePosRecords(entity);
+    return items.map((item) => item.record as T);
+  },
+
+  async put(
+    entity: NativePosEntity,
+    record: Record<string, unknown>,
+    syncState: NativePosSyncState = 'local',
+  ): Promise<void> {
+    requireAndroid();
+    assertEntity(entity);
+    const entry: PosLocalRecord = { entity, recordId: recordIdFor(entity, record), record, syncState };
+    if (!(await putNativePosRecord(entry))) throw new Error(`SQLite did not confirm saving ${entity}`);
+  },
+
+  async putMany(
+    entity: NativePosEntity,
+    records: Record<string, unknown>[],
+    syncState: NativePosSyncState = 'local',
+  ): Promise<void> {
+    requireAndroid();
+    assertEntity(entity);
+    const entries = records.map((record) => ({
+      entity, recordId: recordIdFor(entity, record), record, syncState,
+    }));
+    if (!(await putNativePosRecords(entries))) throw new Error(`SQLite did not confirm saving all ${entity} records`);
+  },
+
+  async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
+    requireAndroid();
+    assertEntity(entity);
+    return deleteNativePosRecord(entity, serializeKey(key));
+  },
+
+  async deleteMany(entity: NativePosEntity, keys: unknown[]): Promise<number> {
+    requireAndroid();
+    assertEntity(entity);
+    return deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
+  },
+
+  async setSyncState(
+    entity: NativePosEntity,
+    key: unknown,
+    syncState: NativePosSyncState,
+  ): Promise<void> {
+    requireAndroid();
+    assertEntity(entity);
+    if (!(await updateNativePosRecordSyncState(entity, serializeKey(key), syncState))) {
+      throw new Error(`SQLite did not confirm sync-state update for ${entity}`);
+    }
+  },
+};
