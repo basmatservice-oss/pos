@@ -1178,7 +1178,7 @@ async function applyShiftLocally(
       const createdAt = payload.createdAt || now;
       const branchId = payload.branchId ?? shift.branchId;
       const movement = {
-        id: movementId, shiftId: payload.shiftId, type: movementType, amount,
+        id: movementId, shiftId, type: movementType, amount,
         reason: payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق'),
         createdBy: payload.createdBy, branchId,
         operationId: payload.operationId, createdAt, syncStatus,
