@@ -188,6 +188,8 @@ export async function restoreLocalInventoryFIFO(params: {
   deviceId: string;
   sourceId: string;
   movementKeySuffix: string;
+  movementType?: string;
+  sourceType?: string;
   branchId?: number;
   reason?: string;
   createdBy?: string;
@@ -263,10 +265,10 @@ export async function restoreLocalInventoryFIFO(params: {
   }
 
   await recordLocalMovement({
-    movementKey: `${'return'}:${params.sourceId}:in:${params.productId}:${params.movementKeySuffix}`,
+    movementKey: `${params.sourceType || 'return'}:${params.sourceId}:in:${params.productId}:${params.movementKeySuffix}`,
     productId: params.productId,
-    movementType: 'sale_return',
-    sourceType: 'return',
+    movementType: params.movementType || 'sale_return',
+    sourceType: params.sourceType || 'return',
     sourceId: params.sourceId,
     quantityDeltaBase: qtyToRestore,
     unitCost: qtyToRestore > 0 ? totalCost / qtyToRestore : params.fallbackCost,
