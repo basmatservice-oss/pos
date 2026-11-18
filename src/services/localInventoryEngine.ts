@@ -246,7 +246,7 @@ export async function restoreLocalInventoryFIFO(params: {
       costPrice: params.fallbackCost,
       purchaseDate: params.createdAt,
       branchId: params.branchId,
-      syncStatus: 'pending',
+      syncStatus: params.syncStatus || 'pending',
       createdAt: params.createdAt,
       updatedAt: params.createdAt,
     });
@@ -258,7 +258,7 @@ export async function restoreLocalInventoryFIFO(params: {
     await db.products.update(product.id!, {
       stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
       updatedAt: params.createdAt,
-      syncStatus: 'pending',
+      syncStatus: params.syncStatus || 'pending',
     });
   }
 
@@ -282,8 +282,8 @@ export async function restoreLocalInventoryFIFO(params: {
 }
 
 export async function removeLocalInventoryArtifactsForOperation(operationId: string): Promise<void> {
-  const movements = await db.inventoryMovements.where('operationId').equals(operationId).toArray();
+  const movements = await db.inventoryMovements.filter((movement) => movement.operationId === operationId).toArray();
   if (movements.length) await db.inventoryMovements.bulkDelete(movements.map((movement) => movement.id));
-  const alerts = await db.inventoryAlerts.where('operationId').equals(operationId).toArray();
+  const alerts = await db.inventoryAlerts.filter((alert) => alert.operationId === operationId).toArray();
   if (alerts.length) await db.inventoryAlerts.bulkDelete(alerts.map((alert) => alert.id));
 }
