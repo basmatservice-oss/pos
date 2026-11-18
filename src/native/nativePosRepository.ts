@@ -102,8 +102,10 @@ export const nativePosRepository = {
     if (!index || Array.isArray(index.keyPath)) {
       throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
     }
-    const records = await this.getAll<T>(entity);
-    return records.filter((record) => record[indexName] === value);
+    const items = await getAllNativePosRecords(entity);
+    return items
+      .map((item) => item.record as T)
+      .filter((record) => record[indexName] === value);
   },
 
   async firstWhereEquals<T extends Record<string, unknown>>(
