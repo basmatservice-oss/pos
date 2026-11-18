@@ -405,8 +405,9 @@ class PosLocalDatabasePlugin : Plugin() {
         val entity = call.getString("entity")?.trim().orEmpty()
         val field = call.getString("field")?.trim().orEmpty()
         val valueJson = call.getString("valueJson")
+        val requestedLimit = call.getInt("limit", 0)
         if (entity.isBlank() || field.isBlank() || valueJson.isNullOrBlank() ||
-            !field.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
+            !field.matches(Regex("[A-Za-z_][A-Za-z0-9_]*")) || requestedLimit < 0) {
             call.reject("entity و field و valueJson صالحون مطلوبة")
             return
         }
@@ -420,8 +421,8 @@ class PosLocalDatabasePlugin : Plugin() {
                 database.rawQuery(
                     "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
                         "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\$') " +
-                        "ORDER BY updated_at ASC, record_id ASC",
-                    arrayOf(entity, path, valueJson)
+                        "ORDER BY updated_at ASC, record_id ASC" + if (requestedLimit > 0) " LIMIT ?" else "",
+                    if (requestedLimit > 0) arrayOf(entity, path, valueJson, requestedLimit.toString()) else arrayOf(entity, path, valueJson)
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
                         rows.put(
@@ -437,7 +438,7 @@ class PosLocalDatabasePlugin : Plugin() {
                 val expected = JSONTokener(valueJson).nextValue()
                 database.query(
                     "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
-                    "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
+                    "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC" + if (requestedLimit > 0) " LIMIT $requestedLimit" else ""
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
                         val record = JSONObject(cursor.getString(1))
