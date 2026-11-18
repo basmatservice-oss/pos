@@ -1006,46 +1006,161 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
+  const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
+
+  if (isNativeAndroid()) {
+    if (await nativePosRepository.get<any>('customerPayments', paymentId)) return;
+    const customerId = Number(payload.customerId);
+    const customer = await nativePosRepository.get<any>('customers', customerId);
+    if (!customer || !Number.isFinite(payAmount) || payAmount <= 0) {
+      throw new Error('بيانات تحصيل العميل غير صالحة');
+    }
+    const orderId = payload.orderId ? String(payload.orderId) : undefined;
+    const order = orderId ? await nativePosRepository.get<any>('orders', orderId) : null;
+    const branchId = payload.branchId ?? customer.branchId;
+    const method = payload.paymentMethod === 'card' ? 'card' : 'cash';
+    const payment = {
+      id: paymentId, customerId, customerName: customer.name || payload.customerName,
+      orderId, amount: payAmount, paymentMethod: method, notes: payload.notes,
+      shiftId: payload.shiftId, branchId, createdBy: payload.createdBy,
+      operationId: payload.operationId, syncStatus, createdAt: now,
+    };
+    const updatedCustomer = {
+      ...customer,
+      balance: roundMoney(Number(customer.balance || 0) - payAmount),
+      updatedAt: now, syncStatus,
+    };
+    const changes: any[] = [
+      { action: 'put', entity: 'customers', record: updatedCustomer, syncState: syncStatus },
+      { action: 'put', entity: 'customerPayments', record: payment, syncState: syncStatus },
+    ];
+    let updatedOrder: any = null;
+    if (order) {
+      updatedOrder = {
+        ...order, paidAmount: roundMoney(Number(order.paidAmount || 0) + payAmount),
+        updatedAt: now, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'orders', record: updatedOrder, syncState: syncStatus });
+    }
+
+    const journalRecords: any[] = [];
+    if (shouldPostLocalAccounting(syncStatus) && payAmount > 0) {
+      const cashCode = method === 'card' ? '1020' : '1010';
+      const definitions = [
+        { code: cashCode, name: method === 'card' ? 'البنك / الشبكة' : 'الصندوق', type: 'asset' },
+        { code: '1100', name: 'ذمم العملاء', type: 'asset' },
+      ];
+      const accounts = new Map<string, any>();
+      for (const definition of definitions) {
+        const current = await nativePosRepository.get<any>('accounts', definition.code);
+        accounts.set(definition.code, current || {
+          ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+        });
+      }
+      const entryId = `local-je:payment:${paymentId}:customer-payment-${String(payload.operationId || paymentId)}`;
+      if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+        const lines = [
+          { accountCode: cashCode, debit: payAmount, credit: 0, orderId },
+          { accountCode: '1100', debit: 0, credit: payAmount, orderId },
+        ];
+        const entry = {
+          id: entryId, entryNumber: `LOCAL-customer-payment-${paymentId.slice(0, 8)}`,
+          date: now, referenceId: paymentId, referenceType: 'payment',
+          description: 'تحصيل دفعة من العميل: ' + String(customer.name || payload.customerName || ''),
+          totalDebit: payAmount, totalCredit: payAmount, status: 'posted',
+          createdBy: payload.createdBy || 'System', branchId, syncStatus,
+          createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: syncStatus });
+        journalRecords.push(entry);
+        for (let index = 0; index < lines.length; index++) {
+          const line = lines[index];
+          const account = accounts.get(line.accountCode);
+          const updatedAccount = {
+            ...account,
+            balance: roundMoney(Number(account.balance || 0) + line.debit - line.credit),
+            updatedAt: now,
+          };
+          accounts.set(line.accountCode, updatedAccount);
+          const transaction = {
+            id: `${entryId}:${index}`, journalEntryId: entryId,
+            accountId: line.accountCode, accountName: account.name,
+            type: line.debit > 0 ? 'debit' : 'credit',
+            amount: payAmount, debit: line.debit, credit: line.credit,
+            description: entry.description, orderId, syncStatus, createdAt: now,
+          };
+          changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: syncStatus });
+          journalRecords.push(transaction);
+        }
+        for (const account of accounts.values()) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+          journalRecords.push(account);
+        }
+      }
+    }
+
+    let auditRecord: any = null;
+    if (currentDeviceRole === 'standalone') {
+      auditRecord = {
+        id: generateUUID(), date: now, userName: payload.createdBy || 'System',
+        type: 'customer_payment', action: 'تحصيل عميل', operationName: 'سداد ذمم عميل',
+        details: 'تحصيل ' + payAmount + ' من العميل ' + String(customer.name || ''),
+        quantity: 1, value: payAmount, branchId,
+        entityId: String(customer.id), entityName: customer.name, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+    }
+
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات تحصيل العميل');
+    }
+
+    await db.transaction('rw', [
+      db.customers, db.orders, db.customerPayments, db.accounts,
+      db.journalEntries, db.transactions, db.auditLogs,
+    ], async () => {
+      await db.customers.put(updatedCustomer);
+      if (updatedOrder) await db.orders.put(updatedOrder);
+      await db.customerPayments.put(payment);
+      for (const record of journalRecords) {
+        if (record.code) await db.accounts.put(record);
+        else if (record.referenceType === 'payment') await db.journalEntries.put(record);
+        else if (record.journalEntryId) await db.transactions.put(record);
+      }
+      if (auditRecord) await db.auditLogs.put(auditRecord);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
+
   await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
-    const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.customerPayments.get(paymentId)) return;
     const cust = await db.customers.get(Number(payload.customerId));
     if (!cust || payAmount <= 0) throw new Error('بيانات تحصيل العميل غير صالحة');
-    if (cust) {
-      await db.customers.update(cust.id!, {
-        balance: roundMoney((cust.balance || 0) - payAmount),
-        updatedAt: now,
-        syncStatus,
-      });
-    }
+    await db.customers.update(cust.id!, {
+      balance: roundMoney((cust.balance || 0) - payAmount),
+      updatedAt: now, syncStatus,
+    });
     if (payload.orderId) {
       const ord = await db.orders.get(String(payload.orderId));
-      if (ord) {
-        await db.orders.update(ord.id!, {
-          paidAmount: roundMoney((ord.paidAmount || 0) + payAmount),
-          updatedAt: now,
-          syncStatus,
-        });
-      }
+      if (ord) await db.orders.update(ord.id!, {
+        paidAmount: roundMoney((ord.paidAmount || 0) + payAmount),
+        updatedAt: now, syncStatus,
+      });
     }
     await db.customerPayments.put({
-      id: paymentId,
-      customerId: Number(payload.customerId),
-      customerName: cust?.name || payload.customerName,
-      orderId: payload.orderId,
-      amount: payAmount,
-      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
-      notes: payload.notes,
-      shiftId: payload.shiftId,
-      branchId: payload.branchId ?? cust.branchId,
-      createdBy: payload.createdBy,
-      operationId: payload.operationId,
-      syncStatus,
-      createdAt: now,
+      id: paymentId, customerId: Number(payload.customerId),
+      customerName: cust.name || payload.customerName, orderId: payload.orderId,
+      amount: payAmount, paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+      notes: payload.notes, shiftId: payload.shiftId, branchId: payload.branchId ?? cust.branchId,
+      createdBy: payload.createdBy, operationId: payload.operationId,
+      syncStatus, createdAt: now,
     });
     if (shouldPostLocalAccounting(syncStatus) && payAmount > 0) await postLocalJournalEntry({
-      referenceId: String(paymentId), referenceType: 'payment', entryKey: 'customer-payment-' + String(payload.operationId || paymentId),
-      date: now, description: 'تحصيل دفعة من العميل: ' + String(cust?.name || payload.customerName || ''),
+      referenceId: paymentId, referenceType: 'payment',
+      entryKey: 'customer-payment-' + String(payload.operationId || paymentId),
+      date: now, description: 'تحصيل دفعة من العميل: ' + String(cust.name || payload.customerName || ''),
       lines: [
         { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: payAmount, credit: 0, orderId: payload.orderId },
         { accountCode: '1100', debit: 0, credit: payAmount, orderId: payload.orderId },
