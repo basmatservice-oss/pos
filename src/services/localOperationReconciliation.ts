@@ -13,6 +13,7 @@ function collectPendingReferences(value: any, refs: Record<string, Set<string>>)
       if (key === 'supplierId') refs.suppliers.add(String(child));
       if (key === 'orderId' || key === 'originalOrderId') refs.orders.add(String(child));
       if (key === 'purchaseId' || key === 'originalPurchaseId') refs.purchases.add(String(child));
+      if (key === 'batchId' || key === 'inventoryBatchId') refs.batches.add(String(child));
     } else if (child && typeof child === 'object') {
       if (key === 'order' && (child as any).id !== undefined) refs.orders.add(String((child as any).id));
       if (key === 'purchase' && (child as any).id !== undefined) refs.purchases.add(String((child as any).id));
@@ -49,7 +50,7 @@ async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record
     }
   }
   for (const id of productIds) if (!pendingRefs.products.has(id)) await db.products.update(Number(id), { syncStatus: 'synced' });
-  if (batchIds.size) await markRowsSynced(db.inventoryBatches, (batch) => batchIds.has(String(batch.id)));
+  if (batchIds.size) await markRowsSynced(db.inventoryBatches, (batch) => batchIds.has(String(batch.id)) && !pendingRefs.batches.has(String(batch.id)));
 }
 
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
@@ -60,7 +61,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   await removeLocalInventoryArtifactsForOperation(operationId);
 
   const pending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
-  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>() };
+  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>() };
   for (const operation of pending) {
     collectPendingReferences(operation.payload, pendingRefs);
     if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
@@ -69,6 +70,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
       if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
       if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
+      if (entityId !== undefined && tableName === 'inventoryBatches') pendingRefs.batches.add(String(entityId));
     }
   }
   if (isNativeAndroid()) {
@@ -115,7 +117,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     if (orderId) { const originalOrder = await db.orders.get(orderId); if (originalOrder?.customerId && canMark('customers', originalOrder.customerId)) await db.customers.update(Number(originalOrder.customerId), { syncStatus: 'synced' }); }
   } else if (type === 'purchase' || type === 'purchase_update') {
     const purchaseId = String(payload?.purchase?.id || '');
-    if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId); }
+    if (purchaseId && canMark('purchases', purchaseId)) { await db.purchases.update(purchaseId, { syncStatus: 'synced' }); await markRowsSynced(db.purchaseItems, (row) => String(row.purchaseId) === purchaseId); await markRowsSynced(db.inventoryBatches, (row) => String(row.purchaseId) === purchaseId && !pendingRefs.batches.has(String(row.id))); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
     for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await db.products.update(Number(productId), { syncStatus: 'synced' });
     if (payload?.purchase?.supplierId && canMark('suppliers', payload.purchase.supplierId)) await db.suppliers.update(Number(payload.purchase.supplierId), { syncStatus: 'synced' });
@@ -131,10 +133,10 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const originalPurchase = purchaseId ? await db.purchases.get(purchaseId) : undefined;
     if (originalPurchase?.supplierId && canMark('suppliers', originalPurchase.supplierId)) await db.suppliers.update(Number(originalPurchase.supplierId), { syncStatus: 'synced' });
     const returnedProductIds = new Set((payload?.items || []).map((item: any) => String(item.productId)));
-    if (purchaseId) await markRowsSynced(db.inventoryBatches, (batch) => String(batch.purchaseId) === purchaseId && returnedProductIds.has(String(batch.productId)));
+    if (purchaseId) await markRowsSynced(db.inventoryBatches, (batch) => String(batch.purchaseId) === purchaseId && returnedProductIds.has(String(batch.productId)) && !pendingRefs.batches.has(String(batch.id)));
     for (const item of payload?.items || []) {
       if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
-      if (item.batchId) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
+      if (item.batchId && !pendingRefs.batches.has(String(item.batchId))) await db.inventoryBatches.update(String(item.batchId), { syncStatus: 'synced' });
     }
   } else if (type === 'expense') {
     if (payload?.id !== undefined) await db.expenses.update(Number(payload.id), { syncStatus: 'synced' });
@@ -163,7 +165,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       for (const entry of entries) {
         if (canMark('products', entry.productId)) {
           await db.products.update(Number(entry.productId), { syncStatus: 'synced' });
-          await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(entry.productId));
+          await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(entry.productId) && !pendingRefs.batches.has(String(batch.id)));
         }
       }
     }
@@ -177,7 +179,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       }
       if (payload?.table === 'products') {
         await db.products.update(Number(serverId), { syncStatus: 'synced' });
-        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId));
+        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) && !pendingRefs.batches.has(String(batch.id)));
       } else {
         await table.update(serverId, { syncStatus: 'synced' });
       }
