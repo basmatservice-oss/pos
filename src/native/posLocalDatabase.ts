@@ -34,6 +34,7 @@ export interface PosLocalDatabasePlugin {
   getRecord(options: { entity: string; recordId: string }): Promise<{ found: boolean; item?: { recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number } | null }>;
   updateRecordSyncState(options: { entity: string; recordId: string; syncState: 'local' | 'pending' | 'synced' | 'error' }): Promise<{ updated: boolean; rows: number }>;
   deleteRecord(options: { entity: string; recordId: string }): Promise<{ deleted: boolean; rows: number }>;
+  deleteRecords(options: { entity: string; recordIds: string[] }): Promise<{ deleted: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number }>;
@@ -141,6 +142,32 @@ export async function getNativePosRecord(entity: string, recordId: string) {
   const result = await posLocalDatabase.getRecord({ entity, recordId });
   if (!result.found || !result.item || result.item.recordId !== recordId) return null;
   return result.item;
+}
+
+export async function putNativePosRecord(record: PosLocalRecord): Promise<boolean> {
+  if (!(await ensureNativePosDatabase())) return false;
+  const result = await posLocalDatabase.putRecord(record);
+  return result.saved === true && result.recordId === record.recordId;
+}
+
+export async function getAllNativePosRecords(entity: string) {
+  if (!(await ensureNativePosDatabase())) return [];
+  if (!entity.trim()) return [];
+  const result = await posLocalDatabase.getRecords({ entity });
+  if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid record collection');
+  return result.records;
+}
+
+export async function deleteNativePosRecords(entity: string, recordIds: string[]): Promise<number> {
+  if (!(await ensureNativePosDatabase())) return 0;
+  if (!entity.trim() || recordIds.length === 0) return 0;
+  const uniqueIds = Array.from(new Set(recordIds.map((id) => id.trim())));
+  if (uniqueIds.some((id) => !id)) throw new Error('Record IDs must not be empty');
+  const result = await posLocalDatabase.deleteRecords({ entity, recordIds: uniqueIds });
+  if (!Number.isInteger(result.deleted) || result.deleted < 0 || result.deleted > uniqueIds.length) {
+    throw new Error('SQLite returned an invalid deleted-row count');
+  }
+  return result.deleted;
 }
 
 export async function deleteNativePosRecord(entity: string, recordId: string): Promise<boolean> {
