@@ -4,6 +4,7 @@ import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 async function updateRecordWithoutSyncHook(tableName: string, key: any, changes: Record<string, unknown>) {
   const previous = (globalThis as any).__posApplyingOperation;
@@ -17,7 +18,9 @@ export const syncService = {
   async getDeviceRole() {
     // Read the persisted role each time: onboarding can switch a device to
     // standalone after the sync service has already been initialized.
-    const setting = await db.settings.where('key').equals('deviceRole').first();
+    const setting = isNativeAndroid()
+      ? await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole')
+      : await db.settings.where('key').equals('deviceRole').first();
     this.cachedRole = setting ? setting.value : 'server';
     return this.cachedRole;
   },
