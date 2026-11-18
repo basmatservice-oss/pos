@@ -33,6 +33,7 @@ export interface PosLocalDatabasePlugin {
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number }> }>;
   acknowledgeOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   markOperationError(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
+  markOperationConflict(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
   setMeta(options: { key: string; value: string }): Promise<{ saved: boolean }>;
   getMeta(options: { key: string }): Promise<{ value?: string }>;
 }
@@ -91,6 +92,17 @@ export async function acknowledgeNativePosOperation(operationId: string): Promis
 export async function markNativePosOperationError(operationId: string, message: string): Promise<void> {
   if (await ensureNativePosDatabase()) {
     await posLocalDatabase.markOperationError({ operationId, message });
+    await posLocalDatabase.updateRecordSyncState({
+      entity: 'operations',
+      recordId: operationId,
+      syncState: 'error',
+    });
+  }
+}
+
+export async function markNativePosOperationConflict(operationId: string, message: string): Promise<void> {
+  if (await ensureNativePosDatabase()) {
+    await posLocalDatabase.markOperationConflict({ operationId, message });
     await posLocalDatabase.updateRecordSyncState({
       entity: 'operations',
       recordId: operationId,
