@@ -652,6 +652,187 @@ async function applyPurchaseLocally(
   syncStatus: 'synced' | 'pending'
 ) {
   const now = new Date().toISOString();
+  if (isNativeAndroid() && type === 'purchase') {
+    const purchase = payload?.purchase;
+    if (!purchase?.id) throw new Error('معرّف فاتورة الشراء غير صالح');
+    if (await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const fxRate = Number(purchase.exchangeRate || 1) > 0 ? Number(purchase.exchangeRate || 1) : 1;
+    const extraCost = roundMoney(Number(purchase.shippingCost || 0) + Number(purchase.customsCost || 0) + Number(purchase.otherCosts || 0));
+    const normalized = items.map((item: any) => {
+      const quantity = roundQty(Number(item.quantity || 0));
+      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
+      const unitCost = item.pricesInForeignCurrency ? Number(item.costPrice || 0) * fxRate : Number(item.costPrice || 0);
+      return { ...item, quantity, factor, unitCost, lineTotal: roundMoney(quantity * unitCost) };
+    }).filter((item: any) => item.quantity > 0);
+    if (!normalized.length) throw new Error('لا توجد أصناف صالحة في فاتورة الشراء');
+    const goodsTotal = Number(purchase.totalAmount || 0) > 0
+      ? roundMoney(Number(purchase.totalAmount))
+      : roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
+    const itemsGoodsSum = roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
+    const [products, supplier, allBatches, accounts, journals] = await Promise.all([
+      nativePosRepository.getMany<any>('products', [...new Set(normalized.map((item: any) => Number(item.productId)))]),
+      purchase.supplierId ? nativePosRepository.get<any>('suppliers', purchase.supplierId) : Promise.resolve(null),
+      nativePosRepository.getAll<any>('inventoryBatches'),
+      nativePosRepository.getAll<any>('accounts'),
+      nativePosRepository.getAll<any>('journalEntries'),
+    ]);
+    const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
+    const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
+    const changes: any[] = [];
+    const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
+    changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
+    const itemDocs: any[] = [];
+    const batchDocs: any[] = [];
+    const movementDocs: any[] = [];
+    const productUpdates = new Map<number, any>();
+    let extraRemaining = extraCost;
+    for (let index = 0; index < normalized.length; index++) {
+      const item = normalized[index];
+      const product = productUpdates.get(Number(item.productId)) || productMap.get(Number(item.productId));
+      if (!product) throw new Error('الصنف غير موجود (ID: ' + String(item.productId) + ')');
+      const baseQty = roundQty(item.quantity * item.factor);
+      let allocatedExtra = 0;
+      if (extraCost > 0) {
+        allocatedExtra = index === normalized.length - 1
+          ? roundMoney(extraRemaining)
+          : itemsGoodsSum > 0 ? roundMoney(item.lineTotal / itemsGoodsSum * extraCost) : 0;
+        extraRemaining = roundMoney(extraRemaining - allocatedExtra);
+      }
+      const landedTotal = roundMoney(item.lineTotal + allocatedExtra);
+      const landedCost = baseQty > 0 ? Math.round(landedTotal / baseQty * 10000) / 10000 : 0;
+      const purchaseItem = {
+        id: generateUUID(), purchaseId: String(purchase.id), productId: Number(item.productId),
+        productName: item.productName || product.name, quantity: item.quantity, unit: item.unit || 'piece',
+        conversionFactor: item.factor, costPrice: item.unitCost, landedCostPerBaseUnit: landedCost,
+        total: item.lineTotal, expiryDate: item.expiryDate, batchNumber: item.batchNumber, syncStatus,
+      };
+      const batch = {
+        id: item.batchId || generateUUID(), productId: Number(item.productId), purchaseId: String(purchase.id),
+        quantity: baseQty, remainingQuantity: baseQty, costPrice: landedCost, currency: purchase.currency,
+        exchangeRate: fxRate, purchaseDate: purchase.date || now, expiryDate: item.expiryDate,
+        batchNumber: item.batchNumber, branchId: purchase.branchId, syncStatus,
+      };
+      itemDocs.push(purchaseItem); batchDocs.push(batch);
+      const movement = {
+        id: generateUUID(),
+        movementKey: 'purchase:' + String(purchase.id) + ':' + String(payload.operationId || purchase.id) + ':in:' + String(item.productId) + ':' + String(index),
+        productId: Number(item.productId), movementType: 'purchase_receipt', sourceType: 'purchase',
+        sourceId: String(purchase.id), quantityDeltaBase: baseQty, unitCost: landedCost,
+        totalCost: landedTotal, branchId: purchase.branchId, operationId: String(payload.operationId || purchase.id),
+        reason: 'استلام مشتريات', createdBy: purchase.createdBy, createdAt: purchase.date || now, syncStatus,
+      };
+      movementDocs.push(movement);
+      const effectiveBatches = [...allBatches.filter((b: any) => Number(b.productId) === Number(item.productId)), ...batchDocs.filter((b: any) => Number(b.productId) === Number(item.productId))];
+      const active = effectiveBatches.filter((b: any) => Number(b.remainingQuantity || 0) > 0);
+      const activeQty = active.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0), 0);
+      const activeValue = active.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0) * Number(b.costPrice || 0), 0);
+      const updatedProduct = {
+        ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + baseQty),
+        costPrice: activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCost,
+        expiryDate: item.expiryDate || product.expiryDate, batchNumber: item.batchNumber || product.batchNumber,
+        updatedAt: now, syncStatus,
+      };
+      productUpdates.set(Number(item.productId), updatedProduct);
+    }
+    for (const item of itemDocs) changes.push({ action: 'put', entity: 'purchaseItems', record: item, syncState: syncStatus });
+    for (const batch of batchDocs) changes.push({ action: 'put', entity: 'inventoryBatches', record: batch, syncState: syncStatus });
+    for (const movement of movementDocs) changes.push({ action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus });
+    for (const product of productUpdates.values()) changes.push({ action: 'put', entity: 'products', record: product, syncState: syncStatus });
+    const invoicePayable = purchase.extraCostsPaymentMethod === 'supplier' ? roundMoney(goodsTotal + extraCost) : goodsTotal;
+    const remaining = roundMoney(invoicePayable - Number(purchase.paidAmount || 0));
+    let updatedSupplier: any = null;
+    if (supplier && remaining > 0) {
+      updatedSupplier = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) + remaining), updatedAt: now, syncStatus };
+      changes.push({ action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus });
+    }
+    if (shouldPostLocalAccounting(syncStatus)) {
+      const entryKey = String(payload.operationId || purchase.id);
+      const postJournal = async (suffix: string, description: string, lines: any[]) => {
+        const entryId = 'local-je:purchase:' + String(purchase.id) + ':' + suffix + ':' + entryKey;
+        if (journals.some((entry: any) => String(entry.id) === entryId)) return;
+        for (const line of lines) {
+          const definitions: any = {
+            '1200': { name: 'المخزون', type: 'asset' }, '2100': { name: 'ذمم الموردين', type: 'liability' },
+            '1010': { name: 'الصندوق', type: 'asset' }, '1020': { name: 'البنك / الشبكة', type: 'asset' },
+          };
+          const def = definitions[line.accountCode];
+          const account = accountMap.get(line.accountCode) || { code: line.accountCode, ...def, balance: 0, isSystem: 1, createdAt: now, updatedAt: now };
+          const delta = account.type === 'asset' || account.type === 'expense' ? line.debit - line.credit : line.credit - line.debit;
+          const updated = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
+          accountMap.set(line.accountCode, updated);
+        }
+        const total = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
+        const journal = {
+          id: entryId, entryNumber: 'LOCAL-purchase-' + String(purchase.id).slice(0, 8) + '-' + suffix,
+          date: purchase.date || now, referenceId: String(purchase.id), referenceType: 'purchase',
+          description, totalDebit: total, totalCredit: total, status: 'posted',
+          createdBy: purchase.createdBy || 'System', branchId: purchase.branchId,
+          syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: journal, syncState: journal.syncStatus });
+        lines.forEach((line: any, index: number) => changes.push({
+          action: 'put', entity: 'transactions',
+          record: {
+            id: entryId + ':' + index, journalEntryId: entryId, accountId: line.accountCode,
+            accountName: accountMap.get(line.accountCode)?.name || line.accountCode,
+            type: line.debit > 0 ? 'debit' : 'credit', amount: line.debit || line.credit,
+            debit: line.debit, credit: line.credit, description, purchaseId: String(purchase.id),
+            syncStatus: journal.syncStatus, createdAt: now,
+          }, syncState: journal.syncStatus,
+        }));
+        journals.push(journal);
+      };
+      const extraMethod = String(purchase.extraCostsPaymentMethod || 'cash');
+      const capitalized = roundMoney(goodsTotal + extraCost);
+      const credits = extraMethod === 'supplier'
+        ? [{ accountCode: '2100', debit: 0, credit: capitalized, purchaseId: purchase.id }]
+        : [
+            ...(goodsTotal > 0 ? [{ accountCode: '2100', debit: 0, credit: goodsTotal, purchaseId: purchase.id }] : []),
+            ...(extraCost > 0 ? [{ accountCode: extraMethod === 'card' ? '1020' : '1010', debit: 0, credit: extraCost, purchaseId: purchase.id }] : []),
+          ];
+      if (capitalized > 0) await postJournal('inventory', 'فاتورة مشتريات من المورد: ' + String(purchase.supplierName || ''), [
+        { accountCode: '1200', debit: capitalized, credit: 0, purchaseId: purchase.id }, ...credits,
+      ]);
+      const paid = roundMoney(Number(purchase.paidAmount || 0));
+      if (paid > 0) await postJournal('payment', 'سداد للمورد عن فاتورة مشتريات: ' + String(purchase.supplierName || ''), [
+        { accountCode: '2100', debit: paid, credit: 0, purchaseId: purchase.id },
+        { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paid, purchaseId: purchase.id },
+      ]);
+      for (const account of accountMap.values()) {
+        if (changes.some((change) => change.entity === 'accounts' && String(change.record.code) === String(account.code))) continue;
+        if (accountMap.get(String(account.code)) !== account) continue;
+      }
+      const changedCodes = new Set<string>();
+      for (const change of changes) if (change.entity === 'accounts') changedCodes.add(String(change.record.code));
+      for (const [code, account] of accountMap) {
+        if (!changedCodes.has(code)) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+          changedCodes.add(code);
+        }
+      }
+    }
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء');
+    await db.transaction('rw', [
+      db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches,
+      db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
+    ], async () => {
+      await db.purchases.put(purchaseDoc);
+      await db.purchaseItems.bulkPut(itemDocs);
+      await db.inventoryBatches.bulkPut(batchDocs);
+      await db.inventoryMovements.bulkPut(movementDocs);
+      if (productUpdates.size) await db.products.bulkPut([...productUpdates.values()]);
+      if (updatedSupplier) await db.suppliers.put(updatedSupplier);
+      for (const change of changes) {
+        if (change.entity === 'accounts') await db.accounts.put(change.record);
+        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
+        else if (change.entity === 'transactions') await db.transactions.put(change.record);
+      }
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
 
   await db.transaction(
     'rw',
