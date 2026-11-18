@@ -51,6 +51,11 @@ async function getLocalRecordsByIndex<T extends Record<string, any>>(
   return (await (db as any)[entity].where(indexName).equals(value).toArray()) as T[];
 }
 
+async function getLocalRecords<T extends Record<string, any>>(entity: any): Promise<T[]> {
+  if (isNativeAndroid()) return nativePosRepository.getAll<T>(entity);
+  return (await (db as any)[entity].toArray()) as T[];
+}
+
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
     const setting = await getLocalSettingByKey('deviceRole');
@@ -1332,7 +1337,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   });
 }
 async function assertLocalOpenFiscalPeriod(dateIso: string, payload: any) {
-  const periods = await db.fiscalPeriods.toArray();
+  const periods = await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
   const targetDay = String(dateIso || new Date().toISOString()).slice(0, 10);
   const closed = periods.find((period: any) => {
@@ -1353,18 +1358,18 @@ async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], p
   if (type === 'sale') postingDate = payload?.order?.createdAt || now;
   else if (type === 'return') postingDate = payload?.returnDate || now;
   else if (type === 'order_void') {
-    const order = await db.orders.get(String(payload?.orderId || payload?.id || ''));
+    const order = await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
     if (!order) return;
     postingDate = order.createdAt || now;
   } else if (type === 'purchase') postingDate = payload?.purchase?.date || now;
   else if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload?.id : payload?.purchase?.id || '');
-    const purchase = await db.purchases.get(purchaseId);
+    const purchase = await getLocalRecord<any>('purchases', purchaseId);
     if (!purchase) return;
     postingDate = purchase.date || now;
   } else if (type === 'expense') postingDate = payload?.date || now;
   else if (type === 'expense_delete') {
-    const expense = await db.expenses.get(Number(payload?.id));
+    const expense = await getLocalRecord<any>('expenses', Number(payload?.id));
     if (!expense) return;
     postingDate = expense.date || now;
   } else if (type === 'payroll') postingDate = payload?.paymentDate || now;
