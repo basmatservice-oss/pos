@@ -706,7 +706,7 @@ class PosLocalDatabasePlugin : Plugin() {
             val db = helper.writableDatabase
             db.beginTransaction()
             try {
-                if (status == "error") {
+                val outboxRows = if (status == "error") {
                     val currentRetry = db.query(
                         "pos_outbox", arrayOf("retry_count"), "operation_id = ?",
                         arrayOf(operationId), null, null, null
@@ -718,15 +718,25 @@ class PosLocalDatabasePlugin : Plugin() {
                         "UPDATE pos_outbox SET retry_count = retry_count + 1, next_retry_at = ?, status = ?, last_error = ? WHERE operation_id = ?",
                         arrayOf(nextRetry, status, message, operationId)
                     )
+                    db.changes()
                 } else {
                     values.putNull("next_retry_at")
                     db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 }
+                // Keep the durable operation record and its outbox state aligned
+                // in the same SQLite transaction after acknowledgement or failure.
+                val recordSyncState = if (status == "synced") "synced" else "error"
+                val recordRows = db.update(
+                    "pos_records",
+                    ContentValues().apply { put("sync_state", recordSyncState); put("updated_at", System.currentTimeMillis()) },
+                    "entity = ? AND record_id = ?",
+                    arrayOf("operations", operationId)
+                )
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
             }
-            call.resolve(JSObject().put("updated", true).put("operationId", operationId))
+            call.resolve(JSObject().put("updated", outboxRows > 0).put("recordUpdated", recordRows > 0).put("operationId", operationId))
         } catch (error: Exception) {
             call.reject("تعذر تحديث حالة العملية", error)
         }
