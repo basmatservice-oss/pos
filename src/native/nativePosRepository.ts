@@ -78,6 +78,11 @@ function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): 
   return serializeKey(record[NATIVE_PRIMARY_KEYS[entity]]);
 }
 
+export function getNativePosRecordId(entity: string, record: Record<string, unknown>): string {
+  assertEntity(entity);
+  return recordIdFor(entity, record);
+}
+
 function recordIdForKey(_entity: NativePosEntity, key: unknown): string {
   return serializeKey(key);
 }
