@@ -122,6 +122,7 @@ export const syncService = {
   },
 
   async pushOperationsQueue() {
+    if (await this.getDeviceRole() === 'standalone') return;
     const now = Date.now();
     const queued = await db.syncOperations
       .where('status')
@@ -244,6 +245,7 @@ export const syncService = {
   },
 
   async pushAll() {
+    if (await this.getDeviceRole() === 'standalone') return;
     const tables: string[] = [
       'categories',
       'products',
@@ -272,6 +274,7 @@ export const syncService = {
   },
 
   async pushRecord(tableName: string, record: any) {
+    if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
     const reachable = await apiService.checkServerReachability(1800);
     if (reachable) {
@@ -375,6 +378,7 @@ export const syncService = {
   },
 
   async pushTable(tableName: string) {
+    if (await this.getDeviceRole() === 'standalone') return;
     if (!(db as any)[tableName]) return;
     const pendingRecords = await (db as any)[tableName]
       .where('syncStatus')
@@ -397,6 +401,7 @@ export const syncService = {
   },
 
   async pullAll() {
+    if (await this.getDeviceRole() === 'standalone') return;
     if (!getAuthToken()) return;
     try {
       const reachable = await apiService.checkServerReachability(1200);
