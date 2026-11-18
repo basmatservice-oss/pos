@@ -18,7 +18,7 @@ function serializeDexieKey(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function getRecordId(entity, entity: string, row: any): string {
+function getRecordId(entity: string, row: any): string {
   const primaryKey = (db as any)[entity]?.schema?.primKey?.keyPath;
   const value = Array.isArray(primaryKey)
     ? primaryKey.map((path: string) => row?.[path])
