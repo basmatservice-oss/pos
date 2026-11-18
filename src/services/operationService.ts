@@ -1046,6 +1046,31 @@ async function applyShiftLocally(
   syncStatus: 'synced' | 'pending'
 ) {
   const now = new Date().toISOString();
+  if (type === 'shift_movement') {
+    await db.transaction('rw', [db.shifts, db.shiftMovements, db.accounts, db.journalEntries, db.transactions], async () => {
+      const shift = await db.shifts.get(String(payload.shiftId));
+      if (!shift || shift.status !== 'open') throw new Error('لا يمكن تسجيل حركة نقدية على وردية غير مفتوحة');
+      const movementId = String(payload.id || generateUUID());
+      const amount = roundMoney(Number(payload.amount || 0));
+      if (amount <= 0) throw new Error('قيمة حركة الصندوق غير صالحة');
+      const movementType = payload.type === 'withdrawal' ? 'withdrawal' : 'deposit';
+      await db.shiftMovements.put({
+        id: movementId, shiftId: String(payload.shiftId), type: movementType, amount,
+        reason: payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق'),
+        createdBy: payload.createdBy, branchId: payload.branchId ?? shift.branchId,
+        operationId: payload.operationId, createdAt: payload.createdAt || now, syncStatus,
+      });
+      if (syncStatus === 'pending') await postLocalJournalEntry({
+        referenceId: movementId, referenceType: 'shift_movement', entryKey: 'shift-movement-' + String(payload.operationId || movementId),
+        date: payload.createdAt || now, description: (movementType === 'deposit' ? 'إيداع نقدي بالوردية: ' : 'سحب نقدي من الوردية: ') + String(payload.reason || ''),
+        lines: movementType === 'deposit'
+          ? [{ accountCode: '1010', debit: amount, credit: 0 }, { accountCode: '3100', debit: 0, credit: amount }]
+          : [{ accountCode: '3100', debit: amount, credit: 0 }, { accountCode: '1010', debit: 0, credit: amount }],
+        createdBy: payload.createdBy, branchId: payload.branchId ?? shift.branchId,
+      });
+    });
+    return;
+  }
   if (type === 'shift_open') {
     await db.shifts.put({
       id: payload.id,
