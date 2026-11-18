@@ -212,8 +212,35 @@ class PosLocalDatabasePlugin : Plugin() {
             call.reject("entity و records مطلوبان لاستبدال سجلات الكيان")
             return
         }
-        val db = helper.writableDatabase
         try {
+            // Validate the complete snapshot before deleting any existing rows.
+            // Duplicate IDs must not silently overwrite one another during replace.
+            class ValidatedRecord(val recordId: String, val values: ContentValues)
+            val validated = ArrayList<ValidatedRecord>(records.length())
+            val identities = HashSet<String>()
+            for (index in 0 until records.length()) {
+                val item = records.getJSONObject(index)
+                val recordId = item.optString("recordId").trim()
+                val record = item.optJSONObject("record")
+                val syncState = item.optString("syncState", "local")
+                if (recordId.isBlank() || record == null ||
+                    syncState !in setOf("local", "pending", "synced", "error")) {
+                    throw IllegalArgumentException("سجل محلي غير صالح ضمن الكيان $entity")
+                }
+                if (!identities.add(recordId)) {
+                    throw IllegalArgumentException("معرف سجل مكرر ضمن لقطة الكيان $entity: $recordId")
+                }
+                val values = ContentValues().apply {
+                    put("entity", entity)
+                    put("record_id", recordId)
+                    put("json", record.toString())
+                    put("updated_at", System.currentTimeMillis())
+                    put("sync_state", syncState)
+                }
+                validated.add(ValidatedRecord(recordId, values))
+            }
+
+            val db = helper.writableDatabase
             var savedCount = 0
             db.beginTransaction()
             try {
@@ -221,23 +248,9 @@ class PosLocalDatabasePlugin : Plugin() {
                 // Replace the entity atomically so deleted Dexie rows cannot be
                 // resurrected from stale SQLite records after a restart.
                 db.delete("pos_records", "entity = ?", arrayOf(entity))
-                for (index in 0 until records.length()) {
-                    val item = records.getJSONObject(index)
-                    val recordId = item.optString("recordId").trim()
-                    val record = item.optJSONObject("record")
-                    val syncState = item.optString("syncState", "local")
-                    if (recordId.isBlank() || record == null || syncState !in setOf("local", "pending", "synced", "error")) {
-                        throw IllegalArgumentException("سجل محلي غير صالح ضمن الكيان $entity")
-                    }
-                    val values = ContentValues().apply {
-                        put("entity", entity)
-                        put("record_id", recordId)
-                        put("json", record.toString())
-                        put("updated_at", System.currentTimeMillis())
-                        put("sync_state", syncState)
-                    }
+                for (item in validated) {
                     val rowId = db.insertWithOnConflict(
-                        "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
+                        "pos_records", null, item.values, SQLiteDatabase.CONFLICT_REPLACE
                     )
                     if (rowId == -1L) {
                         throw IllegalStateException("تعذر حفظ سجل ضمن الكيان $entity")
