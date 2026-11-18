@@ -21,6 +21,29 @@ async function markRowsSynced(table: any, predicate: (row: any) => boolean) {
   }
 }
 
+async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record<string, Set<string>>) {
+  const items = await db.orderItems.where('orderId').equals(orderId).toArray();
+  const productIds = new Set<string>();
+  const batchIds = new Set<string>();
+  for (const item of items) {
+    productIds.add(String(item.productId));
+    let allocations: any = item.batchAllocations || [];
+    try { if (typeof allocations === 'string') allocations = JSON.parse(allocations); } catch { allocations = []; }
+    const collectAllocations = (list: any[]) => {
+      for (const allocation of list || []) if (allocation?.batchId) batchIds.add(String(allocation.batchId));
+    };
+    if (Array.isArray(allocations)) collectAllocations(allocations);
+    if (allocations?.kind === 'recipe' && Array.isArray(allocations.ingredients)) {
+      for (const ingredient of allocations.ingredients) {
+        productIds.add(String(ingredient.ingredientProductId));
+        collectAllocations(ingredient.allocations || []);
+      }
+    }
+  }
+  for (const id of productIds) if (!pendingRefs.products.has(id)) await db.products.update(Number(id), { syncStatus: 'synced' });
+  if (batchIds.size) await markRowsSynced(db.inventoryBatches, (batch) => batchIds.has(String(batch.id)));
+}
+
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string) {
   const referenceId = String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || operationId);
   await removeLocalJournalEntriesForReference(referenceId);
@@ -37,6 +60,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       await db.orders.update(orderId, { syncStatus: 'synced' });
       await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId);
       await markRowsSynced(db.loyaltyTransactions, (row) => String(row.orderId) === orderId);
+      await markOrderInventoryRowsSynced(orderId, pendingRefs);
     }
     for (const item of payload?.items || []) {
       if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
@@ -46,7 +70,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     const returnId = String(payload?.id || '');
     const orderId = String(payload?.originalOrderId || '');
     if (returnId) { await db.returns.update(returnId, { syncStatus: 'synced' }); await markRowsSynced(db.returnItems, (row) => String(row.returnId) === returnId); }
-    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); }
+    if (orderId) { await db.orders.update(orderId, { syncStatus: 'synced' }); await markRowsSynced(db.orderItems, (row) => String(row.orderId) === orderId); await markOrderInventoryRowsSynced(orderId, pendingRefs); }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await db.products.update(Number(item.productId), { syncStatus: 'synced' });
   } else if (type === 'order_void') {
     const orderId = String(payload?.orderId || payload?.id || '');
