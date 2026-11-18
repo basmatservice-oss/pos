@@ -11,6 +11,7 @@ import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO } from './localInventoryEngine';
+import { postLocalJournalEntry, removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
@@ -69,12 +70,14 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   const legacyPolicy = await db.settings.where('key').equals('allowNegativeStock').first();
   const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
   const allowNegative = stockPolicy !== 'block' || Boolean(payload.managerOverride || payload.allowNegativeOverride);
+  let totalCogs = 0;
 
   await db.transaction(
     'rw',
     [
       db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions,
       db.inventoryBatches, db.serviceRecipes, db.inventoryMovements, db.inventoryAlerts,
+      db.accounts, db.journalEntries, db.transactions,
     ],
     async () => {
       await db.orders.put({ ...order, syncStatus });
@@ -165,6 +168,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
           batchAllocations = consumed.allocations;
         }
 
+        totalCogs = roundMoney(totalCogs + costTotal);
         const serverItem = savedServerItems[index];
         const localItem = {
           ...(serverItem || {}),
@@ -226,6 +230,41 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
             points: pointsRedeemed,
             date: now,
             syncStatus,
+          });
+        }
+      }
+
+      if (syncStatus === 'pending') {
+        const netAmount = roundMoney(Number(order.netAmount || 0));
+        const totalAmount = roundMoney(Number(order.totalAmount || 0));
+        const taxAmount = roundMoney(Number(order.taxAmount || 0));
+        const discountAmount = roundMoney(Math.max(0, totalAmount + taxAmount - netAmount));
+        const paymentMethod = String(order.paymentMethod || 'cash');
+        const cashAmount = paymentMethod === 'mixed' ? roundMoney(Number(order.cashAmount || 0)) : paymentMethod === 'cash' ? netAmount : 0;
+        const cardAmount = paymentMethod === 'mixed' ? roundMoney(Number(order.cardAmount || 0)) : paymentMethod === 'card' ? netAmount : 0;
+        const debitLines: any[] = [];
+        if (cashAmount > 0) debitLines.push({ accountCode: '1010', debit: cashAmount, credit: 0, orderId: order.id });
+        if (cardAmount > 0) debitLines.push({ accountCode: '1020', debit: cardAmount, credit: 0, orderId: order.id });
+        if (paymentMethod === 'credit' && netAmount > 0) debitLines.push({ accountCode: '1100', debit: netAmount, credit: 0, orderId: order.id });
+        const revenueLines = [
+          ...debitLines,
+          ...(discountAmount > 0 ? [{ accountCode: '4300', debit: discountAmount, credit: 0, orderId: order.id }] : []),
+          ...(totalAmount > 0 ? [{ accountCode: '4100', debit: 0, credit: totalAmount, orderId: order.id }] : []),
+          ...(taxAmount > 0 ? [{ accountCode: '2200', debit: 0, credit: taxAmount, orderId: order.id }] : []),
+        ];
+        await postLocalJournalEntry({
+          referenceId: String(order.id), referenceType: 'order', entryKey: 'sale-revenue', date: now,
+          description: 'فاتورة مبيعات رقم ' + String(order.receiptNumber || order.id),
+          lines: revenueLines, createdBy: order.createdBy, branchId: order.branchId,
+        });
+        if (totalCogs > 0) {
+          await postLocalJournalEntry({
+            referenceId: String(order.id), referenceType: 'order', entryKey: 'sale-cogs', date: now,
+            description: 'تكلفة مبيعات فاتورة رقم ' + String(order.receiptNumber || order.id),
+            lines: [
+              { accountCode: '5100', debit: roundMoney(totalCogs), credit: 0, orderId: order.id },
+              { accountCode: '1200', debit: 0, credit: roundMoney(totalCogs), orderId: order.id },
+            ], createdBy: order.createdBy, branchId: order.branchId,
           });
         }
       }
