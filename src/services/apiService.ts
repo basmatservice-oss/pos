@@ -38,6 +38,14 @@ const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any
   return db.settings.where('key').equals(key).first();
 };
 
+const putRuntimeSetting = async (key: string, value: any, updatedAt: string): Promise<void> => {
+  const record = { key, value, syncStatus: 'synced', updatedAt };
+  await db.settings.put(record);
+  if (isNativeAndroid()) {
+    await nativePosRepository.put('settings', record, 'synced');
+  }
+};
+
 const formatUrl = (url: string) => {
   let formattedUrl = url.trim();
   if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
@@ -61,19 +69,9 @@ const initApiBase = async () => {
         : null;
       if (runtimeRole === 'server' || runtimeRole === 'client') {
         const updatedAt = new Date().toISOString();
-        await db.settings.put({
-          key: 'deviceRole',
-          value: runtimeRole,
-          syncStatus: 'synced',
-          updatedAt,
-        });
+        await putRuntimeSetting('deviceRole', runtimeRole, updatedAt);
         if (runtimeRole === 'client' && runtimeServerUrl) {
-          await db.settings.put({
-            key: 'serverUrl',
-            value: runtimeServerUrl,
-            syncStatus: 'synced',
-            updatedAt,
-          });
+          await putRuntimeSetting('serverUrl', runtimeServerUrl, updatedAt);
           API_BASE = formatUrl(runtimeServerUrl);
         } else {
           API_BASE = '/api';
