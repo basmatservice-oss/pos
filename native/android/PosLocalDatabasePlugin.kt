@@ -279,6 +279,50 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getRecordsByIds(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val requestedIds = call.getArray("recordIds")
+        if (entity.isBlank() || requestedIds == null) {
+            call.reject("entity و recordIds مطلوبان")
+            return
+        }
+        try {
+            val ids = LinkedHashSet<String>()
+            for (index in 0 until requestedIds.length()) {
+                val id = requestedIds.optString(index).trim()
+                if (id.isBlank()) throw IllegalArgumentException("recordIds يحتوي على معرف فارغ")
+                ids.add(id)
+            }
+
+            val rows = JSArray()
+            val db = helper.readableDatabase
+            // Keep each IN query below SQLite's bind-parameter limit.
+            ids.toList().chunked(900).forEach { chunk ->
+                val placeholders = List(chunk.size) { "?" }.joinToString(",")
+                val args = arrayOf(entity) + chunk.toTypedArray()
+                db.query(
+                    "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                    "entity = ? AND record_id IN ($placeholders)", args,
+                    null, null, "updated_at ASC, record_id ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        rows.put(
+                            JSObject()
+                                .put("recordId", cursor.getString(0))
+                                .put("record", JSONObject(cursor.getString(1)))
+                                .put("syncState", cursor.getString(2))
+                                .put("updatedAt", cursor.getLong(3))
+                        )
+                    }
+                }
+            }
+            call.resolve(JSObject().put("records", rows))
+        } catch (error: Exception) {
+            call.reject("تعذر قراءة مجموعة السجلات المحلية المحددة", error)
+        }
+    }
+
+    @PluginMethod
     fun getRecords(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
         if (entity.isBlank()) {
