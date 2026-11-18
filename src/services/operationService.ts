@@ -803,10 +803,6 @@ async function applyPurchaseLocally(
         { accountCode: '2100', debit: paid, credit: 0, purchaseId: purchase.id },
         { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paid, purchaseId: purchase.id },
       ]);
-      for (const account of accountMap.values()) {
-        if (changes.some((change) => change.entity === 'accounts' && String(change.record.code) === String(account.code))) continue;
-        if (accountMap.get(String(account.code)) !== account) continue;
-      }
       const changedCodes = new Set<string>();
       for (const change of changes) if (change.entity === 'accounts') changedCodes.add(String(change.record.code));
       for (const [code, account] of accountMap) {
