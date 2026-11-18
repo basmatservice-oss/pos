@@ -76,7 +76,9 @@ class PosLocalDatabasePlugin : Plugin() {
             var savedCount = 0
             db.beginTransaction()
             try {
-                db.delete("pos_records", "entity = ?", arrayOf(entity))
+                // Merge the incoming Dexie snapshot instead of deleting the
+                // whole entity first. SQLite may contain newer/native-only
+                // records that are not present in the current IndexedDB view.
                 for (index in 0 until records.length()) {
                     val item = records.getJSONObject(index)
                     val recordId = item.optString("recordId").trim()
@@ -92,7 +94,10 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("updated_at", System.currentTimeMillis())
                         put("sync_state", syncState)
                     }
-                    if (db.insertOrThrow("pos_records", null, values) == -1L) {
+                    val rowId = db.insertWithOnConflict(
+                        "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                    if (rowId == -1L) {
                         throw IllegalStateException("تعذر حفظ سجل ضمن الكيان $entity")
                     }
                     savedCount += 1
