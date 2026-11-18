@@ -1,6 +1,7 @@
 import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
+import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError } from '../native/posLocalDatabase';
 
 export const syncService = {
   cachedRole: null as string | null,
@@ -105,8 +106,37 @@ export const syncService = {
       .anyOf(['pending', 'error'])
       .toArray();
 
-    const readyOps = queued
-      .filter((op) => !op.nextRetryAt || new Date(op.nextRetryAt).getTime() <= now)
+    // On Android, native SQLite is the durable outbox. Merge older Dexie-only
+    // entries so upgrades do not strand operations created by previous builds.
+    let nativeQueued: Array<any> = [];
+    if (isNativeAndroid()) {
+      try {
+        nativeQueued = await listNativePendingPosOperations();
+      } catch (error) {
+        console.error('Android SQLite outbox unavailable; using Dexie recovery queue:', error);
+      }
+    }
+    const nativeIds = new Set(nativeQueued.map((op) => op.operationId));
+    const nativeAsSyncOperations = nativeQueued.map((op) => ({
+      id: op.operationId,
+      type: op.type,
+      payload: op.payload,
+      deviceId: op.deviceId || '',
+      branchId: op.branchId ? Number(op.branchId) : undefined,
+      status: 'pending' as const,
+      retryCount: op.retryCount || 0,
+      createdAt: new Date(op.createdAt).toISOString(),
+      updatedAt: new Date(op.createdAt).toISOString(),
+    }));
+    const merged = [
+      ...nativeAsSyncOperations,
+      ...queued.filter((op) => !nativeIds.has(op.id)),
+    ];
+    const readyOps = merged
+      .filter((op) => {
+        const dexieOp = queued.find((candidate) => candidate.id === op.id);
+        return !dexieOp?.nextRetryAt || new Date(dexieOp.nextRetryAt).getTime() <= now;
+      })
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     if (readyOps.length === 0) return;
@@ -134,16 +164,25 @@ export const syncService = {
             lastError: undefined,
             updatedAt: new Date().toISOString(),
           });
+          if (isNativeAndroid() && nativeIds.has(op.id)) {
+            await acknowledgeNativePosOperation(op.id).catch((error) =>
+              console.error('Could not acknowledge Android SQLite operation:', error)
+            );
+          }
         } else {
           const retryCount = (op.retryCount || 0) + 1;
           const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
+          const message = res.error || 'Unknown sync error';
           await db.syncOperations.update(op.id, {
             status: retryCount >= 8 ? 'conflict' : 'error',
             retryCount,
-            lastError: res.error || 'Unknown sync error',
+            lastError: message,
             nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
             updatedAt: new Date().toISOString(),
           });
+          if (isNativeAndroid() && nativeIds.has(op.id)) {
+            await markNativePosOperationError(op.id, message).catch(() => {});
+          }
         }
       }
     }
