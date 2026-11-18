@@ -1770,7 +1770,9 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
         const nextQty = roundQty(previousQty - qtyNeeded);
         const valuation = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod');
         const weightedAverage = valuation?.value === 'weighted_average';
-        const activeBatches = [...batchMap.values(), ...changedBatches.values()]
+        const effectiveBatches = new Map<string, any>(batchMap);
+        for (const [batchId, changedBatch] of changedBatches) effectiveBatches.set(batchId, changedBatch);
+        const activeBatches = [...effectiveBatches.values()]
           .filter((b: any) => Number(b.productId) === productId && Number(b.remainingQuantity || 0) > 0)
           .sort((a: any, b: any) => String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
             String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
