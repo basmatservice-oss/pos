@@ -927,7 +927,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
         if (existing) {
           await reverseLocalJournalEntriesByReference(String(payload.id), 'حذف مصروف', payload.createdBy);
           await db.expenses.delete(Number(payload.id));
-          await db.auditLogs.add({
+          if (await getDeviceRole() === 'standalone') await db.auditLogs.add({
             date: now, userName: payload.createdBy || 'System', type: 'expense_delete',
             operationName: 'حذف مصروف', action: 'حذف', details: existing.description,
             quantity: 1, value: Number(existing.amount || 0), branchId: existing.branchId,
@@ -956,7 +956,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
         ], createdBy: payload.createdBy, branchId: payload.branchId,
       });
     }
-    await db.auditLogs.add({
+    if (await getDeviceRole() === 'standalone') await db.auditLogs.add({
       date: payload.date || now, userName: payload.createdBy || 'System', type: 'expense',
       operationName: 'تسجيل مصروف', action: 'مصروف',
       details: String(payload.category || 'عام') + ': ' + String(payload.description || ''),
@@ -1096,7 +1096,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
         ], createdBy: payload.createdBy, branchId: record.branchId,
       });
     }
-    await db.auditLogs.add({
+    if (await getDeviceRole() === 'standalone') await db.auditLogs.add({
       date: record.paymentDate, userName: payload.createdBy || 'System', type: 'payroll',
       operationName: 'مسير رواتب', action: 'صرف راتب',
       details: 'صرف راتب ' + String(record.employeeName || '') + ' (' + (record.salaryType === 'hourly' ? 'بالساعة' : 'شهري') + ')',
