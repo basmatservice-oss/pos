@@ -11,11 +11,12 @@ import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
-import { postLocalJournalEntry, reverseLocalJournalEntriesByReference } from './localAccountingEngine';
+import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
+let currentDeviceRole: 'server' | 'client' | 'standalone' = 'server';
 
 export function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
@@ -30,10 +31,11 @@ export function getDeviceId(): string {
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
     const setting = await db.settings.where('key').equals('deviceRole').first();
-    if (setting?.value === 'standalone') return 'standalone';
-    return setting?.value === 'client' ? 'client' : 'server';
+    currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
+    return currentDeviceRole;
   } catch {
-    return 'server';
+    currentDeviceRole = 'server';
+    return currentDeviceRole;
   }
 }
 
@@ -41,9 +43,8 @@ function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-async function shouldPostLocalAccounting(syncStatus: 'synced' | 'pending'): Promise<boolean> {
-  if (syncStatus === 'pending') return true;
-  return (await getDeviceRole()) === 'standalone';
+function shouldPostLocalAccounting(syncStatus: 'synced' | 'pending'): boolean {
+  return syncStatus === 'pending' || currentDeviceRole === 'standalone';
 }
 
 function resolveLocalUnitFactor(product: any, item: any): number {
@@ -273,7 +274,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
         }
       }
 
-      if (await shouldPostLocalAccounting(syncStatus)) {
+      if (shouldPostLocalAccounting(syncStatus)) {
         const netAmount = roundMoney(Number(order.netAmount || 0));
         const totalAmount = roundMoney(Number(order.totalAmount || 0));
         const taxAmount = roundMoney(Number(order.taxAmount || 0));
@@ -375,7 +376,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
       });
     }
     await db.orders.update(targetOrderId, { status: 'void', paidAmount: 0, updatedAt: now, syncStatus });
-    if (await shouldPostLocalAccounting(syncStatus)) {
+    if (shouldPostLocalAccounting(syncStatus)) {
       await reverseLocalJournalEntriesByReference(targetOrderId, String(payload.reason || 'إلغاء فاتورة مبيعات'), payload.createdBy);
     }
   });
@@ -583,7 +584,7 @@ async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending'
       await db.returns.put(retDoc);
       if (processedItems === 0) throw new Error('لا توجد أصناف صالحة للإرجاع');
       if (roundMoney(totalRefund) > roundMoney(Number(origOrder.netAmount || 0) - Number(origOrder.returnedAmount || 0)) + 0.05) throw new Error('إجمالي المرتجع يتجاوز المتبقي من الفاتورة الأصلية');
-      if (await shouldPostLocalAccounting(syncStatus) && totalRefund > 0) {
+      if (shouldPostLocalAccounting(syncStatus) && totalRefund > 0) {
         const creditAccountCode = effectiveRefundMethod === 'cash' ? '1010' : effectiveRefundMethod === 'card' ? '1020' : '1100';
         await postLocalJournalEntry({
           referenceId: String(id), referenceType: 'return', entryKey: 'return-refund', date: effectiveReturnDate,
@@ -806,7 +807,7 @@ async function applyPurchaseLocally(
         }
       }
 
-      if (await shouldPostLocalAccounting(syncStatus)) {
+      if (shouldPostLocalAccounting(syncStatus)) {
         const extraPaymentMethod = String(purchase.extraCostsPaymentMethod || 'cash');
         const totalCapitalized = roundMoney(goodsTotal + extraCost);
         const credits: any[] = [];
@@ -911,7 +912,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       refundMethod, totalReturn, reason, createdBy, createdAt: now, updatedAt: now, syncStatus,
     };
     await db.purchaseReturns.put(retDoc);
-    if (await shouldPostLocalAccounting(syncStatus) && totalReturn > 0) {
+    if (shouldPostLocalAccounting(syncStatus) && totalReturn > 0) {
       const debitAccount = refundMethod === 'cash' ? '1010' : refundMethod === 'card' ? '1020' : '2100';
       await postLocalJournalEntry({
         referenceId: String(id), referenceType: 'purchase_return', entryKey: 'purchase-return-' + operationId, date: now,
@@ -952,7 +953,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       createdAt: payload.createdAt || now, updatedAt: now, syncStatus,
     });
     const amount = roundMoney(Number(payload.amount || 0));
-    if (await shouldPostLocalAccounting(syncStatus) && amount > 0) {
+    if (shouldPostLocalAccounting(syncStatus) && amount > 0) {
       await postLocalJournalEntry({
         referenceId: String(expenseId), referenceType: 'expense', entryKey: 'expense-' + String(payload.operationId || expenseId),
         date: payload.date || now, description: 'مصروف (' + String(payload.category || 'عام') + '): ' + String(payload.description || ''),
@@ -1011,7 +1012,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       syncStatus,
       createdAt: now,
     });
-    if (await shouldPostLocalAccounting(syncStatus) && payAmount > 0) await postLocalJournalEntry({
+    if (shouldPostLocalAccounting(syncStatus) && payAmount > 0) await postLocalJournalEntry({
       referenceId: String(paymentId), referenceType: 'payment', entryKey: 'customer-payment-' + String(payload.operationId || paymentId),
       date: now, description: 'تحصيل دفعة من العميل: ' + String(cust?.name || payload.customerName || ''),
       lines: [
@@ -1064,7 +1065,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       syncStatus,
       createdAt: now,
     });
-    if (await shouldPostLocalAccounting(syncStatus) && payAmount > 0) await postLocalJournalEntry({
+    if (shouldPostLocalAccounting(syncStatus) && payAmount > 0) await postLocalJournalEntry({
       referenceId: String(paymentId), referenceType: 'payment', entryKey: 'supplier-payment-' + String(payload.operationId || paymentId),
       date: now, description: 'سداد دفعة للمورد: ' + String(sup?.name || payload.supplierName || ''),
       lines: [
@@ -1092,7 +1093,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       paymentDate: payload.paymentDate || now, status: payload.status || 'paid', syncStatus,
     };
     await db.payroll.put(record);
-    if (await shouldPostLocalAccounting(syncStatus) && record.netSalary > 0 && record.status === 'paid') {
+    if (shouldPostLocalAccounting(syncStatus) && record.netSalary > 0 && record.status === 'paid') {
       await postLocalJournalEntry({
         referenceId: String(payrollId), referenceType: 'payroll', entryKey: 'payroll-' + String(payload.operationId || payrollId),
         date: record.paymentDate, description: 'صرف راتب الموظف: ' + String(record.employeeName || ''),
@@ -1131,7 +1132,7 @@ async function applyShiftLocally(
         createdBy: payload.createdBy, branchId: payload.branchId ?? shift.branchId,
         operationId: payload.operationId, createdAt: payload.createdAt || now, syncStatus,
       });
-      if (await shouldPostLocalAccounting(syncStatus)) await postLocalJournalEntry({
+      if (shouldPostLocalAccounting(syncStatus)) await postLocalJournalEntry({
         referenceId: movementId, referenceType: 'shift_movement', entryKey: 'shift-movement-' + String(payload.operationId || movementId),
         date: payload.createdAt || now, description: (movementType === 'deposit' ? 'إيداع نقدي بالوردية: ' : 'سحب نقدي من الوردية: ') + String(payload.reason || ''),
         lines: movementType === 'deposit'
@@ -1222,7 +1223,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
       }
     }
     await db.stocktakingSessions.update(sessionId, { status: 'approved', syncStatus });
-    if (await shouldPostLocalAccounting(syncStatus) && Math.abs(netAdjustmentValue) > 0.001) {
+    if (shouldPostLocalAccounting(syncStatus) && Math.abs(netAdjustmentValue) > 0.001) {
       const amount = Math.abs(netAdjustmentValue);
       await postLocalJournalEntry({
         referenceId: sessionId, referenceType: 'stocktake', entryKey: 'stocktake-' + operationId, date: now,
@@ -1267,7 +1268,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
       branchId: finalRecord.branchId, operationId: String(payload.operationId || productId), reason: 'رصيد افتتاحي للصنف',
       createdBy: payload.createdBy || 'System', createdAt: now, syncStatus,
     });
-    if (await shouldPostLocalAccounting(syncStatus) && openingValue > 0) await postLocalJournalEntry({
+    if (shouldPostLocalAccounting(syncStatus) && openingValue > 0) await postLocalJournalEntry({
       referenceId: 'opening:' + String(productId), referenceType: 'opening', entryKey: 'opening-' + String(payload.operationId || productId),
       date: now, description: 'رصيد افتتاحي للمخزون: ' + String(finalRecord.name || productId),
       lines: [
@@ -1507,6 +1508,7 @@ export async function dispatchOperation(
   const operationId = payload?.operationId || generateUUID();
   const deviceId = getDeviceId();
   const role = await getDeviceRole();
+  setLocalAccountingStandaloneMode(role === 'standalone');
   const now = new Date().toISOString();
   const token = getAuthToken();
 
