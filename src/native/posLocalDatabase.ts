@@ -21,6 +21,7 @@ export interface PosQueuedOperation {
 export interface PosLocalDatabasePlugin {
   initialize(): Promise<{ ready: boolean; schemaVersion: number; database: string }>;
   putRecord(options: PosLocalRecord): Promise<{ saved: boolean; recordId: string }>;
+  replaceRecords(options: { entity: string; records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }> }): Promise<{ replaced: boolean; count: number }>;
   saveRecordAndEnqueueOperation(options: PosLocalRecord & PosQueuedOperation): Promise<{
     saved: boolean;
     queued: boolean;
@@ -109,4 +110,13 @@ export async function markNativePosOperationConflict(operationId: string, messag
       syncState: 'error',
     });
   }
+}
+
+export async function replaceNativePosRecords(
+  entity: string,
+  records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }>
+): Promise<boolean> {
+  if (!(await ensureNativePosDatabase())) return false;
+  await posLocalDatabase.replaceRecords({ entity, records });
+  return true;
 }
