@@ -39,7 +39,10 @@ const transactionChanges = new WeakMap<object, Map<string, PendingTransactionCha
 
 function collectTransactionChange(entity: string, table: any, key: any, transaction: any): void {
   if (key === undefined || key === null) {
-    throw new Error(`Cannot mirror ${entity} mutation without its Dexie primary key`);
+    // Do not interfere with a valid Dexie commit when an inline/auto key is
+    // unavailable in the hook. Rebuild the complete snapshot at the next flush.
+    transaction.on('complete', () => { nativeSnapshotNeedsRefresh = true; });
+    return;
   }
   let changes = transactionChanges.get(transaction);
   if (!changes) {
