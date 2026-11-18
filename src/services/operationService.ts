@@ -1581,11 +1581,19 @@ export async function dispatchOperation(
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
       if (isNativeAndroid()) {
-        await flushNativeDatabaseMirrorWrites();
+        try {
+          await flushNativeDatabaseMirrorWrites();
+        } catch (mirrorError) {
+          throw Object.assign(
+            new Error('تم قبول العملية على الخادم لكن تعذر تثبيت نسختها المحلية في SQLite؛ يلزم إصلاح النسخة المحلية قبل متابعة العمل'),
+            { nativeSqliteMirrorFailure: true, cause: mirrorError },
+          );
+        }
       }
       import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
+      if (err?.nativeSqliteMirrorFailure) throw err;
       if (
         err?.response &&
         err.response.status >= 400 &&
