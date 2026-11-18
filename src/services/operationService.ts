@@ -1237,6 +1237,44 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     });
   });
 }
+async function assertLocalOpenFiscalPeriod(dateIso: string, payload: any) {
+  const periods = await db.fiscalPeriods.toArray();
+  if (!periods.length) return;
+  const targetDay = String(dateIso || new Date().toISOString()).slice(0, 10);
+  const closed = periods.find((period: any) => {
+    if (period.status !== 'closed') return false;
+    const start = String(period.startDate || '').slice(0, 10);
+    const end = String(period.endDate || '').slice(0, 10);
+    return Boolean(start && end && targetDay >= start && targetDay <= end);
+  });
+  if (!closed) return;
+  const role = String(payload?.userRole || payload?.actor?.role || payload?.role || '').toLowerCase();
+  const allowedOverride = Boolean(payload?.allowClosedPeriodOverride) && (role === 'admin' || role === 'manager');
+  if (!allowedOverride) throw new Error(`الفترة المالية (${closed.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`);
+}
+
+async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], payload: any) {
+  const now = new Date().toISOString();
+  let postingDate = now;
+  if (type === 'sale') postingDate = payload?.order?.createdAt || now;
+  else if (type === 'return') postingDate = payload?.returnDate || now;
+  else if (type === 'order_void') {
+    const order = await db.orders.get(String(payload?.orderId || payload?.id || ''));
+    postingDate = order?.createdAt || now;
+  } else if (type === 'purchase') postingDate = payload?.purchase?.date || now;
+  else if (type === 'purchase_update' || type === 'purchase_delete') {
+    const purchaseId = String(type === 'purchase_delete' ? payload?.id : payload?.purchase?.id || '');
+    const purchase = await db.purchases.get(purchaseId);
+    postingDate = purchase?.date || now;
+  } else if (type === 'expense') postingDate = payload?.date || now;
+  else if (type === 'expense_delete') {
+    const expense = await db.expenses.get(Number(payload?.id));
+    postingDate = expense?.date || now;
+  } else if (type === 'payroll') postingDate = payload?.paymentDate || now;
+  if (['sale', 'return', 'order_void', 'purchase', 'purchase_update', 'purchase_delete', 'purchase_return', 'expense', 'expense_delete', 'customer_payment', 'supplier_payment', 'payroll', 'shift_movement', 'stocktake_approve'].includes(type)) {
+    await assertLocalOpenFiscalPeriod(postingDate, payload);
+  }
+}
 async function applyOperationLocally(
   type: SyncOperation['type'],
   payload: any,
@@ -1245,6 +1283,7 @@ async function applyOperationLocally(
 ) {
   (globalThis as any).__posApplyingOperation = true;
   try {
+    if (syncStatus === 'pending') await validateLocalOperationFiscalPeriod(type, payload);
     switch (type) {
       case 'sale':
         return await applySaleLocally(payload, syncStatus);
@@ -1342,6 +1381,12 @@ export async function dispatchOperation(
   branchId?: number
 ): Promise<{ synced: boolean; operationId: string; result?: any }> {
   let payload = { ...enrichPayloadWithStableIds(type, rawPayload) };
+  try {
+    const localUser = JSON.parse(localStorage.getItem('user') || 'null');
+    if (localUser?.role) payload.userRole = payload.userRole || localUser.role;
+    if (!payload.actor && localUser?.role) payload.actor = { role: localUser.role, name: localUser.name };
+    if (!payload.createdBy && localUser?.name) payload.createdBy = localUser.name;
+  } catch {}
   if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
     const oldPurchase = await db.purchases.get(purchaseId);
