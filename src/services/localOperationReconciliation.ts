@@ -50,8 +50,10 @@ async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record
   if (batchIds.size) await markRowsSynced(db.inventoryBatches, (batch) => batchIds.has(String(batch.id)));
 }
 
-export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string) {
-  const referenceId = String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
+export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
+  const referenceId = type === 'entity_upsert' && payload?.table === 'products'
+    ? 'opening:' + String(serverResult?.id ?? payload?.record?.id)
+    : String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
 
@@ -139,6 +141,15 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     }
   } else if (type === 'entity_upsert') {
     const table = (db as any)[payload?.table];
-    if (table && payload?.record?.id !== undefined) await table.update(payload.record.id, { syncStatus: 'synced' });
+    const serverId = serverResult?.id ?? payload?.record?.id;
+    if (table && serverId !== undefined) {
+      if (payload?.record?.id !== undefined && payload.record.id !== serverId) await table.delete(payload.record.id).catch(() => {});
+      if (payload?.table === 'products') {
+        await db.products.update(Number(serverId), { syncStatus: 'synced' });
+        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId));
+      } else {
+        await table.update(serverId, { syncStatus: 'synced' });
+      }
+    }
   }
 }
