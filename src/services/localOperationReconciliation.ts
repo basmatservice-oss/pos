@@ -2,6 +2,7 @@ import { db } from '../db/db';
 import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
+import { isNativeAndroid, listNativePendingPosOperations } from '../native/posLocalDatabase';
 
 function collectPendingReferences(value: any, refs: Record<string, Set<string>>) {
   if (!value || typeof value !== 'object') return;
@@ -68,6 +69,23 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
       if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
       if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
+    }
+  }
+  if (isNativeAndroid()) {
+    try {
+      const nativePending = await listNativePendingPosOperations();
+      for (const operation of nativePending) {
+        collectPendingReferences(operation.payload, pendingRefs);
+        if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
+          const tableName = operation.payload?.table;
+          const entityId = operation.payload?.record?.id ?? operation.payload?.id;
+          if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
+          if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
+          if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
+        }
+      }
+    } catch (error) {
+      console.warn('تعذر قراءة طابور SQLite أثناء تسوية المزامنة:', error);
     }
   }
   const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
