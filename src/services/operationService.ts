@@ -37,6 +37,20 @@ async function getLocalSettingByKey(key: string): Promise<{ key: string; value: 
   return db.settings.where('key').equals(key).first();
 }
 
+async function getLocalRecord<T extends Record<string, any>>(entity: any, key: unknown): Promise<T | undefined> {
+  if (isNativeAndroid()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  return (await (db as any)[entity].get(key)) ?? undefined;
+}
+
+async function getLocalRecordsByIndex<T extends Record<string, any>>(
+  entity: any,
+  indexName: string,
+  value: string | number | boolean,
+): Promise<T[]> {
+  if (isNativeAndroid()) return nativePosRepository.whereEquals<T>(entity, indexName, value);
+  return (await (db as any)[entity].where(indexName).equals(value).toArray()) as T[];
+}
+
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
     const setting = await getLocalSettingByKey('deviceRole');
@@ -1536,8 +1550,8 @@ export async function dispatchOperation(
   } catch {}
   if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
-    const oldPurchase = await db.purchases.get(purchaseId);
-    const oldItems = await db.purchaseItems.where('purchaseId').equals(purchaseId).toArray();
+    const oldPurchase = await getLocalRecord<any>('purchases', purchaseId);
+    const oldItems = await getLocalRecordsByIndex<any>('purchaseItems', 'purchaseId', purchaseId);
     payload = {
       ...payload,
       _localAffectedProductIds: oldItems.map((item) => Number(item.productId)),
@@ -1613,17 +1627,17 @@ export async function dispatchOperation(
       const policy = policyRow?.value || (allowNegRow?.value === 'false' || allowNegRow?.value === false ? 'block' : 'allow_with_alert');
       if (policy === 'block') {
         for (const item of payload?.items || []) {
-          const prod = await db.products.get(Number(item.productId));
+          const prod = await getLocalRecord<any>('products', Number(item.productId));
           if (!prod) continue;
           const itemType = String(item.itemType || prod.itemType || 'stock');
           if (itemType === 'service') continue;
           const factor = resolveLocalUnitFactor(prod, item);
           const baseQty = roundQty(Number(item.quantity || 0) * factor);
           if (itemType === 'service_with_materials' || itemType === 'bundle') {
-            const recipes = await db.serviceRecipes.where('parentProductId').equals(Number(prod.id)).toArray();
+            const recipes = await getLocalRecordsByIndex<any>('serviceRecipes', 'parentProductId', Number(prod.id));
             if (recipes.length > 0) {
               for (const rec of recipes) {
-                const ing = await db.products.get(Number(rec.ingredientProductId));
+                const ing = await getLocalRecord<any>('products', Number(rec.ingredientProductId));
                 const needed = roundQty(baseQty * Number(rec.quantity || 0));
                 if (ing && ing.stockQuantity < needed) {
                   throw new Error(`الرصيد غير كافٍ للمادة الخام: ${ing.name} (المتاح: ${ing.stockQuantity})`);
