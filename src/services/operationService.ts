@@ -321,7 +321,7 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
   const deviceId = String(payload.deviceId || 'local-device');
   await db.transaction('rw', [
     db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.serviceRecipes,
-    db.inventoryBatches, db.inventoryMovements, db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions,
+    db.inventoryBatches, db.inventoryMovements, db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
   ], async () => {
     const order = await db.orders.get(targetOrderId);
     if (!order || order.status === 'void') return;
@@ -976,7 +976,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
-  await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions], async () => {
+  await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.customerPayments.get(paymentId)) return;
     const cust = await db.customers.get(Number(payload.customerId));
@@ -1021,13 +1021,20 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
         { accountCode: '1100', debit: 0, credit: payAmount, orderId: payload.orderId },
       ], createdBy: payload.createdBy, branchId: payload.branchId ?? cust.branchId,
     });
+    if (currentDeviceRole === 'standalone') await db.auditLogs.add({
+      date: now, userName: payload.createdBy || 'System', type: 'customer_payment',
+      action: 'تحصيل عميل', operationName: 'سداد ذمم عميل',
+      details: 'تحصيل ' + payAmount + ' من العميل ' + String(cust.name || ''),
+      quantity: 1, value: payAmount, branchId: payload.branchId ?? cust.branchId ?? undefined,
+      entityId: String(cust.id), entityName: cust.name, syncStatus,
+    });
   });
 }
 
 async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = roundMoney(Number(payload.amount || 0));
-  await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions], async () => {
+  await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
     if (await db.supplierPayments.get(paymentId)) return;
     const sup = await db.suppliers.get(Number(payload.supplierId));
@@ -1073,6 +1080,13 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
         { accountCode: '2100', debit: payAmount, credit: 0, purchaseId: payload.purchaseId },
         { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: payAmount, purchaseId: payload.purchaseId },
       ], createdBy: payload.createdBy, branchId: payload.branchId,
+    });
+    if (currentDeviceRole === 'standalone') await db.auditLogs.add({
+      date: now, userName: payload.createdBy || 'System', type: 'supplier_payment',
+      action: 'سداد مورد', operationName: 'دفع مستحقات مورد',
+      details: 'سداد ' + payAmount + ' للمورد ' + String(sup.name || ''),
+      quantity: 1, value: payAmount, branchId: payload.branchId,
+      entityId: String(sup.id), entityName: sup.name, syncStatus,
     });
   });
 }
@@ -1120,7 +1134,7 @@ async function applyShiftLocally(
 ) {
   const now = new Date().toISOString();
   if (type === 'shift_movement') {
-    await db.transaction('rw', [db.shifts, db.shiftMovements, db.accounts, db.journalEntries, db.transactions], async () => {
+    await db.transaction('rw', [db.shifts, db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
       const shift = await db.shifts.get(String(payload.shiftId));
       if (!shift || shift.status !== 'open') throw new Error('لا يمكن تسجيل حركة نقدية على وردية غير مفتوحة');
       const movementId = String(payload.id || generateUUID());
@@ -1140,6 +1154,14 @@ async function applyShiftLocally(
           ? [{ accountCode: '1010', debit: amount, credit: 0 }, { accountCode: '3100', debit: 0, credit: amount }]
           : [{ accountCode: '3100', debit: amount, credit: 0 }, { accountCode: '1010', debit: 0, credit: amount }],
         createdBy: payload.createdBy, branchId: payload.branchId ?? shift.branchId,
+      });
+      if (currentDeviceRole === 'standalone') await db.auditLogs.add({
+        date: payload.createdAt || now, userName: payload.createdBy || 'System', type: 'shift_movement',
+        action: movementType === 'deposit' ? 'إيداع نقدي' : 'سحب نقدي',
+        operationName: 'حركة صندوق الوردية',
+        details: String(payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق')) + ' (وردية ' + String(payload.shiftId) + ')',
+        quantity: 1, value: amount, branchId: payload.branchId ?? shift.branchId,
+        entityId: movementId, entityName: String(payload.shiftId), syncStatus,
       });
     });
     return;
@@ -1235,6 +1257,13 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
         createdBy: payload.createdBy, branchId: session.branchId,
       });
     }
+    if (currentDeviceRole === 'standalone') await db.auditLogs.add({
+      date: now, userName: payload.createdBy || 'System', type: 'stocktake_approve',
+      action: 'اعتماد جرد', operationName: 'تسوية جرد مخزون',
+      details: 'اعتماد جلسة جرد #' + sessionId,
+      quantity: entries.length, value: Math.abs(netAdjustmentValue), branchId: session.branchId,
+      entityId: sessionId, entityName: sessionId, syncStatus,
+    });
   });
 }
 async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', payload: any, syncStatus: 'synced' | 'pending', serverResult?: any) {
