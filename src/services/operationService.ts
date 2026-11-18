@@ -1393,6 +1393,15 @@ export async function dispatchOperation(
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
 
+  if (isNativeAndroid()) {
+    try {
+      const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
+      await mirrorNativePosDatabase();
+    } catch (mirrorError) {
+      console.warn('Android SQLite business snapshot could not be updated:', mirrorError);
+    }
+  }
+
   // Android keeps a second, durable copy of every business operation in native
   // SQLite so the outbox survives WebView/IndexedDB lifecycle failures.
   if (isNativeAndroid()) {
