@@ -83,6 +83,38 @@ export const nativePosRepository = {
     return ids.flatMap((id) => byId.has(id) ? [byId.get(id)!] : []);
   },
 
+  async whereEquals<T extends Record<string, unknown>>(
+    entity: NativePosEntity,
+    indexName: string,
+    value: string | number | boolean,
+  ): Promise<T[]> {
+    requireAndroid();
+    assertEntity(entity);
+    if (!indexName.trim()) throw new Error('A Dexie index name is required');
+    const table = (db as any)[entity];
+    const indexes = [
+      table?.schema?.primKey,
+      ...(table?.schema?.indexes ?? []),
+    ];
+    const index = indexes.find((candidate: any) =>
+      candidate?.name === indexName || candidate?.keyPath === indexName
+    );
+    if (!index || Array.isArray(index.keyPath)) {
+      throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
+    }
+    const records = await this.getAll<T>(entity);
+    return records.filter((record) => record[indexName] === value);
+  },
+
+  async firstWhereEquals<T extends Record<string, unknown>>(
+    entity: NativePosEntity,
+    indexName: string,
+    value: string | number | boolean,
+  ): Promise<T | null> {
+    const records = await this.whereEquals<T>(entity, indexName, value);
+    return records[0] ?? null;
+  },
+
   async getAll<T extends Record<string, unknown>>(entity: NativePosEntity): Promise<T[]> {
     requireAndroid();
     assertEntity(entity);
