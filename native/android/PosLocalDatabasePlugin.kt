@@ -411,11 +411,11 @@ class PosLocalDatabasePlugin : Plugin() {
         }
         try {
             // JSON1 filters inside SQLite, avoiding transfer of the full entity to the WebView.
-            val path = "\\$." + field
+            val path = "\$." + field
             val rows = JSArray()
             helper.readableDatabase.rawQuery(
                 "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
-                    "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\\$') " +
+                    "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\$') " +
                     "ORDER BY updated_at ASC, record_id ASC",
                 arrayOf(entity, path, valueJson)
             ).use { cursor ->
