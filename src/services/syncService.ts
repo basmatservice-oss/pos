@@ -202,6 +202,12 @@ export const syncService = {
         if (!op) continue;
 
         if (res.status === 'ok' || res.status === 'duplicate') {
+          // Rewrite dependent records and durable queues before acknowledging
+          // the create operation. A retry after interruption is safe because
+          // the server returns the original result for duplicate operation IDs.
+          if (op.type === 'entity_upsert' && op.payload?.record?.id !== undefined && res.result?.id !== undefined) {
+            await remapPendingEntityReferences(op.payload.table, op.payload.record.id, res.result.id, op.id);
+          }
           await db.syncOperations.update(op.id, {
             status: 'synced',
             lastError: undefined,
@@ -211,9 +217,6 @@ export const syncService = {
             await acknowledgeNativePosOperation(op.id).catch((error) =>
               console.error('Could not acknowledge Android SQLite operation:', error)
             );
-          }
-          if (op.type === 'entity_upsert' && op.payload?.record?.id !== undefined && res.result?.id !== undefined) {
-            await remapPendingEntityReferences(op.payload.table, op.payload.record.id, res.result.id, op.id);
           }
           await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
         } else {
