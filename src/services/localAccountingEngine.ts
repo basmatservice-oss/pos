@@ -149,3 +149,30 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
     await db.journalEntries.delete(entry.id as any);
   }
 }
+
+export async function reverseLocalJournalEntriesByReference(referenceId: string, reason: string, createdBy?: string): Promise<void> {
+  const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
+  for (const entry of entries) {
+    if (entry.status !== 'posted') continue;
+    const lines = await db.transactions.where('journalEntryId').equals(String(entry.id)).toArray();
+    if (!lines.length) continue;
+    const reversalLines = lines.map((line: any) => ({
+      accountCode: String(line.accountId),
+      debit: Number(line.credit || 0),
+      credit: Number(line.debit || 0),
+      description: 'عكس: ' + String(line.description || entry.description) + ' (' + reason + ')',
+      orderId: line.orderId, purchaseId: line.purchaseId, returnId: line.returnId,
+    }));
+    const reversalId = await postLocalJournalEntry({
+      referenceId,
+      referenceType: (entry.referenceType || 'order') as LocalJournalInput['referenceType'],
+      entryKey: 'reversal-' + String(entry.id),
+      date: new Date().toISOString(),
+      description: 'قيد عكسي - ' + String(entry.description) + ' (' + reason + ')',
+      lines: reversalLines,
+      createdBy: createdBy || 'System',
+      branchId: entry.branchId,
+    });
+    await db.journalEntries.update(entry.id as any, { status: 'reversed', reversedEntryId: reversalId || undefined });
+  }
+}
