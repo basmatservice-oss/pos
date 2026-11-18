@@ -717,7 +717,7 @@ async function applyPurchaseLocally(
         exchangeRate: fxRate, purchaseDate: purchase.date || now, expiryDate: item.expiryDate,
         batchNumber: item.batchNumber, branchId: purchase.branchId, syncStatus,
       };
-      itemDocs.push(purchaseItem); batchDocs.push(batch);
+      batchDocs.push(batch);
       const movement = {
         id: generateUUID(),
         movementKey: 'purchase:' + String(purchase.id) + ':' + String(payload.operationId || purchase.id) + ':in:' + String(item.productId) + ':' + String(index),
