@@ -118,12 +118,14 @@ export async function mirrorNativePosRecord(entity: string, row: any): Promise<v
 }
 export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const failedEntities: string[] = [];
   for (const entity of MIRRORED_TABLES) {
     try {
       const table = (db as any)[entity];
-      if (!table) continue;
+      if (!table) throw new Error('Dexie table is unavailable');
       const result = await posLocalDatabase.getRecords({ entity });
-      if (!Array.isArray(result.records) || result.records.length === 0) continue;
+      if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid record collection');
+      if (result.records.length === 0) continue;
       const existingRows = await table.toArray();
       const existingIds = new Set(existingRows.map((row: any) => getRecordId(row)).filter(Boolean));
       const missingRows = result.records
@@ -134,7 +136,11 @@ export async function restoreNativePosDatabase(): Promise<void> {
         }));
       if (missingRows.length) await table.bulkPut(missingRows);
     } catch (error) {
-      console.warn('تعذر استعادة SQLite إلى IndexedDB للجدول ' + entity, error);
+      failedEntities.push(entity);
+      console.error('تعذر استعادة SQLite إلى IndexedDB للجدول ' + entity, error);
     }
+  }
+  if (failedEntities.length > 0) {
+    throw new Error('Android SQLite restore incomplete; failed entities: ' + failedEntities.join(', '));
   }
 }
