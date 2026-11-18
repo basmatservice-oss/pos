@@ -1587,12 +1587,18 @@ export async function dispatchOperation(
   // WebView closes during the mutation, the durable operation can still replay.
   if (isNativeAndroid()) {
     try {
-      await enqueueNativePosOperation({
+      const queued = await enqueueNativePosOperation({
         operationId, type, payload: opRecord.payload, deviceId,
         branchId: branchId === undefined ? undefined : String(branchId), schemaVersion: 1,
       });
+      if (!queued) {
+        throw new Error('تعذر حفظ العملية في طابور SQLite المحلي؛ أُوقِف تنفيذ العملية لحماية البيانات');
+      }
     } catch (error) {
-      console.error('Android SQLite outbox write failed; retaining Dexie queue:', error);
+      console.error('Android SQLite outbox write failed; operation was not applied:', error);
+      throw error instanceof Error
+        ? error
+        : new Error('تعذر حفظ العملية في طابور SQLite المحلي؛ أُوقِف تنفيذ العملية لحماية البيانات');
     }
   }
   await applyOperationLocally(type, opRecord.payload, 'pending');
