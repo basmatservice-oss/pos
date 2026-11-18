@@ -908,7 +908,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = Number(payload.amount || 0);
-  await db.transaction('rw', [db.customers, db.orders, db.customerPayments], async () => {
+  await db.transaction('rw', [db.customers, db.orders, db.customerPayments, db.accounts, db.journalEntries, db.transactions], async () => {
     const cust = await db.customers.get(Number(payload.customerId));
     if (cust) {
       await db.customers.update(cust.id!, {
@@ -927,8 +927,9 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
         });
       }
     }
+    const paymentId = payload.paymentId || payload.operationId || generateUUID();
     await db.customerPayments.put({
-      id: payload.paymentId || payload.operationId || generateUUID(),
+      id: paymentId,
       customerId: Number(payload.customerId),
       customerName: cust?.name || payload.customerName,
       orderId: payload.orderId,
@@ -942,13 +943,21 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       syncStatus,
       createdAt: now,
     });
+    if (syncStatus === 'pending' && payAmount > 0) await postLocalJournalEntry({
+      referenceId: String(paymentId), referenceType: 'payment', entryKey: 'customer-payment-' + String(payload.operationId || paymentId),
+      date: now, description: 'تحصيل دفعة من العميل: ' + String(cust?.name || payload.customerName || ''),
+      lines: [
+        { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: payAmount, credit: 0, orderId: payload.orderId },
+        { accountCode: '1100', debit: 0, credit: payAmount, orderId: payload.orderId },
+      ], createdBy: payload.createdBy, branchId: payload.branchId,
+    });
   });
 }
 
 async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
   const payAmount = Number(payload.amount || 0);
-  await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments], async () => {
+  await db.transaction('rw', [db.suppliers, db.purchases, db.supplierPayments, db.accounts, db.journalEntries, db.transactions], async () => {
     const sup = await db.suppliers.get(Number(payload.supplierId));
     if (sup) {
       await db.suppliers.update(sup.id!, {
@@ -969,8 +978,9 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
         });
       }
     }
+    const paymentId = payload.paymentId || payload.operationId || generateUUID();
     await db.supplierPayments.put({
-      id: payload.paymentId || payload.operationId || generateUUID(),
+      id: paymentId,
       supplierId: Number(payload.supplierId),
       supplierName: sup?.name || payload.supplierName,
       purchaseId: payload.purchaseId,
@@ -983,6 +993,14 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       operationId: payload.operationId,
       syncStatus,
       createdAt: now,
+    });
+    if (syncStatus === 'pending' && payAmount > 0) await postLocalJournalEntry({
+      referenceId: String(paymentId), referenceType: 'payment', entryKey: 'supplier-payment-' + String(payload.operationId || paymentId),
+      date: now, description: 'سداد دفعة للمورد: ' + String(sup?.name || payload.supplierName || ''),
+      lines: [
+        { accountCode: '2100', debit: payAmount, credit: 0, purchaseId: payload.purchaseId },
+        { accountCode: payload.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: payAmount, purchaseId: payload.purchaseId },
+      ], createdBy: payload.createdBy, branchId: payload.branchId,
     });
   });
 }
