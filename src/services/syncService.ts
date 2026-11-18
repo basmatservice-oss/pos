@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
-import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError } from '../native/posLocalDatabase';
+import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 
 export const syncService = {
   cachedRole: null as string | null,
@@ -181,7 +181,11 @@ export const syncService = {
             updatedAt: new Date().toISOString(),
           });
           if (isNativeAndroid() && nativeIds.has(op.id)) {
-            await markNativePosOperationError(op.id, message).catch(() => {});
+            if (retryCount >= 8) {
+              await markNativePosOperationConflict(op.id, message).catch(() => {});
+            } else {
+              await markNativePosOperationError(op.id, message).catch(() => {});
+            }
           }
         }
       }
