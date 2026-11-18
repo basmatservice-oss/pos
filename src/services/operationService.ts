@@ -1072,10 +1072,13 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-        await applyOperationLocally(type, localPayload, 'synced', response.result);
+        // The operation was already applied to the local Dexie database before
+        // it was sent. Reapplying the business mutation here would deduct stock,
+        // restore returns, or change balances a second time. Mark it acknowledged
+        // and let pullAll reconcile the authoritative server records.
         await db.syncOperations.update(operationId, {
           status: 'synced',
+          lastError: undefined,
           updatedAt: new Date().toISOString(),
         });
         useSyncStore.getState().setLastSynced(new Date());
