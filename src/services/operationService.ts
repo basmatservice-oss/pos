@@ -89,13 +89,16 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
       await db.orderItems.where('orderId').equals(order.id).delete();
 
       const savedServerItems = Array.isArray(_serverItems) ? _serverItems : [];
+      let serverItemIndex = 0;
       for (let index = 0; index < items.length; index++) {
         const item = items[index];
+        const quantity = roundQty(Number(item.quantity || 0));
+        if (quantity <= 0) continue;
+        const serverItem = savedServerItems[serverItemIndex++];
         const product = await db.products.get(Number(item.productId));
         if (!product) throw new Error(`الصنف غير موجود (ID: ${item.productId})`);
 
         const factor = resolveLocalUnitFactor(product, item);
-        const quantity = roundQty(Number(item.quantity || 0));
         const baseQty = roundQty(quantity * factor);
         const itemType = String(item.itemType || product.itemType || 'stock');
         let costTotal = 0;
@@ -177,7 +180,6 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
         }
 
         totalCogs = roundMoney(totalCogs + costTotal);
-        const serverItem = savedServerItems[index];
         const localItem = {
           ...(serverItem || {}),
           orderId: order.id,
