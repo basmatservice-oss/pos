@@ -131,6 +131,6 @@ export async function replaceNativePosRecords(
   records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }>
 ): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
-  await posLocalDatabase.replaceRecords({ entity, records });
-  return true;
+  const result = await posLocalDatabase.replaceRecords({ entity, records });
+  return result.replaced === true && result.count === records.length;
 }
