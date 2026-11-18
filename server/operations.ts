@@ -1980,7 +1980,7 @@ function handleCustomerPayment(
       { accountCode: '1100', debit: 0, credit: payAmount, orderId },
     ],
     createdBy: ctx.actor,
-    branchId,
+    branchId: branchId ?? cust.branchId ?? null,
   });
 
   tx.insert(auditLogs)
