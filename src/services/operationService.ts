@@ -10,7 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
-import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
+import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
