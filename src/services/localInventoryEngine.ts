@@ -90,7 +90,7 @@ export async function consumeLocalInventoryFIFO(
   }
 
   const batches = (await db.inventoryBatches.toArray())
-    .filter((batch) => Number(batch.productId) === params.productId && Number(batch.remainingQuantity ?? batch.quantity) > 0)
+    .filter((batch) => Number(batch.productId) === params.productId && Number(batch.remainingQuantity || 0) > 0)
     .sort((a, b) => {
       const dateOrder = String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || ''));
       if (dateOrder !== 0) return dateOrder;
@@ -101,8 +101,8 @@ export async function consumeLocalInventoryFIFO(
   const weightedAverage = valuation?.value === 'weighted_average';
   let weightedUnitCost = Number(product.costPrice || 0);
   if (weightedAverage && batches.length > 0) {
-    const activeQty = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity), 0);
-    const activeValue = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
+    const activeQty = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
+    const activeValue = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
     if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
   }
 
@@ -111,7 +111,7 @@ export async function consumeLocalInventoryFIFO(
   const allocations: LocalBatchAllocation[] = [];
   for (const batch of batches) {
     if (remaining <= 1e-6) break;
-    const available = Number(batch.remainingQuantity ?? batch.quantity);
+    const available = Number(batch.remainingQuantity || 0);
     const take = roundQty(Math.min(remaining, available));
     if (take <= 0) continue;
     const batchId = String(batch.id);
