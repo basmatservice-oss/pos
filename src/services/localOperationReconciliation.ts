@@ -2,7 +2,7 @@ import { db } from '../db/db';
 import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
-import { isNativeAndroid, listNativePendingPosOperations } from '../native/posLocalDatabase';
+import { isNativeAndroid, listNativePendingPosOperations, updateNativePendingOperationPayload } from '../native/posLocalDatabase';
 
 function collectPendingReferences(value: any, refs: Record<string, Set<string>>) {
   if (!value || typeof value !== 'object') return;
@@ -51,6 +51,57 @@ async function markOrderInventoryRowsSynced(orderId: string, pendingRefs: Record
   }
   for (const id of productIds) if (!pendingRefs.products.has(id)) await db.products.update(Number(id), { syncStatus: 'synced' });
   if (batchIds.size) await markRowsSynced(db.inventoryBatches, (batch) => batchIds.has(String(batch.id)) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
+}
+
+const entityReferenceKeys: Record<string, string[]> = {
+  products: ['productId', 'ingredientProductId', 'parentProductId'],
+  customers: ['customerId'],
+  suppliers: ['supplierId'],
+};
+
+function replaceEntityReferences(value: any, keys: Set<string>, oldId: string, newId: string): any {
+  if (Array.isArray(value)) return value.map((item) => replaceEntityReferences(item, keys, oldId, newId));
+  if (!value || typeof value !== 'object') return value;
+  const updated: any = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (keys.has(key) && child !== null && child !== undefined && String(child) === oldId) {
+      updated[key] = /^\\d+$/.test(newId) ? Number(newId) : newId;
+    } else {
+      updated[key] = replaceEntityReferences(child, keys, oldId, newId);
+    }
+  }
+  return updated;
+}
+
+/** Rewrites references in both durable queues after the server assigns a canonical entity ID. */
+export async function remapPendingEntityReferences(tableName: string, oldId: any, newId: any, acknowledgedOperationId?: string) {
+  const keys = new Set(entityReferenceKeys[tableName] || []);
+  if (!keys.size || oldId === undefined || newId === undefined || String(oldId) === String(newId)) return;
+  const oldKey = String(oldId);
+  const newKey = String(newId);
+  const dexiePending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  for (const operation of dexiePending) {
+    if (operation.id === acknowledgedOperationId) continue;
+    const nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+    if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
+      await db.syncOperations.update(operation.id, { payload: nextPayload });
+      if (isNativeAndroid()) {
+        await updateNativePendingOperationPayload(operation.id, nextPayload).catch((error) =>
+          console.warn('تعذر تحديث مرجع العملية في SQLite:', operation.id, error)
+        );
+      }
+    }
+  }
+  if (isNativeAndroid()) {
+    const nativePending = await listNativePendingPosOperations();
+    for (const operation of nativePending) {
+      if (operation.operationId === acknowledgedOperationId) continue;
+      const nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
+      if (JSON.stringify(nextPayload) !== JSON.stringify(operation.payload)) {
+        await updateNativePendingOperationPayload(operation.operationId, nextPayload);
+      }
+    }
+  }
 }
 
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
