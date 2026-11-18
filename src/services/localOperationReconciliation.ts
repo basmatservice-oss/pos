@@ -84,6 +84,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
           if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
           if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
           if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
+          if (entityId !== undefined && tableName === 'inventoryBatches') pendingRefs.batches.add(String(entityId));
         }
       }
     } catch (error) {
