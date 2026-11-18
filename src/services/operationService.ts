@@ -10,6 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
+import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO } from './localInventoryEngine';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
@@ -62,90 +63,135 @@ function resolveLocalUnitFactor(product: any, item: any): number {
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
+  const operationId = String(payload.operationId || order.operationId || order.id);
+  const deviceId = String(payload.deviceId || 'local-device');
+  const policyRow = await db.settings.where('key').equals('offlineStockPolicy').first();
+  const legacyPolicy = await db.settings.where('key').equals('allowNegativeStock').first();
+  const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
+  const allowNegative = stockPolicy !== 'block' || Boolean(payload.managerOverride || payload.allowNegativeOverride);
 
   await db.transaction(
     'rw',
-    [db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions, db.inventoryBatches, db.serviceRecipes],
+    [
+      db.orders, db.orderItems, db.products, db.customers, db.loyaltyTransactions,
+      db.inventoryBatches, db.serviceRecipes, db.inventoryMovements, db.inventoryAlerts,
+    ],
     async () => {
       await db.orders.put({ ...order, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
 
-      const deductProductOrRecipe = async (product: any, item: any, baseQty: number) => {
-        const itemType = String(item.itemType || product?.itemType || 'stock');
-        if (itemType === 'service') return;
+      const savedServerItems = Array.isArray(_serverItems) ? _serverItems : [];
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index];
+        const product = await db.products.get(Number(item.productId));
+        if (!product) throw new Error(`الصنف غير موجود (ID: ${item.productId})`);
 
-        if (itemType === 'service_with_materials' || itemType === 'bundle') {
-          const recipes = await db.serviceRecipes
-            .where('parentProductId')
-            .equals(Number(product.id))
-            .toArray();
+        const factor = resolveLocalUnitFactor(product, item);
+        const quantity = roundQty(Number(item.quantity || 0));
+        const baseQty = roundQty(quantity * factor);
+        const itemType = String(item.itemType || product.itemType || 'stock');
+        let costTotal = 0;
+        let batchAllocations: any = [];
+
+        if (itemType === 'service') {
+          batchAllocations = { kind: 'service' };
+        } else if (itemType === 'service_with_materials' || itemType === 'bundle') {
+          const recipes = await db.serviceRecipes.where('parentProductId').equals(Number(product.id)).toArray();
           if (recipes.length > 0) {
-            for (const rec of recipes) {
-              const ingQty = roundQty(baseQty * Number(rec.quantity || 0));
-              if (ingQty <= 0) continue;
-              const ingProd = await db.products.get(Number(rec.ingredientProductId));
-              if (ingProd) {
-                await db.products.update(ingProd.id!, {
-                  stockQuantity: roundQty(ingProd.stockQuantity - ingQty),
-                  updatedAt: now,
-                  syncStatus,
-                });
-              }
+            const ingredientAllocations: any[] = [];
+            for (const recipe of recipes) {
+              const ingredientQty = roundQty(baseQty * Number(recipe.quantity || 0));
+              if (ingredientQty <= 0) continue;
+              const consumed = await consumeLocalInventoryFIFO({
+                productId: Number(recipe.ingredientProductId),
+                quantityInBaseUnits: ingredientQty,
+                operationId,
+                deviceId,
+                sourceId: String(order.id),
+                movementKeySuffix: `recipe-${index}-${recipe.id || recipe.ingredientProductId}`,
+                movementType: 'service_consumption',
+                sourceType: 'order',
+                branchId: order.branchId,
+                reason: 'استهلاك مواد الخدمة',
+                createdBy: order.createdBy,
+                createdAt: now,
+                allowNegative,
+              });
+              costTotal += consumed.totalCost;
+              ingredientAllocations.push({
+                ingredientProductId: Number(recipe.ingredientProductId),
+                ingredientName: recipe.ingredientName,
+                quantityConsumed: ingredientQty,
+                allocations: consumed.allocations,
+              });
             }
-            return;
+            batchAllocations = { kind: 'recipe', ingredients: ingredientAllocations };
+          } else if (itemType === 'bundle') {
+            const consumed = await consumeLocalInventoryFIFO({
+              productId: Number(product.id),
+              quantityInBaseUnits: baseQty,
+              operationId,
+              deviceId,
+              sourceId: String(order.id),
+              movementKeySuffix: String(index),
+              movementType: 'sale',
+              sourceType: 'order',
+              branchId: order.branchId,
+              createdBy: order.createdBy,
+              createdAt: now,
+              allowNegative,
+            });
+            costTotal = consumed.totalCost;
+            batchAllocations = consumed.allocations;
+          } else {
+            batchAllocations = { kind: 'service' };
           }
-          if (itemType === 'service_with_materials') return;
-        }
-
-        await db.products.update(product.id!, {
-          stockQuantity: roundQty(product.stockQuantity - baseQty),
-          updatedAt: now,
-          syncStatus,
-        });
-      };
-
-      if (Array.isArray(_serverItems) && _serverItems.length > 0) {
-        await db.orderItems.bulkPut(
-          _serverItems.map((si: any) => ({
-            ...si,
-            syncStatus,
-          }))
-        );
-        for (const item of items) {
-          const product = await db.products.get(item.productId);
-          if (product) {
-            const factor = resolveLocalUnitFactor(product, item);
-            const baseQty = roundQty(Number(item.quantity) * factor);
-            await deductProductOrRecipe(product, item, baseQty);
-          }
-        }
-      } else {
-        for (const item of items) {
-          const product = await db.products.get(item.productId);
-          const factor = resolveLocalUnitFactor(product, item);
-          const itemType = String(item.itemType || product?.itemType || 'stock');
-          await db.orderItems.add({
-            orderId: order.id,
-            productId: item.productId,
-            productName: item.productName,
-            quantity: roundQty(Number(item.quantity)),
-            returnedQuantity: 0,
-            unit: item.unit || item.selectedUnit || 'piece',
-            conversionFactor: factor,
-            itemType: itemType as any,
-            unitPrice: item.unitPrice,
-            costPriceAtTimeOfSale: item.costPriceAtTimeOfSale,
-            discountAmount: item.discountAmount || 0,
-            subTotal: item.subTotal,
-            taxAmount: item.taxAmount,
-            total: item.total,
-            syncStatus,
+        } else {
+          const consumed = await consumeLocalInventoryFIFO({
+            productId: Number(product.id),
+            quantityInBaseUnits: baseQty,
+            operationId,
+            deviceId,
+            sourceId: String(order.id),
+            movementKeySuffix: String(index),
+            movementType: 'sale',
+            sourceType: 'order',
+            branchId: order.branchId,
+            createdBy: order.createdBy,
+            createdAt: now,
+            allowNegative,
           });
+          costTotal = consumed.totalCost;
+          batchAllocations = consumed.allocations;
+        }
 
-          if (product) {
-            const baseQty = roundQty(Number(item.quantity) * factor);
-            await deductProductOrRecipe(product, item, baseQty);
-          }
+        const serverItem = savedServerItems[index];
+        const localItem = {
+          ...(serverItem || {}),
+          orderId: order.id,
+          productId: Number(product.id),
+          productName: item.productName || product.name,
+          quantity,
+          returnedQuantity: Number(serverItem?.returnedQuantity || 0),
+          unit: item.unit || item.selectedUnit || product.unit || 'piece',
+          conversionFactor: factor,
+          itemType: itemType as any,
+          unitPrice: Number(item.unitPrice || 0),
+          costPriceAtTimeOfSale: serverItem?.costPriceAtTimeOfSale !== undefined
+            ? Number(serverItem.costPriceAtTimeOfSale)
+            : quantity > 0 ? roundQty((costTotal / quantity)) : 0,
+          discountAmount: Number(item.discountAmount || 0),
+          subTotal: Number(item.subTotal || 0),
+          taxAmount: Number(item.taxAmount || 0),
+          total: Number(item.total || 0),
+          batchAllocations: serverItem?.batchAllocations || JSON.stringify(batchAllocations),
+          syncStatus,
+        };
+        if (serverItem?.id !== undefined) {
+          await db.orderItems.put(localItem);
+        } else {
+          delete (localItem as any).id;
+          await db.orderItems.add(localItem);
         }
       }
 
