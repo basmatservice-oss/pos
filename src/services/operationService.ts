@@ -1106,23 +1106,62 @@ async function applyShiftLocally(
 
 async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  const { sessionId } = payload;
-  await db.transaction('rw', [db.products, db.stocktakingSessions, db.stocktakingEntries], async () => {
+  const sessionId = String(payload.sessionId);
+  const operationId = String(payload.operationId || sessionId);
+  const deviceId = String(payload.deviceId || 'local-device');
+  await db.transaction('rw', [
+    db.products, db.stocktakingSessions, db.stocktakingEntries, db.inventoryBatches, db.inventoryMovements,
+    db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions,
+  ], async () => {
+    const session = await db.stocktakingSessions.get(sessionId);
+    if (!session) throw new Error('جلسة الجرد غير موجودة');
+    if (session.status === 'approved') return;
     const entries = await db.stocktakingEntries.where('sessionId').equals(sessionId).toArray();
+    let netAdjustmentValue = 0;
     for (const entry of entries) {
-      await db.products.update(entry.productId, {
-        stockQuantity: entry.actualQuantity,
-        updatedAt: now,
-        syncStatus,
+      const product = await db.products.get(Number(entry.productId));
+      if (!product) continue;
+      const difference = roundQty(Number(entry.actualQuantity) - Number(product.stockQuantity || 0));
+      if (Math.abs(difference) < 1e-6) continue;
+      if (difference > 0) {
+        const unitCost = Number(product.costPrice || 0);
+        const batchId = generateUUID();
+        await db.inventoryBatches.put({
+          id: batchId, productId: Number(product.id), purchaseId: null, quantity: difference, remainingQuantity: difference,
+          costPrice: unitCost, purchaseDate: now, branchId: session.branchId, syncStatus, createdAt: now, updatedAt: now,
+        });
+        await db.products.update(product.id!, { stockQuantity: Number(entry.actualQuantity), updatedAt: now, syncStatus });
+        await recordLocalInventoryMovement({
+          movementKey: 'stocktake:' + sessionId + ':in:' + String(product.id), productId: Number(product.id),
+          movementType: 'stocktake_increase', sourceType: 'stocktake', sourceId: sessionId, quantityDeltaBase: difference,
+          unitCost, totalCost: roundMoney(difference * unitCost), branchId: session.branchId, operationId,
+          reason: 'زيادة جرد #' + sessionId, createdBy: payload.createdBy, createdAt: now, syncStatus,
+        });
+        netAdjustmentValue = roundMoney(netAdjustmentValue + difference * unitCost);
+      } else {
+        const consumed = await consumeLocalInventoryFIFO({
+          productId: Number(product.id), quantityInBaseUnits: Math.abs(difference), operationId, deviceId,
+          sourceId: sessionId, movementKeySuffix: String(product.id), movementType: 'stocktake_decrease',
+          sourceType: 'stocktake', branchId: session.branchId, reason: 'عجز جرد #' + sessionId,
+          createdBy: payload.createdBy, createdAt: now, allowNegative: true, syncStatus,
+        });
+        netAdjustmentValue = roundMoney(netAdjustmentValue - consumed.totalCost);
+      }
+    }
+    await db.stocktakingSessions.update(sessionId, { status: 'approved', syncStatus });
+    if (syncStatus === 'pending' && Math.abs(netAdjustmentValue) > 0.001) {
+      const amount = Math.abs(netAdjustmentValue);
+      await postLocalJournalEntry({
+        referenceId: sessionId, referenceType: 'stocktake', entryKey: 'stocktake-' + operationId, date: now,
+        description: 'تسوية جرد مخزون #' + sessionId,
+        lines: netAdjustmentValue > 0
+          ? [{ accountCode: '1200', debit: amount, credit: 0 }, { accountCode: '5400', debit: 0, credit: amount }]
+          : [{ accountCode: '5400', debit: amount, credit: 0 }, { accountCode: '1200', debit: 0, credit: amount }],
+        createdBy: payload.createdBy, branchId: session.branchId,
       });
     }
-    await db.stocktakingSessions.update(sessionId, {
-      status: 'approved',
-      syncStatus,
-    });
   });
 }
-
 async function applyEntityLocally(
   type: 'entity_upsert' | 'entity_delete',
   payload: any,
