@@ -1722,6 +1722,8 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
     const batchMap = new Map<string, any>(batches.map((b: any) => [String(b.id), b]));
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
     const movementKeys = new Set(movements.map((m: any) => String(m.movementKey)));
+    const valuation = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod');
+    const weightedAverage = valuation?.value === 'weighted_average';
     const changes = new Map<string, { action: 'put'; entity: any; record: any; syncState: any }>();
     const put = (entity: any, record: any) => {
       const keyField = entity === 'accounts' ? 'code' : 'id';
@@ -1768,8 +1770,6 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
         const qtyNeeded = Math.abs(difference);
         const previousQty = roundQty(Number(currentProduct.stockQuantity || 0));
         const nextQty = roundQty(previousQty - qtyNeeded);
-        const valuation = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod');
-        const weightedAverage = valuation?.value === 'weighted_average';
         const effectiveBatches = new Map<string, any>(batchMap);
         for (const [batchId, changedBatch] of changedBatches) effectiveBatches.set(batchId, changedBatch);
         const activeBatches = [...effectiveBatches.values()]
