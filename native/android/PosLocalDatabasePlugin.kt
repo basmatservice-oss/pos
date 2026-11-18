@@ -89,7 +89,7 @@ class PosLocalDatabasePlugin : Plugin() {
                     syncState !in setOf("local", "pending", "synced", "error")) {
                     throw IllegalArgumentException("سجل غير صالح ضمن دفعة SQLite")
                 }
-                val identity = "$entity\\u0000$recordId"
+                val identity = JSONArray().put(entity).put(recordId).toString()
                 if (!identities.add(identity)) {
                     throw IllegalArgumentException("مفتاح سجل مكرر ضمن دفعة SQLite")
                 }
