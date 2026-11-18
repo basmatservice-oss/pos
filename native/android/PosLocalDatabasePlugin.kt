@@ -265,6 +265,11 @@ class PosLocalDatabasePlugin : Plugin() {
         updateOperationStatus(call, "error", call.getString("message") ?: "Sync failed")
     }
 
+    @PluginMethod
+    fun markOperationConflict(call: PluginCall) {
+        updateOperationStatus(call, "conflict", call.getString("message") ?: "Operation conflict")
+    }
+
     private fun updateOperationStatus(call: PluginCall, status: String, message: String?) {
         val operationId = call.getString("operationId")?.trim().orEmpty()
         if (operationId.isBlank()) {
