@@ -43,7 +43,7 @@ export interface PosLocalDatabasePlugin {
   deleteRecords(options: { entity: string; recordIds: string[] }): Promise<{ deleted: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
-  updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number }>;
+  updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number; recordUpdated?: boolean }>;
   acknowledgeOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   markOperationError(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
   markOperationConflict(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
