@@ -59,7 +59,16 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
 
   const pending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>() };
-  for (const operation of pending) collectPendingReferences(operation.payload, pendingRefs);
+  for (const operation of pending) {
+    collectPendingReferences(operation.payload, pendingRefs);
+    if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
+      const tableName = operation.payload?.table;
+      const entityId = operation.payload?.record?.id ?? operation.payload?.id;
+      if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
+      if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
+      if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
+    }
+  }
   const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
 
   if (type === 'sale') {
