@@ -43,3 +43,58 @@ export const isNativeAndroid = (): boolean =>
   typeof window !== 'undefined' &&
   !!(window as any).Capacitor &&
   (window as any).Capacitor.getPlatform?.() === 'android';
+
+let nativeDatabaseReady: Promise<boolean> | null = null;
+
+export async function ensureNativePosDatabase(): Promise<boolean> {
+  if (!isNativeAndroid()) return false;
+  if (!nativeDatabaseReady) {
+    nativeDatabaseReady = posLocalDatabase.initialize()
+      .then((result) => result.ready)
+      .catch((error) => {
+        nativeDatabaseReady = null;
+        throw error;
+      });
+  }
+  return nativeDatabaseReady;
+}
+
+export async function enqueueNativePosOperation(operation: PosQueuedOperation): Promise<boolean> {
+  if (!(await ensureNativePosDatabase())) return false;
+  const result = await posLocalDatabase.saveRecordAndEnqueueOperation({
+    entity: 'operations',
+    recordId: operation.operationId,
+    record: operation.payload,
+    syncState: 'pending',
+    ...operation,
+  });
+  return result.queued;
+}
+
+export async function listNativePendingPosOperations() {
+  if (!(await ensureNativePosDatabase())) return [];
+  const result = await posLocalDatabase.listPendingOperations();
+  return result.operations;
+}
+
+export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
+  if (await ensureNativePosDatabase()) {
+    await posLocalDatabase.acknowledgeOperation({ operationId });
+    await posLocalDatabase.updateRecordSyncState({
+      entity: 'operations',
+      recordId: operationId,
+      syncState: 'synced',
+    });
+  }
+}
+
+export async function markNativePosOperationError(operationId: string, message: string): Promise<void> {
+  if (await ensureNativePosDatabase()) {
+    await posLocalDatabase.markOperationError({ operationId, message });
+    await posLocalDatabase.updateRecordSyncState({
+      entity: 'operations',
+      recordId: operationId,
+      syncState: 'error',
+    });
+  }
+}
