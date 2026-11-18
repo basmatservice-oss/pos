@@ -30,11 +30,16 @@ export function getDeviceId(): string {
   return id;
 }
 
+async function getLocalSettingByKey(key: string): Promise<{ key: string; value: any } | undefined> {
+  if (isNativeAndroid()) {
+    return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
+  }
+  return db.settings.where('key').equals(key).first();
+}
+
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   try {
-    const setting = isNativeAndroid()
-      ? await nativePosRepository.firstWhereEquals<{ key: string; value: unknown }>('settings', 'key', 'deviceRole')
-      : await db.settings.where('key').equals('deviceRole').first();
+    const setting = await getLocalSettingByKey('deviceRole');
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
     return currentDeviceRole;
   } catch (error) {
@@ -79,8 +84,8 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   const now = order.createdAt || new Date().toISOString();
   const operationId = String(payload.operationId || order.operationId || order.id);
   const deviceId = String(payload.deviceId || 'local-device');
-  const policyRow = await db.settings.where('key').equals('offlineStockPolicy').first();
-  const legacyPolicy = await db.settings.where('key').equals('allowNegativeStock').first();
+  const policyRow = await getLocalSettingByKey('offlineStockPolicy');
+  const legacyPolicy = await getLocalSettingByKey('allowNegativeStock');
   const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
   const actorRole = String(payload.actor?.role || payload.userRole || payload.role || '').toLowerCase();
   const isPrivilegedOverride = Boolean(payload.managerOverride || payload.allowNegativeOverride) && (actorRole === 'admin' || actorRole === 'manager');
@@ -1592,8 +1597,8 @@ export async function dispatchOperation(
   // Enforce local stock policy before queueing offline sale when offlineStockPolicy is 'block'
   if (type === 'sale' && !payload?.allowNegativeOverride && !payload?.managerOverride) {
     try {
-      const policyRow = await db.settings.where('key').equals('offlineStockPolicy').first();
-      const allowNegRow = await db.settings.where('key').equals('allowNegativeStock').first();
+      const policyRow = await getLocalSettingByKey('offlineStockPolicy');
+      const allowNegRow = await getLocalSettingByKey('allowNegativeStock');
       const policy = policyRow?.value || (allowNegRow?.value === 'false' || allowNegRow?.value === false ? 'block' : 'allow_with_alert');
       if (policy === 'block') {
         for (const item of payload?.items || []) {
