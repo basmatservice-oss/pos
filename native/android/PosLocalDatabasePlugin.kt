@@ -139,7 +139,7 @@ class PosLocalDatabasePlugin : Plugin() {
         }
 
         try {
-            val validated = ArrayList<Triple<String, String, Pair<String, ContentValues?>>>()
+            val validated = ArrayList<Triple<String, String, String, ContentValues?>>()
             val identities = HashSet<String>()
             for (index in 0 until changes.length()) {
                 val item = changes.getJSONObject(index)
@@ -168,15 +168,14 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("sync_state", syncState)
                     }
                 } else null
-                validated.add(Triple(action, entity, Pair(recordId, values)))
+                validated.add(Triple(action, entity, recordId, values))
             }
 
             val db = helper.writableDatabase
             var applied = 0
             db.beginTransaction()
             try {
-                for ((action, target) in validated) {
-                    val (entity, values) = target
+                for ((action, entity, recordId, values) in validated) {
                     if (action == "put") {
                         val inserted = db.insertWithOnConflict(
                             "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
@@ -185,10 +184,7 @@ class PosLocalDatabasePlugin : Plugin() {
                         applied += 1
                     } else {
                         applied += db.delete(
-                            "pos_records", "entity = ? AND record_id = ?", arrayOf(entity, target.let { validatedItem ->
-                                // record ID is carried by the validated entry below
-                                ""
-                            })
+                            "pos_records", "entity = ? AND record_id = ?", arrayOf(entity, recordId)
                         )
                     }
                 }
