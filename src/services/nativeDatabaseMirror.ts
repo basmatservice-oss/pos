@@ -251,10 +251,20 @@ export async function restoreNativePosDatabase(): Promise<void> {
       }));
       await db.transaction('rw', table, async () => {
         const existingRows = await table.toArray();
-        const staleKeys = existingRows
+        const staleRows = existingRows
           .filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'))
-          .filter((row: any) => !restoredIds.has(getRecordId(entity, row)))
-          .map((row: any) => table.schema.primKey.extractKey(row));
+          .filter((row: any) => !restoredIds.has(getRecordId(entity, row)));
+        const primaryKeyPath = table.schema.primKey.keyPath;
+        const staleKeys = staleRows.map((row: any) => (
+          typeof primaryKeyPath === 'string'
+            ? row?.[primaryKeyPath]
+            : Array.isArray(primaryKeyPath)
+              ? primaryKeyPath.map((part: string) => row?.[part])
+              : undefined
+        ));
+        if (staleKeys.some((key: any) => key === undefined || key === null)) {
+          throw new Error(`Dexie returned a row without a primary key while reconciling ${entity}`);
+        }
         if (staleKeys.length) await table.bulkDelete(staleKeys);
         if (restoredRows.length) await table.bulkPut(restoredRows);
       });
