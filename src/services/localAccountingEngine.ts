@@ -51,6 +51,7 @@ export function setLocalAccountingStandaloneMode(enabled: boolean): void {
 }
 
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
+  return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
   const lines = input.lines
     .map((line) => ({ ...line, debit: money(line.debit), credit: money(line.credit) }))
@@ -134,9 +135,11 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     }
   }
   return entryId;
+  });
 }
 
 export async function removeLocalJournalEntriesForReference(referenceId: string): Promise<void> {
+  return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const localEntries = entries.filter((entry: any) => String(entry.id).startsWith('local-je:'));
   for (const entry of localEntries) {
@@ -157,9 +160,11 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
     await db.transactions.where('journalEntryId').equals(String(entry.id)).delete();
     await db.journalEntries.delete(entry.id as any);
   }
+  });
 }
 
 export async function reverseLocalJournalEntriesByReference(referenceId: string, reason: string, createdBy?: string): Promise<void> {
+  return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const reversalEntryIds = new Set(entries.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
   for (const entry of entries) {
@@ -184,5 +189,6 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
       branchId: entry.branchId,
     });
     await db.journalEntries.update(entry.id as any, { status: 'reversed', reversedEntryId: reversalId || undefined });
-  }
+    });
+}
 }
