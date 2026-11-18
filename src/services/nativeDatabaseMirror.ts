@@ -17,6 +17,15 @@ function getRecordId(row: any): string {
 }
 
 let nativeMirrorHooksInstalled = false;
+let nativeMirrorWriteQueue: Promise<void> = Promise.resolve();
+
+function enqueueNativeMirrorWrite(write: () => Promise<void>): Promise<void> {
+  const next = nativeMirrorWriteQueue.then(write, write);
+  nativeMirrorWriteQueue = next.catch((error) => {
+    console.warn('Android SQLite mirror write failed:', error);
+  });
+  return next;
+}
 
 /**
  * Keep the Android SQLite copy current after every committed Dexie mutation.
@@ -52,7 +61,7 @@ export function installNativeDatabaseMirrorHooks(): void {
       const recordId = getRecordId(obj) || String(primKey ?? '');
       transaction.on('complete', () => {
         if (!recordId || (entity === 'settings' && obj?.key === 'authSecret')) return;
-        deleteNativePosRecord(entity, recordId)
+        enqueueNativeMirrorWrite(() => deleteNativePosRecord(entity, recordId))
           .catch((error) => console.warn('Android SQLite delete mirror failed:', entity, error));
       });
     });
@@ -74,7 +83,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
           syncState: row.syncStatus === 'pending' || row.syncStatus === 'synced' || row.syncStatus === 'error' ? row.syncStatus : 'local',
         }))
         .filter((entry: any) => entry.recordId.length > 0);
-      await replaceNativePosRecords(entity, records);
+      await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
     } catch (error) {
       console.warn('تعذر حفظ لقطة SQLite للجدول ' + entity, error);
     }
@@ -89,7 +98,9 @@ export async function mirrorNativePosRecord(entity: string, row: any): Promise<v
   if (!recordId) return;
   const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
     ? row.syncStatus : 'local';
-  await posLocalDatabase.putRecord({ entity, recordId, record: row, syncState });
+  await enqueueNativeMirrorWrite(() =>
+    posLocalDatabase.putRecord({ entity, recordId, record: row, syncState }).then(() => undefined)
+  );
 }
 export async function restoreNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
