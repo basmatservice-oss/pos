@@ -139,7 +139,8 @@ class PosLocalDatabasePlugin : Plugin() {
         }
 
         try {
-            val validated = ArrayList<Triple<String, String, String, ContentValues?>>()
+            data class ValidatedChange(val action: String, val entity: String, val recordId: String, val values: ContentValues?)
+            val validated = ArrayList<ValidatedChange>()
             val identities = HashSet<String>()
             for (index in 0 until changes.length()) {
                 val item = changes.getJSONObject(index)
@@ -168,14 +169,14 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("sync_state", syncState)
                     }
                 } else null
-                validated.add(Triple(action, entity, recordId, values))
+                validated.add(ValidatedChange(action, entity, recordId, values))
             }
 
             val db = helper.writableDatabase
             var applied = 0
             db.beginTransaction()
             try {
-                for ((action, entity, recordId, values) in validated) {
+                for (change in validated) {\n                    val action = change.action\n                    val entity = change.entity\n                    val recordId = change.recordId\n                    val values = change.values
                     if (action == "put") {
                         val inserted = db.insertWithOnConflict(
                             "pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE
