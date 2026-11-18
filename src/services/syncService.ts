@@ -249,7 +249,7 @@ export const syncService = {
       try {
         const serverRes = await this.sendRecordToServer(tableName, record);
         await this.reconcilePushedRecord(tableName, record, serverRes);
-        const saved = await table.get(record.id || record.key);
+        const saved = await table.get(serverRes?.id ?? record.id ?? record.key);
         if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
         return true;
       } catch (err) {
