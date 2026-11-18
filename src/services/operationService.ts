@@ -74,6 +74,29 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   const isPrivilegedOverride = Boolean(payload.managerOverride || payload.allowNegativeOverride) && (actorRole === 'admin' || actorRole === 'manager');
   const allowNegative = !['block', 'manager_override'].includes(String(stockPolicy)) || isPrivilegedOverride;
   let totalCogs = 0;
+  const netAmount = roundMoney(Number(order.netAmount || 0));
+  const totalAmount = roundMoney(Number(order.totalAmount || 0));
+  const taxAmount = roundMoney(Number(order.taxAmount || 0));
+  const paymentMethod = String(order.paymentMethod || 'cash');
+  let paidAmount = netAmount;
+  let cashAmount = 0;
+  let cardAmount = 0;
+  if (paymentMethod === 'mixed') {
+    cashAmount = roundMoney(Number(order.cashAmount || 0));
+    cardAmount = roundMoney(Number(order.cardAmount || 0));
+    if (cashAmount < 0 || cardAmount < 0 || Math.abs(roundMoney(cashAmount + cardAmount) - netAmount) > 0.02) {
+      throw new Error('قيمة الدفع المختلط (نقد + شبكة) يجب أن تساوي صافي الفاتورة');
+    }
+  } else if (paymentMethod === 'cash') cashAmount = netAmount;
+  else if (paymentMethod === 'card') cardAmount = netAmount;
+  else if (paymentMethod === 'credit') paidAmount = 0;
+  const normalizedOrder = {
+    ...order, totalAmount, taxAmount, netAmount,
+    discountAmount: roundMoney(Math.max(0, totalAmount + taxAmount - netAmount)),
+    paidAmount, cashAmount, cardAmount, returnedAmount: 0, paymentMethod,
+    status: order.status || 'completed', currency: order.currency || 'ر.س',
+    exchangeRate: Number(order.exchangeRate || 1),
+  };
 
   await db.transaction(
     'rw',
@@ -85,7 +108,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
     async () => {
       const existingLocalOrder = await db.orders.get(order.id);
       if (existingLocalOrder) return;
-      await db.orders.put({ ...order, syncStatus });
+      await db.orders.put({ ...normalizedOrder, syncStatus });
       await db.orderItems.where('orderId').equals(order.id).delete();
 
       const savedServerItems = Array.isArray(_serverItems) ? _serverItems : [];
