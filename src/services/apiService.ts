@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { db } from '../db/db';
+import { isNativeAndroid } from '../native/posLocalDatabase';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 export let API_BASE = '/api';
 
@@ -28,6 +30,13 @@ axios.interceptors.request.use((config) => {
   }
   return config;
 });
+
+const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any } | undefined> => {
+  if (isNativeAndroid()) {
+    return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
+  }
+  return db.settings.where('key').equals(key).first();
+};
 
 const formatUrl = (url: string) => {
   let formattedUrl = url.trim();
@@ -73,13 +82,13 @@ const initApiBase = async () => {
       }
     }
 
-    const deviceRoleSetting = await db.settings.where('key').equals('deviceRole').first();
+    const deviceRoleSetting = await getRuntimeSetting('deviceRole');
     const deviceRole = deviceRoleSetting ? deviceRoleSetting.value : 'server';
 
     if (deviceRole === 'server') {
       API_BASE = '/api';
     } else {
-      const serverUrlSetting = await db.settings.where('key').equals('serverUrl').first();
+      const serverUrlSetting = await getRuntimeSetting('serverUrl');
       if (serverUrlSetting && serverUrlSetting.value) {
         API_BASE = formatUrl(serverUrlSetting.value);
       }
