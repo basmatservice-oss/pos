@@ -59,6 +59,26 @@ function requireAndroid(): void {
   if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
 }
 
+async function readEquals<T extends Record<string, unknown>>(
+  entity: NativePosEntity,
+  indexName: string,
+  value: string | number | boolean,
+): Promise<T[]> {
+  requireAndroid();
+  assertEntity(entity);
+  if (!indexName.trim()) throw new Error('A Dexie index name is required');
+  const table = (db as any)[entity];
+  const indexes = [table?.schema?.primKey, ...(table?.schema?.indexes ?? [])];
+  const index = indexes.find((candidate: any) =>
+    candidate?.name === indexName || candidate?.keyPath === indexName
+  );
+  if (!index || Array.isArray(index.keyPath)) {
+    throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
+  }
+  const items = await getAllNativePosRecords(entity);
+  return items.map((item) => item.record as T).filter((record) => record[indexName] === value);
+}
+
 export const nativePosRepository = {
   async isReady(): Promise<boolean> {
     return ensureNativePosDatabase();
@@ -88,24 +108,7 @@ export const nativePosRepository = {
     indexName: string,
     value: string | number | boolean,
   ): Promise<T[]> {
-    requireAndroid();
-    assertEntity(entity);
-    if (!indexName.trim()) throw new Error('A Dexie index name is required');
-    const table = (db as any)[entity];
-    const indexes = [
-      table?.schema?.primKey,
-      ...(table?.schema?.indexes ?? []),
-    ];
-    const index = indexes.find((candidate: any) =>
-      candidate?.name === indexName || candidate?.keyPath === indexName
-    );
-    if (!index || Array.isArray(index.keyPath)) {
-      throw new Error(`Unsupported or unknown scalar index ${indexName} on ${entity}`);
-    }
-    const items = await getAllNativePosRecords(entity);
-    return items
-      .map((item) => item.record as T)
-      .filter((record) => record[indexName] === value);
+    return readEquals<T>(entity, indexName, value);
   },
 
   async firstWhereEquals<T extends Record<string, unknown>>(
@@ -113,7 +116,7 @@ export const nativePosRepository = {
     indexName: string,
     value: string | number | boolean,
   ): Promise<T | null> {
-    const records = await this.whereEquals<T>(entity, indexName, value);
+    const records = await readEquals<T>(entity, indexName, value);
     return records[0] ?? null;
   },
 
