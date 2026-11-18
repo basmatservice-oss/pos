@@ -920,11 +920,20 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
 }
 async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  await db.transaction('rw', [db.expenses, db.accounts, db.journalEntries, db.transactions], async () => {
+  await db.transaction('rw', [db.expenses, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     if (type === 'expense_delete') {
       if (payload?.id !== undefined) {
-        await reverseLocalJournalEntriesByReference(String(payload.id), 'حذف مصروف', payload.createdBy);
-        await db.expenses.delete(Number(payload.id));
+        const existing = await db.expenses.get(Number(payload.id));
+        if (existing) {
+          await reverseLocalJournalEntriesByReference(String(payload.id), 'حذف مصروف', payload.createdBy);
+          await db.expenses.delete(Number(payload.id));
+          await db.auditLogs.add({
+            date: now, userName: payload.createdBy || 'System', type: 'expense_delete',
+            operationName: 'حذف مصروف', action: 'حذف', details: existing.description,
+            quantity: 1, value: Number(existing.amount || 0), branchId: existing.branchId,
+            entityId: String(payload.id), entityName: existing.category, syncStatus,
+          });
+        }
       }
       return;
     }
@@ -947,6 +956,13 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
         ], createdBy: payload.createdBy, branchId: payload.branchId,
       });
     }
+    await db.auditLogs.add({
+      date: payload.date || now, userName: payload.createdBy || 'System', type: 'expense',
+      operationName: 'تسجيل مصروف', action: 'مصروف',
+      details: String(payload.category || 'عام') + ': ' + String(payload.description || ''),
+      quantity: 1, value: amount, branchId: payload.branchId,
+      entityId: String(expenseId), entityName: String(payload.category || 'عام'), syncStatus,
+    });
   });
 }
 async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 'pending') {
@@ -1057,7 +1073,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
   const now = new Date().toISOString();
   const payrollId = Number(payload.id);
   if (!Number.isSafeInteger(payrollId) || payrollId <= 0) throw new Error('معرّف مسير الراتب غير صالح');
-  await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions], async () => {
+  await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     if (await db.payroll.get(payrollId)) return;
     const record = {
       id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
@@ -1080,6 +1096,13 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
         ], createdBy: payload.createdBy, branchId: record.branchId,
       });
     }
+    await db.auditLogs.add({
+      date: record.paymentDate, userName: payload.createdBy || 'System', type: 'payroll',
+      operationName: 'مسير رواتب', action: 'صرف راتب',
+      details: 'صرف راتب ' + String(record.employeeName || '') + ' (' + (record.salaryType === 'hourly' ? 'بالساعة' : 'شهري') + ')',
+      quantity: 1, value: record.netSalary, branchId: record.branchId,
+      entityId: String(payrollId), entityName: record.employeeName, syncStatus,
+    });
   });
 }
 async function applyShiftLocally(
