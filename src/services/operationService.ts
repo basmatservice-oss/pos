@@ -1162,6 +1162,101 @@ async function applyShiftLocally(
 ) {
   const now = new Date().toISOString();
   if (type === 'shift_movement') {
+    if (isNativeAndroid()) {
+      const shiftId = String(payload.shiftId);
+      const shift = await nativePosRepository.get<any>('shifts', shiftId);
+      if (!shift || shift.status !== 'open') throw new Error('لا يمكن تسجيل حركة نقدية على وردية غير مفتوحة');
+      const movementId = String(payload.id || generateUUID());
+      const existingMovement = await nativePosRepository.get<any>('shiftMovements', movementId);
+      if (existingMovement) return;
+      const amount = roundMoney(Number(payload.amount || 0));
+      if (amount <= 0) throw new Error('قيمة حركة الصندوق غير صالحة');
+      const movementType = payload.type === 'withdrawal' ? 'withdrawal' : 'deposit';
+      const createdAt = payload.createdAt || now;
+      const branchId = payload.branchId ?? shift.branchId;
+      const movement = {
+        id: movementId, shiftId, type: movementType, amount,
+        reason: payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق'),
+        createdBy: payload.createdBy, branchId,
+        operationId: payload.operationId, createdAt, syncStatus,
+      };
+      const changes: Array<{ action: 'put'; entity: any; record: Record<string, unknown>; syncState: any }> = [
+        { action: 'put', entity: 'shiftMovements', record: movement, syncState: syncStatus },
+      ];
+      let journalEntry: any = null;
+      const journalLines: any[] = [];
+      const transactionRecords: any[] = [];
+      const accountRecords: any[] = [];
+      if (shouldPostLocalAccounting(syncStatus)) {
+        const entryKey = 'shift-movement-' + String(payload.operationId || movementId);
+        const entryId = `local-je:shift_movement:${movementId}:${entryKey}`;
+        journalEntry = await nativePosRepository.get<any>('journalEntries', entryId);
+        if (!journalEntry) {
+          const cash = await nativePosRepository.get<any>('accounts', '1010') || {
+            code: '1010', name: 'الصندوق', type: 'asset', balance: 0, isSystem: 1, createdAt, updatedAt: createdAt,
+          };
+          const equity = await nativePosRepository.get<any>('accounts', '3100') || {
+            code: '3100', name: 'رأس المال والأرصدة الافتتاحية', type: 'equity', balance: 0, isSystem: 1, createdAt, updatedAt: createdAt,
+          };
+          const lines = movementType === 'deposit'
+            ? [{ accountCode: '1010', debit: amount, credit: 0 }, { accountCode: '3100', debit: 0, credit: amount }]
+            : [{ accountCode: '3100', debit: amount, credit: 0 }, { accountCode: '1010', debit: 0, credit: amount }];
+          journalEntry = {
+            id: entryId, entryNumber: `LOCAL-${entryKey}-${movementId.slice(0, 8)}`,
+            date: createdAt, referenceId: movementId, referenceType: 'shift_movement',
+            description: (movementType === 'deposit' ? 'إيداع نقدي بالوردية: ' : 'سحب نقدي من الوردية: ') + String(payload.reason || ''),
+            totalDebit: amount, totalCredit: amount, status: 'posted',
+            createdBy: payload.createdBy || 'System', branchId, syncStatus,
+            createdAt,
+          };
+          for (let index = 0; index < lines.length; index++) {
+            const line = lines[index];
+            const account = line.accountCode === '1010' ? cash : equity;
+            const normalDebit = account.type === 'asset' || account.type === 'expense';
+            const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+            accountRecords.push({ ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: createdAt });
+            transactionRecords.push({
+              id: `${entryId}:${index}`, journalEntryId: entryId,
+              accountId: line.accountCode, accountName: account.name,
+              type: line.debit > 0 ? 'debit' : 'credit',
+              amount: line.debit > 0 ? line.debit : line.credit,
+              debit: line.debit, credit: line.credit,
+              description: (movementType === 'deposit' ? 'إيداع نقدي بالوردية: ' : 'سحب نقدي من الوردية: ') + String(payload.reason || ''),
+              syncStatus, createdAt,
+            });
+          }
+          changes.push(
+            { action: 'put', entity: 'accounts', record: accountRecords[0], syncState: syncStatus },
+            { action: 'put', entity: 'accounts', record: accountRecords[1], syncState: syncStatus },
+            { action: 'put', entity: 'journalEntries', record: journalEntry, syncState: syncStatus },
+            ...transactionRecords.map((record) => ({ action: 'put' as const, entity: 'transactions', record, syncState: syncStatus })),
+          );
+        }
+      }
+      let auditRecord: any = null;
+      if (currentDeviceRole === 'standalone') {
+        auditRecord = {
+          id: generateUUID(), date: createdAt, userName: payload.createdBy || 'System', type: 'shift_movement',
+          action: movementType === 'deposit' ? 'إيداع نقدي' : 'سحب نقدي',
+          operationName: 'حركة صندوق الوردية',
+          details: String(payload.reason || (movementType === 'deposit' ? 'إيداع نقدي بالصندوق' : 'سحب نقدي من الصندوق')) + ' (وردية ' + shiftId + ')',
+          quantity: 1, value: amount, branchId, entityId: movementId, entityName: shiftId, syncStatus,
+        };
+        changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+      }
+      await nativePosRepository.applyChanges(changes);
+      await db.transaction('rw', [db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
+        await db.shiftMovements.put(movement as any);
+        if (journalEntry && accountRecords.length) {
+          await db.accounts.bulkPut(accountRecords as any);
+          await db.journalEntries.put(journalEntry);
+          await db.transactions.bulkPut(transactionRecords);
+        }
+        if (auditRecord) await db.auditLogs.put(auditRecord as any);
+      });
+      await flushNativeDatabaseMirrorWrites();
+      return;
+    }
     await db.transaction('rw', [db.shifts, db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
       const shift = await db.shifts.get(String(payload.shiftId));
       if (!shift || shift.status !== 'open') throw new Error('لا يمكن تسجيل حركة نقدية على وردية غير مفتوحة');
