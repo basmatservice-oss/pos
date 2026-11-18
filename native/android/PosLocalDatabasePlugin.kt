@@ -666,12 +666,35 @@ class PosLocalDatabasePlugin : Plugin() {
             return
         }
         try {
-            val values = ContentValues().apply { put("payload", payload.toString()) }
-            val rows = helper.writableDatabase.update(
-                "pos_outbox", values, "operation_id = ? AND status IN ('pending', 'error')",
-                arrayOf(operationId)
-            )
-            call.resolve(JSObject().put("updated", rows > 0).put("rows", rows))
+            val db = helper.writableDatabase
+            var outboxRows = 0
+            var recordRows = 0
+            db.beginTransaction()
+            try {
+                val values = ContentValues().apply { put("payload", payload.toString()) }
+                outboxRows = db.update(
+                    "pos_outbox", values, "operation_id = ? AND status IN ('pending', 'error')",
+                    arrayOf(operationId)
+                )
+                if (outboxRows != 1) {
+                    throw IllegalStateException("Pending outbox operation was not found: $operationId")
+                }
+                // The operation record mirrors the durable outbox payload. Keep
+                // both copies aligned when server IDs are remapped after an ack.
+                recordRows = db.update(
+                    "pos_records",
+                    ContentValues().apply {
+                        put("json", payload.toString())
+                        put("updated_at", System.currentTimeMillis())
+                    },
+                    "entity = ? AND record_id = ?",
+                    arrayOf("operations", operationId)
+                )
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("updated", true).put("rows", outboxRows).put("recordUpdated", recordRows > 0))
         } catch (error: Exception) {
             call.reject("تعذر تحديث مراجع العملية المعلقة", error)
         }
