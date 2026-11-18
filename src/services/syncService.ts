@@ -486,6 +486,14 @@ export const syncService = {
             }
           }
         }
+        if (isNativeAndroid()) {
+          try {
+            const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
+            await mirrorNativePosDatabase();
+          } catch (mirrorError) {
+            console.warn('Android SQLite snapshot refresh failed:', mirrorError);
+          }
+        }
       } finally {
         (globalThis as any).__posApplyingOperation = false;
       }
