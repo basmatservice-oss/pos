@@ -11,7 +11,11 @@ function collectPendingReferences(value: any, refs: Record<string, Set<string>>)
       if (key === 'supplierId') refs.suppliers.add(String(child));
       if (key === 'orderId' || key === 'originalOrderId') refs.orders.add(String(child));
       if (key === 'purchaseId' || key === 'originalPurchaseId') refs.purchases.add(String(child));
-    } else if (child && typeof child === 'object') collectPendingReferences(child, refs);
+    } else if (child && typeof child === 'object') {
+      if (key === 'order' && (child as any).id !== undefined) refs.orders.add(String((child as any).id));
+      if (key === 'purchase' && (child as any).id !== undefined) refs.purchases.add(String((child as any).id));
+      collectPendingReferences(child, refs);
+    }
   }
 }
 
