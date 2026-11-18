@@ -11,7 +11,8 @@ import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
-import { postLocalJournalEntry, removeLocalJournalEntriesForReference, reverseLocalJournalEntriesByReference } from './localAccountingEngine';
+import { postLocalJournalEntry, reverseLocalJournalEntriesByReference } from './localAccountingEngine';
+import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 
 const DEVICE_ID_KEY = 'pos_device_id';
@@ -1324,9 +1325,7 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        const localReferenceId = String(opRecord.payload?.order?.id || opRecord.payload?.purchase?.id || opRecord.payload?.orderId || opRecord.payload?.id || operationId);
-        await removeLocalJournalEntriesForReference(localReferenceId);
-        await removeLocalInventoryArtifactsForOperation(operationId);
+        await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId);
         // The operation was already applied to the local Dexie database before
         // it was sent. Reapplying the business mutation here would deduct stock,
         // restore returns, or change balances a second time. Mark it acknowledged
