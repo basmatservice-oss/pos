@@ -631,6 +631,12 @@ async function applyPurchaseLocally(
         }
         await db.purchaseItems.where('purchaseId').equals(pid).delete();
         await db.inventoryBatches.where('purchaseId').equals(pid).delete();
+        for (const productId of new Set(oldItems.map((item) => Number(item.productId)))) {
+          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === productId && Number(batch.remainingQuantity ?? batch.quantity) > 0);
+          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity), 0);
+          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
+          if (activeQty > 0) await db.products.update(productId, { costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus });
+        }
         if (oldPurchase && oldPurchase.supplierId) {
           const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
           const sup = await db.suppliers.get(oldPurchase.supplierId);
