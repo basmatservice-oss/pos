@@ -662,10 +662,11 @@ async function applyPurchaseLocally(
         Number(purchase.shippingCost || 0) +
         Number(purchase.customsCost || 0) +
         Number(purchase.otherCosts || 0);
-      const goodsTotal = items.reduce((s: number, it: any) => {
+      const itemsGoodsSum = items.reduce((s: number, it: any) => {
         const c = it.pricesInForeignCurrency ? Number(it.costPrice || 0) * fxRate : Number(it.costPrice || 0);
         return s + Number(it.quantity || 0) * c;
       }, 0);
+      const goodsTotal = Number(purchase.totalAmount || 0) > 0 ? roundMoney(Number(purchase.totalAmount)) : roundMoney(itemsGoodsSum);
 
       for (const item of items) {
         const qty = roundQty(Number(item.quantity || 0));
@@ -675,7 +676,8 @@ async function applyPurchaseLocally(
           ? Number(item.costPrice || 0) * fxRate
           : Number(item.costPrice || 0);
         const lineTotal = roundMoney(qty * unitPurchaseCost);
-        const share = goodsTotal > 0 ? (lineTotal / goodsTotal) * extraCost : 0;
+        const share = itemsGoodsSum > 0 ? (lineTotal / itemsGoodsSum) * extraCost : 0;
+        const landedTotal = roundMoney(lineTotal + share);
         const landedCostPerBaseUnit =
           item.landedCostPerBaseUnit !== undefined
             ? Number(item.landedCostPerBaseUnit)
@@ -716,15 +718,26 @@ async function applyPurchaseLocally(
         });
         const prod = await db.products.get(item.productId);
         if (prod) {
+          const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === Number(item.productId) && Number(batch.remainingQuantity ?? batch.quantity) > 0);
+          const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity), 0);
+          const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity ?? batch.quantity) * Number(batch.costPrice || 0), 0);
+          const weightedCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCostPerBaseUnit;
           await db.products.update(prod.id!, {
             stockQuantity: roundQty(prod.stockQuantity + baseQty),
-            costPrice: landedCostPerBaseUnit,
+            costPrice: weightedCost,
             expiryDate: item.expiryDate || prod.expiryDate,
             batchNumber: item.batchNumber || prod.batchNumber,
             updatedAt: now,
             syncStatus,
           });
         }
+        await recordLocalInventoryMovement({
+          movementKey: 'purchase:' + String(purchase.id) + ':' + operationId + ':in:' + String(item.productId) + ':' + String(items.indexOf(item)),
+          productId: Number(item.productId), movementType: 'purchase_receipt', sourceType: 'purchase', sourceId: String(purchase.id),
+          quantityDeltaBase: baseQty, unitCost: landedCostPerBaseUnit, totalCost: landedTotal,
+          branchId: purchase.branchId, operationId, reason: 'استلام مشتريات', createdBy: purchase.createdBy,
+          createdAt: purchase.date || now, syncStatus,
+        });
       }
 
       const invoicePayable =
