@@ -30,6 +30,7 @@ export interface PosLocalDatabasePlugin {
   }>;
   getRecords(options: { entity: string }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   updateRecordSyncState(options: { entity: string; recordId: string; syncState: 'local' | 'pending' | 'synced' | 'error' }): Promise<{ updated: boolean; rows: number }>;
+  deleteRecord(options: { entity: string; recordId: string }): Promise<{ deleted: boolean; rows: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number }>;
@@ -117,6 +118,12 @@ export async function markNativePosOperationConflict(operationId: string, messag
       syncState: 'error',
     });
   }
+}
+
+export async function deleteNativePosRecord(entity: string, recordId: string): Promise<boolean> {
+  if (!(await ensureNativePosDatabase())) return false;
+  const result = await posLocalDatabase.deleteRecord({ entity, recordId });
+  return result.deleted;
 }
 
 export async function replaceNativePosRecords(
