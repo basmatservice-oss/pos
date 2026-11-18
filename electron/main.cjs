@@ -163,6 +163,7 @@ async function createWindow() {
 }
 
 ipcMain.handle('app:version', () => app.getVersion());
+ipcMain.handle('app:device-role', () => readConfiguredRole());
 ipcMain.handle('app:server-url', () => {
   if (readConfiguredRole() === 'client') return readConfiguredServerUrl();
   return `http://127.0.0.1:${SERVER_PORT}`;
