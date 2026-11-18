@@ -208,10 +208,12 @@ function AppContent() {
         const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
 
         if (isMobileApp) {
-          // Force client role for mobile apps
-          setDeviceRole('client');
-          if (!roleSetting || roleSetting.value !== 'client') {
-             await db.settings.put({ key: 'deviceRole', value: 'client', syncStatus: 'synced', updatedAt: new Date().toISOString() });
+          // Preserve a standalone role selected during mobile onboarding.
+          // Existing installs without a saved role remain clients.
+          const mobileRole = roleSetting?.value === 'standalone' ? 'standalone' : 'client';
+          setDeviceRole(mobileRole as DeviceRole);
+          if (!roleSetting) {
+            await db.settings.put({ key: 'deviceRole', value: mobileRole, syncStatus: 'synced', updatedAt: new Date().toISOString() });
           }
           if (typeSetting && typeSetting.value) {
             setBusinessType(typeSetting.value as BusinessType);
