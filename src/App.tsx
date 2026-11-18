@@ -218,7 +218,7 @@ function AppContent() {
         await ensureDatabaseReady();
         // First check local Dexie DB for role and business type
         const roleSetting = await readAppSetting('deviceRole');
-        const typeSetting = await db.settings.where('key').equals('businessType').first();
+        const typeSetting = await readAppSetting('businessType');
         
         // Check if it's a mobile device (Capacitor/Cordova)
         const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
