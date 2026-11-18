@@ -1260,16 +1260,19 @@ async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], p
   else if (type === 'return') postingDate = payload?.returnDate || now;
   else if (type === 'order_void') {
     const order = await db.orders.get(String(payload?.orderId || payload?.id || ''));
-    postingDate = order?.createdAt || now;
+    if (!order) return;
+    postingDate = order.createdAt || now;
   } else if (type === 'purchase') postingDate = payload?.purchase?.date || now;
   else if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload?.id : payload?.purchase?.id || '');
     const purchase = await db.purchases.get(purchaseId);
-    postingDate = purchase?.date || now;
+    if (!purchase) return;
+    postingDate = purchase.date || now;
   } else if (type === 'expense') postingDate = payload?.date || now;
   else if (type === 'expense_delete') {
     const expense = await db.expenses.get(Number(payload?.id));
-    postingDate = expense?.date || now;
+    if (!expense) return;
+    postingDate = expense.date || now;
   } else if (type === 'payroll') postingDate = payload?.paymentDate || now;
   if (['sale', 'return', 'order_void', 'purchase', 'purchase_update', 'purchase_delete', 'purchase_return', 'expense', 'expense_delete', 'customer_payment', 'supplier_payment', 'payroll', 'shift_movement', 'stocktake_approve'].includes(type)) {
     await assertLocalOpenFiscalPeriod(postingDate, payload);
