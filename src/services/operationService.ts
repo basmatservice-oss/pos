@@ -1314,7 +1314,17 @@ export async function dispatchOperation(
   rawPayload: any,
   branchId?: number
 ): Promise<{ synced: boolean; operationId: string; result?: any }> {
-  const payload = enrichPayloadWithStableIds(type, rawPayload);
+  let payload = { ...enrichPayloadWithStableIds(type, rawPayload) };
+  if (type === 'purchase_update' || type === 'purchase_delete') {
+    const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
+    const oldPurchase = await db.purchases.get(purchaseId);
+    const oldItems = await db.purchaseItems.where('purchaseId').equals(purchaseId).toArray();
+    payload = {
+      ...payload,
+      _localAffectedProductIds: oldItems.map((item) => Number(item.productId)),
+      _localAffectedSupplierId: oldPurchase?.supplierId,
+    };
+  }
   const operationId = payload?.operationId || generateUUID();
   const deviceId = getDeviceId();
   const role = await getDeviceRole();
@@ -1390,28 +1400,21 @@ export async function dispatchOperation(
   }
 
   await db.syncOperations.put(opRecord);
-  await applyOperationLocally(type, opRecord.payload, 'pending');
-  if (type === 'purchase_update' || type === 'purchase_delete') {
-    await db.syncOperations.update(operationId, { payload: opRecord.payload });
-  }
-
-
-  // Android keeps a second, durable copy of every business operation in native
-  // SQLite so the outbox survives WebView/IndexedDB lifecycle failures.
+  // Persist the Android outbox before mutating the local business tables. If the
+  // WebView closes during the mutation, the durable operation can still replay.
   if (isNativeAndroid()) {
     try {
       await enqueueNativePosOperation({
-        operationId,
-        type,
-        payload: opRecord.payload,
-        deviceId,
-        branchId: branchId === undefined ? undefined : String(branchId),
-        schemaVersion: 1,
+        operationId, type, payload: opRecord.payload, deviceId,
+        branchId: branchId === undefined ? undefined : String(branchId), schemaVersion: 1,
       });
     } catch (error) {
-      // Keep the existing Dexie queue as a recovery path if native storage fails.
       console.error('Android SQLite outbox write failed; retaining Dexie queue:', error);
     }
+  }
+  await applyOperationLocally(type, opRecord.payload, 'pending');
+  if (type === 'purchase_update' || type === 'purchase_delete') {
+    await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
 
   if (isNativeAndroid()) {
@@ -1431,21 +1434,14 @@ export async function dispatchOperation(
         await db.syncOperations.update(operationId, {
           status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
         });
-        await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId, response.result);
-        // The operation was already applied to the local Dexie database before
-        // it was sent. Reapplying the business mutation here would deduct stock,
-        // restore returns, or change balances a second time. Mark it acknowledged
-        // and let pullAll reconcile the authoritative server records.
-        await db.syncOperations.update(operationId, {
-          status: 'synced',
-          lastError: undefined,
-          updatedAt: new Date().toISOString(),
-        });
         if (isNativeAndroid()) {
           await acknowledgeNativePosOperation(operationId).catch((error) =>
             console.error('Could not acknowledge Android SQLite outbox item:', error)
           );
         }
+        await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId, response.result);
+        // The local mutation is not replayed after acknowledgement; pullAll applies
+        // the authoritative server records without duplicating stock or balances.
         useSyncStore.getState().setLastSynced(new Date());
         import('./syncService').then(({ syncService }) => {
           syncService.updatePendingCount();
