@@ -139,7 +139,7 @@ class PosLocalDatabasePlugin : Plugin() {
         }
 
         try {
-            data class ValidatedChange(val action: String, val entity: String, val recordId: String, val values: ContentValues?)
+            class ValidatedChange(val action: String, val entity: String, val recordId: String, val values: ContentValues?)
             val validated = ArrayList<ValidatedChange>()
             val identities = HashSet<String>()
             for (index in 0 until changes.length()) {
