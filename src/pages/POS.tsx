@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { generateUUID } from '../utils/uuid';
 import {
   Search,
@@ -107,9 +108,9 @@ export default function POS() {
   } = useCartStore();
 
   const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
-  const allOffers = useLiveQuery(() => db.offers.toArray()) || [];
-  const heldOrders = useLiveQuery(() => db.heldOrders.toArray()) || [];
-  const serviceRecipes = useLiveQuery(() => db.serviceRecipes.toArray()) || [];
+  const allOffers = usePosEntityRecords<any>('offers');
+  const heldOrders = usePosEntityRecords<any>('heldOrders');
+  const serviceRecipes = usePosEntityRecords<any>('serviceRecipes');
 
   const customers =
     useLiveQuery(() => {
@@ -183,14 +184,14 @@ export default function POS() {
     getMatchByBarcode,
   } = useInventoryStore();
 
-  const liveProducts = useLiveQuery(() => db.products.toArray());
+  const liveProducts = usePosEntityRecords<any>('products');
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
     }
   }, [liveProducts]);
 
-  const liveCategories = useLiveQuery(() => db.categories.toArray());
+  const liveCategories = usePosEntityRecords<any>('categories');
   useEffect(() => {
     if (liveCategories) {
       useInventoryStore.getState().updateCategories(liveCategories);
