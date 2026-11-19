@@ -3490,45 +3490,52 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     });
   });
 }
-async function assertLocalOpenFiscalPeriod(dateIso: string, payload: any) {
+async function assertLocalOpenFiscalPeriod(dateIso: string | Array<string | undefined>, payload: any) {
   const periods = await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
-  const targetDay = String(dateIso || new Date().toISOString()).slice(0, 10);
-  const closed = periods.find((period: any) => {
-    if (period.status !== 'closed') return false;
-    const start = String(period.startDate || '').slice(0, 10);
-    const end = String(period.endDate || '').slice(0, 10);
-    return Boolean(start && end && targetDay >= start && targetDay <= end);
-  });
-  if (!closed) return;
+  const targetDays = (Array.isArray(dateIso) ? dateIso : [dateIso])
+    .filter(Boolean)
+    .map((value) => String(value).slice(0, 10));
   const role = String(payload?.userRole || payload?.actor?.role || payload?.role || '').toLowerCase();
   const allowedOverride = Boolean(payload?.allowClosedPeriodOverride) && (role === 'admin' || role === 'manager');
-  if (!allowedOverride) throw new Error(`الفترة المالية (${closed.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`);
+  if (allowedOverride) return;
+  for (const targetDay of targetDays) {
+    const closed = periods.find((period: any) => {
+      if (period.status !== 'closed') return false;
+      const start = String(period.startDate || '').slice(0, 10);
+      const end = String(period.endDate || '').slice(0, 10);
+      return Boolean(start && end && targetDay >= start && targetDay <= end);
+    });
+    if (closed) throw new Error(`الفترة المالية (${closed.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`);
+  }
 }
 
 async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], payload: any) {
   const now = new Date().toISOString();
-  let postingDate = now;
-  if (type === 'sale') postingDate = payload?.order?.createdAt || now;
-  else if (type === 'return') postingDate = payload?.returnDate || now;
+  let postingDates: Array<string | undefined> = [now];
+  if (type === 'sale') postingDates = [payload?.order?.createdAt || now];
+  else if (type === 'return') postingDates = [payload?.returnDate || now];
   else if (type === 'order_void') {
     const order = await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
     if (!order) return;
-    postingDate = order.createdAt || now;
-  } else if (type === 'purchase') postingDate = payload?.purchase?.date || now;
-  else if (type === 'purchase_update' || type === 'purchase_delete') {
-    const purchaseId = String(type === 'purchase_delete' ? payload?.id : payload?.purchase?.id || '');
-    const purchase = await getLocalRecord<any>('purchases', purchaseId);
-    if (!purchase) return;
-    postingDate = purchase.date || now;
-  } else if (type === 'expense') postingDate = payload?.date || now;
+    postingDates = [order.createdAt || now];
+  } else if (type === 'purchase') postingDates = [payload?.purchase?.date || now];
+  else if (type === 'purchase_update') {
+    const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
+    if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
+    postingDates = [oldPurchase.date || now, payload?.purchase?.date || now];
+  } else if (type === 'purchase_delete') {
+    const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.id || ''));
+    if (!oldPurchase) return;
+    postingDates = [oldPurchase.date || now];
+  } else if (type === 'expense') postingDates = [payload?.date || now];
   else if (type === 'expense_delete') {
     const expense = await getLocalRecord<any>('expenses', Number(payload?.id));
     if (!expense) return;
-    postingDate = expense.date || now;
-  } else if (type === 'payroll') postingDate = payload?.paymentDate || now;
+    postingDates = [expense.date || now];
+  } else if (type === 'payroll') postingDates = [payload?.paymentDate || now];
   if (['sale', 'return', 'order_void', 'purchase', 'purchase_update', 'purchase_delete', 'purchase_return', 'expense', 'expense_delete', 'customer_payment', 'supplier_payment', 'payroll', 'shift_movement', 'stocktake_approve'].includes(type)) {
-    await assertLocalOpenFiscalPeriod(postingDate, payload);
+    await assertLocalOpenFiscalPeriod(postingDates, payload);
   }
 }
 async function applyOperationLocally(
