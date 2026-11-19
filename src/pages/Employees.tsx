@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Search,
   Plus,
@@ -30,7 +31,7 @@ export default function Employees() {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   // Data State using Dexie Live Query
-  const allEmployees = useLiveQuery(() => db.employees.toArray()) || [];
+  const allEmployees = usePosEntityRecords<any>('employees');
 
   const employees = useMemo(() => {
     if (!searchQuery) return allEmployees;
