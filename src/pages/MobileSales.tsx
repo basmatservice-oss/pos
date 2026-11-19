@@ -1,4 +1,5 @@
 import { playSuccessSound, playErrorSound, playScanSound } from '../lib/sound';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
@@ -76,10 +77,8 @@ const MobileSales: React.FC = () => {
   const customers = usePosEntityRecords<any>('customers');
   const allOffers = usePosEntityRecords<any>('offers');
   const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
-  const allOrders = usePosEntityRecords<any>('orders');
-  const myOrders = useMemo(() => allOrders
-    .filter((order) => order.createdBy === (user?.name || ''))
-    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()), [allOrders, user?.name]);
+  const myOrders = usePosRecordsWhereEquals<any>('orders', 'createdBy', user?.name || '')
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
   const openSession = usePosFirstRecordWhereEquals<any>('stocktakingSessions', 'status', 'open');
 
