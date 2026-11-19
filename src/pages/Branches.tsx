@@ -13,8 +13,7 @@ import {
   X,
   CheckCircle2
 } from 'lucide-react';
-import { db, Branch } from '../db/db';
-import { useLiveQuery } from 'dexie-react-hooks';
+import type { Branch } from '../db/db';
 import toast from 'react-hot-toast';
 import { dispatchOperation } from '../services/operationService';
 import ConfirmationModal from '../components/ConfirmationModal';
