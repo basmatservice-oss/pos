@@ -12,8 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
-import { db, Employee } from '../db/db';
-import { useLiveQuery } from 'dexie-react-hooks';
+import type { Employee } from '../db/db';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../hooks/useSettings';
