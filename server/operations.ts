@@ -1606,6 +1606,45 @@ function handlePurchaseReturn(
     .from(inventoryBatches)
     .where(eq(inventoryBatches.purchaseId, String(originalPurchaseId)))
     .all();
+  const originalItems = tx
+    .select()
+    .from(purchaseItems)
+    .where(eq(purchaseItems.purchaseId, String(originalPurchaseId)))
+    .all();
+  const priorReturns = tx
+    .select()
+    .from(purchaseReturns)
+    .where(eq(purchaseReturns.originalPurchaseId, String(originalPurchaseId)))
+    .all();
+  const priorReturnIds = new Set(priorReturns.map((entry: any) => String(entry.id)));
+  const priorReturnItems = tx.select().from(purchaseReturnItems).all()
+    .filter((entry: any) => priorReturnIds.has(String(entry.purchaseReturnId)));
+  const purchasedBaseByProduct = new Map<number, number>();
+  const returnedBaseByProduct = new Map<number, number>();
+  for (const item of originalItems) {
+    const productId = Number(item.productId);
+    const quantity = Number(item.quantity);
+    const factor = Number(item.conversionFactor ?? 1);
+    const baseQuantity = roundQty(quantity * factor);
+    if (!Number.isSafeInteger(productId) || productId <= 0 ||
+        !Number.isFinite(quantity) || quantity <= 0 ||
+        !Number.isFinite(factor) || factor <= 0 ||
+        !Number.isFinite(baseQuantity) || baseQuantity <= 0) {
+      throw new OperationError('تفاصيل فاتورة الشراء الأصلية تحتوي كمية أو معامل تحويل غير صالح', 400);
+    }
+    purchasedBaseByProduct.set(productId,
+      roundQty((purchasedBaseByProduct.get(productId) || 0) + baseQuantity));
+  }
+  for (const item of priorReturnItems) {
+    const productId = Number(item.productId);
+    const quantity = Number(item.quantity);
+    if (!Number.isSafeInteger(productId) || productId <= 0 ||
+        !Number.isFinite(quantity) || quantity <= 0) {
+      throw new OperationError('يوجد مرتجع سابق يحتوي كمية أو صنفًا غير صالح', 400);
+    }
+    returnedBaseByProduct.set(productId,
+      roundQty((returnedBaseByProduct.get(productId) || 0) + quantity));
+  }
 
   let totalReturn = 0;
   const savedItems: any[] = [];
@@ -1620,6 +1659,11 @@ function handlePurchaseReturn(
     const product = tx.select().from(products).where(eq(products.id, prodId)).get();
     if (!product) throw new OperationError(`المنتج ${reqItem.productName || prodId} غير موجود`, 404);
 
+    const purchasedBase = purchasedBaseByProduct.get(prodId) || 0;
+    const alreadyReturnedBase = returnedBaseByProduct.get(prodId) || 0;
+    if (purchasedBase <= 0 || roundQty(alreadyReturnedBase + qtyToReturn) > purchasedBase + 0.0001) {
+      throw new OperationError('كمية المرتجع تتجاوز الكمية المشتراة المتبقية للصنف ' + String(reqItem.productName || prodId), 400);
+    }
     const productBatches = purchaseBatches
       .filter((batch: any) => Number(batch.productId) === prodId &&
         String(batch.purchaseId) === String(originalPurchaseId))
@@ -1675,6 +1719,7 @@ function handlePurchaseReturn(
       });
     }
 
+    returnedBaseByProduct.set(prodId, roundQty(alreadyReturnedBase + qtyToReturn));
     const currentStock = Number(product.stockQuantity || 0);
     if (!Number.isFinite(currentStock) || currentStock < qtyToReturn) {
       throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
@@ -1743,6 +1788,12 @@ function handlePurchaseReturn(
     throw new OperationError('No valid purchase return items provided', 400);
   }
 
+  if (!['cash', 'card', 'credit_adjustment'].includes(String(refundMethod))) {
+    throw new OperationError('طريقة تسوية مرتجع المشتريات غير معروفة', 400);
+  }
+  if (!Number.isFinite(totalReturn) || totalReturn < 0) {
+    throw new OperationError('إجمالي مرتجع المشتريات غير صالح', 400);
+  }
   const newReturnedAmount = roundMoney(Number(origPurchase.returnedAmount || 0) + totalReturn);
   if (newReturnedAmount > roundMoney(Number(origPurchase.totalAmount || 0)) + 0.05) {
     throw new OperationError('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء', 400);
@@ -1763,9 +1814,16 @@ function handlePurchaseReturn(
     .run();
 
   if (refundMethod === 'credit_adjustment' && origPurchase.supplierId) {
+    const supplier = tx.select().from(suppliers)
+      .where(eq(suppliers.id, Number(origPurchase.supplierId))).get();
+    if (!supplier) throw new OperationError('المورد المرتبط بفاتورة الشراء غير موجود', 404);
+    const supplierBalance = Number(supplier.balance || 0);
+    if (!Number.isFinite(supplierBalance)) {
+      throw new OperationError('رصيد المورد غير صالح ولا يمكن تسوية مرتجع المشتريات', 400);
+    }
     tx.update(suppliers)
       .set({
-        balance: sql`${suppliers.balance} - ${totalReturn}`,
+        balance: roundMoney(supplierBalance - totalReturn),
         updatedAt: ctx.now,
         isSynced: 0,
       })
