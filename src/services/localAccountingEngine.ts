@@ -282,6 +282,13 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
     if (changes.length) {
       const applied = await nativePosRepository.applyChanges(changes);
       if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع القيود المحلية وتحديث الأرصدة');
+      await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
+        for (const change of changes) {
+          if (change.action === 'delete' && change.entity === 'transactions') await db.transactions.delete(change.key);
+          else if (change.action === 'delete' && change.entity === 'journalEntries') await db.journalEntries.delete(change.key);
+          else if (change.action === 'put' && change.entity === 'accounts') await db.accounts.put(change.record);
+        }
+      });
     }
     return;
   }
