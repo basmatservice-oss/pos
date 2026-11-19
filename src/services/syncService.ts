@@ -84,9 +84,11 @@ export const syncService = {
       ];
       let pendingRecords = 0;
       for (const table of tables) {
-        if ((db as any)[table]) {
-          const c = await (db as any)[table].where('syncStatus').anyOf(['pending', 'error']).count();
-          pendingRecords += c;
+        if (isNativeAndroid()) {
+          const records = await nativePosRepository.getAllWithSyncState(table as any);
+          pendingRecords += records.filter((item) => item.syncState === 'pending' || item.syncState === 'error').length;
+        } else if ((db as any)[table]) {
+          pendingRecords += await (db as any)[table].where('syncStatus').anyOf(['pending', 'error']).count();
         }
       }
 
