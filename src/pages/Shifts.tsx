@@ -19,7 +19,7 @@ import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { arSA } from 'date-fns/locale';
 import { useReactToPrint } from 'react-to-print';
-import { db } from '../db/db';
+
 import { useSettings } from '../hooks/useSettings';
 import { dispatchOperation } from '../services/operationService';
 import { useAuth } from '../context/AuthContext';
