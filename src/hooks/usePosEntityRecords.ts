@@ -13,7 +13,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
 ): T[] {
   const isAndroid = isNativeAndroid();
   const dexieRecords = useLiveQuery(
-    () => isAndroid ? undefined : db.table(entity).toArray(),
+    () => isAndroid ? Promise.resolve([] as T[]) : db.table(entity).toArray(),
     [entity, isAndroid],
   );
   const [nativeRecords, setNativeRecords] = useState<T[]>([]);
