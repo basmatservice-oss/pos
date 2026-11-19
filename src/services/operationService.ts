@@ -3490,26 +3490,6 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     });
   });
 }
-async function assertLocalOpenFiscalPeriod(dateIso: string | Array<string | undefined>, payload: any) {
-  const periods = await getLocalRecords<any>('fiscalPeriods');
-  if (!periods.length) return;
-  const targetDays = (Array.isArray(dateIso) ? dateIso : [dateIso])
-    .filter(Boolean)
-    .map((value) => String(value).slice(0, 10));
-  const role = String(payload?.userRole || payload?.actor?.role || payload?.role || '').toLowerCase();
-  const allowedOverride = Boolean(payload?.allowClosedPeriodOverride) && (role === 'admin' || role === 'manager');
-  if (allowedOverride) return;
-  for (const targetDay of targetDays) {
-    const closed = periods.find((period: any) => {
-      if (period.status !== 'closed') return false;
-      const start = String(period.startDate || '').slice(0, 10);
-      const end = String(period.endDate || '').slice(0, 10);
-      return Boolean(start && end && targetDay >= start && targetDay <= end);
-    });
-    if (closed) throw new Error(`الفترة المالية (${closed.name}) مغلقة ولا يمكن ترحيل عمليات بتاريخ ${targetDay}`);
-  }
-}
-
 async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], payload: any) {
   const now = new Date().toISOString();
   let postingDates: Array<string | undefined> = [now];
