@@ -3,6 +3,7 @@ import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search } from 'lucide-react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
+import { syncService } from '../services/syncService';
 
 type Props = { currency: string };
 
@@ -58,6 +59,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
       setServerMovements(null);
       setNextOffset(null);
       try {
+        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
         const response = await apiService.getInventoryMovements({
           latest: true,
           offset: 0,
@@ -142,6 +144,10 @@ export default function InventoryMovementLedger({ currency }: Props) {
     [movements]
   );
   const handleReconciliation = async () => {
+    if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      setReconciliation({ error: 'مطابقة الخادم غير متاحة في وضع التشغيل المستقل' });
+      return;
+    }
     if (reconciliation) {
       setReconciliation(null);
       return;
