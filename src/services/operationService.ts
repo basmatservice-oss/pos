@@ -2516,8 +2516,23 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       uniqueChanges.set(String(change.entity) + ':' + String(change.record[keyField]), change);
     }
     const finalChanges = [...uniqueChanges.values()];
-    const applied = await nativePosRepository.applyChanges(finalChanges);
-    if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
+    const nativeChanges = finalChanges.map((change: any) => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+      : {
+          action: 'put' as const,
+          entity: change.entity,
+          recordId: getNativePosRecordId(change.entity, change.record),
+          record: change.record,
+          syncState: change.syncState || 'local',
+        });
+    const committed = await applyNativePosRecordChangesIfAbsent(
+      nativeChanges,
+      'purchaseReturns',
+      JSON.stringify(id),
+    );
+    if (!committed.skipped && committed.applied !== finalChanges.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
+    }
     // SQLite committed the return, stock, supplier balance and accounting entries atomically.
     return;
   }
