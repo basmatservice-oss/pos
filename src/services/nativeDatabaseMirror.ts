@@ -220,7 +220,25 @@ export async function restoreNativePosDatabase(): Promise<boolean> {
     console.warn('Interrupted Android SQLite snapshot detected; legacy local database migration will be retried.');
     return false;
   }
-  // SQLite is the Android source of truth. A complete snapshot means startup
-  // must not hydrate a second, competing Dexie copy.
-  return snapshotState.value === '1';
+  if (snapshotState.value !== '1') return false;
+
+  // Validate the complete native snapshot without creating a Dexie instance.
+  for (const entity of MIRRORED_TABLES) {
+    const rows = await nativePosRepository.getAllWithSyncState(entity);
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!row || typeof row.recordId !== 'string' || !row.record ||
+          typeof row.record !== 'object' || Array.isArray(row.record)) {
+        throw new Error(`SQLite returned an invalid Android snapshot row in ${entity}`);
+      }
+      const resolvedId = getRecordId(entity, row.record);
+      if (!resolvedId || resolvedId !== row.recordId || seen.has(row.recordId)) {
+        throw new Error(`SQLite Android snapshot identity validation failed for ${entity}`);
+      }
+      seen.add(row.recordId);
+    }
+  }
+
+  // SQLite is the Android source of truth. Do not hydrate a second Dexie copy.
+  return true;
 }
