@@ -1404,7 +1404,22 @@ async function applyPurchaseLocally(
       const postJournal = async (referenceType: 'purchase' | 'payment', journalEntryKey: string, description: string, lines: any[]) => {
         const entryId = 'local-je:' + referenceType + ':' + String(purchase.id) + ':' + journalEntryKey;
         if (journals.some((entry: any) => String(entry.id) === entryId)) return;
-        for (const line of lines) {
+        const normalizedLines = lines.map((line: any) => ({
+          ...line, debit: roundMoney(line.debit), credit: roundMoney(line.credit),
+        })).filter((line: any) => line.debit > 0 || line.credit > 0);
+        if (!normalizedLines.length) return;
+        let totalDebit = roundMoney(normalizedLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+        let totalCredit = roundMoney(normalizedLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+        const difference = roundMoney(totalDebit - totalCredit);
+        if (Math.abs(difference) > 0.02) throw new Error('قيد مشتريات غير متوازن: ' + description);
+        if (difference !== 0) {
+          const lastLine = normalizedLines[normalizedLines.length - 1];
+          if (lastLine.credit > 0) lastLine.credit = roundMoney(lastLine.credit + difference);
+          else lastLine.debit = roundMoney(lastLine.debit - difference);
+          totalDebit = roundMoney(normalizedLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+          totalCredit = roundMoney(normalizedLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+        }
+        for (const line of normalizedLines) {
           const definitions: any = {
             '1200': { name: 'المخزون', type: 'asset' }, '2100': { name: 'ذمم الموردين', type: 'liability' },
             '1010': { name: 'الصندوق', type: 'asset' }, '1020': { name: 'البنك / الشبكة', type: 'asset' },
@@ -1415,16 +1430,15 @@ async function applyPurchaseLocally(
           const updated = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
           accountMap.set(line.accountCode, updated);
         }
-        const total = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
         const journal = {
           id: entryId, entryNumber: 'LOCAL-' + journalEntryKey + '-' + String(purchase.id).slice(0, 8),
           date: purchase.date || now, referenceId: String(purchase.id), referenceType,
-          description, totalDebit: total, totalCredit: total, status: 'posted',
+          description, totalDebit, totalCredit, status: 'posted',
           createdBy: purchase.createdBy || 'System', branchId: purchase.branchId,
           syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
         };
         changes.push({ action: 'put', entity: 'journalEntries', record: journal, syncState: journal.syncStatus });
-        lines.forEach((line: any, index: number) => changes.push({
+        normalizedLines.forEach((line: any, index: number) => changes.push({
           action: 'put', entity: 'transactions',
           record: {
             id: entryId + ':' + index, journalEntryId: entryId, accountId: line.accountCode,
