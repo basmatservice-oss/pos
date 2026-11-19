@@ -2,7 +2,6 @@ import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
-import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
@@ -396,7 +395,6 @@ export const syncService = {
         if (!isNativeAndroid()) {
           const savedKey = serverRes?.id ?? sourceRecord.id ?? sourceRecord.key;
           const saved = await table.get(savedKey);
-          if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
         }
         // Android reconciliation already committed the canonical record and
         // sync state to SQLite before updating the compatibility cache.
@@ -406,7 +404,6 @@ export const syncService = {
         await markPushedRecordState(tableName, recordKey, 'pending');
         if (!isNativeAndroid()) {
           const saved = await table.get(recordKey);
-          if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
         }
         return false;
       }
@@ -415,7 +412,6 @@ export const syncService = {
     await markPushedRecordState(tableName, recordKey, 'pending');
     if (!isNativeAndroid()) {
       const saved = await table.get(recordKey);
-      if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
     }
     return false;
   },
