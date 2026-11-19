@@ -1354,9 +1354,7 @@ async function applyPurchaseLocally(
     if (!Number.isFinite(goodsTotal) || goodsTotal < 0 || !Number.isFinite(itemsGoodsSum) || itemsGoodsSum < 0) {
       throw new Error('إجمالي أصناف فاتورة الشراء غير صالح');
     }
-    const [products, allSuppliers, allBatchesRaw, accounts, journals, transactions, oldItems, oldBatches, oldReturns, allMovements] = await Promise.all([
-      nativePosRepository.getAll<any>('products'),
-      nativePosRepository.getAll<any>('suppliers'),
+    const [allBatchesRaw, accounts, journals, transactions, oldItems, oldBatches, oldReturns, allMovements] = await Promise.all([
       nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getAll<any>('accounts'),
       nativePosRepository.getAll<any>('journalEntries'),
@@ -1366,12 +1364,23 @@ async function applyPurchaseLocally(
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(purchase.id)) : Promise.resolve([]),
       nativePosRepository.getAll<any>('inventoryMovements'),
     ]);
-    if (purchase.supplierId && !allSuppliers.some((entry: any) => String(entry.id) === String(purchase.supplierId))) {
+    // Load only products touched by this receipt/reversal, not the entire product catalog.
+    const affectedProductIds = [...new Set([
+      ...normalized.map((item: any) => Number(item.productId)),
+      ...oldItems.map((item: any) => Number(item.productId)),
+    ].filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+    const [products, supplier] = await Promise.all([
+      nativePosRepository.getMany<any>('products', affectedProductIds),
+      purchase.supplierId
+        ? nativePosRepository.get<any>('suppliers', purchase.supplierId)
+        : Promise.resolve(null),
+    ]);
+    if (purchase.supplierId && !supplier) {
       throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
     }
     const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
     const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
-    const supplierMap = new Map<string, any>(allSuppliers.map((entry: any) => [String(entry.id), entry]));
+    const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
     const changes: any[] = [];
     const touchedAccountCodes = new Set<string>();
     let allBatches = allBatchesRaw;
