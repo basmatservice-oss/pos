@@ -144,15 +144,16 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
   if (isNativeAndroid()) {
     const entries = (await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId))
       .filter((entry: any) => String(entry.id).startsWith('local-je:'));
-    const accounts = await nativePosRepository.getAll<any>('accounts');
-    const accountMap = new Map(accounts.map((account: any) => [String(account.code), account]));
+    const accountRows = await nativePosRepository.getAllWithSyncState('accounts');
+    const accountMap = new Map(accountRows.map((row) => [String(row.record.code), row]));
     const accountChanges = new Map<string, any>();
     const changes: any[] = [];
     for (const entry of entries) {
       const lines = await nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id));
       for (const line of lines) {
         const accountCode = String(line.accountId);
-        const account = accountChanges.get(accountCode) || accountMap.get(accountCode);
+        const accountRow = accountMap.get(accountCode);
+        const account = accountChanges.get(accountCode) || accountRow?.record;
         if (!account) continue;
         const debit = Number(line.debit || 0);
         const credit = Number(line.credit || 0);
@@ -165,7 +166,7 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
       }
       changes.push({ action: 'delete', entity: 'journalEntries', key: entry.id });
     }
-    for (const account of accountChanges.values()) changes.push({ action: 'put', entity: 'accounts', record: account });
+    for (const [accountCode, account] of accountChanges) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: accountMap.get(accountCode)?.syncState || 'local' });
     if (changes.length) await nativePosRepository.applyChanges(changes);
     return;
   }
