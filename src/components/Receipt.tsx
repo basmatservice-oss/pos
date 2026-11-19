@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Order, OrderItem } from '../db/db';
+import type { Order, OrderItem } from '../db/db';
 import { format } from 'date-fns';
 import { formatNumber, formatQty } from '../utils/format';
 
