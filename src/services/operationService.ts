@@ -1677,22 +1677,28 @@ async function applyPurchaseLocally(
         }
       }
     }
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء');
+    const uniqueChanges = new Map<string, any>();
+    for (const change of changes) {
+      const key = change.action === 'delete'
+        ? change.key
+        : change.entity === 'accounts' ? change.record.code : (change.record.id ?? change.record.key);
+      if (key === undefined || key === null || String(key).trim() === '') {
+        throw new Error('تعذر تحديد مفتاح أحد سجلات فاتورة الشراء قبل الحفظ الذري');
+      }
+      uniqueChanges.set(String(change.entity) + ':' + String(key), change);
+    }
+    const finalChanges = [...uniqueChanges.values()];
+    const applied = await nativePosRepository.applyChanges(finalChanges);
+    if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء في معاملة واحدة');
     await db.transaction('rw', [
       db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches,
       db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
     ], async () => {
-      await db.purchases.put(purchaseDoc);
-      await db.purchaseItems.bulkPut(itemDocs);
-      await db.inventoryBatches.bulkPut(batchDocs);
-      await db.inventoryMovements.bulkPut(movementDocs);
-      if (productUpdates.size) await db.products.bulkPut([...productUpdates.values()]);
-      if (updatedSupplier) await db.suppliers.put(updatedSupplier);
-      for (const change of changes) {
-        if (change.entity === 'accounts') await db.accounts.put(change.record);
-        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
-        else if (change.entity === 'transactions') await db.transactions.put(change.record);
+      for (const change of finalChanges) {
+        const table = (db as any)[change.entity];
+        if (!table) throw new Error('جدول ذاكرة التوافق غير موجود: ' + String(change.entity));
+        if (change.action === 'delete') await table.delete(change.key);
+        else await table.put(change.record);
       }
     });
     await flushNativeDatabaseMirrorWrites();
