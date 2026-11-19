@@ -161,6 +161,7 @@ export async function consumeLocalInventoryFIFO(
     const batches = batchRows.filter((row) => Number(row.record.productId) === params.productId && Number(row.record.remainingQuantity || 0) > 0)
       .sort((a, b) => {
         const dateOrder = String(a.record.purchaseDate || '').localeCompare(String(b.record.purchaseDate || ''));
+        if (dateOrder !== 0) return dateOrder;
         const createdOrder = String(a.record.createdAt || '').localeCompare(String(b.record.createdAt || ''));
         return createdOrder || String(a.record.id || '').localeCompare(String(b.record.id || ''));
       });
