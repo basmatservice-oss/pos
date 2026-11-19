@@ -3866,13 +3866,78 @@ export async function dispatchOperation(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
-    const [returns, batches] = await Promise.all([
+    const [returns, items, batches, products, suppliers, journals, transactions] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
+      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getAll<any>('suppliers'),
+      nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
+      nativePosRepository.getAll<any>('transactions'),
     ]);
     if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
-    if (batches.some((batch: any) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
-      throw new Error('لا يمكن حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
+    if (!items.length || !batches.length) {
+      throw new Error('تعذر التحقق من تفاصيل ودفعات فاتورة الشراء؛ أُوقف الحذف قبل إرساله إلى الخادم');
+    }
+    const itemQuantities = new Map<number, number>();
+    for (const item of items) {
+      const productId = Number(item.productId), quantity = Number(item.quantity), rawFactor = Number(item.conversionFactor ?? 1);
+      const factor = rawFactor > 0 ? rawFactor : 1;
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0) {
+        throw new Error('تفاصيل فاتورة الشراء تحتوي صنفًا أو كمية أو معامل تحويل غير صالح');
+      }
+      itemQuantities.set(productId, roundQty((itemQuantities.get(productId) || 0) + quantity * factor));
+    }
+    const batchQuantities = new Map<number, number>();
+    const seenBatchIds = new Set<string>();
+    for (const batch of batches) {
+      const productId = Number(batch.productId), quantity = Number(batch.quantity);
+      const remaining = Number(batch.remainingQuantity), id = String(batch.id);
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(remaining) || remaining < 0 || remaining > quantity + 0.0001 ||
+          remaining < quantity - 0.0001 || !id || seenBatchIds.has(id)) {
+        throw new Error('لا يمكن حذف فاتورة الشراء؛ إحدى دفعاتها مستهلكة أو تحتوي بيانات غير سليمة');
+      }
+      seenBatchIds.add(id);
+      batchQuantities.set(productId, roundQty((batchQuantities.get(productId) || 0) + quantity));
+    }
+    for (const [productId, quantity] of itemQuantities) {
+      if (Math.abs(quantity - (batchQuantities.get(productId) || 0)) > 0.0001) {
+        throw new Error('كميات تفاصيل فاتورة الشراء لا تطابق دفعاتها؛ لم تُرسل عملية الحذف إلى الخادم');
+      }
+      const product = products.find((row: any) => Number(row.id) === productId);
+      if (!product || Number(product.stockQuantity || 0) + 0.0001 < quantity) {
+        throw new Error('رصيد أحد أصناف فاتورة الشراء غير كافٍ لعكسها محليًا؛ لم تُرسل عملية الحذف إلى الخادم');
+      }
+    }
+    for (const productId of batchQuantities.keys()) {
+      if (!itemQuantities.has(productId)) throw new Error('توجد دفعة غير مرتبطة بتفاصيل فاتورة الشراء');
+    }
+    const supplier = oldPurchase.supplierId
+      ? suppliers.find((row: any) => String(row.id) === String(oldPurchase.supplierId))
+      : null;
+    const oldNumbers = [oldPurchase.shippingCost, oldPurchase.customsCost, oldPurchase.otherCosts, oldPurchase.totalAmount, oldPurchase.paidAmount]
+      .map((value: any) => Number(value || 0));
+    if (oldNumbers.some((value: number) => !Number.isFinite(value) || value < 0) ||
+        (oldPurchase.supplierId && oldNumbers[3] > oldNumbers[4] + oldNumbers[3] && !supplier)) {
+      throw new Error('بيانات فاتورة الشراء أو المورد غير صالحة لعكسها محليًا');
+    }
+    const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+    for (const entry of journals) {
+      if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
+      const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+      if (!lines.length || lines.some((line: any) => {
+        const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
+        return !String(line.accountId || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+          debit < 0 || credit < 0 || (debit > 0 && credit > 0);
+      })) throw new Error('لا يمكن عكس القيد المحاسبي محليًا؛ تفاصيله ناقصة أو غير صالحة');
+      const debit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
+      const credit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
+      if (Math.abs(debit - credit) > 0.02 || Math.abs(debit - Number(entry.totalDebit || 0)) > 0.02 ||
+          Math.abs(credit - Number(entry.totalCredit || 0)) > 0.02) {
+        throw new Error('القيد المحاسبي لفاتورة الشراء غير متوازن أو لا تطابق تفاصيله إجمالياته');
+      }
     }
   }
   setLocalAccountingStandaloneMode(role === 'standalone');
