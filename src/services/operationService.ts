@@ -177,7 +177,8 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     if (!allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + String(product.name));
     const activeBatches = [...batchMap.values()].filter((x: any) => Number(x.productId) === Number(productId) && Number(x.remainingQuantity || 0) > 0)
       .sort((a: any, b: any) => String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
-        String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+        String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+        String(a.id || '').localeCompare(String(b.id || '')));
     let weightedCost = Number(product.costPrice || 0);
     if (weightedAverage && activeBatches.length) {
       const activeQty = activeBatches.reduce((sum: number, x: any) => sum + Number(x.remainingQuantity || 0), 0);
