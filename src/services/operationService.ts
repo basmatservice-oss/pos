@@ -3621,8 +3621,10 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
 async function assertLocalOpenFiscalPeriod(dateValues: Array<string | undefined>, payload: any): Promise<void> {
   const periods = await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
-  let userRole = '';
-  try { userRole = JSON.parse(localStorage.getItem('user') || 'null')?.role || ''; } catch {}
+  let userRole = String(payload?.userRole || payload?.actor?.role || payload?.role || '').toLowerCase();
+  if (!userRole) {
+    try { userRole = String(JSON.parse(localStorage.getItem('user') || 'null')?.role || '').toLowerCase(); } catch {}
+  }
   const adminOverride = Boolean(payload?.allowClosedPeriodOverride) && (userRole === 'admin' || userRole === 'manager');
   for (const value of dateValues) {
     const targetDay = String(value || new Date().toISOString()).slice(0, 10);
