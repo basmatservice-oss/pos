@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Search } from 'lucide-react';
 import { db } from '../db/db';
@@ -47,9 +48,9 @@ export default function InventoryMovementLedger({ currency }: Props) {
     []
   ) || [];
   const movements = serverMovements ?? localMovements;
-  const products = useLiveQuery(() => db.products.toArray(), []) || [];
-  const units = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
-  const branches = useLiveQuery(() => db.branches.toArray(), []) || [];
+  const products = usePosEntityRecords<any>('products');
+  const units = usePosEntityRecords<any>('unitDefinitions');
+  const branches = usePosEntityRecords<any>('branches');
 
   useEffect(() => {
     let cancelled = false;
