@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
 import {
   Plus,
@@ -55,11 +56,11 @@ export default function Purchases() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Data State using Dexie Live Query
-  const products = useLiveQuery(() => db.products.toArray()) || [];
-  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
-  const allPurchases = useLiveQuery(() => db.purchases.toArray()) || [];
-  const allBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
-  const exchangeRateHistory = useLiveQuery(() => db.exchangeRateHistory.toArray()) || [];
+  const products = usePosEntityRecords<any>('products');
+  const suppliers = usePosEntityRecords<any>('suppliers');
+  const allPurchases = usePosEntityRecords<any>('purchases');
+  const allBatches = usePosEntityRecords<any>('inventoryBatches');
+  const exchangeRateHistory = usePosEntityRecords<any>('exchangeRateHistory');
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   const purchases = useMemo(() => {
