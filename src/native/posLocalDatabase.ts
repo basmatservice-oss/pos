@@ -213,7 +213,9 @@ export async function updateNativePosRecordSyncState(
 export async function putNativePosRecord(record: PosLocalRecord): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.putRecord(record);
-  return result.saved === true && result.recordId === record.recordId;
+  const saved = result.saved === true && result.recordId === record.recordId;
+  if (saved) notifyNativeRecordChanges([record.entity]);
+  return saved;
 }
 
 export async function getNativePosRecordsByField(entity: string, field: string, value: string | number | boolean, limit = 0) {
@@ -243,12 +245,14 @@ export async function deleteNativePosRecords(entity: string, recordIds: string[]
   if (!Number.isInteger(result.deleted) || result.deleted < 0 || result.deleted > uniqueIds.length) {
     throw new Error('SQLite returned an invalid deleted-row count');
   }
+  if (result.deleted > 0) notifyNativeRecordChanges([entity]);
   return result.deleted;
 }
 
 export async function deleteNativePosRecord(entity: string, recordId: string): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.deleteRecord({ entity, recordId });
+  if (result.deleted) notifyNativeRecordChanges([entity]);
   return result.deleted;
 }
 
@@ -256,7 +260,9 @@ export async function putNativePosRecords(records: PosLocalRecord[]): Promise<bo
   if (!(await ensureNativePosDatabase())) return false;
   if (records.length === 0) return true;
   const result = await posLocalDatabase.putRecords({ records });
-  return result.saved === true && result.count === records.length;
+  const saved = result.saved === true && result.count === records.length;
+  if (saved && records.length) notifyNativeRecordChanges(records.map((record) => record.entity));
+  return saved;
 }
 
 export async function replaceNativePosRecords(
@@ -265,7 +271,9 @@ export async function replaceNativePosRecords(
 ): Promise<boolean> {
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.replaceRecords({ entity, records });
-  return result.replaced === true && result.count === records.length;
+  const replaced = result.replaced === true && result.count === records.length;
+  if (replaced) notifyNativeRecordChanges([entity]);
+  return replaced;
 }
 
 export async function applyNativePosRecordChangesIfAbsent(
@@ -355,5 +363,6 @@ export async function applyNativePosRecordChanges(changes: PosLocalRecordChange[
       !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length) {
     throw new Error('SQLite returned an invalid atomic record-change result');
   }
+  if (result.applied > 0) notifyNativeRecordChanges(changes.map((change) => change.entity));
   return result.applied;
 }
