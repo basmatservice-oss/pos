@@ -53,6 +53,109 @@ export function setLocalAccountingStandaloneMode(enabled: boolean): void {
 }
 
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
+  if (isNativeAndroid()) {
+    const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
+    const lines = input.lines
+      .map((line) => ({ ...line, debit: money(line.debit), credit: money(line.credit) }))
+      .filter((line) => line.debit > 0 || line.credit > 0);
+    if (!lines.length) return null;
+    let totalDebit = money(lines.reduce((sum, line) => sum + line.debit, 0));
+    let totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
+    const difference = money(totalDebit - totalCredit);
+    if (Math.abs(difference) > 0.02) {
+      throw new Error('قيد محاسبي غير متوازن: ' + input.description + ' (مدين ' + totalDebit + ' / دائن ' + totalCredit + ')');
+    }
+    if (difference !== 0) {
+      const last = lines[lines.length - 1];
+      if (last.credit > 0) last.credit = money(last.credit + difference);
+      else last.debit = money(last.debit - difference);
+      totalDebit = money(lines.reduce((sum, line) => sum + line.debit, 0));
+      totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
+    }
+    const entryId = 'local-je:' + input.referenceType + ':' + input.referenceId + ':' + input.entryKey;
+    if (await nativePosRepository.get<any>('journalEntries', entryId)) return entryId;
+    const now = input.date || new Date().toISOString();
+    const changes: any[] = [];
+    const accounts = new Map<string, any>();
+    for (const definition of SYSTEM_ACCOUNTS) {
+      const existing = await nativePosRepository.get<any>('accounts', definition.code);
+      const account = existing || {
+        ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
+      };
+      accounts.set(definition.code, account);
+      if (!existing) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: 'local' });
+    }
+    const journal = {
+      id: entryId,
+      entryNumber: 'LOCAL-' + input.entryKey + '-' + input.referenceId.slice(0, 8),
+      date: now,
+      referenceId: input.referenceId,
+      referenceType: input.referenceType,
+      description: input.description,
+      totalDebit,
+      totalCredit,
+      status: 'posted',
+      createdBy: input.createdBy || 'System',
+      branchId: input.branchId,
+      syncStatus: journalSyncStatus,
+      createdAt: now,
+    };
+    changes.push({ action: 'put', entity: 'journalEntries', record: journal, syncState: journalSyncStatus });
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      let account = accounts.get(line.accountCode);
+      if (!account) {
+        account = await nativePosRepository.get<any>('accounts', line.accountCode);
+        if (!account) throw new Error('الحساب غير موجود: ' + line.accountCode);
+        accounts.set(line.accountCode, account);
+      }
+      const accountName = account?.name || line.accountCode;
+      changes.push({
+        action: 'put',
+        entity: 'transactions',
+        record: {
+          id: entryId + ':' + index,
+          journalEntryId: entryId,
+          accountId: line.accountCode,
+          accountName,
+          type: line.debit > 0 ? 'debit' : 'credit',
+          amount: line.debit > 0 ? line.debit : line.credit,
+          debit: line.debit,
+          credit: line.credit,
+          description: line.description || input.description,
+          orderId: line.orderId,
+          purchaseId: line.purchaseId,
+          returnId: line.returnId,
+          syncStatus: journalSyncStatus,
+          createdAt: now,
+        },
+        syncState: journalSyncStatus,
+      });
+      const normalDebit = account.type === 'asset' || account.type === 'expense';
+      const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+      const updated = { ...account, balance: money(Number(account.balance || 0) + delta), updatedAt: now };
+      accounts.set(line.accountCode, updated);
+    }
+    const accountChanges = new Map<string, any>();
+    for (const definition of SYSTEM_ACCOUNTS) {
+      const account = accounts.get(definition.code);
+      if (account) accountChanges.set(definition.code, account);
+    }
+    for (const line of lines) accountChanges.set(line.accountCode, accounts.get(line.accountCode));
+    for (const account of accountChanges.values()) {
+      changes.push({ action: 'put', entity: 'accounts', record: account, syncState: journalSyncStatus });
+    }
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
+    await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
+      for (const change of changes) {
+        if (change.entity === 'accounts') await db.accounts.put(change.record);
+        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
+        else if (change.entity === 'transactions') await db.transactions.put(change.record);
+      }
+    });
+    return entryId;
+  }
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
   const lines = input.lines
