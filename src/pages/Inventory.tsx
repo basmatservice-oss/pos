@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import type { Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
@@ -12,7 +12,6 @@ import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
-import { apiService } from '../services/apiService';
 import { formatMoney, formatQty, roundQty, roundAmount } from '../utils/format';
 import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
