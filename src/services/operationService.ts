@@ -201,7 +201,8 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       const available = Number(batch.remainingQuantity || 0), take = roundQty(Math.min(remaining, available));
       if (take <= 0) continue;
       const costPrice = weightedAverage ? weightedCost : Number(batch.costPrice || 0);
-      const updated = { ...batch, remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
+      const updated = { ...batch, ...(weightedAverage ? { costPrice: weightedCost } : {}),
+        remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
       batchMap.set(String(batch.id), updated); stage('inventoryBatches', updated);
       totalCost += take * costPrice; allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
       remaining = roundQty(remaining - take);
