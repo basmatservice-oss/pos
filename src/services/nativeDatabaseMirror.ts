@@ -1,4 +1,3 @@
-import { db } from '../db/db';
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
 import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges } from '../native/nativePosRepository';
 
@@ -117,7 +116,8 @@ export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
  * Dexie remains the current UI data layer; this is a durability bridge, not
  * yet a replacement SQLite-backed repository.
  */
-export function installNativeDatabaseMirrorHooks(): void {
+export async function installNativeDatabaseMirrorHooks(): Promise<void> {
+  const { db } = await import('../db/db');
   if (nativeMirrorHooksInstalled || !isNativeAndroid()) return;
 
   // Validate the complete registry before installing any hooks. Silently
@@ -155,6 +155,7 @@ export function installNativeDatabaseMirrorHooks(): void {
 }
 
 export async function mirrorNativePosDatabase(): Promise<void> {
+  const { db } = await import('../db/db');
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const invalidated = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: 'in_progress' });
   if (!invalidated.saved) throw new Error('تعذر إبطال علامة لقطة SQLite السابقة');
@@ -213,6 +214,7 @@ export async function mirrorNativePosRecord(entity: string, row: any): Promise<v
   await enqueueNativeMirrorWrite(() => persistNativePosRecord(entity, row));
 }
 export async function restoreNativePosDatabase(): Promise<boolean> {
+  const { db } = await import('../db/db');
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return false;
   const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
   if (snapshotState.value === 'in_progress') {
