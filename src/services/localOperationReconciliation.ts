@@ -200,7 +200,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     for (const row of rows) {
       if (!predicate(row.record)) continue;
       const record = { ...row.record, syncStatus: 'synced' };
-      queueChange({ action: 'put', entity, record, syncState: row.syncState });
+      queueChange({ action: 'put', entity, record, syncState: 'synced' });
       const key = record.id ?? record.code ?? record.key;
       if (key !== undefined) {
         if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Map<string, any>());
@@ -264,6 +264,12 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       await mark('purchases', (row) => String(row.id) === purchaseId);
       await mark('purchaseItems', (row) => String(row.purchaseId) === purchaseId);
       await mark('inventoryBatches', (row) => String(row.purchaseId) === purchaseId && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+      await mark('inventoryMovements', (row) => String(row.sourceId) === purchaseId && row.sourceType === 'purchase');
+      const purchaseJournalIds = new Set((await load('journalEntries'))
+        .filter((row) => String(row.record.referenceId) === purchaseId)
+        .map((row) => String(row.record.id)));
+      await mark('journalEntries', (row) => String(row.referenceId) === purchaseId);
+      await mark('transactions', (row) => purchaseJournalIds.has(String(row.journalEntryId)) || String(row.purchaseId) === purchaseId);
     }
     for (const item of payload?.items || []) if (canMark('products', item.productId)) await mark('products', (row) => String(row.id) === String(item.productId));
     for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await mark('products', (row) => String(row.id) === String(productId));
@@ -274,7 +280,15 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await mark('suppliers', (row) => String(row.id) === String(payload._localAffectedSupplierId));
   } else if (type === 'purchase_return') {
     const returnId = String(payload?.id || ''), purchaseId = String(payload?.originalPurchaseId || '');
-    if (returnId) { await mark('purchaseReturns', (row) => String(row.id) === returnId); await mark('purchaseReturnItems', (row) => String(row.purchaseReturnId) === returnId); }
+    if (returnId) {
+      await mark('purchaseReturns', (row) => String(row.id) === returnId);
+      await mark('purchaseReturnItems', (row) => String(row.purchaseReturnId) === returnId);
+      const returnJournalIds = new Set((await load('journalEntries'))
+        .filter((row) => String(row.record.referenceId) === returnId && row.record.referenceType === 'purchase_return')
+        .map((row) => String(row.record.id)));
+      await mark('journalEntries', (row) => String(row.referenceId) === returnId && row.referenceType === 'purchase_return');
+      await mark('transactions', (row) => returnJournalIds.has(String(row.journalEntryId)));
+    }
     if (purchaseId && canMark('purchases', purchaseId)) await mark('purchases', (row) => String(row.id) === purchaseId);
     const originalPurchase = purchaseId ? await get('purchases', purchaseId) : undefined;
     if (originalPurchase?.supplierId && canMark('suppliers', originalPurchase.supplierId)) await mark('suppliers', (row) => String(row.id) === String(originalPurchase.supplierId));
