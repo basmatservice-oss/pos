@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Plus, Trash2, Wallet, Calendar, Tag, FileText, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -17,7 +18,7 @@ export default function Expenses() {
 
   // Data State using Dexie Live Query
   const allExpenses = usePosEntityRecords<any>('expenses');
-  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const openShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   const expenses = useMemo(
     () =>
