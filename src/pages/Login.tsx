@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Lock, User, Grid3X3, Server } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
-import { db } from '../db/db';
+import { deletePosSettingsByKey, getFirstPosRecordWhereEquals, putPosSetting } from '../services/posDataAccess';
 import { setApiBaseDirect } from '../services/apiService';
 
 export default function Login() {
@@ -18,12 +18,9 @@ export default function Login() {
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
-    db.settings
-      .where('key')
-      .equals('serverUrl')
-      .first()
-      .then((s) => {
-        if (s?.value) setServerUrlInput(s.value);
+    getFirstPosRecordWhereEquals<any>('settings', 'key', 'serverUrl')
+      .then((setting) => {
+        if (setting?.value) setServerUrlInput(String(setting.value));
       })
       .catch(() => {});
   }, []);
@@ -81,15 +78,15 @@ export default function Login() {
             .filter((s: any) => s.key !== 'deviceRole' && s.key !== 'serverUrl')
             .map((s: any) => ({ ...s, syncStatus: 'synced' }));
           if (filteredSettings.length > 0) {
-            await db.settings.bulkPut(filteredSettings);
+            await Promise.all(filteredSettings.map((setting: any) => putPosSetting(setting.key, setting.value, 'synced')));
           }
         }
       }
 
-      await db.settings.where('key').equals('deviceRole').delete();
-      await db.settings.where('key').equals('serverUrl').delete();
-      await db.settings.add({ key: 'deviceRole', value: 'client', syncStatus: 'synced', updatedAt: new Date().toISOString() });
-      await db.settings.add({ key: 'serverUrl', value: serverUrl, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+      await deletePosSettingsByKey('deviceRole');
+      await deletePosSettingsByKey('serverUrl');
+      await putPosSetting('deviceRole', 'client', 'synced');
+      await putPosSetting('serverUrl', serverUrl, 'synced');
 
       toast.success('تم ربط الجهاز بالسيرفر! يرجى تسجيل الدخول الآن.', { id: toastId, duration: 3000 });
 
