@@ -679,6 +679,8 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', targetOrderId),
   ]);
   if (!order || order.status === 'void') return;
+  const sourceOrderVersion = String(order.updatedAt || '').trim();
+  if (!sourceOrderVersion) throw new Error('فاتورة البيع لا تحتوي إصدار تحديث يمكن استخدامه لمنع تعارض الإلغاء مع المرتجعات المتزامنة');
   if (Number(order.returnedAmount || 0) > 0 || order.status === 'returned' || order.status === 'partially_returned')
     throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
   const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
@@ -864,10 +866,22 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     record: change.record,
     syncState: change.syncState || 'local',
   }));
-  const committed = await applyNativePosRecordChangesIfAbsent(
-    nativeChanges, 'orders', 'voidOperationId', operationId,
+  const committed = await applyNativePosRecordChangesIfFieldAbsent(
+    nativeChanges,
+    'orders',
+    'voidOperationId',
+    operationId,
+    {
+      entity: 'orders',
+      recordId: JSON.stringify(targetOrderId),
+      field: 'updatedAt',
+      expectedValue: sourceOrderVersion,
+    },
   );
-  if (!committed.skipped && committed.applied !== nativeChanges.length) {
+  if (committed.skipped) {
+    throw new Error('تغيرت فاتورة البيع أثناء الإلغاء؛ أعد تحميلها قبل المحاولة مرة أخرى');
+  }
+  if (committed.applied !== nativeChanges.length) {
     throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
   }
   // The void status guard and all stock/accounting reversals commit atomically.
@@ -1510,6 +1524,10 @@ async function applyPurchaseLocally(
       ? await nativePosRepository.get<any>('purchases', String(purchase.id))
       : null;
     if (isPurchaseUpdate && !oldPurchase) throw new Error('فاتورة الشراء المطلوب تعديلها غير موجودة في SQLite');
+    const sourcePurchaseVersion = isPurchaseUpdate ? String(oldPurchase.updatedAt || '').trim() : '';
+    if (isPurchaseUpdate && !sourcePurchaseVersion) {
+      throw new Error('فاتورة الشراء لا تحتوي إصدار تحديث؛ أوقف التعديل لمنع الكتابة فوق تغييرات أحدث');
+    }
     if (isPurchaseUpdate && payload.operationId && String(oldPurchase.lastLocalOperationId || '') === String(payload.operationId)) return;
     if (!isPurchaseUpdate && await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
     const items = Array.isArray(payload.items) ? payload.items : [];
@@ -1770,7 +1788,7 @@ async function applyPurchaseLocally(
     }
     const purchaseDoc = {
       ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0,
-      ...(isPurchaseUpdate ? { lastLocalOperationId: updateOperationId } : {}),
+      ...(isPurchaseUpdate ? { lastLocalOperationId: updateOperationId, updatedAt: now } : {}),
       syncStatus,
     };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
@@ -1974,7 +1992,16 @@ async function applyPurchaseLocally(
         });
     const committed = isPurchaseUpdate
       ? await applyNativePosRecordChangesIfFieldAbsent(
-          nativeChanges, 'purchases', 'lastLocalOperationId', updateOperationId,
+          nativeChanges,
+          'purchases',
+          'lastLocalOperationId',
+          updateOperationId,
+          {
+            entity: 'purchases',
+            recordId: JSON.stringify(String(purchase.id)),
+            field: 'updatedAt',
+            expectedValue: sourcePurchaseVersion,
+          },
         )
       : await applyNativePosRecordChangesIfAbsent(
           nativeChanges, 'purchases', JSON.stringify(purchase.id),
