@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Employee, Attendance } from '../db/db';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
+import type { Employee, Attendance } from '../db/db';
 import { 
   Clock, LogIn, LogOut, Calendar, 
   Users, Search, Filter, CheckCircle2, 
@@ -16,8 +17,8 @@ export default function AttendancePage() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   
-  const employees = useLiveQuery(() => db.employees.where('status').equals('active').toArray()) || [];
-  const attendanceRecords = useLiveQuery(() => db.attendance.orderBy('date').reverse().toArray()) || [];
+  const employees = usePosRecordsWhereEquals<Employee>('employees', 'status', 'active');
+  const attendanceRecords = usePosEntityRecords<Attendance>('attendance').slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.checkIn || '').localeCompare(String(a.checkIn || '')));
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const todayRecords = attendanceRecords.filter(r => r.date === today);
