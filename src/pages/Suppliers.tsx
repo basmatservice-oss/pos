@@ -18,8 +18,8 @@ import {
   Download,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { db } from '../db/db';
 import type { Supplier, Purchase, PurchaseItem } from '../db/db';
+import { getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { useSettings } from '../hooks/useSettings';
 import PurchaseReceipt from '../components/PurchaseReceipt';
 import { format } from 'date-fns';
@@ -298,14 +298,11 @@ export default function Suppliers() {
     setCustomPayMethod('cash');
     setCustomPayNotes('');
     try {
-      const unpaidPurchases = await db.purchases
-        .where('supplierId')
-        .equals(supplier.id!)
-        .filter((p) => {
-          const remaining = p.totalAmount - (p.returnedAmount || 0) - p.paidAmount;
-          return p.paymentStatus !== 'paid' && remaining > 0.01;
-        })
-        .toArray();
+      const supplierPurchases = await getPosRecordsWhereEquals<Purchase>('purchases', 'supplierId', supplier.id!);
+      const unpaidPurchases = supplierPurchases.filter((purchase) => {
+        const remaining = purchase.totalAmount - (purchase.returnedAmount || 0) - purchase.paidAmount;
+        return purchase.paymentStatus !== 'paid' && remaining > 0.01;
+      });
       unpaidPurchases.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setSupplierUnpaidPurchases(unpaidPurchases);
     } catch (error) {
@@ -640,10 +637,7 @@ export default function Suppliers() {
                           <div className="flex gap-2">
                             <button
                               onClick={async () => {
-                                const items = await db.purchaseItems
-                                  .where('purchaseId')
-                                  .equals(purchase.id!)
-                                  .toArray();
+                                const items = await getPosRecordsWhereEquals<PurchaseItem>('purchaseItems', 'purchaseId', purchase.id!);
                                 setSelectedPurchaseForPreview({ purchase, items });
                               }}
                               className="px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold"
