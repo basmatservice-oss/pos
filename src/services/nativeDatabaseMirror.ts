@@ -209,14 +209,14 @@ async function persistNativePosRecord(entity: string, row: any): Promise<void> {
 export async function mirrorNativePosRecord(entity: string, row: any): Promise<void> {
   await enqueueNativeMirrorWrite(() => persistNativePosRecord(entity, row));
 }
-export async function restoreNativePosDatabase(): Promise<void> {
-  if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+export async function restoreNativePosDatabase(): Promise<boolean> {
+  if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return false;
   const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
   if (snapshotState.value === 'in_progress') {
     console.warn('Interrupted Android SQLite snapshot detected; partial records will not be restored. A fresh Dexie snapshot will be attempted.');
-    return;
+    return false;
   }
-  if (snapshotState.value !== '1') return;
+  if (snapshotState.value !== '1') return false;
 
   // Read and validate every entity before opening the Dexie write transaction.
   // A corrupt late entity must never leave an earlier subset restored.
@@ -284,4 +284,5 @@ export async function restoreNativePosDatabase(): Promise<void> {
       if (restoredRows.length) await table.bulkPut(restoredRows);
     }
   });
+  return true;
 }
