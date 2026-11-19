@@ -123,10 +123,10 @@ async function remapLocalEntityReferences(tableName: string, oldId: string, newI
         });
       }
     }
-    if (changes.size) {
-    const applied = await nativePosRepository.applyChanges(Array.from(changes.values()));
-    if (applied !== changes.size) throw new Error('SQLite did not confirm every Android sync reconciliation change');
-  }
+    if (changes.length) {
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('SQLite did not confirm every Android entity-reference remap');
+    }
     return;
   }
   for (const [storeName, fields] of Object.entries(stores)) {
@@ -344,7 +344,11 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       } else await mark(entity, (row) => String(row.id) === String(serverId));
     }
   }
-  if (changes.length) await nativePosRepository.applyChanges(changes);
+  if (changes.size) {
+    const finalChanges = Array.from(changes.values());
+    const applied = await nativePosRepository.applyChanges(finalChanges);
+    if (applied !== finalChanges.length) throw new Error('SQLite did not confirm every Android operation acknowledgement change');
+  }
   for (const [entity, keys] of cacheUpdates) {
     const table = db.table(entity);
     for (const key of keys.values()) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
