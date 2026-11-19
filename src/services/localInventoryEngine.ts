@@ -1,6 +1,6 @@
 import { generateUUID } from '../utils/uuid';
-import { isNativeAndroid } from '../native/posLocalDatabase';
-import { nativePosRepository } from '../native/nativePosRepository';
+import { applyNativePosRecordChangesIfFieldAbsent, isNativeAndroid } from '../native/posLocalDatabase';
+import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { roundQty } from '../utils/format';
 // Dexie is loaded only for desktop inventory operations; Android writes are transactional in SQLite.
 let db = {} as typeof import('../db/db').db;
@@ -54,6 +54,29 @@ async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
   }
   const batch = Array.from(unique.values());
   if (!batch.length) return;
+  const movement = batch.find((change) =>
+    change.action === 'put' && change.entity === 'inventoryMovements' && change.record?.movementKey,
+  );
+  if (movement) {
+    const nativeChanges = batch.map((change) => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+      : {
+          action: 'put' as const,
+          entity: change.entity,
+          recordId: getNativePosRecordId(change.entity, change.record),
+          record: change.record,
+          syncState: change.syncState || 'local',
+        });
+    const result = await applyNativePosRecordChangesIfFieldAbsent(
+      nativeChanges,
+      'inventoryMovements',
+      'movementKey',
+      String(movement.record.movementKey),
+    );
+    if (result.skipped) return;
+    if (result.applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
+    return;
+  }
   const applied = await nativePosRepository.applyChanges(batch);
   if (applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
 }
