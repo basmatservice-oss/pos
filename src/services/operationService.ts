@@ -1540,8 +1540,21 @@ async function applyPurchaseLocally(
         throw new Error('تحتوي فاتورة الشراء على دفعة غير مرتبطة بتفاصيلها؛ أُوقف الحذف حفاظًا على المخزون');
       }
     }
-    if (oldBatches.some((batch: any) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
-      throw new Error('لا يمكن حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
+    if (oldBatches.some((batch: any) => {
+      const quantity = Number(batch.quantity);
+      const remaining = Number(batch.remainingQuantity);
+      return !Number.isFinite(quantity) || !Number.isFinite(remaining) || quantity <= 0 ||
+        remaining < 0 || remaining > quantity + 0.0001 || remaining < quantity - 0.0001;
+    })) {
+      throw new Error('لا يمكن حذف فاتورة شراء استُهلك جزء من دفعاتها أو تحتوي كميات غير سليمة');
+    }
+    const oldProductIds = [...itemBaseQuantities.keys()];
+    for (const productId of oldProductIds) {
+      const product = allProducts.find((candidate: any) => Number(candidate.id) === productId);
+      if (!product) throw new Error('لا يمكن عكس فاتورة الشراء؛ أحد أصنافها غير موجود في SQLite');
+      if (Number(product.stockQuantity || 0) + 0.0001 < (itemBaseQuantities.get(productId) || 0)) {
+        throw new Error('لا يمكن عكس فاتورة الشراء؛ رصيد الصنف الحالي أقل من الكمية المطلوب عكسها');
+      }
     }
     const now = new Date().toISOString();
     const operationId = String(payload.operationId || oldPurchase.operationId || purchaseId);
@@ -1590,6 +1603,9 @@ async function applyPurchaseLocally(
       ? roundMoney(Number(oldPurchase.totalAmount || 0) + oldExtraCost)
       : roundMoney(Number(oldPurchase.totalAmount || 0));
     const oldRemaining = roundMoney(oldPayable - Number(oldPurchase.paidAmount || 0));
+    if (oldPurchase.supplierId && oldRemaining > 0 && !supplier) {
+      throw new Error('لا يمكن عكس فاتورة الشراء؛ سجل المورد غير موجود في SQLite');
+    }
     if (supplier && oldRemaining > 0) {
       const updated = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - oldRemaining), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
@@ -1600,7 +1616,14 @@ async function applyPurchaseLocally(
       for (const entry of journals) {
         if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
         const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
-        if (!lines.length) continue;
+        if (!lines.length) throw new Error('لا يمكن عكس فاتورة الشراء؛ القيد المنشور بلا تفاصيل محاسبية في SQLite');
+        const originalDebit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
+        const originalCredit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
+        if (Math.abs(originalDebit - originalCredit) > 0.02 ||
+            Math.abs(originalDebit - Number(entry.totalDebit || 0)) > 0.02 ||
+            Math.abs(originalCredit - Number(entry.totalCredit || 0)) > 0.02) {
+          throw new Error('لا يمكن عكس فاتورة الشراء؛ تفاصيل القيد لا تطابق إجمالياته أو أنه غير متوازن');
+        }
         const reversalId = 'local-je:' + String(entry.referenceType || 'purchase') + ':' + purchaseId + ':reversal-' + String(entry.id);
         if (journals.some((x: any) => String(x.id) === reversalId)) continue;
         const reversalLines = lines.map((line: any) => ({
