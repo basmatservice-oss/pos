@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
-import { isNativeAndroid, listNativePendingPosOperations } from '../native/posLocalDatabase';
+import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -108,13 +108,15 @@ export default function SyncStatus() {
 
   const fetchLocalQueue = async () => {
     if (isNativeAndroid()) {
-      const queued = await listNativePendingPosOperations();
+      const queued = await listAllNativePosOperations();
       const nativeOperations = queued.map((operation: any) => ({
         id: operation.operationId,
         type: operation.type as SyncOperation['type'],
         payload: operation.payload,
         deviceId: operation.deviceId || 'android',
-        status: 'pending',
+        status: operation.status || 'pending',
+        lastError: operation.lastError,
+        nextRetryAt: operation.nextRetryAt ? new Date(operation.nextRetryAt).toISOString() : undefined,
         createdAt: new Date(operation.createdAt).toISOString(),
         updatedAt: new Date(operation.createdAt).toISOString(),
         retryCount: operation.retryCount || 0,
@@ -173,6 +175,9 @@ export default function SyncStatus() {
 
   const handleRetryOp = async (op: SyncOperation) => {
     if (isNativeAndroid()) {
+      if (op.status === 'error' || op.status === 'conflict') {
+        await retryNativePosOperation(String(op.id));
+      }
       await syncService.syncAll();
       await fetchLocalQueue();
       return;
