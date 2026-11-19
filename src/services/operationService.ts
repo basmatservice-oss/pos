@@ -3565,13 +3565,16 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
     if (!session) throw new Error('جلسة الجرد غير موجودة');
     if (session.status === 'approved') return;
     const entries = await nativePosRepository.whereEquals<any>('stocktakingEntries', 'sessionId', sessionId);
-    const [products, batches, movements, accounts, existingJournals] = await Promise.all([
-      nativePosRepository.getAll<any>('products'),
-      nativePosRepository.getAll<any>('inventoryBatches'),
-      nativePosRepository.getAll<any>('inventoryMovements'),
-      nativePosRepository.getAll<any>('accounts'),
-      nativePosRepository.getAll<any>('journalEntries'),
+    const productIds = [...new Set(entries.map((entry: any) => Number(entry.productId))
+      .filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+    const [products, batchGroups, movements, existingJournals, accounts] = await Promise.all([
+      nativePosRepository.getMany<any>('products', productIds),
+      Promise.all(productIds.map((id: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', id))),
+      nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', sessionId),
+      nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', sessionId),
+      nativePosRepository.getMany<any>('accounts', ['1200', '5400']),
     ]);
+    const batches = batchGroups.flat();
     const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
     const batchMap = new Map<string, any>(batches.map((b: any) => [String(b.id), b]));
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
