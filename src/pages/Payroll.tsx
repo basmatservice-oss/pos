@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Users,
@@ -50,7 +51,7 @@ const Payroll: React.FC = () => {
   const employees = usePosEntityRecords<any>('employees');
   const attendance = usePosEntityRecords<any>('attendance');
   const payrollRecords = usePosEntityRecords<any>('payroll');
-  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const openShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   const monthStart = useMemo(() => startOfMonth(parseISO(`${selectedMonth}-01`)), [selectedMonth]);
   const monthEnd = useMemo(() => endOfMonth(monthStart), [monthStart]);
