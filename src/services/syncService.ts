@@ -139,11 +139,9 @@ export const syncService = {
     // entries so upgrades do not strand operations created by previous builds.
     let nativeQueued: Array<any> = [];
     if (isNativeAndroid()) {
-      try {
-        nativeQueued = await listNativePendingPosOperations();
-      } catch (error) {
-        console.error('Android SQLite outbox unavailable; using Dexie recovery queue:', error);
-      }
+      // SQLite is the durable Android outbox. If it cannot be read, stop before
+      // sending a partial Dexie-only queue that could omit newer local work.
+      nativeQueued = await listNativePendingPosOperations();
     }
     const nativeIds = new Set(nativeQueued.map((op) => op.operationId));
     const nativeAsSyncOperations = nativeQueued.map((op) => ({
