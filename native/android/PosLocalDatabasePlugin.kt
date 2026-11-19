@@ -647,6 +647,66 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun replacePendingOperations(call: PluginCall) {
+        val operations = call.getArray("operations") ?: JSArray()
+        val parsed = mutableListOf<JSONObject>()
+        val ids = mutableSetOf<String>()
+        try {
+            for (index in 0 until operations.length()) {
+                val operation = operations.getJSONObject(index)
+                val operationId = operation.optString("operationId").trim()
+                val type = operation.optString("type").trim()
+                val payload = operation.optJSONObject("payload")
+                if (operationId.isBlank() || type.isBlank() || payload == null || !ids.add(operationId)) {
+                    throw IllegalArgumentException("Invalid or duplicate pending operation at index $index")
+                }
+                parsed.add(operation)
+            }
+
+            val db = helper.writableDatabase
+            db.beginTransaction()
+            try {
+                db.delete("pos_outbox", null, null)
+                db.delete("pos_records", "entity = ?", arrayOf("operations"))
+                val now = System.currentTimeMillis()
+                for (operation in parsed) {
+                    val operationId = operation.getString("operationId").trim()
+                    val type = operation.getString("type").trim()
+                    val payload = operation.getJSONObject("payload")
+                    val values = ContentValues().apply {
+                        put("operation_id", operationId)
+                        put("type", type)
+                        put("payload", payload.toString())
+                        put("device_id", operation.optString("deviceId", ""))
+                        put("tenant_id", operation.optString("tenantId", ""))
+                        put("branch_id", operation.optString("branchId", ""))
+                        put("actor", operation.optString("actor", ""))
+                        put("schema_version", operation.optInt("schemaVersion", 1).coerceAtLeast(1))
+                        put("created_at", now)
+                        put("status", "pending")
+                    }
+                    val inserted = db.insertOrThrow("pos_outbox", null, values)
+                    if (inserted == -1L) throw IllegalStateException("Could not restore outbox operation $operationId")
+                    val recordValues = ContentValues().apply {
+                        put("entity", "operations")
+                        put("record_id", operationId)
+                        put("json", payload.toString())
+                        put("sync_state", "pending")
+                        put("updated_at", now)
+                    }
+                    db.insertOrThrow("pos_records", null, recordValues)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            call.resolve(JSObject().put("replaced", true).put("count", parsed.size))
+        } catch (error: Exception) {
+            call.reject("تعذر استبدال قائمة العمليات المعلقة بصورة ذرية", error)
+        }
+    }
+
+    @PluginMethod
     fun listPendingOperations(call: PluginCall) {
         try {
             val rows = JSArray()
