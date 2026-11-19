@@ -1,6 +1,4 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { usePosEntityRecords } from './usePosEntityRecords';
-import { db } from '../db/db';
 
 export function useSettings() {
   const settings = usePosEntityRecords<any>('settings');
