@@ -1,5 +1,7 @@
 import { db } from '../db/db';
 import { generateUUID } from '../utils/uuid';
+import { isNativeAndroid } from '../native/posLocalDatabase';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 const SYSTEM_ACCOUNTS = [
   { code: '1010', name: 'الصندوق', type: 'asset' },
@@ -139,6 +141,34 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
 }
 
 export async function removeLocalJournalEntriesForReference(referenceId: string): Promise<void> {
+  if (isNativeAndroid()) {
+    const entries = (await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId))
+      .filter((entry: any) => String(entry.id).startsWith('local-je:'));
+    const accounts = await nativePosRepository.getAll<any>('accounts');
+    const accountMap = new Map(accounts.map((account: any) => [String(account.code), account]));
+    const accountChanges = new Map<string, any>();
+    const changes: any[] = [];
+    for (const entry of entries) {
+      const lines = await nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id));
+      for (const line of lines) {
+        const accountCode = String(line.accountId);
+        const account = accountChanges.get(accountCode) || accountMap.get(accountCode);
+        if (!account) continue;
+        const debit = Number(line.debit || 0);
+        const credit = Number(line.credit || 0);
+        const normalDebit = account.type === 'asset' || account.type === 'expense';
+        const delta = normalDebit ? debit - credit : credit - debit;
+        accountChanges.set(accountCode, {
+          ...account, balance: money(Number(account.balance || 0) - delta), updatedAt: new Date().toISOString(),
+        });
+        changes.push({ action: 'delete', entity: 'transactions', key: line.id });
+      }
+      changes.push({ action: 'delete', entity: 'journalEntries', key: entry.id });
+    }
+    for (const account of accountChanges.values()) changes.push({ action: 'put', entity: 'accounts', record: account });
+    if (changes.length) await nativePosRepository.applyChanges(changes);
+    return;
+  }
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const localEntries = entries.filter((entry: any) => String(entry.id).startsWith('local-je:'));
