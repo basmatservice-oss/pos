@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Plus, Trash2, Wallet, Calendar, Tag, FileText, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -15,7 +16,7 @@ export default function Expenses() {
   const { user } = useAuth();
 
   // Data State using Dexie Live Query
-  const allExpenses = useLiveQuery(() => db.expenses.toArray()) || [];
+  const allExpenses = usePosEntityRecords<any>('expenses');
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   const expenses = useMemo(
