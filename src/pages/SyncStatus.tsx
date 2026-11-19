@@ -17,7 +17,7 @@ import {
   MonitorSmartphone,
 } from 'lucide-react';
 import { db, SyncOperation, InventoryAlert } from '../db/db';
-import { getPosRecords } from '../services/posDataAccess';
+import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -173,7 +173,10 @@ export default function SyncStatus() {
   const handleResolveAlert = async (alertId: string) => {
     try {
       await apiService.resolveInventoryAlert(alertId);
-      await db.inventoryAlerts.update(alertId, { resolved: 1 });
+      const alert = await getPosRecord<any>('inventoryAlerts', alertId);
+      if (alert) {
+        await putPosRecord('inventoryAlerts', { ...alert, resolved: 1 }, 'synced');
+      }
       toast.success('تم تأكيد مراجعة تنبيه المخزون');
       fetchAlerts();
     } catch {
