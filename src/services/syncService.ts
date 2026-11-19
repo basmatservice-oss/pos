@@ -400,21 +400,33 @@ export const syncService = {
   async pushTable(tableName: string) {
     if (await this.getDeviceRole() === 'standalone') return;
     if (!(db as any)[tableName]) return;
-    const pendingRecords = await (db as any)[tableName]
-      .where('syncStatus')
-      .anyOf(['pending', 'error'])
-      .toArray();
+    const pendingRecords = isNativeAndroid()
+      ? (await nativePosRepository.getAllWithSyncState(tableName as any))
+          .filter((item) => item.syncState === 'pending' || item.syncState === 'error')
+          .map((item) => item.record)
+      : await (db as any)[tableName].where('syncStatus').anyOf(['pending', 'error']).toArray();
 
     for (const record of pendingRecords) {
+      const recordKey = record.id ?? record.key;
       try {
         const serverRes = await this.sendRecordToServer(tableName, record);
         await this.reconcilePushedRecord(tableName, record, serverRes);
+        if (isNativeAndroid()) {
+          const saved = await (db as any)[tableName].get(serverRes?.id ?? recordKey);
+          if (recordKey !== undefined && saved?.id !== undefined && String(recordKey) !== String(saved.id)) {
+            await nativePosRepository.delete(tableName as any, recordKey);
+          }
+          if (saved) {
+            await mirrorNativePosRecord(tableName, saved);
+            await nativePosRepository.setSyncState(tableName as any, saved.id ?? saved.key, 'synced');
+          }
+        }
       } catch (err: any) {
         console.error(`Failed to push ${tableName} record:`, record, err);
-        if (err.response && err.response.status === 409) {
-          await updateRecordWithoutSyncHook(tableName, record.id || record.key, { syncStatus: 'conflict' });
-        } else {
-          await updateRecordWithoutSyncHook(tableName, record.id || record.key, { syncStatus: 'error' });
+        const conflict = err.response && err.response.status === 409;
+        await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: conflict ? 'conflict' : 'error' });
+        if (isNativeAndroid() && recordKey !== undefined) {
+          await nativePosRepository.setSyncState(tableName as any, recordKey, conflict ? 'local' : 'error');
         }
       }
     }
