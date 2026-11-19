@@ -42,8 +42,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { ExchangeRateRecord, FiscalPeriod } from '../db/db';
-import { isNativeAndroid, replaceNativePendingPosOperations } from '../native/posLocalDatabase';
+import { isNativeAndroid, applyNativeSnapshotAndReplaceOutbox } from '../native/posLocalDatabase';
 import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '../native/nativePosRepository';
+import type { PosLocalRecordChange, PosQueuedOperation } from '../native/posLocalDatabase';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
 import { useAuth } from '../context/AuthContext';
@@ -435,9 +436,10 @@ const Settings: React.FC = () => {
             changes.push({ action: 'put', entity, record, syncState: state });
           }
         }
-        const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
-        if (applied !== changes.length) throw new Error('SQLite لم تؤكد استعادة جميع سجلات النسخة الاحتياطية');
-        await replaceNativePendingPosOperations(pendingBackup.map((operation: any) => ({
+        const nativeChanges: PosLocalRecordChange[] = changes.map((change: any) => change.action === 'delete'
+          ? { action: 'delete', entity: change.entity, recordId: JSON.stringify(change.key) }
+          : { action: 'put', entity: change.entity, recordId: getNativePosRecordId(change.entity, change.record), record: change.record, syncState: change.syncState || 'local' });
+        const nativeOperations: PosQueuedOperation[] = pendingBackup.map((operation: any) => ({
           operationId: String(operation.operationId),
           type: String(operation.type),
           payload: operation.payload,
@@ -446,7 +448,8 @@ const Settings: React.FC = () => {
           branchId: operation.branchId == null ? undefined : String(operation.branchId),
           actor: operation.actor == null ? undefined : String(operation.actor),
           schemaVersion: Number(operation.schemaVersion || 1),
-        })));
+        }));
+        await applyNativeSnapshotAndReplaceOutbox(nativeChanges, nativeOperations);
       } else {
         const { db } = await import('../db/db');
         await db.transaction('rw', db.tables, async () => {
@@ -497,9 +500,10 @@ const Settings: React.FC = () => {
             changes.push({ action: 'delete', entity, key: JSON.parse(row.recordId) });
           }
         }
-        const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
-        if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع سجلات البيانات');
-        await replaceNativePendingPosOperations([]);
+        const nativeChanges: PosLocalRecordChange[] = changes.map((change: any) => ({
+          action: 'delete', entity: change.entity, recordId: JSON.stringify(change.key),
+        }));
+        await applyNativeSnapshotAndReplaceOutbox(nativeChanges, []);
       } else {
         const { db } = await import('../db/db');
         if (mode === 'system') {
