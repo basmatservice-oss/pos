@@ -45,7 +45,14 @@ async function initializeLocalRuntime(): Promise<void> {
       await ensureDatabaseReady();
       await mirrorNativePosDatabase();
     }
-    // Normal Android startup does not initialize or hydrate Dexie.
+
+    // Migrate any pre-SQLite operation queue even on standalone devices.
+    // This function is guarded by a durable SQLite marker and loads Dexie only
+    // for the one-time legacy migration.
+    const { migrateLegacyAndroidQueueToSQLite } = await import('./services/syncService');
+    await migrateLegacyAndroidQueueToSQLite();
+
+    // Normal Android startup does not initialize or hydrate Dexie after migration.
     return;
   }
 
