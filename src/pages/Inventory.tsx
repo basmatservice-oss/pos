@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { db, Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
@@ -547,7 +547,7 @@ export default function Inventory() {
       if (savedParentId) {
         for (const delId of removedRecipeIds) {
           await apiService.deleteServiceRecipe(delId).catch(() => {});
-          await db.serviceRecipes.delete(delId).catch(() => {});
+          await deletePosRecord('serviceRecipes', delId).catch(() => {});
         }
         if (formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') {
           for (const row of recipeRows) {
