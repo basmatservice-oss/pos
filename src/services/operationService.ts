@@ -1642,11 +1642,19 @@ async function applyPurchaseLocally(
       cacheChanges.push({ entity: 'products', record: updated });
     }
     const supplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
-    const oldExtraCost = roundMoney(Number(oldPurchase.shippingCost || 0) + Number(oldPurchase.customsCost || 0) + Number(oldPurchase.otherCosts || 0));
+    const oldShipping = Number(oldPurchase.shippingCost || 0);
+    const oldCustoms = Number(oldPurchase.customsCost || 0);
+    const oldOtherCosts = Number(oldPurchase.otherCosts || 0);
+    const oldTotal = Number(oldPurchase.totalAmount || 0);
+    const oldPaid = Number(oldPurchase.paidAmount || 0);
+    if ([oldShipping, oldCustoms, oldOtherCosts, oldTotal, oldPaid].some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new Error('لا يمكن عكس فاتورة الشراء؛ إجمالياتها أو مصروفاتها تحتوي قيمًا مالية غير صالحة');
+    }
+    const oldExtraCost = roundMoney(oldShipping + oldCustoms + oldOtherCosts);
     const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier'
-      ? roundMoney(Number(oldPurchase.totalAmount || 0) + oldExtraCost)
-      : roundMoney(Number(oldPurchase.totalAmount || 0));
-    const oldRemaining = roundMoney(oldPayable - Number(oldPurchase.paidAmount || 0));
+      ? roundMoney(oldTotal + oldExtraCost)
+      : roundMoney(oldTotal);
+    const oldRemaining = roundMoney(oldPayable - oldPaid);
     if (oldPurchase.supplierId && oldRemaining > 0 && !supplier) {
       throw new Error('لا يمكن عكس فاتورة الشراء؛ سجل المورد غير موجود في SQLite');
     }
@@ -1661,6 +1669,11 @@ async function applyPurchaseLocally(
         if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
         const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
         if (!lines.length) throw new Error('لا يمكن عكس فاتورة الشراء؛ القيد المنشور بلا تفاصيل محاسبية في SQLite');
+        if (lines.some((line: any) => {
+          const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
+          return !String(line.accountId || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0 ||
+            (debit > 0 && credit > 0);
+        })) throw new Error('لا يمكن عكس فاتورة الشراء؛ يحتوي القيد على سطور مالية أو حسابات غير صالحة');
         const originalDebit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
         const originalCredit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
         if (Math.abs(originalDebit - originalCredit) > 0.02 ||
