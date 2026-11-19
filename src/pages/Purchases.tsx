@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
 import {
@@ -184,7 +185,7 @@ export default function Purchases() {
       return;
     }
 
-    const product = await db.products.where('barcode').equals(q).first();
+    const product = await getFirstPosRecordWhereEquals<any>('products', 'barcode', q);
     if (product) {
       addToCart(product);
       setSearchQuery('');
@@ -381,7 +382,7 @@ export default function Purchases() {
       return;
     }
 
-    const items = await db.purchaseItems.where('purchaseId').equals(purchase.id!).toArray();
+    const items = await getPosRecordsWhereEquals<any>('purchaseItems', 'purchaseId', purchase.id!);
     const supplier = suppliers.find((s) => s.id === purchase.supplierId);
 
     setEditingPurchase(purchase);
@@ -415,8 +416,8 @@ export default function Purchases() {
   };
 
   const openPurchaseReturnModal = async (purchase: Purchase) => {
-    const items = await db.purchaseItems.where('purchaseId').equals(purchase.id!).toArray();
-    const batches = await db.inventoryBatches.where('purchaseId').equals(purchase.id!).toArray();
+    const items = await getPosRecordsWhereEquals<any>('purchaseItems', 'purchaseId', purchase.id!);
+    const batches = await getPosRecordsWhereEquals<any>('inventoryBatches', 'purchaseId', purchase.id!);
 
     const mapped = items.map((item) => {
       const matchingBatch = batches.find((b) => b.productId === item.productId);
@@ -500,7 +501,7 @@ export default function Purchases() {
   };
 
   const openReceiptPreview = async (purchase: Purchase) => {
-    const items = await db.purchaseItems.where('purchaseId').equals(purchase.id!).toArray();
+    const items = await getPosRecordsWhereEquals<any>('purchaseItems', 'purchaseId', purchase.id!);
     setPreviewPurchase({ purchase, items });
   };
 
