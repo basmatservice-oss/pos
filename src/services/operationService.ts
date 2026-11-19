@@ -2097,7 +2097,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       changes.push({ action: 'put', entity: 'purchaseReturnItems', record: itemDoc, syncState: syncStatus });
       processedItems += 1;
       const movementKey = 'purchase_return:' + String(id) + ':out:' + String(productId) + ':' + String(processedItems);
-      if (!movementKeys.has(movementKey)) {
+      if (movementKeys.has(movementKey)) {
+        throw new Error('يوجد أثر مخزني سابق لمرتجع المشتريات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع خصم المخزون مرتين');
+      }
+      {
         const movement = {
           id: generateUUID(), movementKey, productId, movementType: 'purchase_return',
           sourceType: 'purchase_return', sourceId: String(id), quantityDeltaBase: -qty,
@@ -2111,8 +2114,18 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       }
     }
     if (processedItems === 0) throw new Error('لا توجد أصناف صالحة لمرتجع المشتريات');
-    const newReturned = roundMoney(Number(origPurchase.returnedAmount || 0) + totalReturn);
-    if (newReturned > roundMoney(Number(origPurchase.totalAmount || 0)) + 0.05) throw new Error('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء');
+    if (!['cash', 'card', 'credit_adjustment'].includes(String(refundMethod))) {
+      throw new Error('طريقة تسوية مرتجع المشتريات غير معروفة');
+    }
+    const recordedReturned = Number(origPurchase.returnedAmount || 0);
+    const sourceReturned = Number(returnedForPurchase || 0);
+    const purchaseTotal = Number(origPurchase.totalAmount || 0);
+    if (![recordedReturned, sourceReturned, purchaseTotal].every((value) => Number.isFinite(value) && value >= 0) ||
+        Math.abs(roundMoney(recordedReturned) - roundMoney(sourceReturned)) > 0.05) {
+      throw new Error('إجمالي المرتجعات المسجل لا يطابق سجلات مرتجعات فاتورة الشراء؛ أوقف الترحيل للمراجعة');
+    }
+    const newReturned = roundMoney(recordedReturned + totalReturn);
+    if (newReturned > roundMoney(purchaseTotal) + 0.05) throw new Error('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء');
     const netPayable = Math.max(0, roundMoney(Number(origPurchase.totalAmount || 0) - newReturned));
     const paid = roundMoney(Number(origPurchase.paidAmount || 0));
     const updatedPurchase = {
@@ -2141,7 +2154,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         '1200': { name: 'المخزون', type: 'asset' },
       };
       const entryId = `local-je:purchase_return:${id}:purchase-return-${operationId}`;
-      if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+      if (await nativePosRepository.get<any>('journalEntries', entryId)) {
+        throw new Error('يوجد قيد محاسبي سابق لمرتجع المشتريات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع التكرار');
+      }
+      {
         const lines = [
           { accountCode: debitCode, debit: totalReturn, credit: 0 },
           { accountCode: '1200', debit: 0, credit: totalReturn },
