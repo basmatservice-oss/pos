@@ -1,4 +1,3 @@
-import { db } from '../db/db';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
@@ -10,6 +9,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   key: unknown,
 ): Promise<T | undefined> {
   if (isNativeAndroid()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  const { db } = await import('../db/db');
   return await db.table(entity).get(key as any) as T | undefined;
 }
 
@@ -18,6 +18,7 @@ export async function getPosRecords<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
   if (isNativeAndroid()) return nativePosRepository.getAll<T>(entity);
+  const { db } = await import('../db/db');
   return await db.table(entity).toArray() as T[];
 }
 
@@ -28,6 +29,7 @@ export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
   value: string | number | boolean,
 ): Promise<T[]> {
   if (isNativeAndroid()) return nativePosRepository.whereEquals<T>(entity, field, value);
+  const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).toArray() as T[];
 }
 
@@ -38,6 +40,7 @@ export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosReco
   value: string | number | boolean,
 ): Promise<T | undefined> {
   if (isNativeAndroid()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
+  const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).first() as T | undefined;
 }
 
@@ -51,6 +54,7 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
     await nativePosRepository.put(entity, record, syncState);
     return;
   }
+  const { db } = await import('../db/db');
   await db.table(entity).put(record as any);
 }
 
@@ -64,6 +68,7 @@ export async function deletePosRecord(
     if (!deleted) throw new Error(`Could not delete ${entity} record from SQLite`);
     return;
   }
+  const { db } = await import('../db/db');
   await db.table(entity).delete(key as any);
 }
 
