@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
+import type { Product, Supplier, Purchase, PurchaseItem } from '../db/db';
 import {
   Plus,
   Search,
@@ -24,7 +24,6 @@ import { toast } from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
 import { useSettings } from '../hooks/useSettings';
 import { v4 as uuidv4 } from 'uuid';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { getProductUnits } from '../store/useCartStore';
