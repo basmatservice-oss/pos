@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, StocktakingSession, StocktakingEntry } from '../db/db';
@@ -73,13 +74,13 @@ export default function Stocktaking() {
     }
   }, [liveProducts]);
 
-  const sessions = useLiveQuery(() => db.stocktakingSessions.toArray().then(arr => 
-    [...arr].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  )) || [];
+  const allSessions = usePosEntityRecords<any>('stocktakingSessions');
+  const sessions = useMemo(() => [...allSessions].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [allSessions]);
   
-  const sessionEntries = useLiveQuery(() => 
-    selectedSession ? db.stocktakingEntries.where('sessionId').equals(selectedSession.id!).toArray() : []
-  ) || [];
+  const allSessionEntries = usePosEntityRecords<any>('stocktakingEntries');
+  const sessionEntries = useMemo(() => selectedSession
+    ? allSessionEntries.filter((entry) => entry.sessionId === selectedSession.id)
+    : [], [allSessionEntries, selectedSession?.id]);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const handleApproveSession = (session: StocktakingSession) => {
