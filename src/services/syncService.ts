@@ -114,6 +114,7 @@ export const syncService = {
 
   async updatePendingCount() {
     try {
+      if (!isNativeAndroid()) await ensureDesktopDatabase();
       // The native outbox is the sole durable operation queue on Android;
       // Dexie entries are only a compatibility mirror and must not be counted.
       let pendingOps = 0;
