@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { LayoutGrid, Package, FileText, Settings, LogOut, Clock, Wifi, WifiOff, Users, Wallet, Truck, UserCircle, ShoppingBag, ShoppingCart, UserCheck, DollarSign, Tag, Building2, Smartphone, RotateCcw, Bell, RefreshCw, ShieldAlert, Lock } from 'lucide-react';
+import { getFirstPosRecordWhereEquals, getPosRecords } from '../services/posDataAccess';
 import { db } from '../db/db';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
@@ -32,7 +33,7 @@ export default function Layout() {
 
     const loadRoleAndInitialSync = async () => {
       try {
-        const roleSetting = await db.settings.where('key').equals('deviceRole').first();
+        const roleSetting = await getFirstPosRecordWhereEquals<any>('settings', 'key', 'deviceRole');
         if (roleSetting?.value === 'client' || roleSetting?.value === 'server') {
           setDeviceRole(roleSetting.value);
         }
@@ -77,11 +78,11 @@ export default function Layout() {
 
   const checkLowStock = async () => {
     try {
-      const products = await db.products.toArray();
+      const products = await getPosRecords<any>('products');
       const lowStock = products.filter(p => p.stockQuantity <= (p.minStockLevel || 5));
       setLowStockCount(lowStock.length);
 
-      const alerts = await db.inventoryAlerts.toArray();
+      const alerts = await getPosRecords<any>('inventoryAlerts');
       setOversellAlertCount(alerts.filter(a => !a.resolved).length);
     } catch (error) {
       console.error('Error checking low stock:', error);
@@ -90,7 +91,7 @@ export default function Layout() {
 
   const loadSettings = async () => {
     try {
-      const res = await db.settings.toArray();
+      const res = await getPosRecords<any>('settings');
       if (res && res.length > 0) {
         const theme: any = {};
         res.forEach((s: any) => {
