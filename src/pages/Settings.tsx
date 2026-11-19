@@ -547,7 +547,7 @@ const Settings: React.FC = () => {
         source: 'manual',
         notes: newFxNotes || undefined,
       });
-      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as ExchangeRateRecord);
+      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any);
       if ((newFxCurrency.trim().toUpperCase() || 'USD') === 'USD') {
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
@@ -575,7 +575,7 @@ const Settings: React.FC = () => {
         startDate: newPeriodStart,
         endDate: newPeriodEnd,
       });
-      await putPosRecord('fiscalPeriods', { ...saved, syncStatus: 'synced' } as FiscalPeriod);
+      await putPosRecord('fiscalPeriods', { ...saved, syncStatus: 'synced' } as any);
       setNewPeriodName('');
       setNewPeriodStart('');
       setNewPeriodEnd('');
