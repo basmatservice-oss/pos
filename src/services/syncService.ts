@@ -394,6 +394,45 @@ export const syncService = {
   async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
     const table = (db as any)[tableName];
     if (!table) return;
+
+    if (isNativeAndroid()) {
+      const oldKey = localRecord.id ?? localRecord.key ?? localRecord.code;
+      const merged = {
+        ...localRecord,
+        ...(serverRes && typeof serverRes === 'object' ? serverRes : {}),
+        syncStatus: 'synced',
+      };
+      const newKey = merged.id ?? merged.key ?? merged.code ?? oldKey;
+      if (oldKey === undefined || newKey === undefined) {
+        throw new Error(`Cannot reconcile Android ${tableName} push without a stable record key`);
+      }
+
+      // Commit the canonical server response and old-key removal to SQLite
+      // before touching the Dexie compatibility cache.
+      if (tableName !== 'settings' && String(oldKey) !== String(newKey)) {
+        await remapPendingEntityReferences(tableName, oldKey, newKey);
+      }
+      const changes: Array<any> = [];
+      if (String(oldKey) !== String(newKey)) {
+        changes.push({ action: 'delete', entity: tableName, key: oldKey });
+      }
+      changes.push({ action: 'put', entity: tableName, record: merged, syncState: 'synced' });
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) {
+        throw new Error(`SQLite did not confirm Android ${tableName} push reconciliation`);
+      }
+
+      const previous = (globalThis as any).__posApplyingOperation;
+      (globalThis as any).__posApplyingOperation = true;
+      try {
+        if (String(oldKey) !== String(newKey)) await table.delete(oldKey);
+        await table.put(merged);
+      } finally {
+        (globalThis as any).__posApplyingOperation = previous;
+      }
+      return;
+    }
+
     if (tableName === 'settings') {
       if (localRecord.id) {
         await table.update(localRecord.id, { syncStatus: 'synced' });
