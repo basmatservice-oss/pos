@@ -227,7 +227,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     if (!movementKeys.has(movementKey)) {
       const movement = { id: generateUUID(), movementKey, productId: Number(productId), movementType,
         sourceType: 'order', sourceId: String(order.id), quantityDeltaBase: -qtyNeeded,
-        unitCost: totalCost / qtyNeeded, totalCost: roundMoney(totalCost), branchId: order.branchId,
+        unitCost: Math.round((totalCost / qtyNeeded) * 10000) / 10000, totalCost: roundMoney(totalCost), branchId: order.branchId,
         operationId, reason, createdBy: order.createdBy, createdAt: now, syncStatus };
       movements.push(movement); movementKeys.add(movementKey); stage('inventoryMovements', movement);
     }
