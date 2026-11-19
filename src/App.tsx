@@ -30,23 +30,17 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useSettings } from './hooks/useSettings';
-import { db, ensureDatabaseReady } from './db/db';
 import { useInventoryStore } from './store/useInventoryStore';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { isNativeAndroid } from './native/posLocalDatabase';
-import { nativePosRepository } from './native/nativePosRepository';
+import { getFirstPosRecordWhereEquals, getPosRecords, putPosSetting } from './services/posDataAccess';
+import { usePosEntityRecords } from './hooks/usePosEntityRecords';
 
 async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
-  if (isNativeAndroid()) {
-    return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
-  }
-  return db.settings.where('key').equals(key).first();
+  return (await getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
 }
 
 async function writeAppSetting(key: string, value: any): Promise<void> {
-  const record = { key, value, syncStatus: 'synced', updatedAt: new Date().toISOString() };
-  await db.settings.put(record);
-  if (isNativeAndroid()) await nativePosRepository.put('settings', record, 'synced');
+  await putPosSetting(key, value, 'synced');
 }
 
 function AppContent() {
@@ -58,8 +52,8 @@ function AppContent() {
   const [socket, setSocket] = useState<any | null>(null);
 
   // Global RAM Cache Synchronization
-  const liveProducts = useLiveQuery(() => db.products.toArray());
-  const liveCategories = useLiveQuery(() => db.categories.toArray());
+  const liveProducts = usePosEntityRecords('products');
+  const liveCategories = usePosEntityRecords('categories');
 
   useEffect(() => {
     if (liveProducts) {
@@ -215,8 +209,7 @@ function AppContent() {
   useEffect(() => {
     const fetchInitialSetup = async () => {
       try {
-        await ensureDatabaseReady();
-        // First check local Dexie DB for role and business type
+        // Read device role and business type from the active local database
         const roleSetting = await readAppSetting('deviceRole');
         const typeSetting = await readAppSetting('businessType');
         
@@ -246,12 +239,7 @@ function AppContent() {
               const data = await apiService.get('/settings/businessType');
               if (data && data.value) {
                 setBusinessType(data.value as BusinessType);
-                await db.settings.put({
-                  key: 'businessType',
-                  value: data.value,
-                  syncStatus: 'synced',
-                  updatedAt: new Date().toISOString(),
-                });
+                await putPosSetting('businessType', data.value, 'synced');
                 // Preserve the role supplied by Electron runtime config. Only
                 // default to server when no desktop role exists.
                 if (!roleSetting && !(window as any).electronAPI?.getDeviceRole) {
