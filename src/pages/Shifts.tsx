@@ -51,7 +51,7 @@ export default function Shifts() {
   const shiftOrders = usePosRecordsWhereEquals<any>('orders', 'shiftId', currentShift?.id);
   const shiftReturns = usePosRecordsWhereEquals<any>('returns', 'shiftId', currentShift?.id);
   const shiftExpenses = usePosRecordsWhereEquals<any>('expenses', 'shiftId', currentShift?.id);
-  const shiftMovements = usePosRecordsWhereEquals<any>('shiftMovements', 'shiftId', currentShift?.id).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  const shiftMovements = usePosRecordsWhereEquals<any>('shiftMovements', 'shiftId', currentShift?.id).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const shiftCustomerPayments = usePosRecordsWhereEquals<any>('customerPayments', 'shiftId', currentShift?.id);
   const shiftSupplierPayments = usePosRecordsWhereEquals<any>('supplierPayments', 'shiftId', currentShift?.id);
   const shiftPurchaseReturns = usePosRecordsWhereEquals<any>('purchaseReturns', 'shiftId', currentShift?.id);
