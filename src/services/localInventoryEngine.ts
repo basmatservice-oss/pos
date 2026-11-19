@@ -1,8 +1,17 @@
-import { db } from '../db/db';
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository } from '../native/nativePosRepository';
 import { roundQty } from '../utils/format';
+// Dexie is loaded only for desktop inventory operations; Android writes are transactional in SQLite.
+let db = {} as typeof import('../db/db').db;
+let desktopDatabaseLoaded = false;
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  db = (await import('../db/db')).db;
+  desktopDatabaseLoaded = true;
+}
+
 
 export interface LocalBatchAllocation {
   batchId: string | null;
@@ -47,14 +56,6 @@ async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
   if (!batch.length) return;
   const applied = await nativePosRepository.applyChanges(batch);
   if (applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
-  const tableNames = Array.from(new Set(batch.map((change) => change.entity)));
-  await db.transaction('rw', tableNames.map((name) => db.table(name)), async () => {
-    for (const change of batch) {
-      const table = db.table(change.entity);
-      if (change.action === 'delete') await table.delete(change.key);
-      else await table.put(change.record);
-    }
-  });
 }
 
 export async function recordLocalInventoryMovement(input: {
@@ -91,6 +92,7 @@ export async function recordLocalInventoryMovement(input: {
     return;
   }
 
+  await ensureDesktopDatabase();
   const existing = await db.inventoryMovements.where('movementKey').equals(input.movementKey).first();
   if (existing) return;
   const product = await db.products.get(input.productId);
@@ -201,6 +203,7 @@ export async function consumeLocalInventoryFIFO(
     await commitNativeInventoryChanges(changes);
     return { totalCost: roundMoney(totalCost), averageUnitCost, allocations };
   }
+  await ensureDesktopDatabase();
   const product = await db.products.get(params.productId);
   if (!product) throw new Error(`الصنف غير موجود (ID: ${params.productId})`);
 
@@ -406,6 +409,7 @@ export async function restoreLocalInventoryFIFO(params: {
     await commitNativeInventoryChanges(changes);
     return roundMoney(totalCost);
   }
+  await ensureDesktopDatabase();
   const qtyToRestore = roundQty(params.quantityInBaseUnits);
   if (qtyToRestore <= 0) return 0;
   let remaining = qtyToRestore;
@@ -509,6 +513,7 @@ export async function removeLocalInventoryArtifactsForOperation(operationId: str
     }
     return;
   }
+  await ensureDesktopDatabase();
   const movements = await db.inventoryMovements.filter((movement) => movement.operationId === operationId).toArray();
   if (movements.length) await db.inventoryMovements.bulkDelete(movements.map((movement) => movement.id));
   const alerts = await db.inventoryAlerts.filter((alert) => alert.operationId === operationId).toArray();
