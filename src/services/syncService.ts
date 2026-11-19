@@ -354,17 +354,13 @@ export const syncService = {
       try {
         const serverRes = await this.sendRecordToServer(tableName, sourceRecord);
         await this.reconcilePushedRecord(tableName, sourceRecord, serverRes);
-        const savedKey = serverRes?.id ?? sourceRecord.id ?? sourceRecord.key;
-        const saved = await table.get(savedKey);
-        if (isNativeAndroid()) {
-          if (String(recordKey) !== String(savedKey)) await nativePosRepository.delete(tableName as any, recordKey);
-          if (saved) {
-            await mirrorNativePosRecord(tableName, saved);
-            await nativePosRepository.setSyncState(tableName as any, saved.id ?? saved.key, 'synced');
-          }
-        } else if (saved) {
-          await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        if (!isNativeAndroid()) {
+          const savedKey = serverRes?.id ?? sourceRecord.id ?? sourceRecord.key;
+          const saved = await table.get(savedKey);
+          if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
         }
+        // Android reconciliation already committed the canonical record and
+        // sync state to SQLite before updating the compatibility cache.
         return true;
       } catch (err) {
         console.error(`Failed to push ${tableName} record directly:`, err);
@@ -526,16 +522,6 @@ export const syncService = {
       try {
         const serverRes = await this.sendRecordToServer(tableName, record);
         await this.reconcilePushedRecord(tableName, record, serverRes);
-        if (isNativeAndroid()) {
-          const saved = await (db as any)[tableName].get(serverRes?.id ?? recordKey);
-          if (recordKey !== undefined && saved?.id !== undefined && String(recordKey) !== String(saved.id)) {
-            await nativePosRepository.delete(tableName as any, recordKey);
-          }
-          if (saved) {
-            await mirrorNativePosRecord(tableName, saved);
-            await nativePosRepository.setSyncState(tableName as any, saved.id ?? saved.key, 'synced');
-          }
-        }
       } catch (err: any) {
         console.error(`Failed to push ${tableName} record:`, record, err);
         const conflict = err.response && err.response.status === 409;
