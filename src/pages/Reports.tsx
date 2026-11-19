@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react';
 import { getFirstPosRecordWhereEquals, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { db, Order, OrderItem, Purchase, PurchaseItem, Product } from '../db/db';
+import type { Order, OrderItem, Purchase, PurchaseItem, Product } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
 import {
   XAxis,
@@ -173,7 +173,7 @@ export default function Reports() {
   const confirmVoidOrder = async (reason?: string) => {
     if (!voidTarget) return;
     try {
-      const currentShift = await db.shifts.where('status').equals('open').first();
+      const currentShift = await getFirstPosRecordWhereEquals<any>('shifts', 'status', 'open');
       await dispatchOperation(
         'order_void',
         {
