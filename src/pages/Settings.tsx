@@ -47,6 +47,7 @@ import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '
 import type { PosLocalRecordChange, PosQueuedOperation } from '../native/posLocalDatabase';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
+import { syncService } from '../services/syncService';
 import { useAuth } from '../context/AuthContext';
 import { formatNumber } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -155,6 +156,7 @@ const Settings: React.FC = () => {
         
         // Fetch Server IP professionally
         try {
+          if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
           const ipRes = await apiService.get('/api/server-ip');
           if (ipRes && (ipRes as any).ip) {
             setSettings((prev: any) => ({ ...prev, serverIp: (ipRes as any).ip }));
@@ -521,7 +523,9 @@ const Settings: React.FC = () => {
       }
 
       try {
-        await apiService.clearData();
+        if (!isNativeAndroid() || await syncService.getDeviceRole() !== 'standalone') {
+          await apiService.clearData();
+        }
       } catch (e) {
         console.warn('Failed to clear remote data, but local data is cleared:', e);
       }
