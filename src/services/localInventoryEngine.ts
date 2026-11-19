@@ -1,5 +1,7 @@
 import { db } from '../db/db';
 import { generateUUID } from '../utils/uuid';
+import { isNativeAndroid } from '../native/posLocalDatabase';
+import { nativePosRepository } from '../native/nativePosRepository';
 import { roundQty } from '../utils/format';
 
 export interface LocalBatchAllocation {
@@ -284,6 +286,18 @@ export async function restoreLocalInventoryFIFO(params: {
 }
 
 export async function removeLocalInventoryArtifactsForOperation(operationId: string): Promise<void> {
+  if (isNativeAndroid()) {
+    const [movements, alerts] = await Promise.all([
+      nativePosRepository.whereEquals<any>('inventoryMovements', 'operationId', operationId),
+      nativePosRepository.whereEquals<any>('inventoryAlerts', 'operationId', operationId),
+    ]);
+    const changes = [
+      ...movements.map((movement: any) => ({ action: 'delete' as const, entity: 'inventoryMovements' as const, key: movement.id })),
+      ...alerts.map((alert: any) => ({ action: 'delete' as const, entity: 'inventoryAlerts' as const, key: alert.id })),
+    ];
+    if (changes.length) await nativePosRepository.applyChanges(changes);
+    return;
+  }
   const movements = await db.inventoryMovements.filter((movement) => movement.operationId === operationId).toArray();
   if (movements.length) await db.inventoryMovements.bulkDelete(movements.map((movement) => movement.id));
   const alerts = await db.inventoryAlerts.filter((alert) => alert.operationId === operationId).toArray();
