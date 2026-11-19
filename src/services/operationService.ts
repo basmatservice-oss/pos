@@ -4190,6 +4190,140 @@ export async function dispatchOperation(
       }
     }
   }
+  if (isNativeAndroid() && type === 'purchase_update') {
+    const purchase = payload?.purchase;
+    const purchaseId = String(purchase?.id || '');
+    if (!purchaseId) throw new Error('معرّف فاتورة الشراء المطلوب تعديلها غير صالح');
+    const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
+    if (!oldPurchase) throw new Error('فاتورة الشراء المطلوب تعديلها غير موجودة في SQLite');
+    const [returns, oldItems, oldBatches, products, suppliers, journals, transactions, allBatches] = await Promise.all([
+      nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
+      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getAll<any>('suppliers'),
+      nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
+      nativePosRepository.getAll<any>('transactions'),
+      nativePosRepository.getAll<any>('inventoryBatches'),
+    ]);
+    if (returns.length || Number(oldPurchase.returnedAmount || 0) > 0.0001) {
+      throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة؛ لم تُرسل إلى الخادم');
+    }
+    if (!oldItems.length || !oldBatches.length) {
+      throw new Error('تعذر التحقق من تفاصيل ودفعات الفاتورة القديمة؛ أوقف التعديل قبل إرساله إلى الخادم');
+    }
+    const oldItemQuantities = new Map<number, number>();
+    for (const item of oldItems) {
+      const productId = Number(item.productId), quantity = Number(item.quantity), factor = Number(item.conversionFactor ?? 1);
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0) throw new Error('تفاصيل الفاتورة القديمة تحتوي كمية أو صنفًا غير صالح');
+      oldItemQuantities.set(productId, roundQty((oldItemQuantities.get(productId) || 0) + quantity * factor));
+    }
+    const oldBatchQuantities = new Map<number, number>();
+    const oldBatchIds = new Set<string>();
+    for (const batch of oldBatches) {
+      const productId = Number(batch.productId), quantity = Number(batch.quantity), remaining = Number(batch.remainingQuantity);
+      const batchId = String(batch.id);
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(remaining) || Math.abs(quantity - remaining) > 0.0001 || !batchId || oldBatchIds.has(batchId)) {
+        throw new Error('لا يمكن تعديل الفاتورة؛ إحدى دفعاتها مستهلكة أو بياناتها غير سليمة');
+      }
+      oldBatchIds.add(batchId);
+      oldBatchQuantities.set(productId, roundQty((oldBatchQuantities.get(productId) || 0) + quantity));
+    }
+    for (const [productId, quantity] of oldItemQuantities) {
+      if (Math.abs(quantity - (oldBatchQuantities.get(productId) || 0)) > 0.0001) {
+        throw new Error('دفعات الفاتورة القديمة لا تطابق تفاصيل الأصناف؛ لم تُرسل إلى الخادم');
+      }
+      const product = products.find((row: any) => Number(row.id) === productId);
+      if (!product || Number(product.stockQuantity || 0) + 0.0001 < quantity) {
+        throw new Error('رصيد أحد الأصناف لا يكفي لعكس الفاتورة القديمة محليًا');
+      }
+    }
+    for (const productId of oldBatchQuantities.keys()) if (!oldItemQuantities.has(productId)) {
+      throw new Error('توجد دفعة قديمة غير مرتبطة بتفاصيل الفاتورة');
+    }
+    const oldNumbers = [oldPurchase.shippingCost, oldPurchase.customsCost, oldPurchase.otherCosts, oldPurchase.totalAmount, oldPurchase.paidAmount]
+      .map((value: any) => Number(value || 0));
+    if (oldNumbers.some((value: number) => !Number.isFinite(value) || value < 0)) {
+      throw new Error('القيم المالية للفاتورة القديمة غير صالحة لعكسها');
+    }
+    const oldExtra = roundMoney(oldNumbers[0] + oldNumbers[1] + oldNumbers[2]);
+    const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier' ? roundMoney(oldNumbers[3] + oldExtra) : oldNumbers[3];
+    if (oldNumbers[4] > oldPayable + 0.02) throw new Error('المدفوع في الفاتورة القديمة يتجاوز إجمالي مستحقاتها؛ يلزم تسوية قبل التعديل');
+    const oldSupplier = oldPurchase.supplierId
+      ? suppliers.find((row: any) => String(row.id) === String(oldPurchase.supplierId))
+      : null;
+    if (oldPurchase.supplierId && oldPayable > oldNumbers[4] && !oldSupplier) {
+      throw new Error('المورد القديم غير موجود في SQLite ولا يمكن عكس رصيده');
+    }
+    const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+    for (const entry of journals) {
+      if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
+      const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+      if (!lines.length || lines.some((line: any) => {
+        const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
+        return !String(line.accountId || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+          debit < 0 || credit < 0 || (debit > 0 && credit > 0);
+      })) throw new Error('القيد المحاسبي القديم ناقص أو غير صالح؛ لم تُرسل عملية التعديل');
+      const debit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
+      const credit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
+      if (Math.abs(debit - credit) > 0.02 || Math.abs(debit - Number(entry.totalDebit || 0)) > 0.02 ||
+          Math.abs(credit - Number(entry.totalCredit || 0)) > 0.02) {
+        throw new Error('القيد المحاسبي القديم غير متوازن أو لا تطابق تفاصيله إجمالياته');
+      }
+    }
+    const newItems = Array.isArray(payload.items) ? payload.items : [];
+    if (!newItems.length) throw new Error('يجب أن تحتوي فاتورة الشراء المعدلة على صنف واحد على الأقل');
+    const fxRate = Number(purchase.exchangeRate || 1);
+    const shipping = Number(purchase.shippingCost || 0), customs = Number(purchase.customsCost || 0);
+    const other = Number(purchase.otherCosts || 0), paid = Number(purchase.paidAmount || 0);
+    const declaredTotal = purchase.totalAmount == null ? null : Number(purchase.totalAmount);
+    if (!Number.isFinite(fxRate) || fxRate <= 0 ||
+        [shipping, customs, other, paid].some((value) => !Number.isFinite(value) || value < 0) ||
+        (declaredTotal !== null && (!Number.isFinite(declaredTotal) || declaredTotal < 0))) {
+      throw new Error('بيانات العملة أو المصروفات أو المبلغ المدفوع في الفاتورة المعدلة غير صالحة');
+    }
+    const newProductIds = new Set<number>();
+    const newBatchIds = new Set<string>();
+    let itemsTotal = 0;
+    for (const item of newItems) {
+      const productId = Number(item.productId), quantity = Number(item.quantity), factor = Number(item.conversionFactor ?? 1);
+      const rawCost = Number(item.costPrice);
+      const unitCost = item.pricesInForeignCurrency ? rawCost * fxRate : rawCost;
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+        throw new Error('تحتوي الفاتورة المعدلة على صنف أو كمية أو تكلفة أو معامل تحويل غير صالح');
+      }
+      newProductIds.add(productId);
+      itemsTotal = roundMoney(itemsTotal + roundMoney(quantity * unitCost));
+      const batchId = item.batchId == null ? '' : String(item.batchId);
+      if (batchId) {
+        if (newBatchIds.has(batchId)) throw new Error('تحتوي الفاتورة المعدلة على معرّفات دفعات مكررة');
+        newBatchIds.add(batchId);
+      }
+    }
+    if ([...newProductIds].some((productId) => !products.some((row: any) => Number(row.id) === productId))) {
+      throw new Error('أحد أصناف الفاتورة المعدلة غير موجود في SQLite');
+    }
+    if (newBatchIds.size && allBatches.some((batch: any) => newBatchIds.has(String(batch.id)) && !oldBatchIds.has(String(batch.id)))) {
+      throw new Error('أحد معرّفات دفعات الفاتورة المعدلة مستخدم في فاتورة أخرى');
+    }
+    if (purchase.supplierId && !suppliers.some((row: any) => String(row.id) === String(purchase.supplierId))) {
+      throw new Error('المورد المحدد في الفاتورة المعدلة غير موجود في SQLite');
+    }
+    const newGoodsTotal = declaredTotal !== null && declaredTotal > 0 ? roundMoney(declaredTotal) : itemsTotal;
+    const newExtra = roundMoney(shipping + customs + other);
+    const newPayable = purchase.extraCostsPaymentMethod === 'supplier' ? roundMoney(newGoodsTotal + newExtra) : newGoodsTotal;
+    if (paid > newPayable + 0.02) throw new Error('المبلغ المدفوع يتجاوز إجمالي مستحقات الفاتورة المعدلة');
+    const newSupplier = purchase.supplierId
+      ? suppliers.find((row: any) => String(row.id) === String(purchase.supplierId))
+      : null;
+    if (newSupplier && !Number.isFinite(Number(newSupplier.balance || 0))) {
+      throw new Error('رصيد المورد في الفاتورة المعدلة غير صالح');
+    }
+  }
+
   setLocalAccountingStandaloneMode(role === 'standalone');
   const now = new Date().toISOString();
   const token = getAuthToken();
