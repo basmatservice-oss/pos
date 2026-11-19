@@ -1547,7 +1547,11 @@ async function applyPurchaseLocally(
       cacheChanges.push({ entity: 'products', record: updated });
     }
     const supplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
-    const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
+    const oldExtraCost = roundMoney(Number(oldPurchase.shippingCost || 0) + Number(oldPurchase.customsCost || 0) + Number(oldPurchase.otherCosts || 0));
+    const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier'
+      ? roundMoney(Number(oldPurchase.totalAmount || 0) + oldExtraCost)
+      : roundMoney(Number(oldPurchase.totalAmount || 0));
+    const oldRemaining = roundMoney(oldPayable - Number(oldPurchase.paidAmount || 0));
     if (supplier && oldRemaining > 0) {
       const updated = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - oldRemaining), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
