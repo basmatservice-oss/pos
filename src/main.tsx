@@ -2,7 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { installNativeDatabaseMirrorHooks, mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
+import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
 
 async function restoreDesktopRuntimeConfig() {
@@ -52,7 +52,6 @@ async function initializeLocalRuntime(): Promise<void> {
   const { ensureDatabaseReady } = await import('./db/db');
   await ensureDatabaseReady();
   await restoreDesktopRuntimeConfig();
-  await installNativeDatabaseMirrorHooks();
 }
 
 initializeLocalRuntime()
