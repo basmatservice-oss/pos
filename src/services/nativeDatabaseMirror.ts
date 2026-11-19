@@ -117,8 +117,8 @@ export async function flushNativeDatabaseMirrorWrites(): Promise<void> {
  * yet a replacement SQLite-backed repository.
  */
 export async function installNativeDatabaseMirrorHooks(): Promise<void> {
-  const { db } = await import('../db/db');
   if (nativeMirrorHooksInstalled || !isNativeAndroid()) return;
+  const { db } = await import('../db/db');
 
   // Validate the complete registry before installing any hooks. Silently
   // skipping a missing table would leave SQLite stale while startup succeeds.
