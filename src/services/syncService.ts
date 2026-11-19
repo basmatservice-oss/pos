@@ -82,7 +82,10 @@ async function migrateLegacyAndroidQueueToSQLite() {
       payload: operation.payload as Record<string, unknown>,
       deviceId: String(operation.deviceId || ''),
       branchId: operation.branchId == null ? undefined : String(operation.branchId),
-      schemaVersion: 1,
+      schemaVersion: Number(operation.schemaVersion || 1),
+      createdAt: operation.createdAt ? new Date(operation.createdAt).getTime() : Date.now(),
+      retryCount: Math.max(0, Number(operation.retryCount || 0)),
+      nextRetryAt: operation.nextRetryAt ? new Date(operation.nextRetryAt).getTime() : undefined,
     });
     if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
     await db.syncOperations.update(operation.id, {
