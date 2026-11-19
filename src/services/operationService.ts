@@ -1516,6 +1516,30 @@ async function applyPurchaseLocally(
       nativePosRepository.getAll<any>('accounts'),
     ]);
     if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
+    if (!oldItems.length || !oldBatches.length) {
+      throw new Error('تعذر التحقق من تفاصيل ودفعات فاتورة الشراء؛ أُوقف الحذف حفاظًا على المخزون');
+    }
+    const itemBaseQuantities = new Map<number, number>();
+    for (const item of oldItems) {
+      const productId = Number(item.productId);
+      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
+      itemBaseQuantities.set(productId, roundQty((itemBaseQuantities.get(productId) || 0) + Number(item.quantity || 0) * factor));
+    }
+    const batchBaseQuantities = new Map<number, number>();
+    for (const batch of oldBatches) {
+      const productId = Number(batch.productId);
+      batchBaseQuantities.set(productId, roundQty((batchBaseQuantities.get(productId) || 0) + Number(batch.quantity || 0)));
+    }
+    for (const [productId, itemQty] of itemBaseQuantities) {
+      if (Math.abs(itemQty - (batchBaseQuantities.get(productId) || 0)) > 0.0001) {
+        throw new Error('لا يمكن حذف فاتورة الشراء لأن دفعاتها لا تطابق كميات الأصناف؛ أُوقف الحذف حفاظًا على المخزون');
+      }
+    }
+    for (const productId of batchBaseQuantities.keys()) {
+      if (!itemBaseQuantities.has(productId)) {
+        throw new Error('تحتوي فاتورة الشراء على دفعة غير مرتبطة بتفاصيلها؛ أُوقف الحذف حفاظًا على المخزون');
+      }
+    }
     if (oldBatches.some((batch: any) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
       throw new Error('لا يمكن حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
     }
