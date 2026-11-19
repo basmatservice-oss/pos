@@ -196,9 +196,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const loginUrl = `${baseUrl}/login`;
 
-    // 1. Try online/LAN server authentication first (issues signed Bearer JWT & checks rate limits)
-    let networkFailed = false;
-    try {
+    // Standalone devices authenticate exclusively against their local SQLite/verified credentials.
+    // Server and LAN-client devices retain online authentication and its server-side rate limits.
+    let networkFailed = roleSetting?.value === 'standalone';
+    if (!networkFailed) {
+      try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(loginUrl, {
@@ -235,7 +237,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (err instanceof ServerAuthError) {
         throw err;
       }
-      networkFailed = true;
+        networkFailed = true;
+      }
     }
 
     if (!networkFailed) {
