@@ -3412,7 +3412,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
               const account = accountMap.get(line.accountCode);
               const updatedAccount = {
                 ...account,
-                balance: roundMoney(Number(account.balance || 0) + line.debit - line.credit),
+                balance: roundMoney(Number(account.balance || 0) + ((account.type === 'asset' || account.type === 'expense') ? line.debit - line.credit : line.credit - line.debit)),
                 updatedAt: now,
               };
               accountMap.set(line.accountCode, updatedAccount);
