@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, Purchase } from '../db/db';
 import {
@@ -32,21 +33,21 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
   const [customEndDate, setCustomEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [serverReport, setServerReport] = useState<any | null>(null);
 
-  const orders = useLiveQuery(() => db.orders.toArray()) || [];
-  const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
-  const returns = useLiveQuery(() => db.returns.toArray()) || [];
-  const purchases = useLiveQuery(() => db.purchases.toArray()) || [];
-  const purchaseReturns = useLiveQuery(() => db.purchaseReturns.toArray()) || [];
-  const auditLogs = useLiveQuery(() => db.auditLogs.toArray()) || [];
-  const expenses = useLiveQuery(() => db.expenses.toArray()) || [];
-  const products = useLiveQuery(() => db.products.toArray()) || [];
-  const inventoryBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
-  const payrolls = useLiveQuery(() => db.payroll.toArray()) || [];
-  const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
-  const transactions = useLiveQuery(() => db.transactions.toArray()) || [];
-  const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
-  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
+  const orders = usePosEntityRecords<any>('orders');
+  const orderItems = usePosEntityRecords<any>('orderItems');
+  const returns = usePosEntityRecords<any>('returns');
+  const purchases = usePosEntityRecords<any>('purchases');
+  const purchaseReturns = usePosEntityRecords<any>('purchaseReturns');
+  const auditLogs = usePosEntityRecords<any>('auditLogs');
+  const expenses = usePosEntityRecords<any>('expenses');
+  const products = usePosEntityRecords<any>('products');
+  const inventoryBatches = usePosEntityRecords<any>('inventoryBatches');
+  const payrolls = usePosEntityRecords<any>('payroll');
+  const journalEntries = usePosEntityRecords<any>('journalEntries');
+  const transactions = usePosEntityRecords<any>('transactions');
+  const accounts = usePosEntityRecords<any>('accounts');
+  const customers = usePosEntityRecords<any>('customers');
+  const suppliers = usePosEntityRecords<any>('suppliers');
 
   const getDateRange = () => {
     const now = new Date();
