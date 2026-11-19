@@ -1,6 +1,6 @@
 import { db } from '../db/db';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
+import { nativePosRepository, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
 
@@ -45,9 +45,10 @@ export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosReco
 export async function putPosRecord<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
   record: T,
+  syncState: NativePosSyncState = 'local',
 ): Promise<void> {
   if (isNativeAndroid()) {
-    await nativePosRepository.put(entity, record);
+    await nativePosRepository.put(entity, record, syncState);
     return;
   }
   await db.table(entity).put(record as any);
