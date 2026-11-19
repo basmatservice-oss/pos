@@ -4,7 +4,7 @@ import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
-import { nativePosRepository } from '../native/nativePosRepository';
+import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 async function updateRecordWithoutSyncHook(tableName: string, key: any, changes: Record<string, unknown>) {
   const previous = (globalThis as any).__posApplyingOperation;
@@ -361,7 +361,7 @@ export const syncService = {
     if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
     const table = (db as any)[tableName];
-    if (!table) return false;
+    if (!table && (!isNativeAndroid() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
     const recordKey = record?.id ?? record?.key;
     if (recordKey === undefined || recordKey === null) return false;
     let sourceRecord = record;
@@ -410,7 +410,7 @@ export const syncService = {
 
   async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
     const table = (db as any)[tableName];
-    if (!table) return;
+    if (!table && !isNativeAndroid()) return;
 
     if (isNativeAndroid()) {
       const oldKey = localRecord.id ?? localRecord.key ?? localRecord.code;
@@ -442,8 +442,10 @@ export const syncService = {
       const previous = (globalThis as any).__posApplyingOperation;
       (globalThis as any).__posApplyingOperation = true;
       try {
-        if (String(oldKey) !== String(newKey)) await table.delete(oldKey);
-        await table.put(merged);
+        if (table) {
+          if (String(oldKey) !== String(newKey)) await table.delete(oldKey);
+          await table.put(merged);
+        }
       } catch (cacheError) {
         // SQLite has already committed the acknowledged server state. A
         // compatibility-cache failure must not enqueue the same push again.
@@ -531,7 +533,9 @@ export const syncService = {
 
   async pushTable(tableName: string) {
     if (await this.getDeviceRole() === 'standalone') return;
-    if (!(db as any)[tableName]) return;
+    if (isNativeAndroid()) {
+      if (!NATIVE_POS_ENTITIES.includes(tableName as any)) return;
+    } else if (!(db as any)[tableName]) return;
     const pendingRecords = isNativeAndroid()
       ? (await nativePosRepository.getAllWithSyncState(tableName as any))
           .filter((item) => item.syncState === 'pending' || item.syncState === 'error')
