@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { ExchangeRateRecord, FiscalPeriod } from '../db/db';
-import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, enqueueNativePosOperation } from '../native/posLocalDatabase';
+import { isNativeAndroid, replaceNativePendingPosOperations } from '../native/posLocalDatabase';
 import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '../native/nativePosRepository';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
@@ -437,19 +437,16 @@ const Settings: React.FC = () => {
         }
         const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
         if (applied !== changes.length) throw new Error('SQLite لم تؤكد استعادة جميع سجلات النسخة الاحتياطية');
-        const pending = await listNativePendingPosOperations();
-        for (const operation of pending) await acknowledgeNativePosOperation(operation.operationId);
-        for (const operation of Array.isArray(data._nativePendingOperations) ? data._nativePendingOperations : []) {
-          const queued = await enqueueNativePosOperation({
-            operationId: String(operation.operationId),
-            type: String(operation.type),
-            payload: operation.payload,
-            deviceId: String(operation.deviceId || ''),
-            branchId: operation.branchId == null ? undefined : String(operation.branchId),
-            schemaVersion: Number(operation.schemaVersion || 1),
-          });
-          if (!queued) throw new Error('تعذر استعادة عملية معلقة إلى طابور SQLite: ' + String(operation.operationId));
-        }
+        await replaceNativePendingPosOperations(pendingBackup.map((operation: any) => ({
+          operationId: String(operation.operationId),
+          type: String(operation.type),
+          payload: operation.payload,
+          deviceId: String(operation.deviceId || ''),
+          tenantId: operation.tenantId == null ? undefined : String(operation.tenantId),
+          branchId: operation.branchId == null ? undefined : String(operation.branchId),
+          actor: operation.actor == null ? undefined : String(operation.actor),
+          schemaVersion: Number(operation.schemaVersion || 1),
+        })));
       } else {
         const { db } = await import('../db/db');
         await db.transaction('rw', db.tables, async () => {
@@ -502,8 +499,7 @@ const Settings: React.FC = () => {
         }
         const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
         if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع سجلات البيانات');
-        const pending = await listNativePendingPosOperations();
-        for (const operation of pending) await acknowledgeNativePosOperation(operation.operationId);
+        await replaceNativePendingPosOperations([]);
       } else {
         const { db } = await import('../db/db');
         if (mode === 'system') {
