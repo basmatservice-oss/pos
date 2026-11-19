@@ -2232,10 +2232,15 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       if (!priorRows.length && Number(priorReturn.totalReturn || 0) > 0) {
         throw new Error('يوجد مرتجع سابق بلا تفاصيل أصناف؛ لا يمكن التحقق من الكميات المتبقية');
       }
+      const priorReturnTotal = Number(priorReturn.totalReturn || 0);
+      if (priorRows.some((entry: any) => !Number.isFinite(Number(entry.quantity)) || Number(entry.quantity) <= 0 ||
+          !Number.isFinite(Number(entry.costPrice)) || Number(entry.costPrice) < 0) ||
+          !Number.isFinite(priorReturnTotal) || priorReturnTotal < 0) {
+        throw new Error('أحد المرتجعات السابقة يحتوي قيمة أو كمية غير صالحة');
+      }
       const priorValue = roundMoney(priorRows.reduce((sum: number, entry: any) =>
-        sum + Number(entry.quantity || 0) * Number(entry.costPrice || 0), 0));
-      if (!Number.isFinite(Number(priorReturn.totalReturn || 0)) ||
-          Math.abs(priorValue - Number(priorReturn.totalReturn || 0)) > 0.05) {
+        sum + Number(entry.quantity) * Number(entry.costPrice), 0));
+      if (Math.abs(priorValue - priorReturnTotal) > 0.05) {
         throw new Error('تفاصيل أحد المرتجعات السابقة لا تطابق إجماليه المالي');
       }
     }
