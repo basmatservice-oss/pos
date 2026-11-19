@@ -55,6 +55,8 @@ import toast from 'react-hot-toast';
 
 const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp']);
 
+const isStandaloneAndroid = async () => isNativeAndroid() && await syncService.getDeviceRole() === 'standalone';
+
 const Settings: React.FC = () => {
   const { updateCurrentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('general');
@@ -476,6 +478,7 @@ const Settings: React.FC = () => {
   };
 
   const handleImportSql = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (await isStandaloneAndroid()) { toast.error('استيراد SQLite من الخادم غير متاح في وضع التشغيل المستقل'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -548,6 +551,7 @@ const Settings: React.FC = () => {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (await isStandaloneAndroid()) { toast.error('تغيير كلمة المرور يتطلب الاتصال بالخادم'); return; }
     if (!newPassword && !newPinCode) {
       toast.error('يرجى إدخال كلمة مرور جديدة أو رمز PIN جديد');
       return;
@@ -572,6 +576,7 @@ const Settings: React.FC = () => {
   };
 
   const handleLoadBackups = async () => {
+    if (await isStandaloneAndroid()) { setBackupsList([]); toast.error('نسخ الخادم الاحتياطية غير متاحة في وضع التشغيل المستقل'); return; }
     try {
       const list = await apiService.listBackups();
       setBackupsList(Array.isArray(list) ? list : []);
@@ -581,6 +586,7 @@ const Settings: React.FC = () => {
   };
 
   const handleVerifyBackup = async (filename: string) => {
+    if (await isStandaloneAndroid()) { toast.error('فحص نسخ الخادم الاحتياطية غير متاح في وضع التشغيل المستقل'); return; }
     setVerifyingFile(filename);
     try {
       const res = await apiService.verifyBackup(filename);
@@ -598,6 +604,7 @@ const Settings: React.FC = () => {
 
   const handleAddFxRate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (await isStandaloneAndroid()) { toast.error('تسجيل سعر الصرف عبر الخادم غير متاح في وضع التشغيل المستقل'); return; }
     const rateNum = Number(newFxRate);
     if (!rateNum || rateNum <= 0) {
       toast.error('يرجى إدخال سعر صرف صحيح أكبر من صفر');
@@ -624,6 +631,7 @@ const Settings: React.FC = () => {
 
   const handleCreateFiscalPeriod = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (await isStandaloneAndroid()) { toast.error('إنشاء الفترات المالية عبر الخادم غير متاح في وضع التشغيل المستقل'); return; }
     if (!newPeriodName.trim() || !newPeriodStart || !newPeriodEnd) {
       toast.error('يرجى إدخال اسم الفترة وتاريخ البداية والنهاية');
       return;
@@ -650,6 +658,7 @@ const Settings: React.FC = () => {
 
   const executePeriodAction = async () => {
     if (!periodConfirm) return;
+    if (await isStandaloneAndroid()) { setPeriodConfirm(null); toast.error('إدارة الفترات المالية عبر الخادم غير متاحة في وضع التشغيل المستقل'); return; }
     const { period, action } = periodConfirm;
     setPeriodConfirm(null);
     try {
@@ -1764,7 +1773,7 @@ const Settings: React.FC = () => {
                         <h3 className="font-bold text-gray-800">نسخ احتياطي (SQLite)</h3>
                         <p className="text-sm text-gray-500">تحميل ملف قاعدة البيانات كاملاً.</p>
                         <button 
-                          onClick={() => apiService.getBackup()}
+                          onClick={async () => { if (await isStandaloneAndroid()) { toast.error('نسخ قاعدة بيانات الخادم غير متاح في وضع التشغيل المستقل'); return; } await apiService.getBackup(); }}
                           className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors"
                         >
                           <Database className="w-5 h-5" />
