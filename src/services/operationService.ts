@@ -2126,6 +2126,191 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
 }
 async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
+  if (isNativeAndroid()) {
+    const expenseId = Number(payload?.id);
+    if (!Number.isSafeInteger(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
+    const existing = await nativePosRepository.get<any>('expenses', expenseId);
+    const changes: any[] = [];
+    const cacheJournalRecords: any[] = [];
+    let expenseRecord: any = null;
+    let auditRecord: any = null;
+    if (type === 'expense_delete') {
+      if (existing) {
+        const [journals, transactions, accounts] = await Promise.all([
+          nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(expenseId)),
+          nativePosRepository.getAll<any>('transactions'),
+          nativePosRepository.getAll<any>('accounts'),
+        ]);
+        const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
+        const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+        for (const entry of journals) {
+          if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
+          const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+          if (!lines.length) continue;
+          const reversalId = 'local-je:' + String(entry.referenceType || 'expense') + ':' + String(expenseId) + ':reversal-' + String(entry.id);
+          if (journals.some((item: any) => String(item.id) === reversalId)) continue;
+          const reversalLines = lines.map((line: any) => ({
+            accountCode: String(line.accountId),
+            debit: roundMoney(Number(line.credit || 0)),
+            credit: roundMoney(Number(line.debit || 0)),
+            description: 'عكس: ' + String(line.description || entry.description) + ' (حذف مصروف)',
+          })).filter((line: any) => line.debit > 0 || line.credit > 0);
+          const debit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+          const credit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+          if (Math.abs(debit - credit) > 0.02) throw new Error('قيد عكسي غير متوازن');
+          const reversal = {
+            id: reversalId, entryNumber: 'LOCAL-reversal-' + String(entry.id).slice(-16),
+            date: now, referenceId: String(expenseId), referenceType: entry.referenceType || 'expense',
+            description: 'قيد عكسي - ' + String(entry.description) + ' (حذف مصروف)',
+            totalDebit: debit, totalCredit: credit, status: 'posted',
+            createdBy: payload.createdBy || 'System', branchId: entry.branchId,
+            syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
+          };
+          changes.push({ action: 'put', entity: 'journalEntries', record: reversal, syncState: reversal.syncStatus });
+          cacheJournalRecords.push(reversal);
+          reversalLines.forEach((line: any, index: number) => {
+            const account = accountMap.get(line.accountCode);
+            const transaction = {
+              id: reversalId + ':' + String(index), journalEntryId: reversalId,
+              accountId: line.accountCode, accountName: account?.name || line.accountCode,
+              type: line.debit > 0 ? 'debit' : 'credit',
+              amount: line.debit > 0 ? line.debit : line.credit,
+              debit: line.debit, credit: line.credit, description: line.description,
+              syncStatus: reversal.syncStatus, createdAt: now,
+            };
+            changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: reversal.syncStatus });
+            cacheJournalRecords.push(transaction);
+            if (account) {
+              const normalDebit = account.type === 'asset' || account.type === 'expense';
+              accountMap.set(line.accountCode, {
+                ...account,
+                balance: roundMoney(Number(account.balance || 0) + (normalDebit ? line.debit - line.credit : line.credit - line.debit)),
+                updatedAt: now,
+              });
+            }
+          });
+          const reversedEntry = { ...entry, status: 'reversed', reversedEntryId: reversalId };
+          changes.push({ action: 'put', entity: 'journalEntries', record: reversedEntry, syncState: syncStatus });
+          cacheJournalRecords.push(reversedEntry);
+        }
+        for (const account of accountMap.values()) {
+          if (changes.some((change: any) => change.entity === 'accounts' && String(change.record.code) === String(account.code))) continue;
+          if (transactions.some((line: any) => String(line.accountId) === String(account.code) &&
+            journals.some((entry: any) => String(entry.id) === String(line.journalEntryId) && entry.status === 'posted' && !reversedIds.has(String(entry.id))))) {
+            changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+            cacheJournalRecords.push(account);
+          }
+        }
+        changes.push({ action: 'delete', entity: 'expenses', key: expenseId });
+        if (currentDeviceRole === 'standalone') {
+          auditRecord = {
+            id: generateUUID(), date: now, userName: payload.createdBy || 'System',
+            type: 'expense_delete', operationName: 'حذف مصروف', action: 'حذف',
+            details: existing.description, quantity: 1, value: Number(existing.amount || 0),
+            branchId: existing.branchId, entityId: String(expenseId),
+            entityName: existing.category, syncStatus,
+          };
+          changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+        }
+      }
+    } else {
+      if (existing) return;
+      const amount = roundMoney(Number(payload.amount || 0));
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('قيمة المصروف غير صالحة');
+      expenseRecord = {
+        id: expenseId, description: payload.description, amount,
+        category: payload.category || 'عام',
+        paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+        shiftId: payload.shiftId, date: payload.date || now, branchId: payload.branchId,
+        createdAt: payload.createdAt || now, updatedAt: now, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'expenses', record: expenseRecord, syncState: syncStatus });
+      if (shouldPostLocalAccounting(syncStatus)) {
+        const cashCode = expenseRecord.paymentMethod === 'card' ? '1020' : '1010';
+        const definitions: any = {
+          '5200': { name: 'مصروفات تشغيلية', type: 'expense' },
+          '1010': { name: 'الصندوق', type: 'asset' },
+          '1020': { name: 'البنك / الشبكة', type: 'asset' },
+        };
+        const entryId = 'local-je:expense:' + String(expenseId) + ':expense-' + String(payload.operationId || expenseId);
+        if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+          const accounts = new Map<string, any>();
+          for (const code of ['5200', cashCode]) {
+            const current = await nativePosRepository.get<any>('accounts', code);
+            accounts.set(code, current || {
+              code, ...definitions[code], balance: 0, isSystem: 1,
+              createdAt: now, updatedAt: now,
+            });
+          }
+          const description = 'مصروف (' + String(expenseRecord.category) + '): ' + String(expenseRecord.description || '');
+          const entrySyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
+          const entry = {
+            id: entryId, entryNumber: 'LOCAL-expense-' + String(payload.operationId || expenseId).slice(0, 8),
+            date: expenseRecord.date, referenceId: String(expenseId), referenceType: 'expense',
+            description, totalDebit: amount, totalCredit: amount, status: 'posted',
+            createdBy: payload.createdBy || 'System', branchId: payload.branchId,
+            syncStatus: entrySyncStatus, createdAt: now,
+          };
+          changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: entrySyncStatus });
+          cacheJournalRecords.push(entry);
+          const lines = [
+            { accountCode: '5200', debit: amount, credit: 0 },
+            { accountCode: cashCode, debit: 0, credit: amount },
+          ];
+          lines.forEach((line: any, index: number) => {
+            const account = accounts.get(line.accountCode);
+            const normalDebit = account.type === 'asset' || account.type === 'expense';
+            const updatedAccount = {
+              ...account,
+              balance: roundMoney(Number(account.balance || 0) + (normalDebit ? line.debit - line.credit : line.credit - line.debit)),
+              updatedAt: now,
+            };
+            accounts.set(line.accountCode, updatedAccount);
+            const transaction = {
+              id: entryId + ':' + String(index), journalEntryId: entryId,
+              accountId: line.accountCode, accountName: account.name,
+              type: line.debit > 0 ? 'debit' : 'credit',
+              amount, debit: line.debit, credit: line.credit,
+              description, syncStatus: entrySyncStatus, createdAt: now,
+            };
+            changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: entrySyncStatus });
+            cacheJournalRecords.push(transaction);
+          });
+          for (const account of accounts.values()) {
+            changes.push({ action: 'put', entity: 'accounts', record: account, syncState: entrySyncStatus });
+            cacheJournalRecords.push(account);
+          }
+        }
+      }
+      if (currentDeviceRole === 'standalone') {
+        auditRecord = {
+          id: generateUUID(), date: expenseRecord.date, userName: payload.createdBy || 'System',
+          type: 'expense', operationName: 'تسجيل مصروف', action: 'مصروف',
+          details: String(expenseRecord.category) + ': ' + String(expenseRecord.description || ''),
+          quantity: 1, value: amount, branchId: payload.branchId,
+          entityId: String(expenseId), entityName: String(expenseRecord.category), syncStatus,
+        };
+        changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
+      }
+    }
+    if (changes.length === 0) return;
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات المصروف');
+    await db.transaction('rw', [
+      db.expenses, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
+    ], async () => {
+      if (type === 'expense_delete' && existing) await db.expenses.delete(expenseId);
+      if (expenseRecord) await db.expenses.put(expenseRecord);
+      for (const record of cacheJournalRecords) {
+        if (record.code) await db.accounts.put(record);
+        else if (record.referenceType) await db.journalEntries.put(record);
+        else if (record.journalEntryId) await db.transactions.put(record);
+      }
+      if (auditRecord) await db.auditLogs.put(auditRecord);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
   await db.transaction('rw', [db.expenses, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
     if (type === 'expense_delete') {
       if (payload?.id !== undefined) {
