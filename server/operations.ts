@@ -682,6 +682,7 @@ function handleReturn(
   }
 
   const effectiveReturnDate = returnDate ? new Date(returnDate).toISOString() : ctx.now;
+  const valuationMethod = getValuationMethod(tx);
   // Cross-period return protection: validates return posting date (current period),
   // never touches closed-period original sales journal entries.
   assertOpenFiscalPeriod(tx, effectiveReturnDate, payload, ctx.userRole);
@@ -810,6 +811,7 @@ function handleReturn(
           quantityInBaseUnits: ingRestoreQty,
           allocations: Array.isArray(ing.allocations) ? ing.allocations : [],
           fallbackCost: 0,
+          valuationMethod,
           branchId: branchId ?? origOrder.branchId,
           operationId: ctx.operationId,
           movementType: 'sale_return',
@@ -835,6 +837,7 @@ function handleReturn(
         quantityInBaseUnits: baseQty,
         allocations,
         fallbackCost: baseCostFallback,
+        valuationMethod,
         branchId: branchId ?? origOrder.branchId,
         operationId: ctx.operationId,
         movementType: 'sale_return',
@@ -1056,6 +1059,7 @@ function handleOrderVoid(
   }
 
   assertOpenFiscalPeriod(tx, origOrder.createdAt || ctx.now, payload, ctx.userRole);
+  const valuationMethod = getValuationMethod(tx);
 
   if (
     Number(origOrder.returnedAmount || 0) > 0 ||
@@ -1095,6 +1099,7 @@ function handleOrderVoid(
           quantityInBaseUnits: ingQty,
           allocations: Array.isArray(ing.allocations) ? ing.allocations : [],
           fallbackCost: 0,
+          valuationMethod,
           branchId: origOrder.branchId,
           operationId: ctx.operationId,
           movementType: 'sale_void',
@@ -1118,6 +1123,7 @@ function handleOrderVoid(
       quantityInBaseUnits: baseQty,
       allocations,
       fallbackCost: baseCostFallback,
+      valuationMethod,
       branchId: origOrder.branchId,
       operationId: ctx.operationId,
       movementType: 'sale_void',
