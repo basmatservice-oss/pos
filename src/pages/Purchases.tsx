@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Product, Supplier, Purchase, PurchaseItem, db } from '../db/db';
@@ -62,7 +63,7 @@ export default function Purchases() {
   const allPurchases = usePosEntityRecords<any>('purchases');
   const allBatches = usePosEntityRecords<any>('inventoryBatches');
   const exchangeRateHistory = usePosEntityRecords<any>('exchangeRateHistory');
-  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const openShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   const purchases = useMemo(() => {
     return [...allPurchases].sort(
