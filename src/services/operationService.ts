@@ -898,6 +898,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(id)),
     nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2200', '4200', '5100', '5400']),
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(id)),
+    nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
   ]);
   const batches = batchGroups.flat();
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
@@ -1043,6 +1044,24 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     processedItems++;
   }
   if (!processedItems) throw new Error('لا توجد أصناف صالحة للإرجاع');
+  if (valuationSetting?.value === 'weighted_average') {
+    for (const productId of affectedProductIds) {
+      const activeBatches = [...batchMap.values()].filter((batch: any) =>
+        Number(batch.productId) === productId && Number(batch.remainingQuantity || 0) > 0,
+      );
+      const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
+      if (activeQty <= 0) continue;
+      const activeValue = activeBatches.reduce((sum: number, batch: any) =>
+        sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+      const product: any = productMap.get(productId);
+      if (product) {
+        const updated = { ...product, costPrice: Math.round((activeValue / activeQty) * 10000) / 10000,
+          updatedAt: effectiveReturnDate, syncStatus };
+        productMap.set(productId, updated);
+        stage('products', updated);
+      }
+    }
+  }
   if (roundMoney(totalRefund) > roundMoney(orderNetAmount - orderReturnedAmount) + 0.05)
     throw new Error('إجمالي المرتجع يتجاوز المتبقي من الفاتورة الأصلية');
   const fullReturn = origItems.every((x: any) => roundQty(Number(x.returnedQuantity || 0)) >= roundQty(Number(x.quantity || 0)) - 1e-6);
