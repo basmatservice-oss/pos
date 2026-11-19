@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
+import { getFirstPosRecordWhereEquals, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Purchase, PurchaseItem, Product } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
 import {
@@ -98,12 +98,12 @@ export default function Reports() {
   });
 
   const handleViewReceipt = async (order: Order) => {
-    const items = await db.orderItems.where('orderId').equals(order.id!).toArray();
+    const items = await getPosRecordsWhereEquals<any>('orderItems', 'orderId', order.id!);
     setSelectedOrder({ order, items });
   };
 
   const handleViewPurchase = async (purchase: Purchase) => {
-    const items = await db.purchaseItems.where('purchaseId').equals(purchase.id!).toArray();
+    const items = await getPosRecordsWhereEquals<any>('purchaseItems', 'purchaseId', purchase.id!);
     setSelectedPurchase({ purchase, items });
   };
 
@@ -138,7 +138,7 @@ export default function Reports() {
     try {
       const returnId = generateUUID();
       const returnNumber = `RET-${Date.now()}`;
-      const currentShift = await db.shifts.where('status').equals('open').first();
+      const currentShift = await getFirstPosRecordWhereEquals<any>('shifts', 'status', 'open');
 
       await dispatchOperation(
         'return',
