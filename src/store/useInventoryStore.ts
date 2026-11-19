@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { db, Product, Category, ProductUnit } from '../db/db';
+import type { Product, Category, ProductUnit } from '../db/db';
+import { getPosRecords } from '../services/posDataAccess';
 
 export interface BarcodeMatch {
   product: Product;
@@ -70,8 +71,8 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
     try {
       const [products, categories] = await Promise.all([
-        db.products.toArray(),
-        db.categories.toArray(),
+        getPosRecords<Product>('products'),
+        getPosRecords<Category>('categories'),
       ]);
 
       const { pMap, uMap, iMap } = buildMaps(products);
