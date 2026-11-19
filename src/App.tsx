@@ -185,7 +185,7 @@ function AppContent() {
     };
 
     if (deviceRole !== 'standalone') {
-      syncService.initAutoSync();
+      syncService.initAutoSync().catch(() => {});
       initSocket();
     }
 
