@@ -148,8 +148,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const changeLocalCredentials = async (currentPassword: string, newPassword: string, newPinCode?: string) => {
     if (!user?.id) throw new Error('لا يوجد مستخدم مسجل لتحديث بيانات دخوله');
-    if (!currentPassword || !newPassword || newPassword.length < 6) {
-      throw new Error('يرجى إدخال كلمة المرور الحالية وكلمة مرور جديدة صالحة');
+    if (!currentPassword || !newPassword || newPassword.length < 6 || newPassword === '123456') {
+      throw new Error('يرجى إدخال كلمة المرور الحالية وكلمة مرور جديدة صالحة وغير افتراضية');
+    }
+    if (newPinCode && (!/^\\d{4,}$/.test(newPinCode) || newPinCode === '1234')) {
+      throw new Error('رمز PIN يجب أن يتكون من أربعة أرقام على الأقل وألا يكون الرمز الافتراضي');
     }
     const verifiers = loadOfflineVerifiers();
     const verifier = verifiers.find((entry) => entry.user.id === user.id);
