@@ -13,7 +13,7 @@ import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
-import { applyNativePosRecordChangesIfAbsent, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
+import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
@@ -864,7 +864,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     record: change.record,
     syncState: change.syncState || 'local',
   }));
-  const committed = await applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals(
+  const committed = await applyNativePosRecordChangesIfAbsent(
     nativeChanges, 'orders', 'voidOperationId', operationId,
   );
   if (!committed.skipped && committed.applied !== nativeChanges.length) {
