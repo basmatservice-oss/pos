@@ -2486,8 +2486,12 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       if (roundQty(alreadyReturnedBase + qty) > purchasedBase + 0.0001) {
         throw new Error('كمية المرتجع تتجاوز الكمية المشتراة المتبقية للصنف ' + String(reqItem.productName || productId));
       }
-      const productPurchaseBatches = [...batchMap.values()].filter((entry: any) =>
-        Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId));
+      const productPurchaseBatches = [...batchMap.values()]
+        .filter((entry: any) =>
+          Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId))
+        .sort((a: any, b: any) =>
+          String(a.purchaseDate || a.createdAt || '').localeCompare(String(b.purchaseDate || b.createdAt || '')) ||
+          String(a.id).localeCompare(String(b.id)));
       const allocations: Array<{ batch: any | null; quantity: number; costPrice: number }> = [];
       if (reqItem.batchId !== undefined && reqItem.batchId !== null && String(reqItem.batchId).trim()) {
         const selectedBatch = batchMap.get(String(reqItem.batchId));
