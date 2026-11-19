@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { generateUUID } from '../utils/uuid';
@@ -47,36 +48,18 @@ export default function Shifts() {
   const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   // All shift calculations read from the platform's authoritative local store.
-  const allOrders = usePosEntityRecords<any>('orders');
-  const allReturns = usePosEntityRecords<any>('returns');
-  const allExpenses = usePosEntityRecords<any>('expenses');
-  const allMovements = usePosEntityRecords<any>('shiftMovements');
-  const allCustomerPayments = usePosEntityRecords<any>('customerPayments');
-  const allSupplierPayments = usePosEntityRecords<any>('supplierPayments');
-  const allPurchaseReturns = usePosEntityRecords<any>('purchaseReturns');
+  const shiftOrders = usePosRecordsWhereEquals<any>('orders', 'shiftId', currentShift?.id);
+  const shiftReturns = usePosRecordsWhereEquals<any>('returns', 'shiftId', currentShift?.id);
+  const shiftExpenses = usePosRecordsWhereEquals<any>('expenses', 'shiftId', currentShift?.id);
+  const shiftMovements = usePosRecordsWhereEquals<any>('shiftMovements', 'shiftId', currentShift?.id).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  const shiftCustomerPayments = usePosRecordsWhereEquals<any>('customerPayments', 'shiftId', currentShift?.id);
+  const shiftSupplierPayments = usePosRecordsWhereEquals<any>('supplierPayments', 'shiftId', currentShift?.id);
+  const shiftPurchaseReturns = usePosRecordsWhereEquals<any>('purchaseReturns', 'shiftId', currentShift?.id);
   const allPurchases = usePosEntityRecords<any>('purchases');
   const allPayroll = usePosEntityRecords<any>('payroll');
   const allShifts = usePosEntityRecords<any>('shifts');
 
-  const shiftOrders = useMemo(() => currentShift?.id
-    ? allOrders.filter((record) => record.shiftId === currentShift.id) : [], [allOrders, currentShift?.id]);
-  const shiftReturns = useMemo(() => currentShift?.id
-    ? allReturns.filter((record) => record.shiftId === currentShift.id) : [], [allReturns, currentShift?.id]);
-  const shiftExpenses = useMemo(() => currentShift?.id
-    ? allExpenses.filter((record) => record.shiftId === currentShift.id) : [], [allExpenses, currentShift?.id]);
-  const shiftMovements = useMemo(() => currentShift?.id
-    ? allMovements.filter((record) => record.shiftId === currentShift.id)
-        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))) : [],
-    [allMovements, currentShift?.id]);
-  const shiftCustomerPayments = useMemo(() => currentShift?.id
-    ? allCustomerPayments.filter((record) => record.shiftId === currentShift.id) : [],
-    [allCustomerPayments, currentShift?.id]);
-  const shiftSupplierPayments = useMemo(() => currentShift?.id
-    ? allSupplierPayments.filter((record) => record.shiftId === currentShift.id) : [],
-    [allSupplierPayments, currentShift?.id]);
-  const shiftPurchaseReturns = useMemo(() => currentShift?.id
-    ? allPurchaseReturns.filter((record) => record.shiftId === currentShift.id) : [],
-    [allPurchaseReturns, currentShift?.id]);
+
   const shiftCashPurchases = useMemo(() => currentShift
     ? allPurchases.filter((record) => record.createdAt >= currentShift.startTime &&
         record.paymentMethod !== 'card' && Number(record.paidAmount || 0) > 0) : [],
