@@ -1235,15 +1235,24 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         record: change.record,
         syncState: change.syncState || 'local',
       });
-  const committed = await applyNativePosRecordChangesIfAbsent(
+  const sourceVersion = String(origOrder.updatedAt || '').trim();
+  if (!sourceVersion) {
+    throw new Error('فاتورة البيع لا تحتوي إصدار تحديث يمكن استخدامه لمنع تعارض المرتجعات المتزامنة؛ أوقف الترحيل للمراجعة');
+  }
+  const committed = await applyNativePosRecordChangesIfFieldEquals(
     nativeChanges,
-    'returns',
-    JSON.stringify(id),
+    'orders',
+    JSON.stringify(String(originalOrderId)),
+    'updatedAt',
+    sourceVersion,
   );
-  if (!committed.skipped && committed.applied !== nativeChanges.length) {
+  if (committed.skipped) {
+    throw new Error('تم تحديث فاتورة البيع بواسطة عملية أخرى؛ أعد تحميل الفاتورة ثم أعد محاولة المرتجع');
+  }
+  if (committed.applied !== nativeChanges.length) {
     throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المبيعات');
   }
-  // SQLite has committed the complete return transaction; no Dexie mirror write is needed.
+  // SQLite committed only if the source order version was unchanged; concurrent returns cannot over-return stock or refunds.
 }
 
 async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
