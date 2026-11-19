@@ -412,7 +412,239 @@ async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pendi
     }
   });
 }
+async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pending') {
+  const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } = payload;
+  const now = new Date().toISOString();
+  const effectiveReturnDate = payload.returnDate ? new Date(payload.returnDate).toISOString() : now;
+  const [existingReturn, origOrder, origItems, products, customers, batches, movements, accounts, journals] = await Promise.all([
+    nativePosRepository.get<any>('returns', id), nativePosRepository.get<any>('orders', originalOrderId),
+    nativePosRepository.whereEquals<any>('orderItems', 'orderId', originalOrderId),
+    nativePosRepository.getAll<any>('products'), nativePosRepository.getAll<any>('customers'),
+    nativePosRepository.getAll<any>('inventoryBatches'), nativePosRepository.getAll<any>('inventoryMovements'),
+    nativePosRepository.getAll<any>('accounts'), nativePosRepository.getAll<any>('journalEntries'),
+  ]);
+  if (existingReturn) return;
+  if (!origOrder || origOrder.status === 'void') throw new Error('لا يمكن إرجاع فاتورة غير موجودة أو ملغاة');
+  const changes = new Map<string, any>();
+  const stage = (entity: string, record: any) => {
+    const key = entity === 'accounts' ? record.code : record.id;
+    changes.set(entity + ':' + JSON.stringify(key), { action: 'put', entity, record, syncState: syncStatus });
+  };
+  const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
+  const customerMap = new Map(customers.map((x: any) => [String(x.id), x]));
+  const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
+  const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
+  const journalMap = new Map(journals.map((x: any) => [String(x.id), x]));
+  const effectiveRefundMethod = refundMethod || (origOrder.paymentMethod === 'credit' ? 'credit_adjustment' : origOrder.paymentMethod === 'card' ? 'card' : 'cash');
+  const operationId = String(payload.operationId || id), deviceId = String(payload.deviceId || 'local-device');
+  let totalRefund = 0, totalTax = 0, totalSub = 0, totalCostReversed = 0;
+  let totalDiscount = 0, totalResalableCostReversed = 0, totalDamagedCostReversed = 0, processedItems = 0;
+
+  const restore = (productId: number, quantity: number, allocations: any[], fallbackCost: number, suffix: string) => {
+    const qtyToRestore = roundQty(quantity);
+    if (qtyToRestore <= 0) return 0;
+    let remaining = qtyToRestore, totalCost = 0;
+    for (let i = allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
+      const allocation = allocations[i];
+      if (!allocation || Number(allocation.quantity) <= 0) continue;
+      let putBack = roundQty(Math.min(remaining, Number(allocation.quantity)));
+      const allocationCost = Number(allocation.costPrice ?? fallbackCost);
+      if (allocation.batchId && batchMap.has(String(allocation.batchId))) {
+        const batch: any = batchMap.get(String(allocation.batchId));
+        const current = Number(batch.remainingQuantity || 0);
+        putBack = roundQty(Math.min(putBack, Math.max(0, Number(batch.quantity) - current)));
+        if (putBack <= 1e-6) continue;
+        const updated = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: effectiveReturnDate, syncStatus };
+        batchMap.set(String(updated.id), updated); stage('inventoryBatches', updated);
+      } else {
+        const batchId = generateUUID();
+        const created = { id: batchId, productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
+          costPrice: allocationCost, purchaseDate: effectiveReturnDate, branchId: branchId ?? origOrder.branchId,
+          syncStatus, createdAt: effectiveReturnDate, updatedAt: effectiveReturnDate };
+        batchMap.set(batchId, created); stage('inventoryBatches', created);
+      }
+      totalCost += putBack * allocationCost;
+      remaining = roundQty(remaining - putBack);
+    }
+    if (remaining > 1e-6) {
+      const batchId = generateUUID();
+      const created = { id: batchId, productId, purchaseId: null, quantity: remaining, remainingQuantity: remaining,
+        costPrice: fallbackCost, purchaseDate: effectiveReturnDate, branchId: branchId ?? origOrder.branchId,
+        syncStatus, createdAt: effectiveReturnDate, updatedAt: effectiveReturnDate };
+      batchMap.set(batchId, created); stage('inventoryBatches', created);
+      totalCost += remaining * fallbackCost;
+    }
+    const product: any = productMap.get(Number(productId));
+    if (product) {
+      const updated = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: effectiveReturnDate, syncStatus };
+      productMap.set(Number(productId), updated); stage('products', updated);
+    }
+    const movementKey = 'return:' + String(id) + ':in:' + String(productId) + ':' + suffix;
+    if (!movements.some((x: any) => x.movementKey === movementKey)) {
+      const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
+        sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: totalCost / qtyToRestore, totalCost,
+        branchId: branchId ?? origOrder.branchId, operationId, reason: reason || 'مرتجع مبيعات', createdBy,
+        createdAt: effectiveReturnDate, syncStatus };
+      movements.push(movement); stage('inventoryMovements', movement);
+    }
+    return roundMoney(totalCost);
+  };
+
+  for (const reqItem of items) {
+    const requestedQuantity = roundQty(Number(reqItem.quantity || 0));
+    if (requestedQuantity <= 0) continue;
+    const origItem = reqItem.orderItemId !== undefined && reqItem.orderItemId !== null
+      ? origItems.find((x: any) => Number(x.id) === Number(reqItem.orderItemId))
+      : origItems.find((x: any) => Number(x.productId) === Number(reqItem.productId) &&
+          roundQty(Number(x.quantity || 0) - Number(x.returnedQuantity || 0)) >= requestedQuantity - 1e-6)
+        || origItems.find((x: any) => Number(x.productId) === Number(reqItem.productId));
+    if (!origItem) throw new Error('الصنف غير موجود في الفاتورة الأصلية: ' + String(reqItem.productName || reqItem.productId));
+    const qty = requestedQuantity;
+    if (qty > roundQty(Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0)) + 1e-6)
+      throw new Error('الكمية المرتجعة تتجاوز الكمية المتبقية القابلة للإرجاع للمنتج ' + origItem.productName);
+    const ratio = qty / Number(origItem.quantity);
+    const lineSub = roundMoney(Number(origItem.subTotal) * ratio), lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
+    const lineTotal = roundMoney(Number(origItem.total) * ratio);
+    const lineDiscount = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
+    let lineCost = 0;
+    const condition = reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
+    totalSub = roundMoney(totalSub + lineSub); totalDiscount = roundMoney(totalDiscount + lineDiscount);
+    totalTax = roundMoney(totalTax + lineTax); totalRefund = roundMoney(totalRefund + lineTotal);
+    const nextReturned = roundQty(Number(origItem.returnedQuantity || 0) + qty);
+    origItem.returnedQuantity = nextReturned;
+    if (origItem.id !== undefined && origItem.id !== null) stage('orderItems', { ...origItem, syncStatus });
+    const itemType = String(origItem.itemType || 'stock'), factor = Number(origItem.conversionFactor || 1);
+    const baseQty = roundQty(qty * factor);
+    if (condition === 'resalable' && itemType !== 'service') {
+      let parsedAlloc: any = [];
+      try { parsedAlloc = typeof origItem.batchAllocations === 'string' ? JSON.parse(origItem.batchAllocations) : origItem.batchAllocations || []; } catch { parsedAlloc = []; }
+      const fallbackCost = factor > 0 ? Number(origItem.costPriceAtTimeOfSale || 0) / factor : Number(origItem.costPriceAtTimeOfSale || 0);
+      if (parsedAlloc?.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+        for (const ingredient of parsedAlloc.ingredients) {
+          const ingredientQty = roundQty(Number(ingredient.quantityConsumed || 0) * (qty / Number(origItem.quantity || 1)));
+          if (ingredientQty > 0) lineCost = roundMoney(lineCost + restore(Number(ingredient.ingredientProductId), ingredientQty,
+            Array.isArray(ingredient.allocations) ? ingredient.allocations : [], 0,
+            'rec-' + String(processedItems) + '-' + String(ingredient.ingredientProductId)));
+        }
+      } else if (parsedAlloc?.kind !== 'service') {
+        lineCost = restore(Number(origItem.productId), baseQty, Array.isArray(parsedAlloc) ? parsedAlloc : [], fallbackCost, String(processedItems));
+      }
+      totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCost);
+    } else if (condition === 'damaged' && itemType !== 'service') {
+      lineCost = roundMoney(Number(origItem.costPriceAtTimeOfSale || 0) * qty);
+      totalDamagedCostReversed = roundMoney(totalDamagedCostReversed + lineCost);
+      const damagedProduct: any = productMap.get(Number(origItem.productId));
+      const previousQty = Number(damagedProduct?.stockQuantity || 0);
+      stage('inventoryAlerts', { id: 'damaged-return:' + operationId + ':' + String(processedItems),
+        productId: Number(origItem.productId), productName: origItem.productName, previousQty, changeQty: 0,
+        resultingQty: previousQty, operationId, deviceId, reason: 'damaged_return (' + qty + ')', resolved: 0, createdAt: effectiveReturnDate });
+    }
+    totalCostReversed = roundMoney(totalCostReversed + lineCost);
+    stage('returnItems', { id: generateUUID(), returnId: id, orderItemId: origItem.id, productId: origItem.productId,
+      productName: origItem.productName, quantity: qty, condition, unitPrice: origItem.unitPrice,
+      costPrice: origItem.costPriceAtTimeOfSale || 0, taxAmount: lineTax, total: lineTotal, syncStatus, createdAt: effectiveReturnDate });
+    processedItems++;
+  }
+  if (!processedItems) throw new Error('لا توجد أصناف صالحة للإرجاع');
+  if (roundMoney(totalRefund) > roundMoney(Number(origOrder.netAmount || 0) - Number(origOrder.returnedAmount || 0)) + 0.05)
+    throw new Error('إجمالي المرتجع يتجاوز المتبقي من الفاتورة الأصلية');
+  const fullReturn = origItems.every((x: any) => roundQty(Number(x.returnedQuantity || 0)) >= roundQty(Number(x.quantity || 0)) - 1e-6);
+  stage('orders', { ...origOrder, status: fullReturn ? 'returned' : 'partially_returned',
+    returnedAmount: Math.min(roundMoney((origOrder.returnedAmount || 0) + totalRefund), roundMoney(Number(origOrder.netAmount || 0))),
+    updatedAt: now, syncStatus });
+  if (origOrder.customerId && effectiveRefundMethod === 'credit_adjustment') {
+    const customer: any = customerMap.get(String(origOrder.customerId));
+    if (customer) stage('customers', { ...customer, balance: roundMoney((customer.balance || 0) - totalRefund), updatedAt: now, syncStatus });
+  }
+  stage('returns', { id, returnNumber, originalOrderId, originalReceiptNumber: origOrder.receiptNumber,
+    customerId: origOrder.customerId, customerName: origOrder.customerName, branchId: branchId ?? origOrder.branchId,
+    shiftId: shiftId ?? origOrder.shiftId, refundMethod: effectiveRefundMethod, subTotal: roundMoney(totalSub),
+    discountAmount: roundMoney(totalDiscount), taxAmount: roundMoney(totalTax), totalRefund: roundMoney(totalRefund),
+    totalCostReversed, reason, createdBy, createdAt: effectiveReturnDate, updatedAt: now, syncStatus });
+
+  const journalSyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
+  const accountDefaults: Record<string, any> = {
+    '1010': { name: 'الصندوق', type: 'asset' }, '1020': { name: 'البنك / الشبكة', type: 'asset' },
+    '1100': { name: 'ذمم العملاء', type: 'asset' }, '1200': { name: 'المخزون', type: 'asset' },
+    '2200': { name: 'ضريبة القيمة المضافة المستحقة', type: 'liability' },
+    '4200': { name: 'مرتجعات المبيعات', type: 'revenue' }, '5100': { name: 'تكلفة البضاعة المباعة', type: 'expense' },
+    '5400': { name: 'تسويات الجرد', type: 'expense' },
+  };
+  const postJournal = (entryKey: string, description: string, lines: any[]) => {
+    const normalized = lines.map((x: any) => ({ ...x, debit: roundMoney(x.debit), credit: roundMoney(x.credit) }))
+      .filter((x: any) => x.debit > 0 || x.credit > 0);
+    if (!normalized.length) return;
+    const entryId = 'local-je:return:' + String(id) + ':' + entryKey;
+    if (journalMap.has(entryId)) return;
+    let debit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.debit, 0));
+    let credit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.credit, 0));
+    const difference = roundMoney(debit - credit);
+    if (Math.abs(difference) > 0.02) throw new Error('قيد محاسبي غير متوازن: ' + description + ' (مدين ' + debit + ' / دائن ' + credit + ')');
+    if (difference !== 0) {
+      const last = normalized[normalized.length - 1];
+      if (last.credit > 0) last.credit = roundMoney(last.credit + difference);
+      else last.debit = roundMoney(last.debit - difference);
+      debit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.debit, 0));
+      credit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.credit, 0));
+    }
+    const entry = { id: entryId, entryNumber: 'LOCAL-' + entryKey + '-' + String(id).slice(0, 8),
+      date: effectiveReturnDate, referenceId: String(id), referenceType: 'return', description, totalDebit: debit,
+      totalCredit: credit, status: 'posted', createdBy: createdBy || 'System', branchId: branchId ?? origOrder.branchId,
+      syncStatus: journalSyncStatus, createdAt: effectiveReturnDate };
+    stage('journalEntries', entry); journalMap.set(entryId, entry);
+    normalized.forEach((line: any, index: number) => {
+      const code = String(line.accountCode);
+      let account: any = accountMap.get(code);
+      if (!account && accountDefaults[code]) {
+        account = { code, ...accountDefaults[code], balance: 0, isSystem: 1, createdAt: effectiveReturnDate, updatedAt: effectiveReturnDate };
+        accountMap.set(code, account);
+      }
+      stage('transactions', { id: entryId + ':' + String(index), journalEntryId: entryId, accountId: code,
+        accountName: account?.name || accountDefaults[code]?.name || code, type: line.debit > 0 ? 'debit' : 'credit',
+        amount: line.debit > 0 ? line.debit : line.credit, debit: line.debit, credit: line.credit,
+        description: line.description || description, orderId: line.orderId, purchaseId: line.purchaseId,
+        returnId: line.returnId, syncStatus: journalSyncStatus, createdAt: effectiveReturnDate });
+      if (account) {
+        const normalDebit = account.type === 'asset' || account.type === 'expense';
+        const updated = { ...account, balance: roundMoney(Number(account.balance || 0) +
+          (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: effectiveReturnDate };
+        accountMap.set(code, updated); stage('accounts', updated);
+      }
+    });
+  };
+  if (shouldPostLocalAccounting(syncStatus) && totalRefund > 0) {
+    const creditCode = effectiveRefundMethod === 'cash' ? '1010' : effectiveRefundMethod === 'card' ? '1020' : '1100';
+    postJournal('return-refund', 'مرتجع مبيعات ' + String(returnNumber || id), [
+      { accountCode: '4200', debit: roundMoney(totalRefund - totalTax), credit: 0, orderId: originalOrderId, returnId: id },
+      ...(totalTax > 0 ? [{ accountCode: '2200', debit: roundMoney(totalTax), credit: 0, orderId: originalOrderId, returnId: id }] : []),
+      { accountCode: creditCode, debit: 0, credit: roundMoney(totalRefund), orderId: originalOrderId, returnId: id },
+    ]);
+    if (totalResalableCostReversed > 0) postJournal('return-resalable-cogs', 'عكس تكلفة مرتجع صالح لإعادة البيع ' + String(returnNumber || id), [
+      { accountCode: '1200', debit: totalResalableCostReversed, credit: 0, orderId: originalOrderId, returnId: id },
+      { accountCode: '5100', debit: 0, credit: totalResalableCostReversed, orderId: originalOrderId, returnId: id },
+    ]);
+    if (totalDamagedCostReversed > 0) postJournal('return-damaged-cogs', 'تسوية تكلفة مرتجع تالف ' + String(returnNumber || id), [
+      { accountCode: '5400', debit: totalDamagedCostReversed, credit: 0, orderId: originalOrderId, returnId: id },
+      { accountCode: '5100', debit: 0, credit: totalDamagedCostReversed, orderId: originalOrderId, returnId: id },
+    ]);
+  }
+  const nativeChanges = [...changes.values()];
+  const applied = await nativePosRepository.applyChanges(nativeChanges);
+  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المبيعات');
+  const grouped = new Map<string, any[]>();
+  for (const change of nativeChanges) {
+    const list = grouped.get(change.entity) || [];
+    list.push(change.record); grouped.set(change.entity, list);
+  }
+  const tableNames = [...grouped.keys()];
+  await db.transaction('rw', tableNames.map((name) => (db as any)[name]), async () => {
+    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
+  });
+  await flushNativeDatabaseMirrorWrites();
+}
+
 async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
+  if (isNativeAndroid()) return applyReturnLocallyNative(payload, syncStatus);
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
