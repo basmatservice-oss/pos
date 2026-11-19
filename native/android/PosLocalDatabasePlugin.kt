@@ -878,16 +878,21 @@ class PosLocalDatabasePlugin : Plugin() {
                     arrayOf(operationId)
                 )
                 if (updated != 1) throw IllegalStateException("Retryable SQLite operation was not found: $operationId")
-                val recordUpdated = db.update(
-                    "pos_records",
-                    ContentValues().apply {
-                        put("sync_state", "pending")
-                        put("updated_at", System.currentTimeMillis())
-                    },
-                    "entity = ? AND record_id = ?",
-                    arrayOf("operations", operationId)
-                )
-                if (recordUpdated != 1) throw IllegalStateException("SQLite operation record is missing: $operationId")
+                val payload = db.query(
+                    "pos_outbox", arrayOf("payload"), "operation_id = ?",
+                    arrayOf(operationId), null, null, null
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) throw IllegalStateException("SQLite outbox operation disappeared: $operationId")
+                    JSONObject(cursor.getString(0))
+                }
+                val recordValues = ContentValues().apply {
+                    put("entity", "operations")
+                    put("record_id", operationId)
+                    put("json", payload.toString())
+                    put("sync_state", "pending")
+                    put("updated_at", System.currentTimeMillis())
+                }
+                db.insertWithOnConflict("pos_records", null, recordValues, SQLiteDatabase.CONFLICT_REPLACE)
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
             call.resolve(JSObject().put("updated", true).put("operationId", operationId))
