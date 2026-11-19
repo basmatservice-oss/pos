@@ -3,8 +3,7 @@ import { getFirstPosRecordWhereEquals, getPosRecords, getPosRecordsWhereEquals }
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search, RotateCcw, AlertCircle, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Order, OrderItem, ReturnItem } from '../db/db';
+import type { Order, OrderItem, ReturnItem } from '../db/db';
 import { useAuth } from '../context/AuthContext';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
