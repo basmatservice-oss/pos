@@ -3344,6 +3344,111 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   }
   const now = new Date().toISOString();
   const productId = Number(finalRecord.id);
+  if (isNativeAndroid()) {
+    if (!Number.isSafeInteger(productId) || productId <= 0) throw new Error('معرّف الصنف غير صالح');
+    const productRecord = { ...finalRecord, syncStatus };
+    const changes: any[] = [{ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus }];
+    const cacheRecords: Record<string, any[]> = { inventoryBatches: [], inventoryMovements: [], accounts: [], journalEntries: [], transactions: [] };
+    if (Number(finalRecord.stockQuantity || 0) > 0 && (!finalRecord.itemType || finalRecord.itemType === 'stock')) {
+      const existingBatches = await nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId);
+      if (existingBatches.length === 0) {
+        const quantity = roundQty(Number(finalRecord.stockQuantity || 0));
+        const unitCost = Number(finalRecord.costPrice || 0);
+        const batchId = generateUUID();
+        const batch = {
+          id: batchId, productId, purchaseId: null, quantity, remainingQuantity: quantity,
+          costPrice: unitCost, purchaseDate: now, branchId: finalRecord.branchId,
+          syncStatus, createdAt: now, updatedAt: now,
+        };
+        const openingValue = roundMoney(quantity * unitCost);
+        const movement = {
+          id: generateUUID(), movementKey: 'opening:' + String(productId), productId,
+          movementType: 'opening_balance', sourceType: 'product', sourceId: String(productId),
+          quantityDeltaBase: quantity, unitCost, totalCost: openingValue, branchId: finalRecord.branchId,
+          operationId: String(payload.operationId || productId), reason: 'رصيد افتتاحي للصنف',
+          createdBy: payload.createdBy || 'System', createdAt: now, syncStatus,
+        };
+        changes.push(
+          { action: 'put', entity: 'inventoryBatches', record: batch, syncState: syncStatus },
+          { action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus },
+        );
+        cacheRecords.inventoryBatches.push(batch);
+        cacheRecords.inventoryMovements.push(movement);
+        if (shouldPostLocalAccounting(syncStatus) && openingValue > 0) {
+          const definitions: any = {
+            '1200': { name: 'المخزون', type: 'asset' },
+            '3100': { name: 'رأس المال والأرصدة الافتتاحية', type: 'equity' },
+          };
+          const entryKey = 'opening-' + String(payload.operationId || productId);
+          const referenceId = 'opening:' + String(productId);
+          const entryId = 'local-je:opening:' + referenceId + ':' + entryKey;
+          if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
+            const lines = [
+              { accountCode: '1200', debit: openingValue, credit: 0 },
+              { accountCode: '3100', debit: 0, credit: openingValue },
+            ];
+            const accountMap = new Map<string, any>();
+            for (const line of lines) {
+              if (accountMap.has(line.accountCode)) continue;
+              const account = await nativePosRepository.get<any>('accounts', line.accountCode);
+              accountMap.set(line.accountCode, account || {
+                code: line.accountCode, ...definitions[line.accountCode], balance: 0,
+                isSystem: 1, createdAt: now, updatedAt: now,
+              });
+            }
+            const journalSyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
+            const entry = {
+              id: entryId, entryNumber: 'LOCAL-' + entryKey + '-' + referenceId.slice(0, 8),
+              date: now, referenceId, referenceType: 'opening',
+              description: 'رصيد افتتاحي للمخزون: ' + String(finalRecord.name || productId),
+              totalDebit: openingValue, totalCredit: openingValue, status: 'posted',
+              createdBy: payload.createdBy || 'System', branchId: finalRecord.branchId,
+              syncStatus: journalSyncStatus, createdAt: now,
+            };
+            changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: journalSyncStatus });
+            cacheRecords.journalEntries.push(entry);
+            for (let index = 0; index < lines.length; index++) {
+              const line = lines[index];
+              const account = accountMap.get(line.accountCode);
+              const updatedAccount = {
+                ...account,
+                balance: roundMoney(Number(account.balance || 0) + line.debit - line.credit),
+                updatedAt: now,
+              };
+              accountMap.set(line.accountCode, updatedAccount);
+              const transaction = {
+                id: entryId + ':' + String(index), journalEntryId: entryId,
+                accountId: line.accountCode, accountName: account.name,
+                type: line.debit > 0 ? 'debit' : 'credit',
+                amount: openingValue, debit: line.debit, credit: line.credit,
+                description: entry.description, syncStatus: journalSyncStatus, createdAt: now,
+              };
+              changes.push(
+                { action: 'put', entity: 'transactions', record: transaction, syncState: journalSyncStatus },
+              );
+              cacheRecords.transactions.push(transaction);
+            }
+            for (const account of accountMap.values()) {
+              changes.push({ action: 'put', entity: 'accounts', record: account, syncState: journalSyncStatus });
+              cacheRecords.accounts.push(account);
+            }
+          }
+        }
+      }
+    }
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات الصنف');
+    await db.transaction('rw', [
+      db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
+    ], async () => {
+      await db.products.put(productRecord as any);
+      for (const entity of Object.keys(cacheRecords)) {
+        for (const record of cacheRecords[entity]) await (db as any)[entity].put(record);
+      }
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
   await db.transaction('rw', [db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
     await db.products.put({ ...finalRecord, syncStatus });
     if (Number(finalRecord.stockQuantity || 0) <= 0 || (finalRecord.itemType && finalRecord.itemType !== 'stock')) return;
