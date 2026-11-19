@@ -4042,6 +4042,8 @@ async function applyOperationLocally(
       case 'entity_upsert':
       case 'entity_delete':
         return await applyEntityLocally(type, payload, syncStatus, serverResult);
+      default:
+        throw new Error('نوع عملية محلية غير مدعوم: ' + String(type));
     }
   } finally {
     (globalThis as any).__posApplyingOperation = false;
