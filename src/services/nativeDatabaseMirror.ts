@@ -1,6 +1,6 @@
 import { db } from '../db/db';
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
-import { getNativePosRecordId, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges } from '../native/nativePosRepository';
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
@@ -69,9 +69,10 @@ function collectTransactionChange(entity: string, table: any, key: any, transact
         if (nativeChanges.length) {
           const result = await posLocalDatabase.applyRecordChanges({ changes: nativeChanges });
           if (result.count !== nativeChanges.length || !Number.isInteger(result.applied) ||
-              result.applied < 0 || result.applied > nativeChanges.length) {
+              result.applied !== nativeChanges.length) {
             throw new Error('SQLite did not confirm the committed Dexie transaction mirror');
           }
+          notifyNativeEntityChanges(nativeChanges.map((change) => change.entity as any));
         }
       }).catch((error) => console.warn('Android SQLite transaction mirror failed:', error));
     });
@@ -194,6 +195,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
   }
   const completed = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' });
   if (!completed.saved) throw new Error('تعذر تأكيد اكتمال لقطة SQLite');
+  notifyNativeEntityChanges(MIRRORED_TABLES);
 }
 
 async function persistNativePosRecord(entity: string, row: any): Promise<void> {
@@ -204,6 +206,7 @@ async function persistNativePosRecord(entity: string, row: any): Promise<void> {
   const syncState = row?.syncStatus === 'pending' || row?.syncStatus === 'synced' || row?.syncStatus === 'error'
     ? row.syncStatus : 'local';
   await posLocalDatabase.putRecord({ entity, recordId, record: row, syncState }).then(() => undefined);
+  notifyNativeEntityChanges([entity as any]);
 }
 
 export async function mirrorNativePosRecord(entity: string, row: any): Promise<void> {
