@@ -570,29 +570,29 @@ export const syncService = {
         noSyncStatus?: boolean;
         authoritativeReplaceSynced?: boolean;
       }> = [
-        { table: db.products, api: () => apiService.getProducts() },
-        { table: db.categories, api: () => apiService.getCategories() },
-        { table: db.customers, api: () => apiService.getCustomers() },
-        { table: db.customerPayments, api: () => apiService.getCustomerPayments(), authoritativeReplaceSynced: true },
-        { table: db.suppliers, api: () => apiService.getSuppliers() },
-        { table: db.supplierPayments, api: () => apiService.getSupplierPayments(), authoritativeReplaceSynced: true },
-        { table: db.employees, api: () => apiService.getEmployees(), preserveLocalAuth: true },
-        { table: db.settings, api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl'] },
-        { table: db.branches, api: () => apiService.getBranches() },
-        { table: db.offers, api: () => apiService.getOffers() },
-        { table: db.shifts, api: () => apiService.getShifts() },
-        { table: db.shiftMovements, api: () => apiService.getShiftMovements(), authoritativeReplaceSynced: true },
-        { table: db.expenses, api: () => apiService.getExpenses() },
-        { table: db.orders, api: () => apiService.getOrders() },
-        { table: db.orderItems, api: () => apiService.getOrderItems(), authoritativeReplaceSynced: true },
-        { table: db.returns, api: () => apiService.getReturns() },
-        { table: db.returnItems, api: () => apiService.getReturnItems(), authoritativeReplaceSynced: true },
-        { table: db.accounts, api: () => apiService.getAccounts(), noSyncStatus: true },
-        { table: db.journalEntries, api: () => apiService.getJournalEntries(), authoritativeReplaceSynced: true },
-        { table: db.transactions, api: () => apiService.getTransactions(), authoritativeReplaceSynced: true },
-        { table: db.inventoryBatches, api: () => apiService.getInventoryBatches(), authoritativeReplaceSynced: true },
+        { entity: 'products', api: () => apiService.getProducts() },
+        { entity: 'categories', api: () => apiService.getCategories() },
+        { entity: 'customers', api: () => apiService.getCustomers() },
+        { entity: 'customerPayments', api: () => apiService.getCustomerPayments(), authoritativeReplaceSynced: true },
+        { entity: 'suppliers', api: () => apiService.getSuppliers() },
+        { entity: 'supplierPayments', api: () => apiService.getSupplierPayments(), authoritativeReplaceSynced: true },
+        { entity: 'employees', api: () => apiService.getEmployees(), preserveLocalAuth: true },
+        { entity: 'settings', api: () => apiService.getSettings(), excludeKeys: ['deviceRole', 'serverUrl'] },
+        { entity: 'branches', api: () => apiService.getBranches() },
+        { entity: 'offers', api: () => apiService.getOffers() },
+        { entity: 'shifts', api: () => apiService.getShifts() },
+        { entity: 'shiftMovements', api: () => apiService.getShiftMovements(), authoritativeReplaceSynced: true },
+        { entity: 'expenses', api: () => apiService.getExpenses() },
+        { entity: 'orders', api: () => apiService.getOrders() },
+        { entity: 'orderItems', api: () => apiService.getOrderItems(), authoritativeReplaceSynced: true },
+        { entity: 'returns', api: () => apiService.getReturns() },
+        { entity: 'returnItems', api: () => apiService.getReturnItems(), authoritativeReplaceSynced: true },
+        { entity: 'accounts', api: () => apiService.getAccounts(), noSyncStatus: true },
+        { entity: 'journalEntries', api: () => apiService.getJournalEntries(), authoritativeReplaceSynced: true },
+        { entity: 'transactions', api: () => apiService.getTransactions(), authoritativeReplaceSynced: true },
+        { entity: 'inventoryBatches', api: () => apiService.getInventoryBatches(), authoritativeReplaceSynced: true },
         {
-          table: db.inventoryMovements,
+          entity: 'inventoryMovements',
           api: async () => {
             const allMovements: any[] = [];
             let offset = 0;
@@ -606,20 +606,20 @@ export const syncService = {
             return allMovements;
           },
           authoritativeReplaceSynced: true,
-        },        { table: db.inventoryAlerts, api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
-        { table: db.loyaltyTransactions, api: () => apiService.getLoyaltyTransactions() },
-        { table: db.purchases, api: () => apiService.getPurchases() },
-        { table: db.purchaseItems, api: () => apiService.getPurchaseItems(), authoritativeReplaceSynced: true },
-        { table: db.purchaseReturns, api: () => apiService.getPurchaseReturns() },
-        { table: db.purchaseReturnItems, api: () => apiService.getPurchaseReturnItems(), authoritativeReplaceSynced: true },
-        { table: db.attendance, api: () => apiService.getAttendance() },
-        { table: db.payroll, api: () => apiService.getPayroll() },
-        { table: db.auditLogs, api: () => apiService.getAuditLogs() },
-        { table: db.stocktakingSessions, api: () => apiService.getStocktakingSessions() },
-        { table: db.stocktakingEntries, api: () => apiService.getStocktakingEntries() },
-        { table: db.serviceRecipes, api: () => apiService.getServiceRecipes(), authoritativeReplaceSynced: true },
-        { table: db.exchangeRateHistory, api: () => apiService.getExchangeRateHistory(), authoritativeReplaceSynced: true },
-        { table: db.fiscalPeriods, api: () => apiService.getFiscalPeriods(), authoritativeReplaceSynced: true },
+        },        { entity: 'inventoryAlerts', api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
+        { entity: 'loyaltyTransactions', api: () => apiService.getLoyaltyTransactions() },
+        { entity: 'purchases', api: () => apiService.getPurchases() },
+        { entity: 'purchaseItems', api: () => apiService.getPurchaseItems(), authoritativeReplaceSynced: true },
+        { entity: 'purchaseReturns', api: () => apiService.getPurchaseReturns() },
+        { entity: 'purchaseReturnItems', api: () => apiService.getPurchaseReturnItems(), authoritativeReplaceSynced: true },
+        { entity: 'attendance', api: () => apiService.getAttendance() },
+        { entity: 'payroll', api: () => apiService.getPayroll() },
+        { entity: 'auditLogs', api: () => apiService.getAuditLogs() },
+        { entity: 'stocktakingSessions', api: () => apiService.getStocktakingSessions() },
+        { entity: 'stocktakingEntries', api: () => apiService.getStocktakingEntries() },
+        { entity: 'serviceRecipes', api: () => apiService.getServiceRecipes(), authoritativeReplaceSynced: true },
+        { entity: 'exchangeRateHistory', api: () => apiService.getExchangeRateHistory(), authoritativeReplaceSynced: true },
+        { entity: 'fiscalPeriods', api: () => apiService.getFiscalPeriods(), authoritativeReplaceSynced: true },
       ];
 
       (globalThis as any).__posApplyingOperation = true;
@@ -630,7 +630,7 @@ export const syncService = {
             if (!Array.isArray(data)) continue;
 
             if (isNativeAndroid()) {
-              const entity = task.table.name;
+              const entity = task.entity;
               const existingNative = await nativePosRepository.getAllWithSyncState(entity as any);
               const existingById = new Map(existingNative.map((item) => {
                 const record: any = item.record;
@@ -642,7 +642,10 @@ export const syncService = {
                 }));
                 const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
                 if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
-                if (data.length) await task.table.bulkPut(data);
+                if (data.length) {
+                  try { await db.table(entity).bulkPut(data); }
+                  catch (cacheError) { console.warn('Android Dexie snapshot cache update deferred to SQLite restore:', entity, cacheError); }
+                }
                 continue;
               }
 
@@ -686,20 +689,25 @@ export const syncService = {
               }
               const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
               if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
-              if (staleIds.length) await task.table.bulkDelete(staleIds);
-              if (recordsToPut.length) await task.table.bulkPut(recordsToPut);
+              try {
+                if (staleIds.length) await db.table(entity).bulkDelete(staleIds);
+                if (recordsToPut.length) await db.table(entity).bulkPut(recordsToPut);
+              } catch (cacheError) {
+                console.warn('Android Dexie snapshot cache update deferred to SQLite restore:', entity, cacheError);
+              }
               continue;
             }
 
+            const cacheTable = db.table(task.entity);
             if (task.noSyncStatus) {
-              await task.table.bulkPut(data);
+              await cacheTable.bulkPut(data);
               continue;
             }
 
-            const existingAll = await task.table.toArray();
+            const existingAll = await cacheTable.toArray();
             const existingById = new Map(existingAll.map((r: any) => [r.id || r.key, r]));
 
-            const pendingLocal = await task.table
+            const pendingLocal = await cacheTable
               .where('syncStatus')
               .anyOf(['pending', 'error'])
               .toArray();
@@ -712,7 +720,7 @@ export const syncService = {
                 .map((r: any) => r.id)
                 .filter((id: any) => id !== undefined);
               if (staleIds.length > 0) {
-                await task.table.bulkDelete(staleIds);
+                await cacheTable.bulkDelete(staleIds);
               }
             }
 
@@ -739,7 +747,7 @@ export const syncService = {
             });
 
             if (recordsToPut.length > 0) {
-              await task.table.bulkPut(recordsToPut);
+              await cacheTable.bulkPut(recordsToPut);
             }
           } catch (err: any) {
             // Android commits each server snapshot to SQLite first. Do not hide
