@@ -3712,8 +3712,15 @@ export async function dispatchOperation(
   } catch {}
   if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
-    const oldPurchase = await getLocalRecord<any>('purchases', purchaseId);
-    const oldItems = await getLocalRecordsByIndex<any>('purchaseItems', 'purchaseId', purchaseId);
+    const [oldPurchase, oldItems] = isNativeAndroid()
+      ? await Promise.all([
+          nativePosRepository.get<any>('purchases', purchaseId),
+          nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
+        ])
+      : await Promise.all([
+          getLocalRecord<any>('purchases', purchaseId),
+          getLocalRecordsByIndex<any>('purchaseItems', 'purchaseId', purchaseId),
+        ]);
     payload = {
       ...payload,
       _localAffectedProductIds: oldItems.map((item) => Number(item.productId)),
