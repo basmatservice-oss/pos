@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { X, Package, ArrowDownLeft, ArrowUpRight, RefreshCw, History, Layers } from 'lucide-react';
-import { db, Product } from '../db/db';
+import { Product } from '../db/db';
 import { formatMoney, formatQty, roundQty } from '../utils/format';
 import { useSettings } from '../hooks/useSettings';
 
@@ -26,43 +26,25 @@ export const ItemCardModal: React.FC<ItemCardModalProps> = ({ product, onClose }
   const settings = useSettings();
   const productId = product?.id;
 
-  const batches = useLiveQuery(
-    () => (productId ? db.inventoryBatches.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const batches = usePosRecordsWhereEquals<any>('inventoryBatches', 'productId', productId);
 
-  const orderItems = useLiveQuery(
-    () => (productId ? db.orderItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const orderItems = usePosRecordsWhereEquals<any>('orderItems', 'productId', productId);
 
   const orders = usePosEntityRecords<any>('orders');
 
-  const returnItems = useLiveQuery(
-    () => (productId ? db.returnItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const returnItems = usePosRecordsWhereEquals<any>('returnItems', 'productId', productId);
 
   const returns = usePosEntityRecords<any>('returns');
 
-  const purchaseItems = useLiveQuery(
-    () => (productId ? db.purchaseItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const purchaseItems = usePosRecordsWhereEquals<any>('purchaseItems', 'productId', productId);
 
   const purchases = usePosEntityRecords<any>('purchases');
 
-  const purchaseReturnItems = useLiveQuery(
-    () => (productId ? db.purchaseReturnItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const purchaseReturnItems = usePosRecordsWhereEquals<any>('purchaseReturnItems', 'productId', productId);
 
   const purchaseReturns = usePosEntityRecords<any>('purchaseReturns');
 
-  const stocktakeEntries = useLiveQuery(
-    () => (productId ? db.stocktakingEntries.where('productId').equals(productId).toArray() : Promise.resolve([])),
-    [productId]
-  ) || [];
+  const stocktakeEntries = usePosRecordsWhereEquals<any>('stocktakingEntries', 'productId', productId);
 
   const auditLogs = usePosEntityRecords<any>('auditLogs');
 
