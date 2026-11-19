@@ -16,10 +16,10 @@ export default function Layout() {
   const [logo, setLogo] = useState('');
   const [lowStockCount, setLowStockCount] = useState(0);
   const [themeName, setThemeName] = useState('modern');
-  const { user, logout, updateCurrentUser } = useAuth();
+  const { user, logout, updateCurrentUser, changeLocalCredentials } = useAuth();
   const navigate = useNavigate();
 
-  const [deviceRole, setDeviceRole] = useState<'server' | 'client'>('server');
+  const [deviceRole, setDeviceRole] = useState<'server' | 'client' | 'standalone'>('server');
   const [oversellAlertCount, setOversellAlertCount] = useState(0);
   const [curPass, setCurPass] = useState('');
   const [newPass, setNewPass] = useState('');
@@ -33,7 +33,7 @@ export default function Layout() {
     const loadRoleAndInitialSync = async () => {
       try {
         const roleSetting = await getFirstPosRecordWhereEquals<any>('settings', 'key', 'deviceRole');
-        if (roleSetting?.value === 'client' || roleSetting?.value === 'server') {
+        if (roleSetting?.value === 'client' || roleSetting?.value === 'server' || roleSetting?.value === 'standalone') {
           setDeviceRole(roleSetting.value);
         }
         await loadSettings();
@@ -159,10 +159,7 @@ export default function Layout() {
 
   const handleMandatoryPasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (await syncService.getDeviceRole() === 'standalone') {
-      toast.error('تغيير بيانات الدخول المحلية غير مدعوم بعد في وضع التشغيل المستقل؛ لم يتم إرسال أي طلب إلى الخادم');
-      return;
-    }
+    const standalone = await syncService.getDeviceRole() === 'standalone';
     if (!newPass || newPass.length < 6) {
       toast.error('كلمة المرور الجديدة يجب أن لا تقل عن 6 أحرف');
       return;
@@ -182,6 +179,15 @@ export default function Layout() {
 
     setUpdatingCreds(true);
     try {
+      if (standalone) {
+        await changeLocalCredentials(curPass, newPass, newPin || undefined);
+        setCurPass('');
+        setNewPass('');
+        setConfirmPass('');
+        setNewPin('');
+        toast.success('تم تحديث كلمة المرور ورمز الدخول محليًا على هذا الجهاز');
+        return;
+      }
       await apiService.changePassword({
         currentPassword: curPass || undefined,
         newPassword: newPass,
