@@ -1679,7 +1679,10 @@ async function applyPurchaseLocally(
           if (activeQty > 0) await db.products.update(productId, { costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus });
         }
         if (oldPurchase && oldPurchase.supplierId) {
-          const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
+          const oldExtraCosts = oldPurchase.extraCostsPaymentMethod === 'supplier'
+            ? roundMoney(Number(oldPurchase.shippingCost || 0) + Number(oldPurchase.customsCost || 0) + Number(oldPurchase.otherCosts || 0))
+            : 0;
+          const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) + oldExtraCosts - Number(oldPurchase.paidAmount || 0));
           const sup = await db.suppliers.get(oldPurchase.supplierId);
           if (sup && oldRemaining > 0) {
             await db.suppliers.update(sup.id!, {
