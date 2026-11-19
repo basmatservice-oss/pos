@@ -18,8 +18,8 @@ import {
   Download,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Supplier, Purchase, PurchaseItem } from '../db/db';
+import { db } from '../db/db';
+import type { Supplier, Purchase, PurchaseItem } from '../db/db';
 import { useSettings } from '../hooks/useSettings';
 import PurchaseReceipt from '../components/PurchaseReceipt';
 import { format } from 'date-fns';
