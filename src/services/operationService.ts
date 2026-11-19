@@ -2063,9 +2063,25 @@ async function applyPurchaseLocally(
     for (const item of oldItems) changes.push({ action: 'delete', entity: 'purchaseItems', key: item.id });
     for (const batch of oldBatches) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.id });
     changes.push({ action: 'delete', entity: 'purchases', key: purchaseId });
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
-    // SQLite already committed the purchase deletion and its reversal records atomically.
+    const nativeChanges = changes.map((change: any) => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+      : {
+          action: 'put' as const,
+          entity: change.entity,
+          recordId: getNativePosRecordId(change.entity, change.record),
+          record: change.record,
+          syncState: change.syncState || 'local',
+        });
+    const firstItemIndex = oldItems.indexOf(oldItems[0]);
+    const deletionMovementKey = 'purchase_reversal:' + purchaseId + ':' + operationId +
+      ':out:' + String(oldItems[0].productId) + ':' + String(firstItemIndex);
+    const committed = await applyNativePosRecordChangesIfFieldAbsent(
+      nativeChanges, 'inventoryMovements', 'movementKey', deletionMovementKey,
+    );
+    if (!committed.skipped && committed.applied !== changes.length) {
+      throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
+    }
+    // The first reversal movement is the atomic deletion guard for the complete reversal.
     return;
   }
   await db.transaction(
