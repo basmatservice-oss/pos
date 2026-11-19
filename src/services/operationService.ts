@@ -601,7 +601,166 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
   );
 }
 
+async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 'pending') {
+  const targetOrderId = String(payload?.orderId || payload?.id || '');
+  if (!targetOrderId) throw new Error('Missing orderId for void operation');
+  const now = new Date().toISOString(), operationId = String(payload.operationId || targetOrderId);
+  const deviceId = String(payload.deviceId || 'local-device');
+  const [order, orderItems, customers, loyalty, batches, movements, journals, transactions, accounts] = await Promise.all([
+    nativePosRepository.get<any>('orders', targetOrderId),
+    nativePosRepository.whereEquals<any>('orderItems', 'orderId', targetOrderId),
+    nativePosRepository.getAll<any>('customers'),
+    nativePosRepository.whereEquals<any>('loyaltyTransactions', 'orderId', targetOrderId),
+    nativePosRepository.getAll<any>('inventoryBatches'),
+    nativePosRepository.getAll<any>('inventoryMovements'),
+    nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', targetOrderId),
+    nativePosRepository.getAll<any>('transactions'),
+    nativePosRepository.getAll<any>('accounts'),
+  ]);
+  if (!order || order.status === 'void') return;
+  if (Number(order.returnedAmount || 0) > 0 || order.status === 'returned' || order.status === 'partially_returned')
+    throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
+  const customerMap = new Map(customers.map((x: any) => [String(x.id), x]));
+  const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
+  const movementKeys = new Set(movements.map((x: any) => String(x.movementKey)));
+  const changes = new Map<string, any>();
+  const stage = (entity: string, record: any) => {
+    const key = entity === 'accounts' ? record.code : record.id;
+    changes.set(entity + ':' + JSON.stringify(key), { action: 'put', entity, record, syncState: syncStatus });
+  };
+  const restore = (productId: number, quantity: number, allocations: any[], fallbackCost: number, suffix: string) => {
+    let remaining = roundQty(quantity), totalCost = 0;
+    for (let i = allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
+      const allocation = allocations[i];
+      if (!allocation || Number(allocation.quantity) <= 0) continue;
+      let putBack = roundQty(Math.min(remaining, Number(allocation.quantity)));
+      const cost = Number(allocation.costPrice ?? fallbackCost);
+      let batchId = allocation.batchId ? String(allocation.batchId) : null;
+      if (batchId && batchMap.has(batchId)) {
+        const batch: any = batchMap.get(batchId);
+        const current = Number(batch.remainingQuantity || 0);
+        putBack = roundQty(Math.min(putBack, Math.max(0, Number(batch.quantity || 0) - current)));
+        if (putBack <= 1e-6) continue;
+        const updated = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: now, syncStatus };
+        batchMap.set(batchId, updated); stage('inventoryBatches', updated);
+      } else {
+        batchId = generateUUID();
+        const batch = { id: batchId, productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
+          costPrice: cost, purchaseDate: now, branchId: order.branchId, syncStatus, createdAt: now, updatedAt: now };
+        batchMap.set(batchId, batch); stage('inventoryBatches', batch);
+      }
+      totalCost += putBack * cost; remaining = roundQty(remaining - putBack);
+    }
+    if (remaining > 1e-6) {
+      const id = generateUUID(), batch = { id, productId, purchaseId: null, quantity: remaining, remainingQuantity: remaining,
+        costPrice: fallbackCost, purchaseDate: now, branchId: order.branchId, syncStatus, createdAt: now, updatedAt: now };
+      batchMap.set(id, batch); stage('inventoryBatches', batch); totalCost += remaining * fallbackCost;
+    }
+    const product = productUpdates.get(productId) || productMap.get(productId);
+    if (product) {
+      const updated = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + quantity), updatedAt: now, syncStatus };
+      productUpdates.set(productId, updated); stage('products', updated);
+    }
+    const movementKey = 'order_void:' + targetOrderId + ':in:' + String(productId) + ':' + suffix;
+    if (!movementKeys.has(movementKey)) {
+      const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_void', sourceType: 'order_void',
+        sourceId: targetOrderId, quantityDeltaBase: quantity, unitCost: quantity > 0 ? totalCost / quantity : fallbackCost,
+        totalCost: roundMoney(totalCost), branchId: order.branchId, operationId, reason: String(payload.reason || 'إلغاء فاتورة مبيعات'),
+        createdBy: payload.createdBy, createdAt: now, syncStatus };
+      movementKeys.add(movementKey); stage('inventoryMovements', movement);
+    }
+  };
+  const products = await nativePosRepository.getMany<any>('products', [...new Set(orderItems.map((x: any) => Number(x.productId)))]);
+  const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
+  const productUpdates = new Map<number, any>();
+  for (const item of orderItems) {
+    if (String(item.itemType || 'stock') === 'service') continue;
+    const factor = Number(item.conversionFactor || 1), baseQty = roundQty(Number(item.quantity || 0) * factor);
+    if (baseQty <= 0) continue;
+    let parsed: any = [];
+    try { parsed = typeof item.batchAllocations === 'string' ? JSON.parse(item.batchAllocations) : item.batchAllocations || []; } catch { parsed = []; }
+    if (parsed?.kind === 'service') continue;
+    if (parsed?.kind === 'recipe' && Array.isArray(parsed.ingredients)) {
+      for (const ingredient of parsed.ingredients) {
+        const qty = roundQty(Number(ingredient.quantityConsumed || 0));
+        if (qty > 0) restore(Number(ingredient.ingredientProductId), qty,
+          Array.isArray(ingredient.allocations) ? ingredient.allocations : [], 0,
+          'rec-' + String(item.id) + '-' + String(ingredient.ingredientProductId));
+      }
+      continue;
+    }
+    const allocations = Array.isArray(parsed) ? parsed : [];
+    const fallback = factor > 0 ? Number(item.costPriceAtTimeOfSale || 0) / factor : Number(item.costPriceAtTimeOfSale || 0);
+    restore(Number(item.productId), baseQty, allocations, fallback, String(item.id));
+  }
+  if (order.customerId) {
+    const pointsDelta = loyalty.reduce((sum: number, entry: any) =>
+      sum + (entry.type === 'earn' ? -Number(entry.points || 0) : entry.type === 'redeem' ? Number(entry.points || 0) : 0), 0);
+    const customer: any = customerMap.get(String(order.customerId));
+    if (customer) stage('customers', { ...customer,
+      balance: roundMoney(Number(customer.balance || 0) + (order.paymentMethod === 'credit' ? -Number(order.netAmount || 0) : 0)),
+      points: Math.max(0, Number(customer.points || 0) + pointsDelta), updatedAt: now, syncStatus });
+  }
+  stage('orders', { ...order, status: 'void', paidAmount: 0, updatedAt: now, syncStatus });
+
+  if (shouldPostLocalAccounting(syncStatus)) {
+    const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
+    const transactionMap = new Map(transactions.map((x: any) => [String(x.id), x]));
+    const reversedIds = new Set(journals.map((x: any) => x.reversedEntryId).filter(Boolean).map(String));
+    for (const entry of journals) {
+      if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
+      const lines = transactions.filter((x: any) => String(x.journalEntryId) === String(entry.id));
+      if (!lines.length) continue;
+      const reversalId = 'local-je:' + String(entry.referenceType || 'order') + ':' + targetOrderId + ':reversal-' + String(entry.id);
+      if (journals.some((x: any) => String(x.id) === reversalId)) continue;
+      const reversalLines = lines.map((line: any) => ({
+        accountCode: String(line.accountId), debit: roundMoney(Number(line.credit || 0)),
+        credit: roundMoney(Number(line.debit || 0)), description: 'عكس: ' + String(line.description || entry.description) +
+          ' (' + String(payload.reason || 'إلغاء فاتورة مبيعات') + ')',
+        orderId: line.orderId, purchaseId: line.purchaseId, returnId: line.returnId,
+      })).filter((line: any) => line.debit > 0 || line.credit > 0);
+      const debit = roundMoney(reversalLines.reduce((sum: number, x: any) => sum + x.debit, 0));
+      const credit = roundMoney(reversalLines.reduce((sum: number, x: any) => sum + x.credit, 0));
+      if (Math.abs(debit - credit) > 0.02) throw new Error('قيد عكسي غير متوازن');
+      const reversal = { id: reversalId, entryNumber: 'LOCAL-reversal-' + String(entry.id).slice(-16),
+        date: now, referenceId: targetOrderId, referenceType: entry.referenceType || 'order',
+        description: 'قيد عكسي - ' + String(entry.description) + ' (' + String(payload.reason || 'إلغاء فاتورة مبيعات') + ')',
+        totalDebit: debit, totalCredit: credit, status: 'posted', createdBy: payload.createdBy || 'System',
+        branchId: entry.branchId, syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now };
+      stage('journalEntries', reversal);
+      reversalLines.forEach((line: any, index: number) => {
+        const code = String(line.accountCode), account: any = accountMap.get(code);
+        stage('transactions', { id: reversalId + ':' + String(index), journalEntryId: reversalId,
+          accountId: code, accountName: account?.name || code, type: line.debit > 0 ? 'debit' : 'credit',
+          amount: line.debit > 0 ? line.debit : line.credit, debit: line.debit, credit: line.credit,
+          description: line.description, orderId: line.orderId, purchaseId: line.purchaseId, returnId: line.returnId,
+          syncStatus: reversal.syncStatus, createdAt: now });
+        if (account) {
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const updated = { ...account, balance: roundMoney(Number(account.balance || 0) +
+            (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: now };
+          accountMap.set(code, updated); stage('accounts', updated);
+        }
+      });
+      stage('journalEntries', { ...entry, status: 'reversed', reversedEntryId: reversalId });
+    }
+  }
+  const nativeChanges = [...changes.values()];
+  const applied = await nativePosRepository.applyChanges(nativeChanges);
+  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
+  const grouped = new Map<string, any[]>();
+  for (const change of nativeChanges) {
+    const list = grouped.get(change.entity) || []; list.push(change.record); grouped.set(change.entity, list);
+  }
+  const tables = [...grouped.keys()];
+  await db.transaction('rw', tables.map((name) => (db as any)[name]), async () => {
+    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
+  });
+  await flushNativeDatabaseMirrorWrites();
+}
+
 async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
+  if (isNativeAndroid()) return applyOrderVoidLocallyNative(payload, syncStatus);
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) throw new Error('Missing orderId for void operation');
   const now = new Date().toISOString();
