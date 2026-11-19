@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
@@ -85,14 +86,14 @@ export default function Inventory() {
   } = useInventoryStore();
 
   // Sync store with database changes
-  const liveProducts = useLiveQuery(() => db.products.toArray());
+  const liveProducts = usePosEntityRecords<any>('products');
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
     }
   }, [liveProducts]);
 
-  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
+  const suppliers = usePosEntityRecords<any>('suppliers');
   
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -119,7 +120,7 @@ export default function Inventory() {
   const barcodeRef = useRef<HTMLDivElement>(null);
 
   const storeSettings = useSettings();
-  const existingRecipes = useLiveQuery(() => db.serviceRecipes.toArray(), []) || [];
+  const existingRecipes = usePosEntityRecords<any>('serviceRecipes');
 
   const handlePrintBarcode = useReactToPrint({
     contentRef: barcodeRef,
