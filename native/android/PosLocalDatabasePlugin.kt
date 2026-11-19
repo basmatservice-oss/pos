@@ -320,8 +320,11 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("tenant_id", call.getString("tenantId") ?: "")
                         put("branch_id", call.getString("branchId") ?: "")
                         put("actor", call.getString("actor") ?: "")
-                        put("schema_version", call.getInt("schemaVersion") ?: 1)
-                        put("created_at", System.currentTimeMillis())
+                        put("schema_version", (call.getInt("schemaVersion") ?: 1).coerceAtLeast(1))
+                        put("created_at", (call.getLong("createdAt") ?: System.currentTimeMillis()).coerceAtLeast(0L))
+                        put("retry_count", (call.getInt("retryCount") ?: 0).coerceAtLeast(0))
+                        val nextRetryAt = call.getLong("nextRetryAt")
+                        if (nextRetryAt != null && nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
                         put("status", "pending")
                     }
                     val inserted = db.insertWithOnConflict(
@@ -752,7 +755,10 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("branch_id", operation.optString("branchId", ""))
                         put("actor", operation.optString("actor", ""))
                         put("schema_version", operation.optInt("schemaVersion", 1).coerceAtLeast(1))
-                        put("created_at", now)
+                        put("created_at", operation.optLong("createdAt", now).coerceAtLeast(0L))
+                        put("retry_count", operation.optInt("retryCount", 0).coerceAtLeast(0))
+                        val nextRetryAt = operation.optLong("nextRetryAt", 0L)
+                        if (nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
                         put("status", "pending")
                     }
                     val inserted = db.insertOrThrow("pos_outbox", null, values)
