@@ -180,6 +180,164 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
   }
 }
 
+async function reconcileNativeOperationAfterAck(type: string, payload: any, operationId: string, serverResult: any, pendingRefs: Record<string, Set<string>>) {
+  const loaded = new Map<string, Array<{ record: Record<string, any>; recordId: string; syncState: any }>>();
+  const changes: any[] = [];
+  const cacheUpdates = new Map<string, Set<string>>();
+  const load = async (entity: string) => {
+    if (!loaded.has(entity)) loaded.set(entity, await nativePosRepository.getAllWithSyncState(entity as any) as any);
+    return loaded.get(entity)!;
+  };
+  const mark = async (entity: string, predicate: (record: any) => boolean) => {
+    const rows = await load(entity);
+    for (const row of rows) {
+      if (!predicate(row.record)) continue;
+      const record = { ...row.record, syncStatus: 'synced' };
+      changes.push({ action: 'put', entity, record, syncState: row.syncState });
+      const key = record.id ?? record.code ?? record.key;
+      if (key !== undefined) {
+        if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Set<string>());
+        cacheUpdates.get(entity)!.add(String(key));
+      }
+    }
+  };
+  const get = async (entity: string, id: unknown) => {
+    if (id === undefined || id === null || id === '') return undefined;
+    return (await load(entity)).find((row) => String(row.record.id ?? row.record.code ?? row.record.key) === String(id))?.record;
+  };
+  const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => id !== undefined && id !== null && !pendingRefs[kind].has(String(id));
+  const markOrderInventory = async (orderId: string) => {
+    const items = (await load('orderItems')).filter((row) => String(row.record.orderId) === orderId).map((row) => row.record);
+    const productIds = new Set<string>();
+    const batchIds = new Set<string>();
+    const collectAllocations = (list: any[]) => {
+      for (const allocation of list || []) if (allocation?.batchId) batchIds.add(String(allocation.batchId));
+    };
+    for (const item of items) {
+      productIds.add(String(item.productId));
+      let allocations: any = item.batchAllocations || [];
+      try { if (typeof allocations === 'string') allocations = JSON.parse(allocations); } catch { allocations = []; }
+      if (Array.isArray(allocations)) collectAllocations(allocations);
+      if (allocations?.kind === 'recipe' && Array.isArray(allocations.ingredients)) {
+        for (const ingredient of allocations.ingredients) {
+          productIds.add(String(ingredient.ingredientProductId));
+          collectAllocations(ingredient.allocations || []);
+        }
+      }
+    }
+    await mark('orderItems', (row) => String(row.orderId) === orderId);
+    await mark('loyaltyTransactions', (row) => String(row.orderId) === orderId);
+    await mark('inventoryMovements', (row) => String(row.orderId || row.referenceId) === orderId);
+    for (const id of productIds) if (!pendingRefs.products.has(id)) await mark('products', (row) => String(row.id) === id);
+    await mark('inventoryBatches', (row) => batchIds.has(String(row.id)) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+  };
+
+  if (type === 'sale') {
+    const orderId = String(payload?.order?.id || '');
+    if (orderId && canMark('orders', orderId)) {
+      await mark('orders', (row) => String(row.id) === orderId);
+      await markOrderInventory(orderId);
+    }
+    for (const item of payload?.items || []) if (canMark('products', item.productId)) await mark('products', (row) => String(row.id) === String(item.productId));
+    if (payload?.order?.customerId && canMark('customers', payload.order.customerId)) await mark('customers', (row) => String(row.id) === String(payload.order.customerId));
+  } else if (type === 'return') {
+    const returnId = String(payload?.id || ''), orderId = String(payload?.originalOrderId || '');
+    if (returnId) { await mark('returns', (row) => String(row.id) === returnId); await mark('returnItems', (row) => String(row.returnId) === returnId); }
+    if (orderId && canMark('orders', orderId)) { await mark('orders', (row) => String(row.id) === orderId); await markOrderInventory(orderId); }
+    const originalOrder = orderId ? await get('orders', orderId) : undefined;
+    if (originalOrder?.customerId && canMark('customers', originalOrder.customerId)) await mark('customers', (row) => String(row.id) === String(originalOrder.customerId));
+    for (const item of payload?.items || []) if (canMark('products', item.productId)) await mark('products', (row) => String(row.id) === String(item.productId));
+  } else if (type === 'order_void') {
+    const orderId = String(payload?.orderId || payload?.id || '');
+    if (orderId && canMark('orders', orderId)) { await mark('orders', (row) => String(row.id) === orderId); await markOrderInventory(orderId); }
+    const originalOrder = orderId ? await get('orders', orderId) : undefined;
+    if (originalOrder?.customerId && canMark('customers', originalOrder.customerId)) await mark('customers', (row) => String(row.id) === String(originalOrder.customerId));
+  } else if (type === 'purchase' || type === 'purchase_update') {
+    const purchaseId = String(payload?.purchase?.id || '');
+    if (purchaseId && canMark('purchases', purchaseId)) {
+      await mark('purchases', (row) => String(row.id) === purchaseId);
+      await mark('purchaseItems', (row) => String(row.purchaseId) === purchaseId);
+      await mark('inventoryBatches', (row) => String(row.purchaseId) === purchaseId && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+    }
+    for (const item of payload?.items || []) if (canMark('products', item.productId)) await mark('products', (row) => String(row.id) === String(item.productId));
+    for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await mark('products', (row) => String(row.id) === String(productId));
+    if (payload?.purchase?.supplierId && canMark('suppliers', payload.purchase.supplierId)) await mark('suppliers', (row) => String(row.id) === String(payload.purchase.supplierId));
+    if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await mark('suppliers', (row) => String(row.id) === String(payload._localAffectedSupplierId));
+  } else if (type === 'purchase_delete') {
+    for (const productId of payload?._localAffectedProductIds || []) if (canMark('products', productId)) await mark('products', (row) => String(row.id) === String(productId));
+    if (payload?._localAffectedSupplierId && canMark('suppliers', payload._localAffectedSupplierId)) await mark('suppliers', (row) => String(row.id) === String(payload._localAffectedSupplierId));
+  } else if (type === 'purchase_return') {
+    const returnId = String(payload?.id || ''), purchaseId = String(payload?.originalPurchaseId || '');
+    if (returnId) { await mark('purchaseReturns', (row) => String(row.id) === returnId); await mark('purchaseReturnItems', (row) => String(row.purchaseReturnId) === returnId); }
+    if (purchaseId && canMark('purchases', purchaseId)) await mark('purchases', (row) => String(row.id) === purchaseId);
+    const originalPurchase = purchaseId ? await get('purchases', purchaseId) : undefined;
+    if (originalPurchase?.supplierId && canMark('suppliers', originalPurchase.supplierId)) await mark('suppliers', (row) => String(row.id) === String(originalPurchase.supplierId));
+    const returnedProductIds = new Set((payload?.items || []).map((item: any) => String(item.productId)));
+    if (purchaseId) await mark('inventoryBatches', (row) => String(row.purchaseId) === purchaseId && returnedProductIds.has(String(row.productId)) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+    for (const item of payload?.items || []) {
+      if (canMark('products', item.productId)) await mark('products', (row) => String(row.id) === String(item.productId));
+      if (item.batchId && !pendingRefs.batches.has(String(item.batchId)) && !pendingRefs.products.has(String(item.productId))) await mark('inventoryBatches', (row) => String(row.id) === String(item.batchId));
+    }
+  } else if (type === 'expense') {
+    if (payload?.id !== undefined) await mark('expenses', (row) => String(row.id) === String(payload.id));
+  } else if (type === 'customer_payment') {
+    const paymentId = String(payload?.paymentId || operationId);
+    await mark('customerPayments', (row) => String(row.id) === paymentId);
+    if (payload?.customerId && canMark('customers', payload.customerId)) await mark('customers', (row) => String(row.id) === String(payload.customerId));
+    if (payload?.orderId && canMark('orders', payload.orderId)) await mark('orders', (row) => String(row.id) === String(payload.orderId));
+  } else if (type === 'supplier_payment') {
+    const paymentId = String(payload?.paymentId || operationId);
+    await mark('supplierPayments', (row) => String(row.id) === paymentId);
+    if (payload?.supplierId && canMark('suppliers', payload.supplierId)) await mark('suppliers', (row) => String(row.id) === String(payload.supplierId));
+    if (payload?.purchaseId && canMark('purchases', payload.purchaseId)) await mark('purchases', (row) => String(row.id) === String(payload.purchaseId));
+  } else if (type === 'payroll') {
+    if (payload?.id !== undefined) await mark('payroll', (row) => String(row.id) === String(payload.id));
+  } else if (type === 'shift_open' || type === 'shift_close') {
+    if (payload?.id !== undefined) await mark('shifts', (row) => String(row.id) === String(payload.id));
+  } else if (type === 'shift_movement') {
+    if (payload?.id !== undefined) await mark('shiftMovements', (row) => String(row.id) === String(payload.id));
+  } else if (type === 'stocktake_approve') {
+    if (payload?.sessionId) {
+      const sessionId = String(payload.sessionId);
+      await mark('stocktakingSessions', (row) => String(row.id) === sessionId);
+      const entries = (await load('stocktakingEntries')).filter((row) => String(row.record.sessionId) === sessionId).map((row) => row.record);
+      await mark('stocktakingEntries', (row) => String(row.sessionId) === sessionId);
+      for (const entry of entries) if (canMark('products', entry.productId)) {
+        await mark('products', (row) => String(row.id) === String(entry.productId));
+        await mark('inventoryBatches', (row) => Number(row.productId) === Number(entry.productId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+      }
+    }
+  } else if (type === 'entity_upsert') {
+    const entity = String(payload?.table || '');
+    const serverId = serverResult?.id ?? payload?.record?.id;
+    if (entity && serverId !== undefined) {
+      const oldId = payload?.record?.id;
+      if (oldId !== undefined && String(oldId) !== String(serverId)) {
+        changes.push({ action: 'delete', entity, key: oldId });
+        if (entity === 'products') {
+          for (const batch of await load('inventoryBatches')) if (String(batch.record.productId) === String(oldId)) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.record.id });
+        }
+      }
+      if (entity === 'products') {
+        await mark('products', (row) => String(row.id) === String(serverId));
+        await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
+      } else await mark(entity, (row) => String(row.id) === String(serverId));
+      if (oldId !== undefined && String(oldId) !== String(serverId)) {
+        try { await db.table(entity).delete(oldId); } catch {}
+        if (entity === 'products') {
+          const batches = (await load('inventoryBatches')).filter((row) => String(row.record.productId) === String(oldId));
+          for (const batch of batches) try { await db.inventoryBatches.delete(batch.record.id); } catch {}
+        }
+      }
+    }
+  }
+  if (changes.length) await nativePosRepository.applyChanges(changes);
+  for (const [entity, keys] of cacheUpdates) {
+    const table = db.table(entity);
+    for (const key of keys) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
+  }
+}
+
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
   const referenceId = type === 'entity_upsert' && payload?.table === 'products'
     ? 'opening:' + String(payload?.record?.id)
@@ -187,7 +345,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
 
-  const pending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  const pending = isNativeAndroid() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>() };
   for (const operation of pending) {
     collectPendingReferences(operation.payload, pendingRefs);
@@ -219,6 +377,11 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     }
   }
   const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
+
+  if (isNativeAndroid()) {
+    await reconcileNativeOperationAfterAck(type, payload, operationId, serverResult, pendingRefs);
+    return;
+  }
 
   if (type === 'sale') {
     const orderId = String(payload?.order?.id || '');
