@@ -1309,6 +1309,7 @@ async function applyPurchaseLocally(
       ? await nativePosRepository.get<any>('purchases', String(purchase.id))
       : null;
     if (isPurchaseUpdate && !oldPurchase) throw new Error('فاتورة الشراء المطلوب تعديلها غير موجودة في SQLite');
+    if (isPurchaseUpdate && payload.operationId && String(oldPurchase.lastLocalOperationId || '') === String(payload.operationId)) return;
     if (!isPurchaseUpdate && await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
     const items = Array.isArray(payload.items) ? payload.items : [];
     const fxRate = Number(purchase.exchangeRate || 1);
@@ -1539,7 +1540,11 @@ async function applyPurchaseLocally(
     if (suppliedBatchIds.some((id: string) => allBatches.some((batch: any) => String(batch.id) === id))) {
       throw new Error('معرّف إحدى دفعات فاتورة الشراء مستخدم مسبقًا');
     }
-    const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
+    const purchaseDoc = {
+      ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0,
+      ...(isPurchaseUpdate && payload.operationId ? { lastLocalOperationId: String(payload.operationId) } : {}),
+      syncStatus,
+    };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
     const serverItems = Array.isArray(payload._serverItems) ? payload._serverItems : [];
     if (serverItems.length && serverItems.length !== normalized.length) {
