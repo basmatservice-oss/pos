@@ -17,8 +17,7 @@ import {
   ChevronRight,
   X
 } from 'lucide-react';
-import { db, Offer, Product } from '../db/db';
-import { useLiveQuery } from 'dexie-react-hooks';
+import type { Offer, Product } from '../db/db';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
