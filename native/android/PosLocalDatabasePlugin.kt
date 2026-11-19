@@ -144,11 +144,13 @@ class PosLocalDatabasePlugin : Plugin() {
         val ifAbsentValue = call.getString("ifAbsentValue")
         val hasRecordGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()
         val hasFieldGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentField.isNullOrBlank() && ifAbsentValue != null
-        if ((ifAbsentEntity.isNullOrBlank()) != (ifAbsentRecordId.isNullOrBlank()) ||
+        if ((ifAbsentRecordId != null && (ifAbsentEntity.isNullOrBlank() || ifAbsentRecordId.isBlank())) ||
             ((ifAbsentField == null) != (ifAbsentValue == null)) ||
-            (ifAbsentField != null && ifAbsentField.isBlank()) ||
+            (ifAbsentField != null && (ifAbsentField.isBlank() || ifAbsentEntity.isNullOrBlank())) ||
             (hasRecordGuard && ifAbsentField != null) ||
-            (ifAbsentEntity.isNullOrBlank() && (ifAbsentField != null || ifAbsentValue != null))) {
+            (ifAbsentEntity != null && ifAbsentEntity.isBlank()) ||
+            (ifAbsentEntity != null && !hasRecordGuard && !hasFieldGuard) ||
+            (ifAbsentEntity == null && (ifAbsentRecordId != null || ifAbsentField != null || ifAbsentValue != null))) {
             call.reject("شرط منع التكرار غير مكتمل أو يجمع نوعين من الشروط")
             return
         }
