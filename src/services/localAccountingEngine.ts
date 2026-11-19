@@ -77,13 +77,23 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     const now = input.date || new Date().toISOString();
     const changes: any[] = [];
     const accounts = new Map<string, any>();
+    const accountSyncStates = new Map<string, any>();
+    const accountRows = await nativePosRepository.getAllWithSyncState('accounts');
+    for (const row of accountRows) {
+      accounts.set(String(row.record.code), row.record);
+      accountSyncStates.set(String(row.record.code), row.syncState);
+    }
+    const accountChanges = new Map<string, any>();
     for (const definition of SYSTEM_ACCOUNTS) {
-      const existing = await nativePosRepository.get<any>('accounts', definition.code);
+      const existing = accounts.get(definition.code);
       const account = existing || {
         ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
       };
       accounts.set(definition.code, account);
-      if (!existing) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: 'local' });
+      if (!existing) {
+        accountChanges.set(definition.code, account);
+        accountSyncStates.set(definition.code, 'local');
+      }
     }
     const journal = {
       id: entryId,
@@ -135,15 +145,13 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
       const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
       const updated = { ...account, balance: money(Number(account.balance || 0) + delta), updatedAt: now };
       accounts.set(line.accountCode, updated);
+      accountChanges.set(line.accountCode, updated);
     }
-    const accountChanges = new Map<string, any>();
-    for (const definition of SYSTEM_ACCOUNTS) {
-      const account = accounts.get(definition.code);
-      if (account) accountChanges.set(definition.code, account);
-    }
-    for (const line of lines) accountChanges.set(line.accountCode, accounts.get(line.accountCode));
-    for (const account of accountChanges.values()) {
-      changes.push({ action: 'put', entity: 'accounts', record: account, syncState: journalSyncStatus });
+    for (const [accountCode, account] of accountChanges) {
+      changes.push({
+        action: 'put', entity: 'accounts', record: account,
+        syncState: accountSyncStates.get(accountCode) || journalSyncStatus,
+      });
     }
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
