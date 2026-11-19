@@ -31,8 +31,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useSettings } from './hooks/useSettings';
 import { useInventoryStore } from './store/useInventoryStore';
-import { isNativeAndroid } from './native/posLocalDatabase';
-import { getFirstPosRecordWhereEquals, getPosRecords, putPosSetting } from './services/posDataAccess';
+import { getFirstPosRecordWhereEquals, putPosSetting } from './services/posDataAccess';
 import { usePosEntityRecords } from './hooks/usePosEntityRecords';
 
 async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
