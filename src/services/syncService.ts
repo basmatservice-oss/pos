@@ -527,8 +527,9 @@ export const syncService = {
         return await apiService.addExchangeRate(record);
       case 'fiscalPeriods':
         return await apiService.saveFiscalPeriod(record);
+      default:
+        throw new Error(`Unsupported sync entity: ${tableName}`);
     }
-    return null;
   },
 
   async pushTable(tableName: string) {
