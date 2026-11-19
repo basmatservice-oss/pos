@@ -364,10 +364,23 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       { accountCode: '5100', debit: roundMoney(totalCogs), credit: 0, orderId: order.id },
       { accountCode: '1200', debit: 0, credit: roundMoney(totalCogs), orderId: order.id }]);
   }
-  const nativeChanges = [...changes.values()];
-  const applied = await nativePosRepository.applyChanges(nativeChanges);
-  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة المبيعات');
-  // SQLite has committed the complete sale transaction; no Dexie mirror write is needed.
+  const stagedChanges = [...changes.values()];
+  const nativeChanges = stagedChanges.map((change: any) => ({
+    action: 'put' as const,
+    entity: change.entity,
+    recordId: getNativePosRecordId(change.entity, change.record),
+    record: change.record,
+    syncState: change.syncState || 'local',
+  }));
+  const committed = await applyNativePosRecordChangesIfAbsent(
+    nativeChanges,
+    'orders',
+    JSON.stringify(order.id),
+  );
+  if (!committed.skipped && committed.applied !== nativeChanges.length) {
+    throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة المبيعات');
+  }
+  // The order guard and all stock/accounting changes commit in one SQLite transaction.
 }
 
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
