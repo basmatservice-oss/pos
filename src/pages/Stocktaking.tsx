@@ -3,7 +3,7 @@ import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { getPosRecord, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { db, Product, StocktakingSession, StocktakingEntry } from '../db/db';
+import type { Product, StocktakingSession, StocktakingEntry } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { 
   Package, 
