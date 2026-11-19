@@ -158,9 +158,8 @@ class PosLocalDatabasePlugin : Plugin() {
             (ifAbsentEntity != null && ifAbsentEntity.isBlank()) ||
             (ifAbsentEntity != null && !hasRecordGuard && !hasFieldGuard) ||
             (ifAbsentEntity == null && (ifAbsentRecordId != null || ifAbsentField != null || ifAbsentValue != null)) ||
-            (hasAnyMatchInput && !hasMatchGuard) ||
-            (hasMatchGuard && (hasRecordGuard || hasFieldGuard || ifAbsentEntity != null))) {
-            call.reject("شرط منع التكرار غير مكتمل أو يجمع نوعين من الشروط")
+            (hasAnyMatchInput && !hasMatchGuard)) {
+            call.reject("شرط منع التكرار أو المقارنة الذرية غير مكتمل")
             return
         }
 
@@ -211,7 +210,8 @@ class PosLocalDatabasePlugin : Plugin() {
                     ).use { cursor ->
                         if (cursor.moveToFirst()) skipped = true
                     }
-                } else if (hasFieldGuard) {
+                }
+                if (!skipped && hasFieldGuard) {
                     db.query("pos_records", arrayOf("json"), "entity = ?", arrayOf(ifAbsentEntity), null, null, null).use { cursor ->
                         while (!skipped && cursor.moveToNext()) {
                             val json = cursor.getString(0)
@@ -222,7 +222,8 @@ class PosLocalDatabasePlugin : Plugin() {
                             }
                         }
                     }
-                } else if (hasMatchGuard) {
+                }
+                if (!skipped && hasMatchGuard) {
                     db.query(
                         "pos_records", arrayOf("json"),
                         "entity = ? AND record_id = ?", arrayOf(ifMatchEntity, ifMatchRecordId),
