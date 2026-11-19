@@ -1522,13 +1522,27 @@ async function applyPurchaseLocally(
     const itemBaseQuantities = new Map<number, number>();
     for (const item of oldItems) {
       const productId = Number(item.productId);
-      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
-      itemBaseQuantities.set(productId, roundQty((itemBaseQuantities.get(productId) || 0) + Number(item.quantity || 0) * factor));
+      const quantity = Number(item.quantity);
+      const rawFactor = Number(item.conversionFactor ?? 1);
+      const factor = rawFactor > 0 ? rawFactor : 1;
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0) {
+        throw new Error('لا يمكن عكس فاتورة الشراء؛ تحتوي تفاصيلها على صنف أو كمية أو معامل تحويل غير صالح');
+      }
+      itemBaseQuantities.set(productId, roundQty((itemBaseQuantities.get(productId) || 0) + quantity * factor));
     }
     const batchBaseQuantities = new Map<number, number>();
+    const seenBatchIds = new Set<string>();
     for (const batch of oldBatches) {
       const productId = Number(batch.productId);
-      batchBaseQuantities.set(productId, roundQty((batchBaseQuantities.get(productId) || 0) + Number(batch.quantity || 0)));
+      const quantity = Number(batch.quantity);
+      const batchId = String(batch.id);
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !batchId || seenBatchIds.has(batchId)) {
+        throw new Error('لا يمكن عكس فاتورة الشراء؛ تحتوي دفعاتها على بيانات غير صالحة أو معرّفات مكررة');
+      }
+      seenBatchIds.add(batchId);
+      batchBaseQuantities.set(productId, roundQty((batchBaseQuantities.get(productId) || 0) + quantity));
     }
     for (const [productId, itemQty] of itemBaseQuantities) {
       if (Math.abs(itemQty - (batchBaseQuantities.get(productId) || 0)) > 0.0001) {
