@@ -38,8 +38,9 @@ let nativeStartupError: unknown = null;
 
 ensureDatabaseReady()
   .then(async () => {
+    let restoredFromSQLite = false;
     try {
-      const restoredFromSQLite = await restoreNativePosDatabase();
+      restoredFromSQLite = await restoreNativePosDatabase();
     } catch (err) {
       console.error('Failed to restore Android SQLite business snapshot:', err);
       if (isNativeAndroid()) throw err;
