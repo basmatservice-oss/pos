@@ -3,6 +3,7 @@ import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
+import { syncService } from '../services/syncService';
 
 type Props = {
   productId: number;
@@ -43,6 +44,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
     let cancelled = false;
     const loadLatest = async () => {
       try {
+        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
         const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
         if (!isNativeAndroid()) {
