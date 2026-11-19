@@ -3699,15 +3699,13 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
   });
 }
 async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', payload: any, syncStatus: 'synced' | 'pending', serverResult?: any) {
-  const tableName = payload?.table as keyof typeof db;
-  const table = (db as any)[tableName];
-  if (isNativeAndroid() && !(NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
+  const android = isNativeAndroid();
+  const tableName = payload?.table as string;
+  if (android && !(NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
     throw new Error('الكيان غير مدعوم في مخزن SQLite المحلي: ' + String(tableName));
   }
-  if (!table) {
-    if (isNativeAndroid()) throw new Error('جدول الكيان غير متاح في ذاكرة التطبيق: ' + String(tableName));
-    return;
-  }
+  const table = android ? undefined : (db as any)[tableName];
+  if (!android && !table) return;
   if (type === 'entity_delete') {
     if (isNativeAndroid()) {
       const existing = await nativePosRepository.get<any>(tableName as any, payload.id);
@@ -3715,8 +3713,6 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
         throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
       }
       // A missing row is an already-applied delete, which keeps retries idempotent.
-      await table.delete(payload.id);
-      await flushNativeDatabaseMirrorWrites();
       return;
     }
     await table.delete(payload.id);
@@ -3736,11 +3732,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
       nativeChanges.push({ action: 'put', entity: tableName, record: { ...finalRecord, syncStatus }, syncState: syncStatus });
       const applied = await nativePosRepository.applyChanges(nativeChanges);
       if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite تحديث السجل');
-      await db.transaction('rw', [table], async () => {
-        if (hasChangedPrimaryKey) await table.delete(previousId);
-        await table.put({ ...finalRecord, syncStatus });
-      });
-      await flushNativeDatabaseMirrorWrites();
+      // SQLite has committed the canonical entity record; Dexie is not used on Android.
       return;
     }
     await table.put({ ...finalRecord, syncStatus });
@@ -3844,16 +3836,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     }
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات الصنف');
-    await db.transaction('rw', [
-      db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
-    ], async () => {
-      if (hasChangedPrimaryKey) await db.products.delete(previousId);
-      await db.products.put(productRecord as any);
-      for (const entity of Object.keys(cacheRecords)) {
-        for (const record of cacheRecords[entity]) await (db as any)[entity].put(record);
-      }
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite has committed the product and any opening inventory/accounting records atomically.
     return;
   }
   await db.transaction('rw', [db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
