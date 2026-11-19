@@ -667,13 +667,21 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   };
   const restore = (productId: number, quantity: number, allocations: any[], fallbackCost: number, suffix: string) => {
     let remaining = roundQty(quantity), totalCost = 0;
+    const existingProduct: any = productUpdates.get(productId) || productMap.get(productId);
+    if (!existingProduct) throw new Error('الصنف ' + productId + ' غير موجود في SQLite؛ أُوقف إلغاء الفاتورة لحماية المخزون');
+    if (!Number.isFinite(fallbackCost) || fallbackCost < 0 || !Array.isArray(allocations) ||
+        allocations.some((allocation: any) => !allocation || !Number.isFinite(Number(allocation.quantity)) ||
+          Number(allocation.quantity) < 0 || !Number.isFinite(Number(allocation.costPrice ?? fallbackCost)) ||
+          Number(allocation.costPrice ?? fallbackCost) < 0)) {
+      throw new Error('تخصيصات دفعات أو تكاليف إلغاء الفاتورة غير صالحة');
+    }
     for (let i = allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
       const allocation = allocations[i];
       if (!allocation || Number(allocation.quantity) <= 0) continue;
       let putBack = roundQty(Math.min(remaining, Number(allocation.quantity)));
       const cost = Number(allocation.costPrice ?? fallbackCost);
       let batchId = allocation.batchId ? String(allocation.batchId) : null;
-      if (batchId && batchMap.has(batchId)) {
+      if (batchId && batchMap.has(batchId) && Number((batchMap.get(batchId) as any).productId) === Number(productId)) {
         const batch: any = batchMap.get(batchId);
         const current = Number(batch.remainingQuantity || 0);
         putBack = roundQty(Math.min(putBack, Math.max(0, Number(batch.quantity || 0) - current)));
