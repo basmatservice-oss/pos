@@ -538,9 +538,8 @@ export const syncService = {
       } catch (err: any) {
         console.error(`Failed to push ${tableName} record:`, record, err);
         const conflict = err.response && err.response.status === 409;
-        await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: conflict ? 'conflict' : 'error' });
-        if (isNativeAndroid() && recordKey !== undefined) {
-          await nativePosRepository.setSyncState(tableName as any, recordKey, conflict ? 'local' : 'error');
+        if (recordKey !== undefined) {
+          await markPushedRecordState(tableName, recordKey, conflict ? 'conflict' : 'error');
         }
       }
     }
