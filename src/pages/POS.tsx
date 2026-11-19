@@ -114,14 +114,15 @@ export default function POS() {
   const heldOrders = usePosEntityRecords<any>('heldOrders');
   const serviceRecipes = usePosEntityRecords<any>('serviceRecipes');
 
-  const customers =
-    useLiveQuery(() => {
-      const query = (customerSearchQuery || '').toLowerCase();
-      if (!query) return db.customers.limit(25).toArray();
-      return db.customers
-        .filter((c) => (c.name || '').toLowerCase().includes(query) || (c.phone || '').includes(query))
-        .toArray();
-    }, [customerSearchQuery]) || [];
+  const allCustomers = usePosEntityRecords<any>('customers');
+  const customers = useMemo(() => {
+    const query = (customerSearchQuery || '').toLowerCase();
+    const matches = query
+      ? allCustomers.filter((customer) =>
+          (customer.name || '').toLowerCase().includes(query) || (customer.phone || '').includes(query))
+      : allCustomers;
+    return matches.slice(0, 25);
+  }, [allCustomers, customerSearchQuery]);
 
   useEffect(() => {
     if (storeSettings.taxRate !== undefined) {
