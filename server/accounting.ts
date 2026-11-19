@@ -517,6 +517,7 @@ export function restoreInventoryFIFO(
     quantityInBaseUnits: number;
     allocations?: BatchAllocation[];
     fallbackCost: number;
+    valuationMethod?: 'fifo' | 'weighted_average';
     branchId?: number | null;
     operationId?: string;
     movementType?: string;
@@ -528,7 +529,7 @@ export function restoreInventoryFIFO(
     createdAt?: string;
   }
 ): { totalCostRestored: number; restoredAllocations: BatchAllocation[] } {
-  const { productId, quantityInBaseUnits, allocations = [], fallbackCost, branchId } = params;
+  const { productId, quantityInBaseUnits, allocations = [], fallbackCost, valuationMethod = 'fifo', branchId } = params;
   const now = params.createdAt || new Date().toISOString();
 
   const qtyToRestore = roundQty(quantityInBaseUnits);
@@ -614,6 +615,7 @@ export function restoreInventoryFIFO(
       })
       .where(eq(products.id, productId))
       .run();
+    if (valuationMethod === 'weighted_average') recalculateProductWeightedCost(tx, productId);
   }
 
   const srcType = params.sourceType || 'return';
