@@ -113,6 +113,28 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
   const now = order.createdAt || new Date().toISOString();
   const operationId = String(payload.operationId || order.operationId || order.id);
   const deviceId = String(payload.deviceId || 'local-device');
+
+  // Reject malformed sale payloads before reading stock or staging any business
+  // records; SQLite must never accept a partial/empty sale as a completed order.
+  if (order.id == null || String(order.id).trim() === '' || !operationId.trim() ||
+      !Array.isArray(items) || items.length === 0) {
+    throw new Error('فاتورة البيع تفتقد معرّفًا صالحًا أو أصنافًا قابلة للترحيل');
+  }
+  const rawAmounts = [order.totalAmount, order.taxAmount, order.netAmount, order.exchangeRate ?? 1]
+    .map((value: any) => Number(value));
+  if (rawAmounts.some((value: number) => !Number.isFinite(value) || value < 0) || rawAmounts[3] <= 0) {
+    throw new Error('إجماليات فاتورة البيع أو سعر الصرف غير صالحة');
+  }
+  for (const item of items) {
+    const productId = Number(item?.productId);
+    const quantity = Number(item?.quantity);
+    const itemAmounts = [item?.unitPrice ?? 0, item?.discountAmount ?? 0, item?.subTotal ?? 0,
+      item?.taxAmount ?? 0, item?.total ?? 0].map((value: any) => Number(value));
+    if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+        itemAmounts.some((value: number) => !Number.isFinite(value) || value < 0)) {
+      throw new Error('تحتوي فاتورة البيع على صنف أو كمية أو قيمة مالية غير صالحة');
+    }
+  }
   const policyRow = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'offlineStockPolicy');
   const legacyPolicy = policyRow ? null : await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'allowNegativeStock');
   const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
