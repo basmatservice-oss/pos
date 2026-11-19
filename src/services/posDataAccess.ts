@@ -40,3 +40,28 @@ export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosReco
   if (isNativeAndroid()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
   return await db.table(entity).where(field).equals(value as any).first() as T | undefined;
 }
+
+/** Persist one record through the active platform's primary database. */
+export async function putPosRecord<T extends PosRecord = PosRecord>(
+  entity: NativePosEntity,
+  record: T,
+): Promise<void> {
+  if (isNativeAndroid()) {
+    await nativePosRepository.put(entity, record);
+    return;
+  }
+  await db.table(entity).put(record as any);
+}
+
+/** Delete one record from the active platform's primary database. */
+export async function deletePosRecord(
+  entity: NativePosEntity,
+  key: unknown,
+): Promise<void> {
+  if (isNativeAndroid()) {
+    const deleted = await nativePosRepository.delete(entity, key);
+    if (!deleted) throw new Error(`Could not delete ${entity} record from SQLite`);
+    return;
+  }
+  await db.table(entity).delete(key as any);
+}
