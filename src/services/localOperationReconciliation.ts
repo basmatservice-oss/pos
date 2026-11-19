@@ -154,7 +154,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
   const oldKey = String(oldId);
   const newKey = String(newId);
   await remapLocalEntityReferences(tableName, oldKey, newKey);
-  const dexiePending = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  const dexiePending = isNativeAndroid() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   for (const operation of dexiePending) {
     if (operation.id === acknowledgedOperationId) continue;
     let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
@@ -328,19 +328,24 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
         await mark('products', (row) => String(row.id) === String(serverId));
         await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
       } else await mark(entity, (row) => String(row.id) === String(serverId));
-      if (oldId !== undefined && String(oldId) !== String(serverId)) {
-        try { await db.table(entity).delete(oldId); } catch {}
-        if (entity === 'products') {
-          const batches = (await load('inventoryBatches')).filter((row) => String(row.record.productId) === String(oldId));
-          for (const batch of batches) try { await db.inventoryBatches.delete(batch.record.id); } catch {}
-        }
-      }
     }
   }
   if (changes.length) await nativePosRepository.applyChanges(changes);
   for (const [entity, keys] of cacheUpdates) {
     const table = db.table(entity);
     for (const key of keys.values()) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
+  }
+  if (type === 'entity_upsert' && payload?.table && payload?.record?.id !== undefined) {
+    const entity = String(payload.table);
+    const serverId = serverResult?.id ?? payload.record.id;
+    const oldId = payload.record.id;
+    if (String(oldId) !== String(serverId)) {
+      try { await db.table(entity).delete(oldId); } catch {}
+      if (entity === 'products') {
+        const batches = (await load('inventoryBatches')).filter((row) => String(row.record.productId) === String(oldId));
+        for (const batch of batches) try { await db.inventoryBatches.delete(batch.record.id); } catch {}
+      }
+    }
   }
 }
 
@@ -379,7 +384,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
         }
       }
     } catch (error) {
-      console.warn('تعذر قراءة طابور SQLite أثناء تسوية المزامنة:', error);
+      throw new Error('تعذر قراءة طابور SQLite؛ أُوقفت تسوية المزامنة لتجنب اعتماد سجلات لها عمليات معلقة: ' + String(error));
     }
   }
   const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
