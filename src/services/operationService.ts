@@ -889,7 +889,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     }
     return ids;
   }).filter((productId: number) => Number.isSafeInteger(productId) && productId > 0))];
-  const [products, customer, batchGroups, movements, accounts, journals] = await Promise.all([
+  const [products, customer, batchGroups, movements, accounts, journals, valuationSetting] = await Promise.all([
     nativePosRepository.getMany<any>('products', affectedProductIds),
     origOrder.customerId
       ? nativePosRepository.get<any>('customers', origOrder.customerId)
