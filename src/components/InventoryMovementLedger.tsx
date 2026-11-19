@@ -144,12 +144,12 @@ export default function InventoryMovementLedger({ currency }: Props) {
     [movements]
   );
   const handleReconciliation = async () => {
-    if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
-      setReconciliation({ error: 'مطابقة الخادم غير متاحة في وضع التشغيل المستقل' });
-      return;
-    }
     if (reconciliation) {
       setReconciliation(null);
+      return;
+    }
+    if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      setReconciliation({ error: 'مطابقة الخادم غير متاحة في وضع التشغيل المستقل' });
       return;
     }
     setLoadingReconciliation(true);
