@@ -2242,6 +2242,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     }
     const returnedBaseByProduct = new Map<number, number>();
     const returnedBaseByBatch = new Map<string, number>();
+    const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
+    const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
+    const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
+    const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
     for (const priorReturn of previousReturns) {
       const priorRows = previousItemRows.filter((entry: any) => String(entry.purchaseReturnId) === String(priorReturn.id));
       if (!priorRows.length && Number(priorReturn.totalReturn || 0) > 0) {
@@ -2275,10 +2279,6 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         returnedBaseByBatch.set(batchId, roundQty((returnedBaseByBatch.get(batchId) || 0) + quantity));
       }
     }
-    const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
-    const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
-    const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
-    const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
     const changes: any[] = [];
     const itemDocs: any[] = [];
     let totalReturn = 0;
