@@ -6,16 +6,6 @@ import type {
   PurchaseReturnItem,
 } from '../db/db';
 
-// Dexie is a desktop-only compatibility store. Never load it into Android's
-// operation module; native Android operations use SQLite repositories only.
-let db = {} as typeof import('../db/db').db;
-let desktopDatabaseLoaded = false;
-
-async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid() || desktopDatabaseLoaded) return;
-  db = (await import('../db/db')).db;
-  desktopDatabaseLoaded = true;
-}
 import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
@@ -26,6 +16,17 @@ import { reconcileLocalOperationAfterAck } from './localOperationReconciliation'
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { flushNativeDatabaseMirrorWrites } from './nativeDatabaseMirror';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+
+// Dexie is a desktop-only compatibility store. Never load it into Android's
+// operation module; native Android operations use SQLite repositories only.
+let db = {} as typeof import('../db/db').db;
+let desktopDatabaseLoaded = false;
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  db = (await import('../db/db')).db;
+  desktopDatabaseLoaded = true;
+}
 
 const DEVICE_ID_KEY = 'pos_device_id';
 let currentDeviceRole: 'server' | 'client' | 'standalone' = 'server';
@@ -1865,7 +1866,6 @@ async function applyPurchaseLocally(
     const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
     const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
     const changes: any[] = [];
-    const cacheChanges: any[] = [];
     for (const item of oldItems) {
       const factor = Number(item.conversionFactor ?? 1);
       if (!Number.isFinite(factor) || factor <= 0) throw new Error('معامل تحويل صنف الفاتورة القديمة غير صالح');
@@ -1875,7 +1875,6 @@ async function applyPurchaseLocally(
         const updated = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) - baseQty), updatedAt: now, syncStatus };
         productMap.set(Number(item.productId), updated);
         changes.push({ action: 'put', entity: 'products', record: updated, syncState: syncStatus });
-        cacheChanges.push({ entity: 'products', record: updated });
       }
       const movement = {
         id: generateUUID(),
@@ -1887,7 +1886,6 @@ async function applyPurchaseLocally(
         createdAt: now, syncStatus,
       };
       changes.push({ action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus });
-      cacheChanges.push({ entity: 'inventoryMovements', record: movement });
     }
     for (const productId of new Set(oldItems.map((x: any) => Number(x.productId)))) {
       const product = productMap.get(productId);
@@ -1899,7 +1897,6 @@ async function applyPurchaseLocally(
       const updated = { ...product, ...(qty > 0 ? { costPrice: roundMoney(value / qty) } : {}), updatedAt: now, syncStatus };
       productMap.set(productId, updated);
       changes.push({ action: 'put', entity: 'products', record: updated, syncState: syncStatus });
-      cacheChanges.push({ entity: 'products', record: updated });
     }
     const supplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
     const oldShipping = Number(oldPurchase.shippingCost || 0);
@@ -1921,7 +1918,6 @@ async function applyPurchaseLocally(
     if (supplier && oldRemaining > 0) {
       const updated = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - oldRemaining), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
-      cacheChanges.push({ entity: 'suppliers', record: updated });
     }
     {
       const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
@@ -1957,7 +1953,6 @@ async function applyPurchaseLocally(
           totalDebit: debit, totalCredit: credit, status: 'posted', createdBy: payload.createdBy || 'System',
           branchId: entry.branchId, syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now };
         changes.push({ action: 'put', entity: 'journalEntries', record: reversal, syncState: reversal.syncStatus });
-        cacheChanges.push({ entity: 'journalEntries', record: reversal });
         reversalLines.forEach((line: any, index: number) => {
           const code = String(line.accountCode), account = accountMap.get(code);
           const transaction = { id: reversalId + ':' + String(index), journalEntryId: reversalId, accountId: code,
@@ -1966,7 +1961,6 @@ async function applyPurchaseLocally(
             description: line.description, purchaseId: line.purchaseId, returnId: line.returnId,
             syncStatus: reversal.syncStatus, createdAt: now };
           changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: reversal.syncStatus });
-          cacheChanges.push({ entity: 'transactions', record: transaction });
           if (account) {
             const normalDebit = account.type === 'asset' || account.type === 'expense';
             const updated = { ...account, balance: roundMoney(Number(account.balance || 0) +
@@ -1975,7 +1969,6 @@ async function applyPurchaseLocally(
           }
         });
         changes.push({ action: 'put', entity: 'journalEntries', record: { ...entry, status: 'reversed', reversedEntryId: reversalId }, syncState: syncStatus });
-        cacheChanges.push({ entity: 'journalEntries', record: { ...entry, status: 'reversed', reversedEntryId: reversalId } });
       }
       for (const account of accountMap.values()) {
         if (changes.some((x: any) => x.entity === 'accounts' && String(x.record.code) === String(account.code))) continue;
@@ -1983,7 +1976,6 @@ async function applyPurchaseLocally(
           journals.some((entry: any) => String(entry.id) === String(line.journalEntryId) && entry.status === 'posted' && !reversedIds.has(String(entry.id))));
         if (changedByReversal) {
           changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
-          cacheChanges.push({ entity: 'accounts', record: account });
         }
       }
     }
@@ -2588,7 +2580,6 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     if (!Number.isSafeInteger(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
     const existing = await nativePosRepository.get<any>('expenses', expenseId);
     const changes: any[] = [];
-    const cacheJournalRecords: any[] = [];
     let expenseRecord: any = null;
     let auditRecord: any = null;
     if (type === 'expense_delete') {
@@ -2627,7 +2618,6 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
             syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
           };
           changes.push({ action: 'put', entity: 'journalEntries', record: reversal, syncState: reversal.syncStatus });
-          cacheJournalRecords.push(reversal);
           reversalLines.forEach((line: any, index: number) => {
             const account = accountMap.get(line.accountCode);
             const transaction = {
@@ -2639,7 +2629,6 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
               syncStatus: reversal.syncStatus, createdAt: now,
             };
             changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: reversal.syncStatus });
-            cacheJournalRecords.push(transaction);
             if (account) {
               const normalDebit = account.type === 'asset' || account.type === 'expense';
               accountMap.set(line.accountCode, {
@@ -2651,14 +2640,12 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
           });
           const reversedEntry = { ...entry, status: 'reversed', reversedEntryId: reversalId };
           changes.push({ action: 'put', entity: 'journalEntries', record: reversedEntry, syncState: syncStatus });
-          cacheJournalRecords.push(reversedEntry);
         }
         for (const account of accountMap.values()) {
           if (changes.some((change: any) => change.entity === 'accounts' && String(change.record.code) === String(account.code))) continue;
           if (transactions.some((line: any) => String(line.accountId) === String(account.code) &&
             journals.some((entry: any) => String(entry.id) === String(line.journalEntryId) && entry.status === 'posted' && !reversedIds.has(String(entry.id))))) {
             changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
-            cacheJournalRecords.push(account);
           }
         }
         changes.push({ action: 'delete', entity: 'expenses', key: expenseId });
@@ -2712,7 +2699,6 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
             syncStatus: entrySyncStatus, createdAt: now,
           };
           changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: entrySyncStatus });
-          cacheJournalRecords.push(entry);
           const lines = [
             { accountCode: '5200', debit: amount, credit: 0 },
             { accountCode: cashCode, debit: 0, credit: amount },
@@ -2734,11 +2720,9 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
               description, syncStatus: entrySyncStatus, createdAt: now,
             };
             changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: entrySyncStatus });
-            cacheJournalRecords.push(transaction);
           });
           for (const account of accounts.values()) {
             changes.push({ action: 'put', entity: 'accounts', record: account, syncState: entrySyncStatus });
-            cacheJournalRecords.push(account);
           }
         }
       }
@@ -3752,7 +3736,6 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     const changes: any[] = [];
     if (hasChangedPrimaryKey) changes.push({ action: 'delete', entity: 'products', key: previousId });
     changes.push({ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus });
-    const cacheRecords: Record<string, any[]> = { inventoryBatches: [], inventoryMovements: [], accounts: [], journalEntries: [], transactions: [] };
     if (Number(finalRecord.stockQuantity || 0) > 0 && (!finalRecord.itemType || finalRecord.itemType === 'stock')) {
       const existingBatches = await nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId);
       if (existingBatches.length === 0) {
@@ -3776,8 +3759,6 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
           { action: 'put', entity: 'inventoryBatches', record: batch, syncState: syncStatus },
           { action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus },
         );
-        cacheRecords.inventoryBatches.push(batch);
-        cacheRecords.inventoryMovements.push(movement);
         if (shouldPostLocalAccounting(syncStatus) && openingValue > 0) {
           const definitions: any = {
             '1200': { name: 'المخزون', type: 'asset' },
@@ -3810,7 +3791,6 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
               syncStatus: journalSyncStatus, createdAt: now,
             };
             changes.push({ action: 'put', entity: 'journalEntries', record: entry, syncState: journalSyncStatus });
-            cacheRecords.journalEntries.push(entry);
             for (let index = 0; index < lines.length; index++) {
               const line = lines[index];
               const account = accountMap.get(line.accountCode);
@@ -3830,11 +3810,9 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
               changes.push(
                 { action: 'put', entity: 'transactions', record: transaction, syncState: journalSyncStatus },
               );
-              cacheRecords.transactions.push(transaction);
             }
             for (const account of accountMap.values()) {
               changes.push({ action: 'put', entity: 'accounts', record: account, syncState: journalSyncStatus });
-              cacheRecords.accounts.push(account);
             }
           }
         }
