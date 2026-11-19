@@ -123,6 +123,9 @@ export async function consumeLocalInventoryFIFO(
     if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
     const qtyNeeded = roundQty(params.quantityInBaseUnits);
     if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
+    const movementKey = (params.sourceType || 'order') + ':' + params.sourceId + ':out:' + params.productId + ':' + params.movementKeySuffix;
+    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
+    if (existingMovement) throw new Error('حركة استهلاك المخزون مسجلة مسبقًا؛ أُوقف التكرار لمنع خصم الكمية مرتين');
     const previousQty = roundQty(Number(product.stockQuantity || 0));
     const nextQty = roundQty(previousQty - qtyNeeded);
     if (!params.allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + product.name);
@@ -182,9 +185,7 @@ export async function consumeLocalInventoryFIFO(
       syncState: params.syncStatus || 'local',
     });
     const averageUnitCost = totalCost / qtyNeeded;
-    const movementKey = (params.sourceType || 'order') + ':' + params.sourceId + ':out:' + params.productId + ':' + params.movementKeySuffix;
-    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
-    if (!existingMovement) changes.push({
+    changes.push({
       action: 'put', entity: 'inventoryMovements',
       record: {
         id: generateUUID(), movementKey, productId: params.productId,
