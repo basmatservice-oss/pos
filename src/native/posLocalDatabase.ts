@@ -44,6 +44,7 @@ export interface PosLocalDatabasePlugin {
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
   replacePendingOperations(options: { operations: PosQueuedOperation[] }): Promise<{ replaced: boolean; count: number }>;
+  applySnapshotAndReplaceOutbox(options: { changes: PosLocalRecordChange[]; operations: PosQueuedOperation[] }): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number; recordUpdated?: boolean }>;
   acknowledgeOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   markOperationError(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
@@ -90,6 +91,23 @@ export async function listNativePendingPosOperations() {
   if (!(await ensureNativePosDatabase())) return [];
   const result = await posLocalDatabase.listPendingOperations();
   return result.operations;
+}
+
+export async function applyNativeSnapshotAndReplaceOutbox(changes: PosLocalRecordChange[], operations: PosQueuedOperation[]): Promise<{ applied: number; operationCount: number }> {
+  if (!(await ensureNativePosDatabase())) throw new Error('SQLite database is unavailable');
+  const ids = new Set<string>();
+  for (const operation of operations) {
+    if (!operation.operationId?.trim() || !operation.type?.trim() || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+      throw new Error('Invalid pending operation supplied for snapshot restore');
+    }
+    if (ids.has(operation.operationId)) throw new Error('Duplicate pending operation ID supplied for snapshot restore');
+    ids.add(operation.operationId);
+  }
+  const result = await posLocalDatabase.applySnapshotAndReplaceOutbox({ changes, operations });
+  if (result.committed !== true || result.applied !== changes.length || result.operationCount !== operations.length) {
+    throw new Error('SQLite did not confirm the complete atomic snapshot restore');
+  }
+  return { applied: result.applied, operationCount: result.operationCount };
 }
 
 export async function replaceNativePendingPosOperations(operations: PosQueuedOperation[]): Promise<void> {
