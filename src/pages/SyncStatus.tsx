@@ -65,8 +65,12 @@ export default function SyncStatus() {
   const [systemStatus, setSystemStatus] = useState<SystemStatusInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
+    if (isNativeAndroid()) {
+      syncService.getDeviceRole().then((role) => setIsStandalone(role === 'standalone')).catch(() => setIsStandalone(false));
+    }
     fetchData();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
@@ -74,6 +78,10 @@ export default function SyncStatus() {
 
   const fetchSystemStatus = async () => {
     try {
+      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        setSystemStatus(null);
+        return;
+      }
       const status = await apiService.getSystemStatus();
       if (status && typeof status === 'object') {
         setSystemStatus(status);
@@ -166,6 +174,10 @@ export default function SyncStatus() {
 
   const fetchSupabaseQueue = async () => {
     try {
+      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        setSupabaseItems([]);
+        return;
+      }
       const data = await apiService.getSyncQueue();
       setSupabaseItems(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -204,15 +216,16 @@ export default function SyncStatus() {
 
   const handleResolveAlert = async (alertId: string) => {
     try {
-      await apiService.resolveInventoryAlert(alertId);
+      const standalone = isNativeAndroid() && await syncService.getDeviceRole() === 'standalone';
+      if (!standalone) await apiService.resolveInventoryAlert(alertId);
       const alert = await getPosRecord<any>('inventoryAlerts', alertId);
       if (alert) {
-        await putPosRecord('inventoryAlerts', { ...alert, resolved: 1 }, 'synced');
+        await putPosRecord('inventoryAlerts', { ...alert, resolved: 1 }, standalone ? 'local' : 'synced');
       }
       toast.success('تم تأكيد مراجعة تنبيه المخزون');
       fetchAlerts();
     } catch {
-      toast.error('تعذر تحديث حالة التنبيه، تأكد من الاتصال بالسيرفر');
+      toast.error('تعذر تحديث حالة التنبيه محلياً');
     }
   };
 
@@ -265,6 +278,10 @@ export default function SyncStatus() {
     setIsSyncing(true);
     try {
       if (activeTab === 'supabase') {
+        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+          setSupabaseItems([]);
+          return;
+        }
         await apiService.processSyncQueue();
         toast.success('تم تشغيل المزامنة السحابية');
         await fetchSupabaseQueue();
@@ -461,15 +478,17 @@ export default function SyncStatus() {
           <AlertTriangle className="w-5 h-5" />
           تنبيهات عجز المخزون (أوفلاين)
         </button>
-        <button
-          onClick={() => setActiveTab('supabase')}
-          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-            activeTab === 'supabase' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
-          }`}
-        >
-          <Cloud className="w-5 h-5" />
-          المزامنة السحابية
-        </button>
+        {!isStandalone && (
+          <button
+            onClick={() => setActiveTab('supabase')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
+              activeTab === 'supabase' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+            }`}
+          >
+            <Cloud className="w-5 h-5" />
+            المزامنة السحابية
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto space-y-6">
