@@ -66,3 +66,36 @@ export async function deletePosRecord(
   }
   await db.table(entity).delete(key as any);
 }
+
+let generatedSettingId = 0;
+
+/** Upsert a setting by its logical key while retaining the native/Dexie primary id. */
+export async function putPosSetting(
+  key: string,
+  value: unknown,
+  syncStatus: NativePosSyncState = 'local',
+): Promise<void> {
+  const matches = await getPosRecordsWhereEquals<any>('settings', 'key', key);
+  const existing = matches[0];
+  for (const duplicate of matches.slice(1)) {
+    if (duplicate.id != null) await deletePosRecord('settings', duplicate.id);
+  }
+  const now = new Date().toISOString();
+  const id = existing?.id ?? (Date.now() * 1000 + (++generatedSettingId % 1000));
+  await putPosRecord('settings', {
+    ...existing,
+    id,
+    key,
+    value,
+    syncStatus,
+    updatedAt: now,
+  }, syncStatus);
+}
+
+/** Remove every row for a logical setting key. */
+export async function deletePosSettingsByKey(key: string): Promise<void> {
+  const matches = await getPosRecordsWhereEquals<any>('settings', 'key', key);
+  for (const record of matches) {
+    if (record.id != null) await deletePosRecord('settings', record.id);
+  }
+}
