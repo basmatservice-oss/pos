@@ -2218,7 +2218,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       const amount = roundMoney(Number(payload.amount || 0));
       if (!Number.isFinite(amount) || amount <= 0) throw new Error('قيمة المصروف غير صالحة');
       expenseRecord = {
-        id: expenseId, description: payload.description, amount,
+        id: expenseId, description: payload.description, amount: Number(payload.amount || 0),
         category: payload.category || 'عام',
         paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
         shiftId: payload.shiftId, date: payload.date || now, branchId: payload.branchId,
@@ -2245,7 +2245,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
           const description = 'مصروف (' + String(expenseRecord.category) + '): ' + String(expenseRecord.description || '');
           const entrySyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
           const entry = {
-            id: entryId, entryNumber: 'LOCAL-expense-' + String(payload.operationId || expenseId).slice(0, 8),
+            id: entryId, entryNumber: 'LOCAL-expense-' + String(payload.operationId || expenseId) + '-' + String(expenseId).slice(0, 8),
             date: expenseRecord.date, referenceId: String(expenseId), referenceType: 'expense',
             description, totalDebit: amount, totalCredit: amount, status: 'posted',
             createdBy: payload.createdBy || 'System', branchId: payload.branchId,
