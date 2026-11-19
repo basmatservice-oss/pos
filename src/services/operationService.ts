@@ -98,7 +98,256 @@ function resolveLocalUnitFactor(product: any, item: any): number {
   return Number(item?.conversionFactor || 1) || 1;
 }
 
+async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pending') {
+  const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
+  const now = order.createdAt || new Date().toISOString();
+  const operationId = String(payload.operationId || order.operationId || order.id);
+  const deviceId = String(payload.deviceId || 'local-device');
+  const policyRow = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'offlineStockPolicy');
+  const legacyPolicy = policyRow ? null : await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'allowNegativeStock');
+  const stockPolicy = policyRow?.value || (legacyPolicy?.value === 'false' || legacyPolicy?.value === false ? 'block' : 'allow_with_alert');
+  const actorRole = String(payload.actor?.role || payload.userRole || payload.role || '').toLowerCase();
+  const override = Boolean(payload.managerOverride || payload.allowNegativeOverride) && (actorRole === 'admin' || actorRole === 'manager');
+  const allowNegative = !['block', 'manager_override'].includes(String(stockPolicy)) || override;
+  const netAmount = roundMoney(Number(order.netAmount || 0));
+  const totalAmount = roundMoney(Number(order.totalAmount || 0));
+  const taxAmount = roundMoney(Number(order.taxAmount || 0));
+  const paymentMethod = String(order.paymentMethod || 'cash');
+  let paidAmount = netAmount, cashAmount = 0, cardAmount = 0;
+  if (paymentMethod === 'mixed') {
+    cashAmount = roundMoney(Number(order.cashAmount || 0)); cardAmount = roundMoney(Number(order.cardAmount || 0));
+    if (cashAmount < 0 || cardAmount < 0 || Math.abs(roundMoney(cashAmount + cardAmount) - netAmount) > 0.02)
+      throw new Error('قيمة الدفع المختلط (نقد + شبكة) يجب أن تساوي صافي الفاتورة');
+  } else if (paymentMethod === 'cash') cashAmount = netAmount;
+  else if (paymentMethod === 'card') cardAmount = netAmount;
+  else if (paymentMethod === 'credit') paidAmount = 0;
+  const normalizedOrder = { ...order, totalAmount, taxAmount, netAmount,
+    discountAmount: roundMoney(Math.max(0, totalAmount + taxAmount - netAmount)), paidAmount, cashAmount, cardAmount,
+    returnedAmount: 0, paymentMethod, status: order.status || 'completed', currency: order.currency || 'ر.س',
+    exchangeRate: Number(order.exchangeRate || 1) };
+  if (await nativePosRepository.get<any>('orders', order.id)) return;
+  const productIds = [...new Set(items.filter((x: any) => Number(x.quantity || 0) > 0).map((x: any) => Number(x.productId)))];
+  const [products, recipes, batches, movements, alerts, customers, accounts, journals] = await Promise.all([
+    nativePosRepository.getMany<any>('products', productIds), nativePosRepository.getAll<any>('serviceRecipes'),
+    nativePosRepository.getAll<any>('inventoryBatches'), nativePosRepository.getAll<any>('inventoryMovements'),
+    nativePosRepository.getAll<any>('inventoryAlerts'), order.customerId ? nativePosRepository.get<any>('customers', order.customerId) : Promise.resolve(null),
+    nativePosRepository.getAll<any>('accounts'), nativePosRepository.getAll<any>('journalEntries'),
+  ]);
+  const productMap = new Map<number, any>(products.map((x: any) => [Number(x.id), x]));
+  const batchMap = new Map<string, any>(batches.map((x: any) => [String(x.id), x]));
+  const changes = new Map<string, any>();
+  const stage = (entity: string, record: any) => {
+    const key = entity === 'accounts' ? record.code : record.id;
+    changes.set(entity + ':' + JSON.stringify(key), { action: 'put', entity, record, syncState: syncStatus });
+  };
+  const valuationSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod');
+  const weightedAverage = valuationSetting?.value === 'weighted_average';
+  const movementKeys = new Set(movements.map((x: any) => String(x.movementKey)));
+  let totalCogs = 0;
+  const consume = (productId: number, qtyInput: number, suffix: string, movementType: string, reason?: string) => {
+    const product: any = productMap.get(Number(productId));
+    if (!product) throw new Error('الصنف غير موجود (ID: ' + String(productId) + ')');
+    const qtyNeeded = roundQty(qtyInput);
+    if (qtyNeeded <= 0) return { totalCost: 0, allocations: [] as any[] };
+    const previousQty = roundQty(Number(product.stockQuantity || 0));
+    const nextQty = roundQty(previousQty - qtyNeeded);
+    if (!allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + String(product.name));
+    const activeBatches = [...batchMap.values()].filter((x: any) => Number(x.productId) === Number(productId) && Number(x.remainingQuantity || 0) > 0)
+      .sort((a: any, b: any) => String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
+        String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+    let weightedCost = Number(product.costPrice || 0);
+    if (weightedAverage && activeBatches.length) {
+      const activeQty = activeBatches.reduce((sum: number, x: any) => sum + Number(x.remainingQuantity || 0), 0);
+      const activeValue = activeBatches.reduce((sum: number, x: any) => sum + Number(x.remainingQuantity || 0) * Number(x.costPrice || 0), 0);
+      if (activeQty > 0) weightedCost = activeValue / activeQty;
+    }
+    let remaining = qtyNeeded, totalCost = 0;
+    const allocations: any[] = [];
+    for (const batch of activeBatches) {
+      if (remaining <= 1e-6) break;
+      const available = Number(batch.remainingQuantity || 0), take = roundQty(Math.min(remaining, available));
+      if (take <= 0) continue;
+      const costPrice = weightedAverage ? weightedCost : Number(batch.costPrice || 0);
+      const updated = { ...batch, remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
+      batchMap.set(String(batch.id), updated); stage('inventoryBatches', updated);
+      totalCost += take * costPrice; allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
+      remaining = roundQty(remaining - take);
+    }
+    if (remaining > 1e-6) {
+      const fallback = weightedAverage ? weightedCost : Number(product.costPrice || 0);
+      totalCost += remaining * fallback; allocations.push({ batchId: null, quantity: remaining, costPrice: fallback });
+    }
+    const updatedProduct = { ...product, stockQuantity: nextQty, updatedAt: now, syncStatus };
+    productMap.set(Number(productId), updatedProduct); stage('products', updatedProduct);
+    if (nextQty < -1e-6) {
+      const alertId = 'offline-oversell:' + operationId + ':' + String(productId) + ':' + suffix;
+      if (!alerts.some((x: any) => String(x.id) === alertId)) stage('inventoryAlerts', {
+        id: alertId, productId: Number(productId), productName: product.name, previousQty,
+        changeQty: -qtyNeeded, resultingQty: nextQty, operationId, deviceId,
+        reason: 'offline_oversell', resolved: 0, createdAt: now });
+    }
+    const movementKey = 'order:' + String(order.id) + ':out:' + String(productId) + ':' + suffix;
+    if (!movementKeys.has(movementKey)) {
+      const movement = { id: generateUUID(), movementKey, productId: Number(productId), movementType,
+        sourceType: 'order', sourceId: String(order.id), quantityDeltaBase: -qtyNeeded,
+        unitCost: totalCost / qtyNeeded, totalCost: roundMoney(totalCost), branchId: order.branchId,
+        operationId, reason, createdBy: order.createdBy, createdAt: now, syncStatus };
+      movements.push(movement); movementKeys.add(movementKey); stage('inventoryMovements', movement);
+    }
+    return { totalCost: roundMoney(totalCost), allocations };
+  };
+
+  const serverItems = Array.isArray(_serverItems) ? _serverItems : [];
+  let serverItemIndex = 0;
+  const localOrderItems: any[] = [];
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index], quantity = roundQty(Number(item.quantity || 0));
+    if (quantity <= 0) continue;
+    const serverItem = serverItems[serverItemIndex++];
+    const product: any = productMap.get(Number(item.productId));
+    if (!product) throw new Error('الصنف غير موجود (ID: ' + String(item.productId) + ')');
+    const factor = resolveLocalUnitFactor(product, item);
+    const baseQty = roundQty(quantity * factor);
+    const itemType = String(item.itemType || product.itemType || 'stock');
+    let costTotal = 0, batchAllocations: any = [];
+    if (itemType === 'service') batchAllocations = { kind: 'service' };
+    else if (itemType === 'service_with_materials' || itemType === 'bundle') {
+      const productRecipes = recipes.filter((x: any) => Number(x.parentProductId) === Number(product.id));
+      if (productRecipes.length) {
+        const ingredientAllocations: any[] = [];
+        for (const recipe of productRecipes) {
+          const ingredientQty = roundQty(baseQty * Number(recipe.quantity || 0));
+          if (ingredientQty <= 0) continue;
+          const consumed = consume(Number(recipe.ingredientProductId), ingredientQty,
+            'recipe-' + String(index) + '-' + String(recipe.id || recipe.ingredientProductId),
+            'service_consumption', 'استهلاك مواد الخدمة');
+          costTotal = roundMoney(costTotal + consumed.totalCost);
+          ingredientAllocations.push({ ingredientProductId: Number(recipe.ingredientProductId),
+            ingredientName: recipe.ingredientName, quantityConsumed: ingredientQty, allocations: consumed.allocations });
+        }
+        batchAllocations = { kind: 'recipe', ingredients: ingredientAllocations };
+      } else if (itemType === 'bundle') {
+        const consumed = consume(Number(product.id), baseQty, String(index), 'sale');
+        costTotal = consumed.totalCost; batchAllocations = consumed.allocations;
+      } else batchAllocations = { kind: 'service' };
+    } else {
+      const consumed = consume(Number(product.id), baseQty, String(index), 'sale');
+      costTotal = consumed.totalCost; batchAllocations = consumed.allocations;
+    }
+    totalCogs = roundMoney(totalCogs + costTotal);
+    const localItem: any = { ...(serverItem || {}), id: serverItem?.id ?? (Date.now() * 1000 + index),
+      orderId: order.id, productId: Number(product.id), productName: item.productName || product.name,
+      quantity, returnedQuantity: Number(serverItem?.returnedQuantity || 0),
+      unit: item.unit || item.selectedUnit || product.unit || 'piece', conversionFactor: factor, itemType,
+      unitPrice: Number(item.unitPrice || 0),
+      costPriceAtTimeOfSale: serverItem?.costPriceAtTimeOfSale !== undefined ? Number(serverItem.costPriceAtTimeOfSale) :
+        quantity > 0 ? roundQty(costTotal / quantity) : 0,
+      discountAmount: Number(item.discountAmount || 0), subTotal: Number(item.subTotal || 0),
+      taxAmount: Number(item.taxAmount || 0), total: Number(item.total || 0),
+      batchAllocations: serverItem?.batchAllocations || JSON.stringify(batchAllocations), syncStatus };
+    localOrderItems.push(localItem); stage('orderItems', localItem);
+  }
+  stage('orders', { ...normalizedOrder, syncStatus });
+  if (order.customerId && customers) {
+    const balanceDelta = paymentMethod === 'credit' ? netAmount : 0;
+    const pointsDelta = Number(pointsEarned || 0) - Number(pointsRedeemed || 0);
+    stage('customers', { ...customers, balance: roundMoney((customers.balance || 0) + balanceDelta),
+      points: Math.max(0, (customers.points || 0) + pointsDelta), updatedAt: now, syncStatus });
+    const addLoyalty = (type: string, points: number, offset: number) => {
+      if (points <= 0) return;
+      stage('loyaltyTransactions', { id: Date.now() * 1000 + 500 + offset, customerId: order.customerId,
+        orderId: order.id, type, points, date: now, syncStatus });
+    };
+    addLoyalty('earn', Number(pointsEarned || 0), 0);
+    addLoyalty('redeem', Number(pointsRedeemed || 0), 1);
+  }
+
+  const journalSyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
+  const accountDefaults: Record<string, any> = {
+    '1010': { name: 'الصندوق', type: 'asset' }, '1020': { name: 'البنك / الشبكة', type: 'asset' },
+    '1100': { name: 'ذمم العملاء', type: 'asset' }, '1200': { name: 'المخزون', type: 'asset' },
+    '2100': { name: 'ذمم الموردين', type: 'liability' }, '2200': { name: 'ضريبة القيمة المضافة المستحقة', type: 'liability' },
+    '3100': { name: 'رأس المال والأرصدة الافتتاحية', type: 'equity' }, '3200': { name: 'الأرباح المحتجزة', type: 'equity' },
+    '4100': { name: 'المبيعات', type: 'revenue' }, '4200': { name: 'مرتجعات المبيعات', type: 'revenue' },
+    '4300': { name: 'خصومات مسموحة', type: 'revenue' }, '5100': { name: 'تكلفة البضاعة المباعة', type: 'expense' },
+    '5200': { name: 'المصروفات التشغيلية', type: 'expense' }, '5300': { name: 'الرواتب والأجور', type: 'expense' },
+    '5400': { name: 'تسويات الجرد', type: 'expense' },
+  };
+  const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
+  const journalMap = new Map<string, any>(journals.map((x: any) => [String(x.id), x]));
+  const postJournal = (entryKey: string, description: string, lines: any[]) => {
+    const normalized = lines.map((x: any) => ({ ...x, debit: roundMoney(x.debit), credit: roundMoney(x.credit) }))
+      .filter((x: any) => x.debit > 0 || x.credit > 0);
+    if (!normalized.length) return;
+    const entryId = 'local-je:order:' + String(order.id) + ':' + entryKey;
+    if (journalMap.has(entryId)) return;
+    let debit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.debit, 0));
+    let credit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.credit, 0));
+    const difference = roundMoney(debit - credit);
+    if (Math.abs(difference) > 0.02) throw new Error('قيد محاسبي غير متوازن: ' + description + ' (مدين ' + debit + ' / دائن ' + credit + ')');
+    if (difference !== 0) {
+      const last = normalized[normalized.length - 1];
+      if (last.credit > 0) last.credit = roundMoney(last.credit + difference); else last.debit = roundMoney(last.debit - difference);
+      debit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.debit, 0));
+      credit = roundMoney(normalized.reduce((sum: number, x: any) => sum + x.credit, 0));
+    }
+    const entry = { id: entryId, entryNumber: 'LOCAL-' + entryKey + '-' + String(order.id).slice(0, 8),
+      date: now, referenceId: String(order.id), referenceType: 'order', description, totalDebit: debit, totalCredit: credit,
+      status: 'posted', createdBy: order.createdBy || 'System', branchId: order.branchId,
+      syncStatus: journalSyncStatus, createdAt: now };
+    stage('journalEntries', entry); journalMap.set(entryId, entry);
+    normalized.forEach((line: any, index: number) => {
+      const code = String(line.accountCode);
+      let account = accountMap.get(code);
+      if (!account && accountDefaults[code]) {
+        account = { code, ...accountDefaults[code], balance: 0, isSystem: 1, createdAt: now, updatedAt: now };
+        accountMap.set(code, account);
+      }
+      stage('transactions', { id: entryId + ':' + String(index), journalEntryId: entryId, accountId: code,
+        accountName: account?.name || accountDefaults[code]?.name || code, type: line.debit > 0 ? 'debit' : 'credit',
+        amount: line.debit > 0 ? line.debit : line.credit, debit: line.debit, credit: line.credit,
+        description: line.description || description, orderId: line.orderId, purchaseId: line.purchaseId,
+        returnId: line.returnId, syncStatus: journalSyncStatus, createdAt: now });
+      if (account) {
+        const normalDebit = account.type === 'asset' || account.type === 'expense';
+        const updated = { ...account, balance: roundMoney(Number(account.balance || 0) +
+          (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: now };
+        accountMap.set(code, updated); stage('accounts', updated);
+      }
+    });
+  };
+  if (shouldPostLocalAccounting(syncStatus)) {
+    const discountAmount = roundMoney(Math.max(0, totalAmount + taxAmount - netAmount));
+    const debitLines: any[] = [];
+    if (cashAmount > 0) debitLines.push({ accountCode: '1010', debit: cashAmount, credit: 0, orderId: order.id });
+    if (cardAmount > 0) debitLines.push({ accountCode: '1020', debit: cardAmount, credit: 0, orderId: order.id });
+    if (paymentMethod !== 'mixed' && paymentMethod !== 'cash' && paymentMethod !== 'card' && netAmount > 0)
+      debitLines.push({ accountCode: '1100', debit: netAmount, credit: 0, orderId: order.id });
+    const revenueLines = [...debitLines,
+      ...(discountAmount > 0 ? [{ accountCode: '4300', debit: discountAmount, credit: 0, orderId: order.id }] : []),
+      ...(totalAmount > 0 ? [{ accountCode: '4100', debit: 0, credit: totalAmount, orderId: order.id }] : []),
+      ...(taxAmount > 0 ? [{ accountCode: '2200', debit: 0, credit: taxAmount, orderId: order.id }] : [])];
+    postJournal('sale-revenue', 'فاتورة مبيعات رقم ' + String(order.receiptNumber || order.id), revenueLines);
+    if (totalCogs > 0) postJournal('sale-cogs', 'تكلفة مبيعات فاتورة رقم ' + String(order.receiptNumber || order.id), [
+      { accountCode: '5100', debit: roundMoney(totalCogs), credit: 0, orderId: order.id },
+      { accountCode: '1200', debit: 0, credit: roundMoney(totalCogs), orderId: order.id }]);
+  }
+  const nativeChanges = [...changes.values()];
+  const applied = await nativePosRepository.applyChanges(nativeChanges);
+  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة المبيعات');
+  const grouped = new Map<string, any[]>();
+  for (const change of nativeChanges) {
+    const list = grouped.get(change.entity) || []; list.push(change.record); grouped.set(change.entity, list);
+  }
+  const tableNames = [...grouped.keys()];
+  await db.transaction('rw', tableNames.map((name) => (db as any)[name]), async () => {
+    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
+  });
+  await flushNativeDatabaseMirrorWrites();
+}
+
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
+  if (isNativeAndroid()) return applySaleLocallyNative(payload, syncStatus);
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
   const operationId = String(payload.operationId || order.operationId || order.id);
