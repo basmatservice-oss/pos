@@ -547,7 +547,7 @@ const Settings: React.FC = () => {
         source: 'manual',
         notes: newFxNotes || undefined,
       });
-      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any);
+      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
       if ((newFxCurrency.trim().toUpperCase() || 'USD') === 'USD') {
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
@@ -575,7 +575,7 @@ const Settings: React.FC = () => {
         startDate: newPeriodStart,
         endDate: newPeriodEnd,
       });
-      await putPosRecord('fiscalPeriods', { ...saved, syncStatus: 'synced' } as any);
+      await putPosRecord('fiscalPeriods', { ...saved, syncStatus: 'synced' } as any, 'synced');
       setNewPeriodName('');
       setNewPeriodStart('');
       setNewPeriodEnd('');
@@ -594,7 +594,7 @@ const Settings: React.FC = () => {
         action === 'close'
           ? await apiService.closeFiscalPeriod(period.id)
           : await apiService.reopenFiscalPeriod(period.id);
-      await putPosRecord('fiscalPeriods', { ...updated, syncStatus: 'synced' } as FiscalPeriod);
+      await putPosRecord('fiscalPeriods', { ...updated, syncStatus: 'synced' } as any, 'synced');
       toast.success(action === 'close' ? 'تم إغلاق الفترة المالية' : 'تم إعادة فتح الفترة المالية');
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'تعذر تنفيذ الإجراء على الفترة المالية');
