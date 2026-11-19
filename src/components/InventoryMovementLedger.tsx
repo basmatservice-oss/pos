@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { Search } from 'lucide-react';
-import { db } from '../db/db';
+import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
 
 type Props = { currency: string };
@@ -43,10 +42,11 @@ export default function InventoryMovementLedger({ currency }: Props) {
   const [reconciliation, setReconciliation] = useState<any | null>(null);
   const [loadingReconciliation, setLoadingReconciliation] = useState(false);
 
-  const localMovements = useLiveQuery(
-    () => db.inventoryMovements.orderBy('createdAt').reverse().limit(500).toArray(),
-    []
-  ) || [];
+  const allLocalMovements = usePosEntityRecords<any>('inventoryMovements');
+  const localMovements = useMemo(
+    () => allLocalMovements.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 500),
+    [allLocalMovements]
+  );
   const movements = serverMovements ?? localMovements;
   const products = usePosEntityRecords<any>('products');
   const units = usePosEntityRecords<any>('unitDefinitions');
@@ -71,18 +71,21 @@ export default function InventoryMovementLedger({ currency }: Props) {
         setServerMovements(response.items);
         setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
         if (response.items.length === 0) return;
-        await db.transaction('rw', db.inventoryMovements, async () => {
-          const keys = response.items.map((movement: any) => movement.movementKey);
-          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
-          const serverIds = new Set(response.items.map((movement: any) => movement.id));
-          const staleIds = localRows
-            .filter((movement) => !serverIds.has(movement.id))
-            .map((movement) => movement.id);
-          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
-          await db.inventoryMovements.bulkPut(
-            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-          );
-        });
+        if (!isNativeAndroid()) {
+          const { db } = await import('../db/db');
+          await db.transaction('rw', db.inventoryMovements, async () => {
+            const keys = response.items.map((movement: any) => movement.movementKey);
+            const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
+            const serverIds = new Set(response.items.map((movement: any) => movement.id));
+            const staleIds = localRows
+              .filter((movement) => !serverIds.has(movement.id))
+              .map((movement) => movement.id);
+            if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+            await db.inventoryMovements.bulkPut(
+              response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+            );
+          });
+        }
       } catch {
         // Keep cached local history available when the server is offline.
       }
@@ -108,16 +111,19 @@ export default function InventoryMovementLedger({ currency }: Props) {
       setServerMovements((previous) => [...(previous || []), ...response.items]);
       setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
       if (response.items.length > 0) {
-        await db.transaction('rw', db.inventoryMovements, async () => {
-          const keys = response.items.map((movement: any) => movement.movementKey);
-          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
-          const serverIds = new Set(response.items.map((movement: any) => movement.id));
-          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
-          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
-          await db.inventoryMovements.bulkPut(
-            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-          );
-        });
+        if (!isNativeAndroid()) {
+          const { db } = await import('../db/db');
+          await db.transaction('rw', db.inventoryMovements, async () => {
+            const keys = response.items.map((movement: any) => movement.movementKey);
+            const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
+            const serverIds = new Set(response.items.map((movement: any) => movement.id));
+            const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
+            if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+            await db.inventoryMovements.bulkPut(
+              response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
+            );
+          });
+        }
       }
     } catch {
       // Keep already loaded pages visible if the network drops.
