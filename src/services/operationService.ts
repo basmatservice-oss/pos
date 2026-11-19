@@ -2486,30 +2486,57 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       if (roundQty(alreadyReturnedBase + qty) > purchasedBase + 0.0001) {
         throw new Error('كمية المرتجع تتجاوز الكمية المشتراة المتبقية للصنف ' + String(reqItem.productName || productId));
       }
-      let batch: any;
+      const productPurchaseBatches = [...batchMap.values()].filter((entry: any) =>
+        Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId));
+      const allocations: Array<{ batch: any | null; quantity: number; costPrice: number }> = [];
       if (reqItem.batchId !== undefined && reqItem.batchId !== null && String(reqItem.batchId).trim()) {
-        batch = batchMap.get(String(reqItem.batchId));
-        if (!batch || String(batch.purchaseId) !== String(originalPurchaseId) || Number(batch.productId) !== productId) {
+        const selectedBatch = batchMap.get(String(reqItem.batchId));
+        if (!selectedBatch || String(selectedBatch.purchaseId) !== String(originalPurchaseId) || Number(selectedBatch.productId) !== productId) {
           throw new Error('الدفعة المحددة لا تتبع الصنف أو فاتورة الشراء الأصلية');
         }
-      } else {
-        const productPurchaseBatches = [...batchMap.values()].filter((entry: any) =>
-          Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId));
-        batch = productPurchaseBatches.find((entry: any) => Number(entry.remainingQuantity || 0) >= qty);
-        if (!batch && productPurchaseBatches.length) {
-          throw new Error('لا توجد كمية متبقية كافية في دفعات فاتورة الشراء المحددة');
-        }
-      }
-      if (batch) {
-        const remaining = Number(batch.remainingQuantity || 0);
-        const previouslyReturnedFromBatch = returnedBaseByBatch.get(String(batch.id)) || 0;
-        if (!Number.isFinite(remaining) || remaining < qty || qty + previouslyReturnedFromBatch > Number(batch.quantity || 0) + 0.0001) {
+        const remaining = Number(selectedBatch.remainingQuantity || 0);
+        const previouslyReturned = returnedBaseByBatch.get(String(selectedBatch.id)) || 0;
+        if (!Number.isFinite(remaining) || remaining < qty ||
+            qty + previouslyReturned > Number(selectedBatch.quantity || 0) + 0.0001) {
           throw new Error('الكمية المتبقية في الدفعة أقل من كمية مرتجع المشتريات');
         }
-        const updatedBatch = { ...batch, remainingQuantity: roundQty(remaining - qty), updatedAt: now, syncStatus };
-        batchMap.set(String(batch.id), updatedBatch);
+        allocations.push({ batch: selectedBatch, quantity: qty, costPrice: Number(selectedBatch.costPrice ?? reqItem.costPrice ?? 0) });
+      } else if (productPurchaseBatches.length) {
+        let remainingToAllocate = qty;
+        for (const candidate of productPurchaseBatches) {
+          const available = Number(candidate.remainingQuantity || 0);
+          const previouslyReturned = returnedBaseByBatch.get(String(candidate.id)) || 0;
+          const room = Math.max(0, Number(candidate.quantity || 0) - previouslyReturned);
+          if (!Number.isFinite(available) || available < 0 || !Number.isFinite(room)) {
+            throw new Error('بيانات دفعات فاتورة الشراء غير صالحة');
+          }
+          const take = roundQty(Math.min(remainingToAllocate, available, room));
+          if (take <= 0) continue;
+          allocations.push({ batch: candidate, quantity: take, costPrice: Number(candidate.costPrice ?? reqItem.costPrice ?? 0) });
+          remainingToAllocate = roundQty(remainingToAllocate - take);
+          if (remainingToAllocate <= 0.0001) break;
+        }
+        if (remainingToAllocate > 0.0001) {
+          throw new Error('مجموع الكميات المتبقية في دفعات فاتورة الشراء لا يكفي لتنفيذ المرتجع');
+        }
+      } else {
+        allocations.push({ batch: null, quantity: qty, costPrice: Number(reqItem.costPrice ?? product.costPrice ?? 0) });
+      }
+      for (const allocation of allocations) {
+        if (!Number.isFinite(allocation.costPrice) || allocation.costPrice < 0) {
+          throw new Error('تكلفة دفعة مرتجع المشتريات غير صالحة');
+        }
+        if (!allocation.batch) continue;
+        const batchId = String(allocation.batch.id);
+        const previousQty = returnedBaseByBatch.get(batchId) || 0;
+        const updatedBatch = {
+          ...allocation.batch,
+          remainingQuantity: roundQty(Number(allocation.batch.remainingQuantity || 0) - allocation.quantity),
+          updatedAt: now, syncStatus,
+        };
+        batchMap.set(batchId, updatedBatch);
         changes.push({ action: 'put', entity: 'inventoryBatches', record: updatedBatch, syncState: syncStatus });
-        returnedBaseByBatch.set(String(batch.id), roundQty(previouslyReturnedFromBatch + qty));
+        returnedBaseByBatch.set(batchId, roundQty(previousQty + allocation.quantity));
       }
       const currentStock = Number(product.stockQuantity || 0);
       if (!Number.isFinite(currentStock) || currentStock < qty) {
@@ -2529,30 +2556,29 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       productMap.set(productId, updatedProduct);
       changes.push({ action: 'put', entity: 'products', record: updatedProduct, syncState: syncStatus });
       returnedBaseByProduct.set(productId, roundQty(alreadyReturnedBase + qty));
-      const cost = Number(reqItem.costPrice ?? batch?.costPrice ?? 0);
-      if (!Number.isFinite(cost) || cost < 0) throw new Error('تكلفة الصنف في مرتجع المشتريات غير صالحة');
-      const lineTotal = roundMoney(qty * cost);
-      if (!Number.isFinite(lineTotal) || lineTotal < 0) throw new Error('إجمالي تكلفة صنف المرتجع خارج النطاق المالي المسموح');
-      totalReturn = roundMoney(totalReturn + lineTotal);
-      if (!Number.isFinite(totalReturn)) throw new Error('إجمالي مرتجع المشتريات غير صالح');
-      const itemDoc: any = {
-        id: generateUUID(), purchaseReturnId: id, productId, productName: reqItem.productName || '',
-        quantity: qty, costPrice: cost, total: lineTotal, batchId: batch?.id ? String(batch.id) : undefined,
-        syncStatus, createdAt: now,
-      };
-      itemDocs.push(itemDoc);
-      changes.push({ action: 'put', entity: 'purchaseReturnItems', record: itemDoc, syncState: syncStatus });
-      processedItems += 1;
-      const movementKey = 'purchase_return:' + String(id) + ':out:' + String(productId) + ':' + String(processedItems);
-      if (movementKeys.has(movementKey)) {
-        throw new Error('يوجد أثر مخزني سابق لمرتجع المشتريات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع خصم المخزون مرتين');
-      }
-      {
+      for (const allocation of allocations) {
+        const lineTotal = roundMoney(allocation.quantity * allocation.costPrice);
+        if (!Number.isFinite(lineTotal) || lineTotal < 0) throw new Error('إجمالي تكلفة دفعة المرتجع خارج النطاق المالي المسموح');
+        totalReturn = roundMoney(totalReturn + lineTotal);
+        if (!Number.isFinite(totalReturn)) throw new Error('إجمالي مرتجع المشتريات غير صالح');
+        const itemDoc: any = {
+          id: generateUUID(), purchaseReturnId: id, productId, productName: reqItem.productName || '',
+          quantity: allocation.quantity, costPrice: allocation.costPrice, total: lineTotal,
+          batchId: allocation.batch?.id ? String(allocation.batch.id) : undefined,
+          syncStatus, createdAt: now,
+        };
+        itemDocs.push(itemDoc);
+        changes.push({ action: 'put', entity: 'purchaseReturnItems', record: itemDoc, syncState: syncStatus });
+        processedItems += 1;
+        const movementKey = 'purchase_return:' + String(id) + ':out:' + String(productId) + ':' + String(processedItems);
+        if (movementKeys.has(movementKey)) {
+          throw new Error('يوجد أثر مخزني سابق لمرتجع المشتريات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع خصم المخزون مرتين');
+        }
         const movement = {
           id: generateUUID(), movementKey, productId, movementType: 'purchase_return',
-          sourceType: 'purchase_return', sourceId: String(id), quantityDeltaBase: -qty,
+          sourceType: 'purchase_return', sourceId: String(id), quantityDeltaBase: -allocation.quantity,
           baseUnitCode: product?.baseUnitCode || product?.unit || 'piece',
-          unitCost: cost, totalCost: lineTotal, branchId: branchId ?? origPurchase.branchId,
+          unitCost: allocation.costPrice, totalCost: lineTotal, branchId: branchId ?? origPurchase.branchId,
           operationId, reason: reason || 'مرتجع مشتريات للمورد', createdBy: createdBy || 'System',
           createdAt: now, syncStatus,
         };
