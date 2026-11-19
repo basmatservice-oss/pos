@@ -1539,8 +1539,11 @@ async function applyPurchaseLocally(
       allBatches = allBatchesRaw.filter((batch: any) => !oldBatchIds.has(String(batch.id)));
     }
     const newProductIds = [...new Set(normalized.map((item: any) => Number(item.productId)))];
-    if (newProductIds.some((productId: number) => !productMap.has(productId))) {
-      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ أحد الأصناف غير موجود في قاعدة SQLite');
+    if (newProductIds.some((productId: number) => {
+      const product = productMap.get(productId);
+      return !product || !Number.isFinite(Number(product.stockQuantity || 0));
+    })) {
+      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ أحد الأصناف غير موجود أو يحتوي رصيد مخزون غير صالح في SQLite');
     }
     let supplier = purchase.supplierId ? supplierMap.get(String(purchase.supplierId)) : null;
     if (purchase.supplierId && !supplier) throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
