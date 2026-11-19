@@ -4347,6 +4347,9 @@ export async function dispatchOperation(
     if (oldPurchase.supplierId && oldPayable > oldNumbers[4] && !oldSupplier) {
       throw new Error('المورد القديم غير موجود في SQLite ولا يمكن عكس رصيده');
     }
+    if (oldSupplier && !Number.isFinite(Number(oldSupplier.balance || 0))) {
+      throw new Error('رصيد المورد القديم غير صالح ولا يمكن عكسه');
+    }
     const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
     for (const entry of journals) {
       if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
