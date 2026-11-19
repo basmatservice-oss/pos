@@ -1301,10 +1301,15 @@ async function applyPurchaseLocally(
   syncStatus: 'synced' | 'pending'
 ) {
   const now = new Date().toISOString();
-  if (isNativeAndroid() && type === 'purchase') {
+  if (isNativeAndroid() && (type === 'purchase' || type === 'purchase_update')) {
     const purchase = payload?.purchase;
     if (!purchase?.id) throw new Error('معرّف فاتورة الشراء غير صالح');
-    if (await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
+    const isPurchaseUpdate = type === 'purchase_update';
+    const oldPurchase = isPurchaseUpdate
+      ? await nativePosRepository.get<any>('purchases', String(purchase.id))
+      : null;
+    if (isPurchaseUpdate && !oldPurchase) throw new Error('فاتورة الشراء المطلوب تعديلها غير موجودة في SQLite');
+    if (!isPurchaseUpdate && await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
     const items = Array.isArray(payload.items) ? payload.items : [];
     const fxRate = Number(purchase.exchangeRate || 1);
     const shippingCost = Number(purchase.shippingCost || 0);
@@ -1342,25 +1347,190 @@ async function applyPurchaseLocally(
       ? roundMoney(Number(purchase.totalAmount))
       : roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
     const itemsGoodsSum = roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
-    const [products, supplier, allBatches, accounts, journals] = await Promise.all([
-      nativePosRepository.getMany<any>('products', [...new Set(normalized.map((item: any) => Number(item.productId)))]),
-      purchase.supplierId ? nativePosRepository.get<any>('suppliers', purchase.supplierId) : Promise.resolve(null),
+    const [products, allSuppliers, allBatchesRaw, accounts, journals, transactions, oldItems, oldBatches, oldReturns, allMovements] = await Promise.all([
+      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getAll<any>('suppliers'),
       nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getAll<any>('accounts'),
       nativePosRepository.getAll<any>('journalEntries'),
+      nativePosRepository.getAll<any>('transactions'),
+      isPurchaseUpdate ? nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', String(purchase.id)) : Promise.resolve([]),
+      isPurchaseUpdate ? nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(purchase.id)) : Promise.resolve([]),
+      isPurchaseUpdate ? nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(purchase.id)) : Promise.resolve([]),
+      nativePosRepository.getAll<any>('inventoryMovements'),
     ]);
-    const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
-    if (products.length !== new Set(normalized.map((item: any) => Number(item.productId))).size) {
-      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ أحد الأصناف غير موجود في قاعدة SQLite');
-    }
-    if (purchase.supplierId && !supplier) {
+    if (purchase.supplierId && !allSuppliers.some((entry: any) => String(entry.id) === String(purchase.supplierId))) {
       throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
     }
+    const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
+    const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
+    const supplierMap = new Map<string, any>(allSuppliers.map((entry: any) => [String(entry.id), entry]));
+    const changes: any[] = [];
+    let allBatches = allBatchesRaw;
+    if (isPurchaseUpdate) {
+      if (oldReturns.length) throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة');
+      if (!oldItems.length || !oldBatches.length) throw new Error('تعذر التحقق من تفاصيل ودفعات فاتورة الشراء القديمة؛ أوقف التعديل');
+      const oldItemQty = new Map<number, number>();
+      for (const oldItem of oldItems) {
+        const productId = Number(oldItem.productId), quantity = Number(oldItem.quantity), factor = Number(oldItem.conversionFactor ?? 1);
+        if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+            !Number.isFinite(factor) || factor <= 0) throw new Error('تفاصيل الفاتورة القديمة تحتوي بيانات كمية غير صالحة');
+        oldItemQty.set(productId, roundQty((oldItemQty.get(productId) || 0) + quantity * factor));
+      }
+      const oldBatchQty = new Map<number, number>();
+      const oldBatchIds = new Set<string>();
+      for (const batch of oldBatches) {
+        const productId = Number(batch.productId), quantity = Number(batch.quantity), remaining = Number(batch.remainingQuantity);
+        const batchId = String(batch.id);
+        if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+            !Number.isFinite(remaining) || Math.abs(remaining - quantity) > 0.0001 || !batchId || oldBatchIds.has(batchId)) {
+          throw new Error('لا يمكن تعديل فاتورة شراء استُهلك مخزونها أو تحتوي دفعاتها على بيانات غير سليمة');
+        }
+        oldBatchIds.add(batchId);
+        oldBatchQty.set(productId, roundQty((oldBatchQty.get(productId) || 0) + quantity));
+      }
+      for (const [productId, quantity] of oldItemQty) {
+        if (Math.abs(quantity - (oldBatchQty.get(productId) || 0)) > 0.0001) {
+          throw new Error('دفعات الفاتورة القديمة لا تطابق تفاصيل أصنافها؛ أوقف التعديل حفاظًا على المخزون');
+        }
+        const product = productMap.get(productId);
+        if (!product || Number(product.stockQuantity || 0) + 0.0001 < quantity) {
+          throw new Error('رصيد أحد أصناف الفاتورة القديمة لا يكفي لعكسها محليًا');
+        }
+      }
+      for (const productId of oldBatchQty.keys()) if (!oldItemQty.has(productId)) {
+        throw new Error('توجد دفعة قديمة غير مرتبطة بتفاصيل الفاتورة');
+      }
+      const oldShipping = Number(oldPurchase.shippingCost || 0), oldCustoms = Number(oldPurchase.customsCost || 0);
+      const oldOther = Number(oldPurchase.otherCosts || 0), oldTotal = Number(oldPurchase.totalAmount || 0);
+      const oldPaid = Number(oldPurchase.paidAmount || 0);
+      if ([oldShipping, oldCustoms, oldOther, oldTotal, oldPaid].some((value) => !Number.isFinite(value) || value < 0)) {
+        throw new Error('القيم المالية للفاتورة القديمة غير صالحة ولا يمكن عكسها');
+      }
+      const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier'
+        ? roundMoney(oldTotal + oldShipping + oldCustoms + oldOther) : roundMoney(oldTotal);
+      const oldOutstanding = roundMoney(oldPayable - oldPaid);
+      const oldSupplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
+      if (oldPurchase.supplierId && oldOutstanding > 0 && !oldSupplier) {
+        throw new Error('المورد القديم غير موجود في SQLite ولا يمكن عكس رصيده');
+      }
+      if (oldSupplier && oldOutstanding > 0) {
+        const balance = Number(oldSupplier.balance || 0);
+        if (!Number.isFinite(balance)) throw new Error('رصيد المورد القديم غير صالح');
+        supplierMap.set(String(oldSupplier.id), { ...oldSupplier, balance: roundMoney(balance - oldOutstanding), updatedAt: now, syncStatus });
+      }
+      const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+      for (const entry of journals.filter((entry: any) => String(entry.referenceId) === String(purchase.id) && entry.status === 'posted' && !reversedIds.has(String(entry.id)))) {
+        const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+        if (!lines.length || lines.some((line: any) => {
+          const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
+          return !String(line.accountId || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+            debit < 0 || credit < 0 || (debit > 0 && credit > 0);
+        })) throw new Error('القيد المحاسبي القديم ناقص أو غير صالح ولا يمكن عكسه');
+        const debitTotal = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
+        const creditTotal = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
+        if (Math.abs(debitTotal - creditTotal) > 0.02 ||
+            Math.abs(debitTotal - Number(entry.totalDebit || 0)) > 0.02 ||
+            Math.abs(creditTotal - Number(entry.totalCredit || 0)) > 0.02) {
+          throw new Error('القيد المحاسبي القديم غير متوازن أو لا تطابق تفاصيله إجمالياته');
+        }
+        const reversalId = 'local-je:' + String(entry.referenceType || 'purchase') + ':' + String(purchase.id) + ':reversal-' + String(entry.id);
+        if (journals.some((candidate: any) => String(candidate.id) === reversalId)) {
+          throw new Error('يوجد قيد عكسي سابق غير متطابق مع حالة الفاتورة؛ أوقف التعديل للمراجعة');
+        }
+        const reversalLines = lines.map((line: any) => ({
+          accountCode: String(line.accountId), debit: roundMoney(Number(line.credit || 0)),
+          credit: roundMoney(Number(line.debit || 0)), description: 'عكس: ' + String(line.description || entry.description),
+          purchaseId: line.purchaseId,
+        })).filter((line: any) => line.debit > 0 || line.credit > 0);
+        const reversalDebit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+        const reversalCredit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+        if (Math.abs(reversalDebit - reversalCredit) > 0.02) throw new Error('القيد العكسي للفاتورة القديمة غير متوازن');
+        const reversal = {
+          id: reversalId, entryNumber: 'LOCAL-reversal-' + String(entry.id).slice(-16), date: now,
+          referenceId: String(purchase.id), referenceType: entry.referenceType || 'purchase',
+          description: 'قيد عكسي - ' + String(entry.description || 'فاتورة مشتريات'),
+          totalDebit: reversalDebit, totalCredit: reversalCredit, status: 'posted',
+          createdBy: payload.createdBy || 'System', branchId: entry.branchId,
+          syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
+        };
+        changes.push({ action: 'put', entity: 'journalEntries', record: reversal, syncState: reversal.syncStatus });
+        reversalLines.forEach((line: any, index: number) => {
+          const code = String(line.accountCode), account = accountMap.get(code);
+          if (!account) throw new Error('الحساب ' + code + ' غير موجود ولا يمكن عكس القيد القديم');
+          const balance = Number(account.balance || 0);
+          if (!Number.isFinite(balance)) throw new Error('رصيد الحساب ' + code + ' غير صالح');
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          accountMap.set(code, { ...account, balance: roundMoney(balance + (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: now });
+          changes.push({ action: 'put', entity: 'transactions', record: {
+            id: reversalId + ':' + index, journalEntryId: reversalId, accountId: code,
+            accountName: account.name || code, type: line.debit > 0 ? 'debit' : 'credit',
+            amount: line.debit || line.credit, debit: line.debit, credit: line.credit,
+            description: line.description, purchaseId: String(purchase.id),
+            syncStatus: reversal.syncStatus, createdAt: now,
+          }, syncState: reversal.syncStatus });
+        });
+        changes.push({ action: 'put', entity: 'journalEntries', record: {
+          ...entry, status: 'reversed', reversedEntryId: reversalId, syncStatus,
+        }, syncState: syncStatus });
+      }
+      for (const [productId, quantity] of oldItemQty) {
+        const product = productMap.get(productId);
+        const nextStock = roundQty(Number(product.stockQuantity || 0) - quantity);
+        const activeBatches = allBatchesRaw.filter((batch: any) => Number(batch.productId) === productId &&
+          !oldBatchIds.has(String(batch.id)) && Number(batch.remainingQuantity || 0) > 0);
+        const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
+        const activeValue = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+        productMap.set(productId, { ...product, stockQuantity: nextStock,
+          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}), updatedAt: now, syncStatus });
+      }
+      for (const item of oldItems) {
+        const index = oldItems.indexOf(item);
+        const movementKey = 'purchase_reversal:' + String(purchase.id) + ':' + String(payload.operationId || purchase.id) +
+          ':out:' + String(item.productId) + ':' + String(index);
+        if (allMovements.some((movement: any) => String(movement.movementKey) === movementKey)) {
+          throw new Error('يوجد أثر عكسي سابق للفاتورة القديمة؛ أوقف التعديل لمنع تكرار حركة المخزون');
+        }
+        const baseQty = roundQty(Number(item.quantity) * Number(item.conversionFactor || 1));
+        const unitCost = Number(item.landedCostPerBaseUnit || item.costPrice || 0);
+        if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error('تكلفة صنف الفاتورة القديمة غير صالحة');
+        changes.push({ action: 'put', entity: 'inventoryMovements', record: {
+          id: generateUUID(), movementKey, productId: Number(item.productId), movementType: 'purchase_reversal',
+          sourceType: 'purchase', sourceId: String(purchase.id), quantityDeltaBase: -baseQty,
+          unitCost, totalCost: roundMoney(baseQty * unitCost), branchId: oldPurchase.branchId,
+          operationId: String(payload.operationId || purchase.id), reason: 'عكس فاتورة مشتريات للتعديل',
+          createdBy: payload.createdBy || 'System', createdAt: now, syncStatus,
+        }, syncState: syncStatus });
+        changes.push({ action: 'delete', entity: 'purchaseItems', key: item.id });
+      }
+      for (const batch of oldBatches) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.id });
+      for (const product of productMap.values()) {
+        if (oldItemQty.has(Number(product.id))) changes.push({ action: 'put', entity: 'products', record: product, syncState: syncStatus });
+      }
+      for (const account of accountMap.values()) {
+        if (transactions.some((line: any) => String(line.accountId) === String(account.code) &&
+            journals.some((entry: any) => String(entry.id) === String(line.journalEntryId) &&
+              String(entry.referenceId) === String(purchase.id) && entry.status === 'posted' && !reversedIds.has(String(entry.id))))) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+        }
+      }
+      for (const [supplierId, updatedSupplier] of supplierMap) {
+        const originalSupplier = allSuppliers.find((entry: any) => String(entry.id) === supplierId);
+        if (originalSupplier && updatedSupplier.balance !== originalSupplier.balance) {
+          changes.push({ action: 'put', entity: 'suppliers', record: { ...updatedSupplier, syncStatus }, syncState: syncStatus });
+        }
+      }
+      allBatches = allBatchesRaw.filter((batch: any) => !oldBatchIds.has(String(batch.id)));
+    }
+    const newProductIds = [...new Set(normalized.map((item: any) => Number(item.productId)))];
+    if (newProductIds.some((productId: number) => !productMap.has(productId))) {
+      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ أحد الأصناف غير موجود في قاعدة SQLite');
+    }
+    let supplier = purchase.supplierId ? supplierMap.get(String(purchase.supplierId)) : null;
+    if (purchase.supplierId && !supplier) throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
     if (suppliedBatchIds.some((id: string) => allBatches.some((batch: any) => String(batch.id) === id))) {
       throw new Error('معرّف إحدى دفعات فاتورة الشراء مستخدم مسبقًا');
     }
-    const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
-    const changes: any[] = [];
     const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
     const itemDocs: any[] = Array.isArray(payload._serverItems) && payload._serverItems.length
