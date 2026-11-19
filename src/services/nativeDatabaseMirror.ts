@@ -214,7 +214,6 @@ export async function mirrorNativePosRecord(entity: string, row: any): Promise<v
   await enqueueNativeMirrorWrite(() => persistNativePosRecord(entity, row));
 }
 export async function restoreNativePosDatabase(): Promise<boolean> {
-  const { db } = await import('../db/db');
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return false;
   const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
   if (snapshotState.value === 'in_progress') {
@@ -223,6 +222,7 @@ export async function restoreNativePosDatabase(): Promise<boolean> {
   }
   if (snapshotState.value !== '1') return false;
 
+  const { db } = await import('../db/db');
   // Read and validate every entity before opening the Dexie write transaction.
   // A corrupt late entity must never leave an earlier subset restored.
   const restoredByEntity = new Map<string, Array<Record<string, unknown>>>();
