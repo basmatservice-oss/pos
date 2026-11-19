@@ -298,27 +298,62 @@ export const syncService = {
   async pushRecord(tableName: string, record: any) {
     if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
+    const table = (db as any)[tableName];
+    if (!table) return false;
+    const recordKey = record?.id ?? record?.key;
+    if (recordKey === undefined || recordKey === null) return false;
+    let sourceRecord = record;
+
+    // On Android, read the committed entity from SQLite rather than trusting
+    // the Dexie hook payload, which may be stale or only a compatibility copy.
+    if (isNativeAndroid()) {
+      sourceRecord = await nativePosRepository.get<any>(tableName as any, recordKey);
+      if (!sourceRecord) {
+        console.warn('Skipped Android entity push because the SQLite record is missing:', tableName, recordKey);
+        return false;
+      }
+    }
+
     const reachable = await apiService.checkServerReachability(1800);
     if (reachable) {
       try {
-        const serverRes = await this.sendRecordToServer(tableName, record);
-        await this.reconcilePushedRecord(tableName, record, serverRes);
-        const saved = await table.get(serverRes?.id ?? record.id ?? record.key);
-        if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        const serverRes = await this.sendRecordToServer(tableName, sourceRecord);
+        await this.reconcilePushedRecord(tableName, sourceRecord, serverRes);
+        const savedKey = serverRes?.id ?? sourceRecord.id ?? sourceRecord.key;
+        const saved = await table.get(savedKey);
+        if (isNativeAndroid()) {
+          if (String(recordKey) !== String(savedKey)) await nativePosRepository.delete(tableName as any, recordKey);
+          if (saved) {
+            await mirrorNativePosRecord(tableName, saved);
+            await nativePosRepository.setSyncState(tableName as any, saved.id ?? saved.key, 'synced');
+          }
+        } else if (saved) {
+          await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        }
         return true;
       } catch (err) {
         console.error(`Failed to push ${tableName} record directly:`, err);
-        await updateRecordWithoutSyncHook(tableName, record.id || record.key, { syncStatus: 'pending' });
-        const saved = await table.get(record.id || record.key);
-        if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: 'pending' });
+        const saved = await table.get(recordKey);
+        if (isNativeAndroid()) {
+          if (saved) await mirrorNativePosRecord(tableName, saved);
+          await nativePosRepository.setSyncState(tableName as any, recordKey, 'pending');
+        } else if (saved) {
+          await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        }
         return false;
       }
-    } else {
-      await updateRecordWithoutSyncHook(tableName, record.id || record.key, { syncStatus: 'pending' });
-      const saved = await table.get(record.id || record.key);
-      if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
-      return false;
     }
+
+    await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: 'pending' });
+    const saved = await table.get(recordKey);
+    if (isNativeAndroid()) {
+      if (saved) await mirrorNativePosRecord(tableName, saved);
+      await nativePosRepository.setSyncState(tableName as any, recordKey, 'pending');
+    } else if (saved) {
+      await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+    }
+    return false;
   },
 
   async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
