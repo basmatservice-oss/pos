@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Order, Purchase } from '../db/db';
+import type { Order, Purchase } from '../db/db';
 import {
   format,
   isWithinInterval,
