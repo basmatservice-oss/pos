@@ -3730,6 +3730,22 @@ export async function dispatchOperation(
   if (isNativeAndroid() && type === 'purchase_update') {
     throw new Error('تعديل فاتورة الشراء على Android متوقف مؤقتًا لحماية تطابق الخادم وSQLite حتى اكتمال الترحيل الذري');
   }
+  // Validate Android purchase deletion against the authoritative local SQLite state
+  // before any server request can delete the invoice remotely.
+  if (isNativeAndroid() && type === 'purchase_delete') {
+    const purchaseId = String(payload?.id || '');
+    if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
+    const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
+    if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
+    const [returns, batches] = await Promise.all([
+      nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
+    ]);
+    if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
+    if (batches.some((batch: any) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
+      throw new Error('لا يمكن حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
+    }
+  }
   setLocalAccountingStandaloneMode(role === 'standalone');
   const now = new Date().toISOString();
   const token = getAuthToken();
