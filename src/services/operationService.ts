@@ -1814,17 +1814,12 @@ async function applyPurchaseLocally(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
-    const [returns, oldItems, oldBatches, allBatches, allProducts, suppliers, movements, journals, transactions, accounts] = await Promise.all([
+    const [returns, oldItems, oldBatches, movements, journals] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
-      nativePosRepository.getAll<any>('inventoryBatches'),
-      nativePosRepository.getAll<any>('products'),
-      nativePosRepository.getAll<any>('suppliers'),
-      nativePosRepository.getAll<any>('inventoryMovements'),
+      nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', purchaseId),
       nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
-      nativePosRepository.getAll<any>('transactions'),
-      nativePosRepository.getAll<any>('accounts'),
     ]);
     if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
     if (!oldItems.length || !oldBatches.length) {
@@ -1874,6 +1869,16 @@ async function applyPurchaseLocally(
       throw new Error('لا يمكن حذف فاتورة شراء استُهلك جزء من دفعاتها أو تحتوي كميات غير سليمة');
     }
     const oldProductIds = [...itemBaseQuantities.keys()];
+    const [allProducts, batchGroups, supplier, transactionGroups] = await Promise.all([
+      nativePosRepository.getMany<any>('products', oldProductIds),
+      Promise.all(oldProductIds.map((productId: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId))),
+      oldPurchase.supplierId ? nativePosRepository.get<any>('suppliers', oldPurchase.supplierId) : Promise.resolve(null),
+      Promise.all(journals.map((entry: any) => nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id)))),
+    ]);
+    const allBatches = batchGroups.flat();
+    const transactions = transactionGroups.flat();
+    const accountCodes = [...new Set(transactions.map((line: any) => String(line.accountId || '')).filter(Boolean))];
+    const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
     for (const productId of oldProductIds) {
       const product = allProducts.find((candidate: any) => Number(candidate.id) === productId);
       if (!product) throw new Error('لا يمكن عكس فاتورة الشراء؛ أحد أصنافها غير موجود في SQLite');
@@ -1884,7 +1889,7 @@ async function applyPurchaseLocally(
     const now = new Date().toISOString();
     const operationId = String(payload.operationId || oldPurchase.operationId || purchaseId);
     const productMap = new Map<number, any>(allProducts.map((x: any) => [Number(x.id), x]));
-    const supplierMap = new Map<string, any>(suppliers.map((x: any) => [String(x.id), x]));
+    const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
     const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
     const changes: any[] = [];
     const cacheChanges: any[] = [];
