@@ -116,8 +116,7 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
       let account = accounts.get(line.accountCode);
       if (!account) {
         account = await nativePosRepository.get<any>('accounts', line.accountCode);
-        if (!account) throw new Error('الحساب غير موجود: ' + line.accountCode);
-        accounts.set(line.accountCode, account);
+        if (account) accounts.set(line.accountCode, account);
       }
       const accountName = account?.name || line.accountCode;
       changes.push({
@@ -141,11 +140,13 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
         },
         syncState: journalSyncStatus,
       });
-      const normalDebit = account.type === 'asset' || account.type === 'expense';
-      const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
-      const updated = { ...account, balance: money(Number(account.balance || 0) + delta), updatedAt: now };
-      accounts.set(line.accountCode, updated);
-      accountChanges.set(line.accountCode, updated);
+      if (account) {
+        const normalDebit = account.type === 'asset' || account.type === 'expense';
+        const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+        const updated = { ...account, balance: money(Number(account.balance || 0) + delta), updatedAt: now };
+        accounts.set(line.accountCode, updated);
+        accountChanges.set(line.accountCode, updated);
+      }
     }
     for (const [accountCode, account] of accountChanges) {
       changes.push({
