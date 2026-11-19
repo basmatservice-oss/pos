@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { getPosRecord, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { db, Product, StocktakingSession, StocktakingEntry } from '../db/db';
@@ -93,7 +94,7 @@ export default function Stocktaking() {
         setIsProcessing(true);
         try {
           const approvedAt = new Date().toISOString();
-          const sessionSnapshot = await db.stocktakingSessions.get(session.id!);
+          const sessionSnapshot = await getPosRecord<any>('stocktakingSessions', session.id!);
           const entrySnapshots = await db.stocktakingEntries
             .where('sessionId')
             .equals(session.id!)
@@ -149,7 +150,7 @@ export default function Stocktaking() {
       variant: 'danger',
       action: async () => {
         try {
-          const entries = await db.stocktakingEntries.where('sessionId').equals(id).toArray();
+          const entries = await getPosRecordsWhereEquals<any>('stocktakingEntries', 'sessionId', id);
           for (const entry of entries) {
             if (entry.id !== undefined) {
               await dispatchOperation('entity_delete', { table: 'stocktakingEntries', id: entry.id });
@@ -271,7 +272,7 @@ export default function Stocktaking() {
       }
     } else {
       // Fallback to direct DB
-      const dbProd = await db.products.where('barcode').equals(barcode).first();
+      const dbProd = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
       if (dbProd) {
         addToNewSession(dbProd);
         if (searchInputRef.current) {
