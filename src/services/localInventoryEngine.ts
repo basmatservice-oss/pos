@@ -161,7 +161,8 @@ export async function consumeLocalInventoryFIFO(
     const batches = batchRows.filter((row) => Number(row.record.productId) === params.productId && Number(row.record.remainingQuantity || 0) > 0)
       .sort((a, b) => {
         const dateOrder = String(a.record.purchaseDate || '').localeCompare(String(b.record.purchaseDate || ''));
-        return dateOrder || String(a.record.createdAt || '').localeCompare(String(b.record.createdAt || ''));
+        const createdOrder = String(a.record.createdAt || '').localeCompare(String(b.record.createdAt || ''));
+        return createdOrder || String(a.record.id || '').localeCompare(String(b.record.id || ''));
       });
     const weightedAverage = valuation?.value === 'weighted_average';
     let weightedUnitCost = Number(product.costPrice || 0);
@@ -256,7 +257,8 @@ export async function consumeLocalInventoryFIFO(
     .sort((a, b) => {
       const dateOrder = String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || ''));
       if (dateOrder !== 0) return dateOrder;
-      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      const createdOrder = String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      return createdOrder || String(a.id || '').localeCompare(String(b.id || ''));
     });
 
   const valuation = await db.settings.where('key').equals('inventoryValuationMethod').first();
