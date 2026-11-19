@@ -1,4 +1,5 @@
 import { playSuccessSound, playErrorSound, playScanSound } from '../lib/sound';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShoppingBag,
@@ -73,9 +74,9 @@ const MobileSales: React.FC = () => {
       return await db.products.where('categoryId').equals(categoryId).toArray();
     }, [selectedCategory]) || [];
 
-  const categories = useLiveQuery(() => db.categories.toArray()) || [];
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
-  const allOffers = useLiveQuery(() => db.offers.toArray()) || [];
+  const categories = usePosEntityRecords<any>('categories');
+  const customers = usePosEntityRecords<any>('customers');
+  const allOffers = usePosEntityRecords<any>('offers');
   const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const myOrders =
     useLiveQuery(() => db.orders.where('createdBy').equals(user?.name || '').reverse().toArray()) || [];
