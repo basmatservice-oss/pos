@@ -159,6 +159,10 @@ export default function Layout() {
 
   const handleMandatoryPasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (await syncService.getDeviceRole() === 'standalone') {
+      toast.error('تغيير بيانات الدخول المحلية غير مدعوم بعد في وضع التشغيل المستقل؛ لم يتم إرسال أي طلب إلى الخادم');
+      return;
+    }
     if (!newPass || newPass.length < 6) {
       toast.error('كلمة المرور الجديدة يجب أن لا تقل عن 6 أحرف');
       return;
