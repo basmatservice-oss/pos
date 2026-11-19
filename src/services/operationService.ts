@@ -847,11 +847,9 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const effectiveReturnDate = payload.returnDate ? new Date(payload.returnDate).toISOString() : now;
-  const [existingReturn, origOrder, origItems, batches, movements, accounts, journals] = await Promise.all([
+  const [existingReturn, origOrder, origItems] = await Promise.all([
     nativePosRepository.get<any>('returns', id), nativePosRepository.get<any>('orders', originalOrderId),
     nativePosRepository.whereEquals<any>('orderItems', 'orderId', originalOrderId),
-    nativePosRepository.getAll<any>('inventoryBatches'), nativePosRepository.getAll<any>('inventoryMovements'),
-    nativePosRepository.getAll<any>('accounts'), nativePosRepository.getAll<any>('journalEntries'),
   ]);
   if (existingReturn) return;
   if (!origOrder || origOrder.status === 'void') throw new Error('لا يمكن إرجاع فاتورة غير موجودة أو ملغاة');
@@ -860,14 +858,26 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     const key = entity === 'accounts' ? record.code : record.id;
     changes.set(entity + ':' + JSON.stringify(key), { action: 'put', entity, record, syncState: syncStatus });
   };
-  const affectedProductIds = [...new Set(origItems.map((item: any) => Number(item.productId))
-    .filter((productId: number) => Number.isSafeInteger(productId) && productId > 0))];
-  const [products, customer] = await Promise.all([
+  const affectedProductIds = [...new Set(origItems.flatMap((item: any) => {
+    const ids = [Number(item.productId)];
+    let allocation: any = item.batchAllocations;
+    try { allocation = typeof allocation === 'string' ? JSON.parse(allocation) : allocation || []; } catch { allocation = []; }
+    if (allocation?.kind === 'recipe' && Array.isArray(allocation.ingredients)) {
+      for (const ingredient of allocation.ingredients) ids.push(Number(ingredient.ingredientProductId));
+    }
+    return ids;
+  }).filter((productId: number) => Number.isSafeInteger(productId) && productId > 0))];
+  const [products, customer, batchGroups, movements, accounts, journals] = await Promise.all([
     nativePosRepository.getMany<any>('products', affectedProductIds),
     origOrder.customerId
       ? nativePosRepository.get<any>('customers', origOrder.customerId)
       : Promise.resolve(null),
+    Promise.all(affectedProductIds.map((productId: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId))),
+    nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(id)),
+    nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2200', '4200', '5100', '5400']),
+    nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(id)),
   ]);
+  const batches = batchGroups.flat();
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
   const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
   const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
