@@ -606,21 +606,17 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   if (!targetOrderId) throw new Error('Missing orderId for void operation');
   const now = new Date().toISOString(), operationId = String(payload.operationId || targetOrderId);
   const deviceId = String(payload.deviceId || 'local-device');
-  const [order, orderItems, customers, loyalty, batches, movements, journals, transactions, accounts] = await Promise.all([
+  const [order, orderItems, loyalty, batches, movements, journals] = await Promise.all([
     nativePosRepository.get<any>('orders', targetOrderId),
     nativePosRepository.whereEquals<any>('orderItems', 'orderId', targetOrderId),
-    nativePosRepository.getAll<any>('customers'),
     nativePosRepository.whereEquals<any>('loyaltyTransactions', 'orderId', targetOrderId),
     nativePosRepository.getAll<any>('inventoryBatches'),
     nativePosRepository.getAll<any>('inventoryMovements'),
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', targetOrderId),
-    nativePosRepository.getAll<any>('transactions'),
-    nativePosRepository.getAll<any>('accounts'),
   ]);
   if (!order || order.status === 'void') return;
   if (Number(order.returnedAmount || 0) > 0 || order.status === 'returned' || order.status === 'partially_returned')
     throw new Error('لا يمكن إلغاء فاتورة تم إرجاع أصناف منها مسبقاً');
-  const customerMap = new Map(customers.map((x: any) => [String(x.id), x]));
   const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
   const movementKeys = new Set(movements.map((x: any) => String(x.movementKey)));
   const changes = new Map<string, any>();
@@ -696,7 +692,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   if (order.customerId) {
     const pointsDelta = loyalty.reduce((sum: number, entry: any) =>
       sum + (entry.type === 'earn' ? -Number(entry.points || 0) : entry.type === 'redeem' ? Number(entry.points || 0) : 0), 0);
-    const customer: any = customerMap.get(String(order.customerId));
+    const customer: any = await nativePosRepository.get<any>('customers', order.customerId);
     if (customer) stage('customers', { ...customer,
       balance: roundMoney(Number(customer.balance || 0) + (order.paymentMethod === 'credit' ? -Number(order.netAmount || 0) : 0)),
       points: Math.max(0, Number(customer.points || 0) + pointsDelta), updatedAt: now, syncStatus });
@@ -704,12 +700,17 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   stage('orders', { ...order, status: 'void', paidAmount: 0, updatedAt: now, syncStatus });
 
   if (shouldPostLocalAccounting(syncStatus)) {
+    const unreversedJournals = journals.filter((entry: any) => entry.status === 'posted');
+    const journalLines = (await Promise.all(unreversedJournals.map((entry: any) =>
+      nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id))
+    ))).flat();
+    const accountCodes = [...new Set(journalLines.map((line: any) => String(line.accountId)).filter(Boolean))];
+    const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
     const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
-    const transactionMap = new Map(transactions.map((x: any) => [String(x.id), x]));
     const reversedIds = new Set(journals.map((x: any) => x.reversedEntryId).filter(Boolean).map(String));
     for (const entry of journals) {
       if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
-      const lines = transactions.filter((x: any) => String(x.journalEntryId) === String(entry.id));
+      const lines = journalLines.filter((x: any) => String(x.journalEntryId) === String(entry.id));
       if (!lines.length) continue;
       const reversalId = 'local-je:' + String(entry.referenceType || 'order') + ':' + targetOrderId + ':reversal-' + String(entry.id);
       if (journals.some((x: any) => String(x.id) === reversalId)) continue;
