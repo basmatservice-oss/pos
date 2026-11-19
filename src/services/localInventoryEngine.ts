@@ -37,7 +37,38 @@ function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
+  if (!changes.length) return;
+  const applied = await nativePosRepository.applyChanges(changes);
+  if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
+  const tableNames = Array.from(new Set(changes.map((change) => change.entity)));
+  await db.transaction('rw', tableNames.map((name) => db.table(name)), async () => {
+    for (const change of changes) {
+      const table = db.table(change.entity);
+      if (change.action === 'delete') await table.delete(change.key);
+      else await table.put(change.record);
+    }
+  });
+}
+
 export async function recordLocalInventoryMovement(input: {
+  if (isNativeAndroid()) {
+    const existing = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', input.movementKey);
+    if (existing) return;
+    const product = await nativePosRepository.get<any>('products', input.productId);
+    const movement = {
+      id: generateUUID(), movementKey: input.movementKey, productId: input.productId,
+      movementType: input.movementType, sourceType: input.sourceType, sourceId: input.sourceId,
+      quantityDeltaBase: roundQty(input.quantityDeltaBase),
+      baseUnitCode: product?.baseUnitCode || product?.unit || 'piece',
+      unitCost: Math.round((Number(input.unitCost) || 0) * 10000) / 10000,
+      totalCost: roundMoney(input.totalCost), branchId: input.branchId ?? product?.branchId,
+      operationId: input.operationId, reason: input.reason, createdBy: input.createdBy || 'System',
+      syncStatus: input.syncStatus || 'pending', createdAt: input.createdAt,
+    };
+    await commitNativeInventoryChanges([{ action: 'put', entity: 'inventoryMovements', record: movement, syncState: input.syncStatus || 'local' }]);
+    return;
+  }
   movementKey: string;
   productId: number;
   movementType: string;
@@ -79,6 +110,89 @@ export async function recordLocalInventoryMovement(input: {
 export async function consumeLocalInventoryFIFO(
   params: ConsumeLocalInventoryParams
 ): Promise<ConsumeLocalInventoryResult> {
+  if (isNativeAndroid()) {
+    const productRow = (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId);
+    const product = productRow?.record as any;
+    if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
+    const qtyNeeded = roundQty(params.quantityInBaseUnits);
+    if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
+    const previousQty = roundQty(Number(product.stockQuantity || 0));
+    const nextQty = roundQty(previousQty - qtyNeeded);
+    if (!params.allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + product.name);
+    const [batchRows, valuation] = await Promise.all([
+      nativePosRepository.getAllWithSyncState('inventoryBatches'),
+      nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
+    ]);
+    const batches = batchRows.filter((row) => Number(row.record.productId) === params.productId && Number(row.record.remainingQuantity || 0) > 0)
+      .sort((a, b) => {
+        const dateOrder = String(a.record.purchaseDate || '').localeCompare(String(b.record.purchaseDate || ''));
+        return dateOrder || String(a.record.createdAt || '').localeCompare(String(b.record.createdAt || ''));
+      });
+    const weightedAverage = valuation?.value === 'weighted_average';
+    let weightedUnitCost = Number(product.costPrice || 0);
+    if (weightedAverage && batches.length) {
+      const activeQty = batches.reduce((sum, row) => sum + Number(row.record.remainingQuantity || 0), 0);
+      const activeValue = batches.reduce((sum, row) => sum + Number(row.record.remainingQuantity || 0) * Number(row.record.costPrice || 0), 0);
+      if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
+    }
+    let remaining = qtyNeeded, totalCost = 0;
+    const allocations: LocalBatchAllocation[] = [];
+    const changes: any[] = [];
+    for (const row of batches) {
+      if (remaining <= 1e-6) break;
+      const batch: any = row.record;
+      const available = Number(batch.remainingQuantity || 0);
+      const take = roundQty(Math.min(remaining, available));
+      if (take <= 0) continue;
+      const costPrice = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
+      changes.push({
+        action: 'put', entity: 'inventoryBatches',
+        record: { ...batch, remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+        syncState: params.syncStatus || row.syncState,
+      });
+      totalCost += take * costPrice;
+      allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
+      remaining = roundQty(remaining - take);
+    }
+    if (remaining > 1e-6) {
+      const fallbackCost = weightedAverage ? weightedUnitCost : Number(product.costPrice || 0);
+      totalCost += remaining * fallbackCost;
+      allocations.push({ batchId: null, quantity: remaining, costPrice: fallbackCost });
+    }
+    changes.push({
+      action: 'put', entity: 'products',
+      record: { ...product, stockQuantity: nextQty, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+      syncState: params.syncStatus || productRow!.syncState,
+    });
+    if (nextQty < -1e-6) changes.push({
+      action: 'put', entity: 'inventoryAlerts',
+      record: {
+        id: 'offline-oversell:' + params.operationId + ':' + params.productId + ':' + params.movementKeySuffix,
+        productId: params.productId, productName: product.name, previousQty, changeQty: -qtyNeeded,
+        resultingQty: nextQty, operationId: params.operationId, deviceId: params.deviceId,
+        reason: 'offline_oversell', resolved: 0, createdAt: params.createdAt,
+      },
+      syncState: params.syncStatus || 'local',
+    });
+    const averageUnitCost = totalCost / qtyNeeded;
+    const movementKey = (params.sourceType || 'order') + ':' + params.sourceId + ':out:' + params.productId + ':' + params.movementKeySuffix;
+    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
+    if (!existingMovement) changes.push({
+      action: 'put', entity: 'inventoryMovements',
+      record: {
+        id: generateUUID(), movementKey, productId: params.productId,
+        movementType: params.movementType || 'sale', sourceType: params.sourceType || 'order', sourceId: params.sourceId,
+        quantityDeltaBase: -qtyNeeded, baseUnitCode: product.baseUnitCode || product.unit || 'piece',
+        unitCost: Math.round((Number(averageUnitCost) || 0) * 10000) / 10000,
+        totalCost: roundMoney(totalCost), branchId: params.branchId ?? product.branchId,
+        operationId: params.operationId, reason: params.reason, createdBy: params.createdBy || 'System',
+        syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt,
+      },
+      syncState: params.syncStatus || 'local',
+    });
+    await commitNativeInventoryChanges(changes);
+    return { totalCost: roundMoney(totalCost), averageUnitCost, allocations };
+  }
   const product = await db.products.get(params.productId);
   if (!product) throw new Error(`الصنف غير موجود (ID: ${params.productId})`);
 
@@ -198,6 +312,88 @@ export async function restoreLocalInventoryFIFO(params: {
   createdAt: string;
   syncStatus?: 'synced' | 'pending';
 }): Promise<number> {
+  if (isNativeAndroid()) {
+    const qtyToRestore = roundQty(params.quantityInBaseUnits);
+    if (qtyToRestore <= 0) return 0;
+    const [batchRows, productRow] = await Promise.all([
+      nativePosRepository.getAllWithSyncState('inventoryBatches'),
+      (async () => (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId))(),
+    ]);
+    let remaining = qtyToRestore, totalCost = 0;
+    const changes: any[] = [];
+    for (let i = params.allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
+      const allocation = params.allocations[i];
+      if (!allocation || allocation.quantity <= 0) continue;
+      let putBack = roundQty(Math.min(remaining, allocation.quantity));
+      const allocationCost = Number(allocation.costPrice ?? params.fallbackCost);
+      let restoredBatchId: string | null = allocation.batchId;
+      if (allocation.batchId) {
+        const row = batchRows.find((item) => String(item.record.id) === String(allocation.batchId));
+        if (row) {
+          const batch: any = row.record;
+          const current = Number(batch.remainingQuantity || 0);
+          const room = roundQty(Math.max(0, Number(batch.quantity) - current));
+          putBack = roundQty(Math.min(putBack, room));
+          if (putBack <= 1e-6) continue;
+          changes.push({
+            action: 'put', entity: 'inventoryBatches',
+            record: { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+            syncState: params.syncStatus || row.syncState,
+          });
+        } else {
+          restoredBatchId = generateUUID();
+          changes.push({
+            action: 'put', entity: 'inventoryBatches',
+            record: { id: restoredBatchId, productId: params.productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack, costPrice: allocationCost, purchaseDate: params.createdAt, branchId: params.branchId, syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt, updatedAt: params.createdAt },
+            syncState: params.syncStatus || 'local',
+          });
+        }
+      } else {
+        restoredBatchId = generateUUID();
+        changes.push({
+          action: 'put', entity: 'inventoryBatches',
+          record: { id: restoredBatchId, productId: params.productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack, costPrice: allocationCost, purchaseDate: params.createdAt, branchId: params.branchId, syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt, updatedAt: params.createdAt },
+          syncState: params.syncStatus || 'local',
+        });
+      }
+      totalCost += putBack * allocationCost;
+      remaining = roundQty(remaining - putBack);
+    }
+    if (remaining > 1e-6) {
+      const batchId = generateUUID();
+      changes.push({
+        action: 'put', entity: 'inventoryBatches',
+        record: { id: batchId, productId: params.productId, purchaseId: null, quantity: remaining, remainingQuantity: remaining, costPrice: params.fallbackCost, purchaseDate: params.createdAt, branchId: params.branchId, syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt, updatedAt: params.createdAt },
+        syncState: params.syncStatus || 'local',
+      });
+      totalCost += remaining * params.fallbackCost;
+    }
+    if (productRow) {
+      const product: any = productRow.record;
+      changes.push({
+        action: 'put', entity: 'products',
+        record: { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+        syncState: params.syncStatus || productRow.syncState,
+      });
+    }
+    const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
+    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
+    if (!existingMovement) changes.push({
+      action: 'put', entity: 'inventoryMovements',
+      record: {
+        id: generateUUID(), movementKey, productId: params.productId,
+        movementType: params.movementType || 'sale_return', sourceType: params.sourceType || 'return', sourceId: params.sourceId,
+        quantityDeltaBase: qtyToRestore, baseUnitCode: (productRow?.record as any)?.baseUnitCode || (productRow?.record as any)?.unit || 'piece',
+        unitCost: Math.round((Number(qtyToRestore > 0 ? totalCost / qtyToRestore : params.fallbackCost) || 0) * 10000) / 10000,
+        totalCost: roundMoney(totalCost), branchId: params.branchId ?? (productRow?.record as any)?.branchId,
+        operationId: params.operationId, reason: params.reason, createdBy: params.createdBy || 'System',
+        syncStatus: params.syncStatus || 'pending', createdAt: params.createdAt,
+      },
+      syncState: params.syncStatus || 'local',
+    });
+    await commitNativeInventoryChanges(changes);
+    return roundMoney(totalCost);
+  }
   const qtyToRestore = roundQty(params.quantityInBaseUnits);
   if (qtyToRestore <= 0) return 0;
   let remaining = qtyToRestore;
