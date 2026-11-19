@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Search,
   Plus,
@@ -43,10 +44,10 @@ export default function Customers() {
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
 
   // Data State using Dexie Live Query
-  const allCustomers = useLiveQuery(() => db.customers.toArray()) || [];
-  const allOrders = useLiveQuery(() => db.orders.toArray()) || [];
-  const allReturns = useLiveQuery(() => db.returns.toArray()) || [];
-  const allPayments = useLiveQuery(() => db.customerPayments.toArray()) || [];
+  const allCustomers = usePosEntityRecords<any>('customers');
+  const allOrders = usePosEntityRecords<any>('orders');
+  const allReturns = usePosEntityRecords<any>('returns');
+  const allPayments = usePosEntityRecords<any>('customerPayments');
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   const customers = useMemo(() => {
