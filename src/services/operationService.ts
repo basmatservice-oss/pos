@@ -275,6 +275,15 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
   };
   const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
   const journalMap = new Map<string, any>(journals.map((x: any) => [String(x.id), x]));
+  if (shouldPostLocalAccounting(syncStatus)) {
+    for (const [code, definition] of Object.entries(accountDefaults)) {
+      if (!accountMap.has(code)) {
+        const account = { code, ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now };
+        accountMap.set(code, account);
+        stage('accounts', account);
+      }
+    }
+  }
   const postJournal = (entryKey: string, description: string, lines: any[]) => {
     const normalized = lines.map((x: any) => ({ ...x, debit: roundMoney(x.debit), credit: roundMoney(x.credit) }))
       .filter((x: any) => x.debit > 0 || x.credit > 0);
