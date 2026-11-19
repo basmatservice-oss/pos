@@ -31,22 +31,20 @@ export const syncService = {
 
   async updatePendingCount() {
     try {
-      const pendingDexieOperations = await db.syncOperations
-        .where('status')
-        .anyOf(['pending', 'error'])
-        .toArray();
-      let pendingOps = pendingDexieOperations.length;
-
-      // Include native-only Android outbox entries after an IndexedDB reset.
-      // Entries mirrored in Dexie are counted once.
+      // The native outbox is the sole durable operation queue on Android;
+      // Dexie entries are only a compatibility mirror and must not be counted.
+      let pendingOps = 0;
       if (isNativeAndroid()) {
         try {
-          const dexieIds = new Set(pendingDexieOperations.map((operation) => operation.id));
-          const nativePending = await listNativePendingPosOperations();
-          pendingOps += nativePending.filter((operation) => !dexieIds.has(operation.operationId)).length;
+          pendingOps = (await listNativePendingPosOperations()).length;
         } catch (error) {
           console.error('Failed to count Android SQLite outbox:', error);
         }
+      } else {
+        pendingOps = await db.syncOperations
+          .where('status')
+          .anyOf(['pending', 'error'])
+          .count();
       }
 
       const tables: string[] = [
