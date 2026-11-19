@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Store, Pill, Shirt, Coffee, Smartphone, Wrench, BookOpen, Layers, ArrowLeft, Server, MonitorSmartphone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { db } from '../db/db';
+import { putPosSetting } from '../services/posDataAccess';
 import { updateApiBase } from '../services/apiService';
 
 export type BusinessType = 
@@ -55,8 +55,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       if (deviceRole === 'standalone') {
         if (!selectedType) return;
         const now = new Date().toISOString();
-        await db.settings.put({ key: 'deviceRole', value: 'standalone', syncStatus: 'synced', updatedAt: now });
-        await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'synced', updatedAt: now });
+        await putPosSetting('deviceRole', 'standalone', 'synced');
+        await putPosSetting('businessType', selectedType, 'synced');
         toast.success('تم إعداد التطبيق للعمل محليًا على هذا الجهاز');
         onComplete(selectedType, 'standalone');
         return;
@@ -66,8 +66,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         if (!selectedType) return;
         
         // Save locally first
-        await db.settings.put({ key: 'deviceRole', value: 'server', syncStatus: 'synced', updatedAt: new Date().toISOString() });
-        await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'pending', updatedAt: new Date().toISOString() });
+        await putPosSetting('deviceRole', 'server', 'synced');
+        await putPosSetting('businessType', selectedType, 'pending');
 
         // Try to save initial setup to server (works unauthenticated once on fresh DB)
         try {
@@ -77,7 +77,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             body: JSON.stringify({ businessType: selectedType })
           });
           if (res.ok) {
-            await db.settings.put({ key: 'businessType', value: selectedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+            await putPosSetting('businessType', selectedType, 'synced');
           }
         } catch {
           console.log('Server not reachable yet, saved locally');
@@ -107,8 +107,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           await updateApiBase(cleanUrl);
           
-          await db.settings.put({ key: 'deviceRole', value: 'client', syncStatus: 'synced', updatedAt: new Date().toISOString() });
-          await db.settings.put({ key: 'serverUrl', value: cleanUrl, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+          await putPosSetting('deviceRole', 'client', 'synced');
+          await putPosSetting('serverUrl', cleanUrl, 'synced');
           
           // Fetch public config & business type from server
           const [typeRes, publicRes] = await Promise.all([
@@ -121,15 +121,15 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           if (publicRes.ok) {
             const pubSettings = await publicRes.json();
             if (Array.isArray(pubSettings) && pubSettings.length > 0) {
-              await db.settings.bulkPut(
+              await Promise.all(
                 pubSettings
                   .filter((s: any) => s.key !== 'deviceRole' && s.key !== 'serverUrl')
-                  .map((s: any) => ({ ...s, syncStatus: 'synced' }))
+                  .map((setting: any) => putPosSetting(setting.key, setting.value, 'synced'))
               );
             }
           }
           
-          await db.settings.put({ key: 'businessType', value: fetchedType, syncStatus: 'synced', updatedAt: new Date().toISOString() });
+          await putPosSetting('businessType', fetchedType, 'synced');
 
           const desktopApi = (window as any).electronAPI;
           if (desktopApi?.setServerUrl && desktopApi?.setDeviceRole) {
