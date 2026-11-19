@@ -91,7 +91,7 @@ function recordIdForKey(_entity: NativePosEntity, key: unknown): string {
   return serializeKey(key);
 }
 
-function notifyNativeEntityChanges(entities: Iterable<NativePosEntity>): void {
+export function notifyNativeEntityChanges(entities: Iterable<NativePosEntity>): void {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
   const changed = Array.from(new Set(entities));
   if (!changed.length) return;
