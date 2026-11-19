@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { generateUUID } from '../utils/uuid';
 import {
@@ -319,7 +320,7 @@ export default function POS() {
         setSearchQuery('');
       }
     } else {
-      const dbProduct = await db.products.where('barcode').equals(barcode).first();
+      const dbProduct = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
       if (dbProduct) {
         addItem(dbProduct);
         if (searchInputRef.current) {
@@ -370,7 +371,7 @@ export default function POS() {
         globalDiscountType: held.globalDiscountType || 'percentage',
       });
       if (held.customerId) {
-        const cust = await db.customers.get(held.customerId);
+        const cust = await getPosRecord<any>('customers', held.customerId);
         setSelectedCustomer(cust || null);
       } else {
         setSelectedCustomer(null);
