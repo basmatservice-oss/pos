@@ -2019,6 +2019,10 @@ async function applyPurchaseLocally(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
+    const sourcePurchaseVersion = String(oldPurchase.updatedAt || '').trim();
+    if (!sourcePurchaseVersion) {
+      throw new Error('فاتورة الشراء لا تحتوي إصدار تحديث؛ أوقف الحذف لمنع عكس نسخة قديمة من المخزون والحسابات');
+    }
     const [returns, oldItems, oldBatches, journals] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
@@ -2225,12 +2229,24 @@ async function applyPurchaseLocally(
     const deletionMovementKey = 'purchase_reversal:' + purchaseId + ':' + operationId +
       ':out:' + String(oldItems[0].productId) + ':' + String(firstItemIndex);
     const committed = await applyNativePosRecordChangesIfFieldAbsent(
-      nativeChanges, 'inventoryMovements', 'movementKey', deletionMovementKey,
+      nativeChanges,
+      'inventoryMovements',
+      'movementKey',
+      deletionMovementKey,
+      {
+        entity: 'purchases',
+        recordId: JSON.stringify(purchaseId),
+        field: 'updatedAt',
+        expectedValue: sourcePurchaseVersion,
+      },
     );
-    if (!committed.skipped && committed.applied !== changes.length) {
+    if (committed.skipped) {
+      throw new Error('تغيرت فاتورة الشراء أثناء الحذف؛ أعد تحميل الفاتورة قبل المحاولة مرة أخرى');
+    }
+    if (committed.applied !== changes.length) {
       throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
     }
-    // The first reversal movement is the atomic deletion guard for the complete reversal.
+    // The reversal movement and purchase version are checked atomically with the complete deletion.
     return;
   }
   await db.transaction(
