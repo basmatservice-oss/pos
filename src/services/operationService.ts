@@ -1328,7 +1328,7 @@ async function applyPurchaseLocally(
       const productId = Number(item.productId);
       const quantity = roundQty(Number(item.quantity));
       const rawFactor = Number(item.conversionFactor ?? 1);
-      const factor = rawFactor > 0 ? rawFactor : 1;
+      const factor = rawFactor;
       const rawCost = Number(item.costPrice);
       const unitCost = item.pricesInForeignCurrency ? rawCost * fxRate : rawCost;
       if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
@@ -1407,7 +1407,8 @@ async function applyPurchaseLocally(
           throw new Error('دفعات الفاتورة القديمة لا تطابق تفاصيل أصنافها؛ أوقف التعديل حفاظًا على المخزون');
         }
         const product = productMap.get(productId);
-        if (!product || Number(product.stockQuantity || 0) + 0.0001 < quantity) {
+        if (!product || !Number.isFinite(Number(product.stockQuantity || 0)) ||
+            Number(product.stockQuantity || 0) + 0.0001 < quantity) {
           throw new Error('رصيد أحد أصناف الفاتورة القديمة لا يكفي لعكسها محليًا');
         }
       }
@@ -1785,7 +1786,7 @@ async function applyPurchaseLocally(
       const productId = Number(item.productId);
       const quantity = Number(item.quantity);
       const rawFactor = Number(item.conversionFactor ?? 1);
-      const factor = rawFactor > 0 ? rawFactor : 1;
+      const factor = rawFactor;
       if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
           !Number.isFinite(factor) || factor <= 0) {
         throw new Error('لا يمكن عكس فاتورة الشراء؛ تحتوي تفاصيلها على صنف أو كمية أو معامل تحويل غير صالح');
@@ -1839,7 +1840,8 @@ async function applyPurchaseLocally(
     const changes: any[] = [];
     const cacheChanges: any[] = [];
     for (const item of oldItems) {
-      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
+      const factor = Number(item.conversionFactor ?? 1);
+      if (!Number.isFinite(factor) || factor <= 0) throw new Error('معامل تحويل صنف الفاتورة القديمة غير صالح');
       const baseQty = roundQty(Number(item.quantity || 0) * factor);
       const product = productMap.get(Number(item.productId));
       if (product) {
