@@ -3,6 +3,7 @@ import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngin
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
 import { isNativeAndroid, listNativePendingPosOperations, updateNativePendingOperationPayload } from '../native/posLocalDatabase';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 function collectPendingReferences(value: any, refs: Record<string, Set<string>>) {
   if (!value || typeof value !== 'object') return;
