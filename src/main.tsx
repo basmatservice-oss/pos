@@ -2,11 +2,11 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { db, ensureDatabaseReady } from './db/db';
 import { installNativeDatabaseMirrorHooks, mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
 
 async function restoreDesktopRuntimeConfig() {
+  const { db } = await import('./db/db');
   const desktopApi = (window as any).electronAPI;
   if (!desktopApi?.getDeviceRole) return;
 
@@ -36,24 +36,26 @@ async function restoreDesktopRuntimeConfig() {
 
 let nativeStartupError: unknown = null;
 
-ensureDatabaseReady()
-  .then(async () => {
-    let restoredFromSQLite = false;
-    try {
-      restoredFromSQLite = await restoreNativePosDatabase();
-    } catch (err) {
-      console.error('Failed to restore Android SQLite business snapshot:', err);
-      if (isNativeAndroid()) throw err;
+async function initializeLocalRuntime(): Promise<void> {
+  if (isNativeAndroid()) {
+    const restoredFromSQLite = await restoreNativePosDatabase();
+    if (!restoredFromSQLite) {
+      // One-time migration path for existing installs that still have local Dexie data.
+      const { ensureDatabaseReady } = await import('./db/db');
+      await ensureDatabaseReady();
+      await mirrorNativePosDatabase();
     }
-    await restoreDesktopRuntimeConfig();
-    await installNativeDatabaseMirrorHooks();
-    try {
-      if (!restoredFromSQLite) await mirrorNativePosDatabase();
-    } catch (err) {
-      console.error('Failed to refresh Android SQLite business snapshot:', err);
-      if (isNativeAndroid()) throw err;
-    }
-  })
+    // Normal Android startup does not initialize or hydrate Dexie.
+    return;
+  }
+
+  const { ensureDatabaseReady } = await import('./db/db');
+  await ensureDatabaseReady();
+  await restoreDesktopRuntimeConfig();
+  await installNativeDatabaseMirrorHooks();
+}
+
+initializeLocalRuntime()
   .catch((err) => {
     console.error('Failed to initialize local database/runtime config:', err);
     if (isNativeAndroid()) nativeStartupError = err;
