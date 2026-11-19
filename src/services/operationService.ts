@@ -1306,15 +1306,36 @@ async function applyPurchaseLocally(
     if (!purchase?.id) throw new Error('معرّف فاتورة الشراء غير صالح');
     if (await nativePosRepository.get<any>('purchases', String(purchase.id))) return;
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const fxRate = Number(purchase.exchangeRate || 1) > 0 ? Number(purchase.exchangeRate || 1) : 1;
-    const extraCost = roundMoney(Number(purchase.shippingCost || 0) + Number(purchase.customsCost || 0) + Number(purchase.otherCosts || 0));
+    const fxRate = Number(purchase.exchangeRate || 1);
+    const shippingCost = Number(purchase.shippingCost || 0);
+    const customsCost = Number(purchase.customsCost || 0);
+    const otherCosts = Number(purchase.otherCosts || 0);
+    const paidAmount = Number(purchase.paidAmount || 0);
+    if (!Number.isFinite(fxRate) || fxRate <= 0 ||
+        [shippingCost, customsCost, otherCosts, paidAmount].some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new Error('بيانات العملة أو المصروفات أو المبلغ المدفوع في فاتورة الشراء غير صالحة');
+    }
+    const extraCost = roundMoney(shippingCost + customsCost + otherCosts);
     const normalized = items.map((item: any) => {
-      const quantity = roundQty(Number(item.quantity || 0));
-      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
-      const unitCost = item.pricesInForeignCurrency ? Number(item.costPrice || 0) * fxRate : Number(item.costPrice || 0);
-      return { ...item, quantity, factor, unitCost, lineTotal: roundMoney(quantity * unitCost) };
-    }).filter((item: any) => item.quantity > 0);
+      const productId = Number(item.productId);
+      const quantity = roundQty(Number(item.quantity));
+      const rawFactor = Number(item.conversionFactor ?? 1);
+      const factor = rawFactor > 0 ? rawFactor : 1;
+      const rawCost = Number(item.costPrice);
+      const unitCost = item.pricesInForeignCurrency ? rawCost * fxRate : rawCost;
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+        throw new Error('تحتوي فاتورة الشراء على صنف أو كمية أو تكلفة أو معامل تحويل غير صالح');
+      }
+      const batchId = item.batchId == null ? '' : String(item.batchId);
+      return { ...item, productId, quantity, factor, unitCost, batchId, lineTotal: roundMoney(quantity * unitCost) };
+    });
     if (!normalized.length) throw new Error('لا توجد أصناف صالحة في فاتورة الشراء');
+    if (normalized.some((item: any) => item.quantity <= 0)) throw new Error('يجب أن تكون كميات جميع أصناف فاتورة الشراء أكبر من صفر');
+    const suppliedBatchIds = normalized.map((item: any) => item.batchId).filter(Boolean);
+    if (new Set(suppliedBatchIds).size !== suppliedBatchIds.length) {
+      throw new Error('تحتوي فاتورة الشراء على معرّفات دفعات مكررة');
+    }
     const goodsTotal = Number(purchase.totalAmount || 0) > 0
       ? roundMoney(Number(purchase.totalAmount))
       : roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
@@ -1327,6 +1348,15 @@ async function applyPurchaseLocally(
       nativePosRepository.getAll<any>('journalEntries'),
     ]);
     const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
+    if (products.length !== new Set(normalized.map((item: any) => Number(item.productId))).size) {
+      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ أحد الأصناف غير موجود في قاعدة SQLite');
+    }
+    if (purchase.supplierId && !supplier) {
+      throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
+    }
+    if (suppliedBatchIds.some((id: string) => allBatches.some((batch: any) => String(batch.id) === id))) {
+      throw new Error('معرّف إحدى دفعات فاتورة الشراء مستخدم مسبقًا');
+    }
     const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
     const changes: any[] = [];
     const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
