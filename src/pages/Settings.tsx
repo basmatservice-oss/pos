@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Download } from 'lucide-react';
 import { Upload } from 'lucide-react';
 import { Trash2 } from 'lucide-react';
@@ -69,7 +70,7 @@ const Settings: React.FC = () => {
   const [newPeriodEnd, setNewPeriodEnd] = useState('');
 
   const fxHistory = useLiveQuery(() => db.exchangeRateHistory.reverse().toArray(), []) || [];
-  const fiscalPeriodsList = useLiveQuery(() => db.fiscalPeriods.toArray(), []) || [];
+  const fiscalPeriodsList = usePosEntityRecords<any>('fiscalPeriods');
 
   const [settings, setSettings] = useState<any>({
     businessName: 'متجري الذكي',
