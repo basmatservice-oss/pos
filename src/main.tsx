@@ -39,7 +39,7 @@ let nativeStartupError: unknown = null;
 ensureDatabaseReady()
   .then(async () => {
     try {
-      await restoreNativePosDatabase();
+      const restoredFromSQLite = await restoreNativePosDatabase();
     } catch (err) {
       console.error('Failed to restore Android SQLite business snapshot:', err);
       if (isNativeAndroid()) throw err;
@@ -47,7 +47,7 @@ ensureDatabaseReady()
     await restoreDesktopRuntimeConfig();
     installNativeDatabaseMirrorHooks();
     try {
-      await mirrorNativePosDatabase();
+      if (!restoredFromSQLite) await mirrorNativePosDatabase();
     } catch (err) {
       console.error('Failed to refresh Android SQLite business snapshot:', err);
       if (isNativeAndroid()) throw err;
