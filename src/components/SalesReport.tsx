@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/apiService';
+import { getPosRecords } from '../services/posDataAccess';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const SalesReport: React.FC = () => {
@@ -9,7 +9,7 @@ const SalesReport: React.FC = () => {
   useEffect(() => {
     const fetchReport = async () => {
       try {
-        const orders = await apiService.getSalesReport({});
+        const orders = await getPosRecords<any>('orders');
         const grouped: Record<string, { date: string; totalSalesExclTax: number; orderCount: number }> = {};
         if (Array.isArray(orders)) {
           for (const o of orders) {
