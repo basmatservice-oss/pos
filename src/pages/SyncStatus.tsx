@@ -186,6 +186,10 @@ export default function SyncStatus() {
   };
 
   const handleRetryOp = async (op: SyncOperation) => {
+    if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      toast.error('إعادة إرسال العمليات إلى الخادم غير متاحة في وضع التشغيل المستقل');
+      return;
+    }
     if (isNativeAndroid()) {
       if (op.status === 'error' || op.status === 'conflict') {
         await retryNativePosOperation(String(op.id));
@@ -294,6 +298,12 @@ export default function SyncStatus() {
         toast.success('تم تشغيل المزامنة السحابية');
         await fetchSupabaseQueue();
       } else {
+        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+          await fetchLocalQueue();
+          await fetchAlerts();
+          toast.success('الجهاز يعمل مستقلًا؛ تم تحديث البيانات المحلية دون الاتصال بخادم');
+          return;
+        }
         const ok = await syncService.syncAll();
         if (ok) {
           toast.success('تمت المزامنة مع السيرفر المحلي بنجاح');
