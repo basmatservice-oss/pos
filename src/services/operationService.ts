@@ -2220,7 +2220,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('inventoryBatches'),
-      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getMany<any>('products', [...new Set(items.map((item: any) => Number(item.productId)).filter((id: number) => Number.isSafeInteger(id) && id > 0))]),
       origPurchase.supplierId ? nativePosRepository.get<any>('suppliers', origPurchase.supplierId) : Promise.resolve(null),
       nativePosRepository.getAll<any>('inventoryMovements'),
       nativePosRepository.getAll<any>('accounts'),
