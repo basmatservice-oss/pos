@@ -484,16 +484,15 @@ export const syncService = {
       const reachable = await apiService.checkServerReachability(1200);
       if (!reachable) return;
 
-      const dexiePendingOperations = await db.syncOperations
-        .where('status')
-        .anyOf(['pending', 'error', 'syncing'])
-        .toArray();
-      let pendingOpsCount = dexiePendingOperations.length;
-      if (isNativeAndroid()) {
-        const dexieIds = new Set(dexiePendingOperations.map((operation) => operation.id));
-        const nativePending = await listNativePendingPosOperations();
-        pendingOpsCount += nativePending.filter((operation) => !dexieIds.has(operation.operationId)).length;
-      }
+      // Android SQLite owns the durable operation queue. Never let a stale
+      // Dexie mirror entry prevent an authoritative server snapshot from
+      // reconciling SQLite records.
+      const pendingOpsCount = isNativeAndroid()
+        ? (await listNativePendingPosOperations()).length
+        : await db.syncOperations
+            .where('status')
+            .anyOf(['pending', 'error', 'syncing'])
+            .count();
 
       const pullTasks: Array<{
         table: any;
