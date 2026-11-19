@@ -67,7 +67,7 @@ export const isNativeAndroid = (): boolean =>
 
 function notifyNativeRecordChanges(entities: Iterable<string>): void {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
-  const changed = Array.from(new Set(entities.filter((entity) => typeof entity === 'string' && entity.trim())));
+  const changed = Array.from(new Set(Array.from(entities).filter((entity) => typeof entity === 'string' && entity.trim())));
   if (!changed.length) return;
   window.dispatchEvent(new CustomEvent('pos-native-records-changed', { detail: { entities: changed } }));
 }
