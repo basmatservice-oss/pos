@@ -4211,7 +4211,7 @@ export async function dispatchOperation(
     const itemQuantities = new Map<number, number>();
     for (const item of items) {
       const productId = Number(item.productId), quantity = Number(item.quantity), rawFactor = Number(item.conversionFactor ?? 1);
-      const factor = rawFactor > 0 ? rawFactor : 1;
+      const factor = rawFactor;
       if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
           !Number.isFinite(factor) || factor <= 0) {
         throw new Error('تفاصيل فاتورة الشراء تحتوي صنفًا أو كمية أو معامل تحويل غير صالح');
