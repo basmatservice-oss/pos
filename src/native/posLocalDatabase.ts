@@ -20,6 +20,9 @@ export interface PosQueuedOperation {
   branchId?: string;
   actor?: string;
   schemaVersion?: number;
+  createdAt?: number;
+  retryCount?: number;
+  nextRetryAt?: number;
 }
 
 export interface PosLocalDatabasePlugin {
