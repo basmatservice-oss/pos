@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
-import { isNativeAndroid, listNativePendingPosOperations, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
+import { isNativeAndroid, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 import { nativePosRepository } from '../native/nativePosRepository';
@@ -18,12 +18,11 @@ async function migrateLegacyAndroidQueueToSQLite() {
   if (!legacy.length) return;
   const pending = await listNativePendingPosOperations();
   const pendingIds = new Set(pending.map((operation) => String(operation.operationId)));
-  const nativeRecords = await nativePosRepository.getAllWithSyncState('operations' as any);
-  const nativeStateById = new Map(nativeRecords.map((row: any) => [String(row.recordId), String(row.syncState)]));
   for (const operation of legacy) {
     const id = String(operation.id || '');
     if (!id) continue;
-    const existingState = nativeStateById.get(id);
+    const nativeRecord = await getNativePosRecord('operations', id);
+    const existingState = nativeRecord?.syncState ? String(nativeRecord.syncState) : undefined;
     if (pendingIds.has(id) || existingState === 'synced') {
       await db.syncOperations.update(operation.id, {
         status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
