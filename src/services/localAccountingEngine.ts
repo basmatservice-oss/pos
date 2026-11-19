@@ -135,7 +135,10 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
         account = await nativePosRepository.get<any>('accounts', line.accountCode);
         if (account) accounts.set(line.accountCode, account);
       }
-      const accountName = account?.name || line.accountCode;
+      if (!account) {
+        throw new Error('الحساب المحاسبي ' + line.accountCode + ' غير موجود؛ أُوقف ترحيل القيد لمنع إنشاء حركة بلا حساب أستاذ');
+      }
+      const accountName = account.name || line.accountCode;
       changes.push({
         action: 'put',
         entity: 'transactions',
@@ -232,7 +235,10 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     const account = await db.accounts.get(line.accountCode);
-    const accountName = account?.name || SYSTEM_ACCOUNTS.find((item) => item.code === line.accountCode)?.name || line.accountCode;
+    if (!account) {
+      throw new Error('الحساب المحاسبي ' + line.accountCode + ' غير موجود؛ أُوقف ترحيل القيد لمنع إنشاء حركة بلا حساب أستاذ');
+    }
+    const accountName = account.name || line.accountCode;
     await db.transactions.put({
       id: `${entryId}:${index}`,
       journalEntryId: entryId,
