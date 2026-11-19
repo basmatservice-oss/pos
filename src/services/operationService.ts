@@ -864,7 +864,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     record: change.record,
     syncState: change.syncState || 'local',
   }));
-  const committed = await applyNativePosRecordChangesIfFieldAbsent(
+  const committed = await applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals(
     nativeChanges, 'orders', 'voidOperationId', operationId,
   );
   if (!committed.skipped && committed.applied !== nativeChanges.length) {
@@ -2733,15 +2733,24 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
           record: change.record,
           syncState: change.syncState || 'local',
         });
-    const committed = await applyNativePosRecordChangesIfAbsent(
+    const sourceVersion = String(origPurchase.updatedAt || '').trim();
+    if (!sourceVersion) {
+      throw new Error('فاتورة الشراء لا تحتوي إصدار تحديث يمكن استخدامه لمنع تعارض المرتجعات المتزامنة؛ أوقف الترحيل للمراجعة');
+    }
+    const committed = await applyNativePosRecordChangesIfFieldEquals(
       nativeChanges,
-      'purchaseReturns',
-      JSON.stringify(id),
+      'purchases',
+      JSON.stringify(String(originalPurchaseId)),
+      'updatedAt',
+      sourceVersion,
     );
-    if (!committed.skipped && committed.applied !== finalChanges.length) {
+    if (committed.skipped) {
+      throw new Error('تم تحديث فاتورة الشراء بواسطة عملية أخرى؛ أعد تحميل الفاتورة ثم أعد محاولة المرتجع');
+    }
+    if (committed.applied !== finalChanges.length) {
       throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
     }
-    // SQLite committed the return, stock, supplier balance and accounting entries atomically.
+    // SQLite committed only if the purchase version was unchanged; concurrent returns cannot over-return stock or supplier balances.
     return;
   }
   await db.transaction('rw', [
