@@ -1,7 +1,16 @@
-import { db } from '../db/db';
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository } from '../native/nativePosRepository';
+// Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
+let db = {} as typeof import('../db/db').db;
+let desktopDatabaseLoaded = false;
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  db = (await import('../db/db')).db;
+  desktopDatabaseLoaded = true;
+}
+
 
 const SYSTEM_ACCOUNTS = [
   { code: '1010', name: 'الصندوق', type: 'asset' },
@@ -164,15 +173,9 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     }
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
-    await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
-      for (const change of changes) {
-        if (change.entity === 'accounts') await db.accounts.put(change.record);
-        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
-        else if (change.entity === 'transactions') await db.transactions.put(change.record);
-      }
-    });
     return entryId;
   }
+  await ensureDesktopDatabase();
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
   const lines = input.lines
@@ -290,16 +293,10 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
     if (changes.length) {
       const applied = await nativePosRepository.applyChanges(changes);
       if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع القيود المحلية وتحديث الأرصدة');
-      await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
-        for (const change of changes) {
-          if (change.action === 'delete' && change.entity === 'transactions') await db.transactions.delete(change.key);
-          else if (change.action === 'delete' && change.entity === 'journalEntries') await db.journalEntries.delete(change.key);
-          else if (change.action === 'put' && change.entity === 'accounts') await db.accounts.put(change.record);
-        }
-      });
     }
     return;
   }
+  await ensureDesktopDatabase();
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const localEntries = entries.filter((entry: any) => String(entry.id).startsWith('local-je:'));
@@ -407,16 +404,10 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
     if (changes.length) {
       const applied = await nativePosRepository.applyChanges(changes);
       if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع القيود العكسية');
-      await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
-        for (const change of changes) {
-          if (change.entity === 'accounts') await db.accounts.put(change.record);
-          else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
-          else if (change.entity === 'transactions') await db.transactions.put(change.record);
-        }
-      });
     }
     return;
   }
+  await ensureDesktopDatabase();
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const reversalEntryIds = new Set(entries.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
