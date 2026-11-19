@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
-import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
+import { isNativeAndroid, listNativePendingPosOperations, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 import { nativePosRepository } from '../native/nativePosRepository';
@@ -12,6 +12,53 @@ async function updateRecordWithoutSyncHook(tableName: string, key: any, changes:
   try { await (db as any)[tableName].update(key, changes); }
   finally { (globalThis as any).__posApplyingOperation = previous; }
 }
+async function migrateLegacyAndroidQueueToSQLite() {
+  if (!isNativeAndroid()) return;
+  const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error']).toArray();
+  if (!legacy.length) return;
+  const pending = await listNativePendingPosOperations();
+  const pendingIds = new Set(pending.map((operation) => String(operation.operationId)));
+  const nativeRecords = await nativePosRepository.getAllWithSyncState('operations' as any);
+  const nativeStateById = new Map(nativeRecords.map((row: any) => [String(row.recordId), String(row.syncState)]));
+  for (const operation of legacy) {
+    const id = String(operation.id || '');
+    if (!id) continue;
+    const existingState = nativeStateById.get(id);
+    if (pendingIds.has(id) || existingState === 'synced') {
+      await db.syncOperations.update(operation.id, {
+        status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+    if (existingState === 'conflict') {
+      await db.syncOperations.update(operation.id, {
+        status: 'conflict', lastError: operation.lastError || 'عملية قديمة محفوظة كمتعارضة في SQLite',
+        updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+    if (!operation.type || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+      await db.syncOperations.update(operation.id, {
+        status: 'conflict', lastError: 'تعذر ترحيل عملية قديمة: نوع العملية أو محتواها غير صالح',
+        updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+    const queued = await enqueueNativePosOperation({
+      operationId: id,
+      type: String(operation.type),
+      payload: operation.payload as Record<string, unknown>,
+      deviceId: String(operation.deviceId || ''),
+      branchId: operation.branchId == null ? undefined : String(operation.branchId),
+      schemaVersion: 1,
+    });
+    if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
+    await db.syncOperations.update(operation.id, {
+      status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
+    });
+  }
+}
+
 export const syncService = {
   cachedRole: null as string | null,
 
@@ -128,8 +175,9 @@ export const syncService = {
   async pushOperationsQueue() {
     if (await this.getDeviceRole() === 'standalone') return;
     const now = Date.now();
-    // Android reads only its SQLite outbox. A Dexie read must never be a
-    // prerequisite for delivering durable native operations.
+    // Migrate only pre-SQLite Android queue entries; new Android operations
+    // are written directly to SQLite and never enter Dexie.
+    if (isNativeAndroid()) await migrateLegacyAndroidQueueToSQLite();
     const queued = isNativeAndroid()
       ? []
       : await db.syncOperations
