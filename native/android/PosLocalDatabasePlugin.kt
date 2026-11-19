@@ -519,6 +519,7 @@ class PosLocalDatabasePlugin : Plugin() {
         }
         try {
             val db = helper.writableDatabase
+            var changed = 0
             db.beginTransaction()
             try {
                 val currentJson = db.query(
@@ -527,28 +528,26 @@ class PosLocalDatabasePlugin : Plugin() {
                 ).use { cursor ->
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
-                if (currentJson == null) {
-                    call.resolve(JSObject().put("updated", false).put("rows", 0))
-                    return
+                if (currentJson != null) {
+                    // Keep the JSON record and indexed sync_state column consistent so
+                    // startup restoration never revives a stale syncStatus value.
+                    val updatedJson = JSONObject(currentJson).put("syncStatus", state).toString()
+                    val values = ContentValues().apply {
+                        put("json", updatedJson)
+                        put("sync_state", state)
+                        put("updated_at", System.currentTimeMillis())
+                    }
+                    changed = db.update(
+                        "pos_records", values, "entity = ? AND record_id = ?",
+                        arrayOf(entity, recordId)
+                    )
+                    if (changed != 1) throw IllegalStateException("Local record sync state was not updated")
+                    db.setTransactionSuccessful()
                 }
-                // Keep the JSON record and indexed sync_state column consistent so
-                // startup restoration never revives a stale syncStatus value.
-                val updatedJson = JSONObject(currentJson).put("syncStatus", state).toString()
-                val values = ContentValues().apply {
-                    put("json", updatedJson)
-                    put("sync_state", state)
-                    put("updated_at", System.currentTimeMillis())
-                }
-                val changed = db.update(
-                    "pos_records", values, "entity = ? AND record_id = ?",
-                    arrayOf(entity, recordId)
-                )
-                if (changed != 1) throw IllegalStateException("Local record sync state was not updated")
-                db.setTransactionSuccessful()
-                call.resolve(JSObject().put("updated", true).put("rows", changed))
             } finally {
                 db.endTransaction()
             }
+            call.resolve(JSObject().put("updated", changed == 1).put("rows", changed))
         } catch (error: Exception) {
             call.reject("تعذر تحديث حالة مزامنة السجل المحلي", error)
         }
