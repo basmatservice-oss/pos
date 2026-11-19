@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { generateUUID } from '../utils/uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -43,7 +44,7 @@ export default function Shifts() {
   });
 
   // Get current open shift
-  const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   // Shift-scoped queries filtered strictly by shiftId (with time-window fallback for tables without shiftId)
   const shiftOrders =
