@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Users,
   DollarSign,
@@ -46,9 +47,9 @@ const Payroll: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Data State using Dexie Live Query
-  const employees = useLiveQuery(() => db.employees.toArray()) || [];
-  const attendance = useLiveQuery(() => db.attendance.toArray()) || [];
-  const payrollRecords = useLiveQuery(() => db.payroll.toArray()) || [];
+  const employees = usePosEntityRecords<any>('employees');
+  const attendance = usePosEntityRecords<any>('attendance');
+  const payrollRecords = usePosEntityRecords<any>('payroll');
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   const monthStart = useMemo(() => startOfMonth(parseISO(`${selectedMonth}-01`)), [selectedMonth]);
