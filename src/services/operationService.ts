@@ -4353,8 +4353,9 @@ export async function dispatchOperation(
       const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
       if (!lines.length || lines.some((line: any) => {
         const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
-        return !String(line.accountId || '').trim() ||
-          !accounts.some((account: any) => String(account.code) === String(line.accountId)) ||
+        const account = accounts.find((row: any) => String(row.code) === String(line.accountId));
+        return !String(line.accountId || '').trim() || !account ||
+          !Number.isFinite(Number(account.balance || 0)) ||
           !Number.isFinite(debit) || !Number.isFinite(credit) ||
           debit < 0 || credit < 0 || (debit > 0 && credit > 0);
       })) throw new Error('القيد المحاسبي القديم ناقص أو غير صالح؛ لم تُرسل عملية التعديل');
