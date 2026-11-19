@@ -158,6 +158,21 @@ export const nativePosRepository = {
     return items.map((item) => item.record as T);
   },
 
+  async getAllWithSyncState(entity: NativePosEntity): Promise<Array<{
+    record: Record<string, unknown>;
+    recordId: string;
+    syncState: NativePosSyncState;
+  }>> {
+    requireAndroid();
+    assertEntity(entity);
+    const items = await getAllNativePosRecords(entity);
+    return items.map((item) => ({
+      record: item.record,
+      recordId: item.recordId,
+      syncState: item.syncState ?? 'local',
+    }));
+  },
+
   async put(
     entity: NativePosEntity,
     record: Record<string, unknown>,
