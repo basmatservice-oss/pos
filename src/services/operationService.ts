@@ -1973,16 +1973,53 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
   const operationId = String(payload.operationId || id);
   if (isNativeAndroid()) {
     if (await nativePosRepository.get<any>('purchaseReturns', id)) return;
+    if (!id || !originalPurchaseId || !Array.isArray(items) || !items.length) {
+      throw new Error('بيانات مرتجع المشتريات غير مكتملة');
+    }
     const origPurchase = await nativePosRepository.get<any>('purchases', String(originalPurchaseId));
     if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
-    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts] = await Promise.all([
+    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getAll<any>('products'),
       origPurchase.supplierId ? nativePosRepository.get<any>('suppliers', origPurchase.supplierId) : Promise.resolve(null),
       nativePosRepository.getAll<any>('inventoryMovements'),
       nativePosRepository.getAll<any>('accounts'),
+      nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', String(originalPurchaseId)),
+      nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(originalPurchaseId)),
+      nativePosRepository.getAll<any>('purchaseReturnItems'),
     ]);
+    if (!originalItems.length) throw new Error('لا يمكن إرجاع فاتورة شراء بلا تفاصيل أصناف');
+    if (refundMethod === 'credit_adjustment' && origPurchase.supplierId && !supplier) {
+      throw new Error('المورد المرتبط بفاتورة الشراء غير موجود في SQLite؛ أوقف الترحيل لحماية رصيده');
+    }
+    const returnedForPurchase = previousReturns.reduce((sum: number, entry: any) => sum + Number(entry.totalReturn || 0), 0);
+    const previousItemRows = previousReturnItems.filter((entry: any) =>
+      previousReturns.some((ret: any) => String(ret.id) === String(entry.purchaseReturnId)));
+    const purchasedBaseByProduct = new Map<number, number>();
+    for (const sourceItem of originalItems) {
+      const productId = Number(sourceItem.productId);
+      const quantity = Number(sourceItem.quantity);
+      const factor = Number(sourceItem.conversionFactor ?? 1);
+      if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(factor) || factor <= 0) {
+        throw new Error('تفاصيل فاتورة الشراء الأصلية تحتوي كمية أو معامل تحويل غير صالح');
+      }
+      purchasedBaseByProduct.set(productId, roundQty((purchasedBaseByProduct.get(productId) || 0) + quantity * factor));
+    }
+    const returnedBaseByProduct = new Map<number, number>();
+    const returnedBaseByBatch = new Map<string, number>();
+    for (const priorItem of previousItemRows) {
+      const productId = Number(priorItem.productId), quantity = Number(priorItem.quantity);
+      if (!Number.isSafeInteger(productId) || !Number.isFinite(quantity) || quantity <= 0) {
+        throw new Error('يوجد مرتجع سابق يحتوي تفاصيل كمية غير صالحة');
+      }
+      returnedBaseByProduct.set(productId, roundQty((returnedBaseByProduct.get(productId) || 0) + quantity));
+      if (priorItem.batchId) {
+        const batchId = String(priorItem.batchId);
+        returnedBaseByBatch.set(batchId, roundQty((returnedBaseByBatch.get(batchId) || 0) + quantity));
+      }
+    }
     const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
     const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
