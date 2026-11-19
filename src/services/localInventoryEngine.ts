@@ -497,7 +497,7 @@ export async function restoreLocalInventoryFIFO(params: {
     let restoredBatchId: string | null = allocation.batchId;
     if (allocation.batchId) {
       const batch = await db.inventoryBatches.get(allocation.batchId);
-      if (batch) {
+      if (batch && Number(batch.productId) === Number(params.productId)) {
         const current = Number(batch.remainingQuantity || 0);
         const room = roundQty(Math.max(0, Number(batch.quantity) - current));
         putBack = roundQty(Math.min(putBack, room));
