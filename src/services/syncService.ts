@@ -1,10 +1,23 @@
-import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+let db = {} as typeof import('../db/db').db;
+let dexieLoaded = false;
+
+async function ensureDexieDatabase(): Promise<void> {
+  if (dexieLoaded) return;
+  db = (await import('../db/db')).db;
+  dexieLoaded = true;
+}
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid()) return;
+  await ensureDexieDatabase();
+}
+
 
 async function updateRecordWithoutSyncHook(tableName: string, key: any, changes: Record<string, unknown>) {
   const previous = (globalThis as any).__posApplyingOperation;
@@ -22,11 +35,6 @@ async function markPushedRecordState(tableName: string, key: any, state: 'pendin
       { ...current, syncStatus: state },
       state === 'conflict' ? 'local' : state,
     );
-    try {
-      await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
-    } catch (cacheError) {
-      console.warn('Android Dexie sync-state cache update deferred to SQLite restore:', tableName, key, cacheError);
-    }
     return;
   }
   await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
@@ -35,6 +43,7 @@ async function migrateLegacyAndroidQueueToSQLite() {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const migrationState = await posLocalDatabase.getMeta({ key: 'legacy_dexie_queue_migrated' });
   if (migrationState.value === '1') return;
+  await ensureDexieDatabase(); // One-time migration of the legacy Android Dexie queue.
   const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   if (!legacy.length) {
     const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
@@ -89,6 +98,7 @@ export const syncService = {
   cachedRole: null as string | null,
 
   async getDeviceRole() {
+    await ensureDesktopDatabase();
     // Read the persisted role each time: onboarding can switch a device to
     // standalone after the sync service has already been initialized.
     const setting = isNativeAndroid()
@@ -152,6 +162,7 @@ export const syncService = {
         'fiscalPeriods',
       ];
       let pendingRecords = 0;
+      if (!isNativeAndroid()) await ensureDesktopDatabase();
       for (const table of tables) {
         if (isNativeAndroid()) {
           const records = await nativePosRepository.getAllWithSyncState(table as any);
@@ -360,7 +371,7 @@ export const syncService = {
   async pushRecord(tableName: string, record: any) {
     if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
-    const table = (db as any)[tableName];
+    const table = isNativeAndroid() ? undefined : (db as any)[tableName];
     if (!table && (!isNativeAndroid() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
     const recordKey = record?.id ?? record?.key;
     if (recordKey === undefined || recordKey === null) return false;
@@ -409,7 +420,8 @@ export const syncService = {
   },
 
   async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
-    const table = (db as any)[tableName];
+    await ensureDesktopDatabase();
+    const table = isNativeAndroid() ? undefined : (db as any)[tableName];
     if (!table && !isNativeAndroid()) return;
 
     if (isNativeAndroid()) {
@@ -439,20 +451,6 @@ export const syncService = {
         throw new Error(`SQLite did not confirm Android ${tableName} push reconciliation`);
       }
 
-      const previous = (globalThis as any).__posApplyingOperation;
-      (globalThis as any).__posApplyingOperation = true;
-      try {
-        if (table) {
-          if (String(oldKey) !== String(newKey)) await table.delete(oldKey);
-          await table.put(merged);
-        }
-      } catch (cacheError) {
-        // SQLite has already committed the acknowledged server state. A
-        // compatibility-cache failure must not enqueue the same push again.
-        console.warn('Android Dexie cache reconciliation deferred to SQLite restore:', tableName, cacheError);
-      } finally {
-        (globalThis as any).__posApplyingOperation = previous;
-      }
       return;
     }
 
@@ -657,8 +655,7 @@ export const syncService = {
                 const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
                 if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
                 if (data.length) {
-                  try { await db.table(entity).bulkPut(data); }
-                  catch (cacheError) { console.warn('Android Dexie snapshot cache update deferred to SQLite restore:', entity, cacheError); }
+                  // SQLite owns the Android snapshot; no Dexie cache write is required here.
                 }
                 continue;
               }
@@ -703,12 +700,7 @@ export const syncService = {
               }
               const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
               if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
-              try {
-                if (staleIds.length) await db.table(entity).bulkDelete(staleIds);
-                if (recordsToPut.length) await db.table(entity).bulkPut(recordsToPut);
-              } catch (cacheError) {
-                console.warn('Android Dexie snapshot cache update deferred to SQLite restore:', entity, cacheError);
-              }
+              // SQLite owns the Android snapshot; no Dexie cache write is required here.
               continue;
             }
 
@@ -785,7 +777,9 @@ export const syncService = {
     }
   },
 
-  initAutoSync() {
+  async initAutoSync() {
+    if (isNativeAndroid()) return;
+    await ensureDesktopDatabase();
     const entityTables = new Set([
       'products',
       'categories',
