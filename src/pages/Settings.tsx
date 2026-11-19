@@ -400,8 +400,22 @@ const Settings: React.FC = () => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('ملف النسخة الاحتياطية غير صالح');
+      }
+
       if (isNativeAndroid()) {
+        const pendingBackup = Array.isArray(data._nativePendingOperations) ? data._nativePendingOperations : [];
+        const pendingIds = new Set<string>();
+        for (const operation of pendingBackup) {
+          if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() ||
+              typeof operation.type !== 'string' || !operation.type.trim() ||
+              !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+            throw new Error('ملف النسخة الاحتياطية يحتوي عملية مزامنة غير صالحة');
+          }
+          if (pendingIds.has(operation.operationId)) throw new Error('ملف النسخة الاحتياطية يحتوي معرّف عملية مكررًا');
+          pendingIds.add(operation.operationId);
+        }
         const changes: any[] = [];
         for (const entity of NATIVE_POS_ENTITIES) {
           if (!Array.isArray(data[entity])) continue;
