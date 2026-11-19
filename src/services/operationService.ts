@@ -4198,7 +4198,7 @@ export async function dispatchOperation(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
-    const [returns, items, batches, products, suppliers, journals, transactions] = await Promise.all([
+    const [returns, items, batches, products, suppliers, journals, transactions, accounts] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
@@ -4206,6 +4206,7 @@ export async function dispatchOperation(
       nativePosRepository.getAll<any>('suppliers'),
       nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
       nativePosRepository.getAll<any>('transactions'),
+      nativePosRepository.getAll<any>('accounts'),
     ]);
     if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
     if (!items.length || !batches.length) {
