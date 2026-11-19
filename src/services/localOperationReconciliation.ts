@@ -190,7 +190,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     const key = change.action === 'delete' ? JSON.stringify(change.key) : JSON.stringify(change.record.id ?? change.record.code ?? change.record.key);
     changes.set(change.entity + ':' + key, change);
   };
-  const cacheUpdates = new Map<string, Set<string>>();
+  const cacheUpdates = new Map<string, Map<string, any>>();
   const load = async (entity: string) => {
     if (!loaded.has(entity)) loaded.set(entity, await nativePosRepository.getAllWithSyncState(entity as any) as any);
     return loaded.get(entity)!;
@@ -203,8 +203,8 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       queueChange({ action: 'put', entity, record, syncState: row.syncState });
       const key = record.id ?? record.code ?? record.key;
       if (key !== undefined) {
-        if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Set<string>());
-        cacheUpdates.get(entity)!.add(String(key));
+        if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Map<string, any>());
+        cacheUpdates.get(entity)!.set(String(key), key);
       }
     }
   };
@@ -340,7 +340,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
   if (changes.length) await nativePosRepository.applyChanges(changes);
   for (const [entity, keys] of cacheUpdates) {
     const table = db.table(entity);
-    for (const key of keys) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
+    for (const key of keys.values()) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
   }
 }
 
