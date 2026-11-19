@@ -12,6 +12,25 @@ async function updateRecordWithoutSyncHook(tableName: string, key: any, changes:
   try { await (db as any)[tableName].update(key, changes); }
   finally { (globalThis as any).__posApplyingOperation = previous; }
 }
+
+async function markPushedRecordState(tableName: string, key: any, state: 'pending' | 'error' | 'conflict') {
+  if (isNativeAndroid()) {
+    const current = await nativePosRepository.get<any>(tableName as any, key);
+    if (!current) throw new Error(`SQLite record is missing while updating ${tableName} sync state`);
+    await nativePosRepository.put(
+      tableName as any,
+      { ...current, syncStatus: state },
+      state === 'conflict' ? 'local' : state,
+    );
+    try {
+      await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
+    } catch (cacheError) {
+      console.warn('Android Dexie sync-state cache update deferred to SQLite restore:', tableName, key, cacheError);
+    }
+    return;
+  }
+  await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
+}
 async function migrateLegacyAndroidQueueToSQLite() {
   if (!isNativeAndroid()) return;
   const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
@@ -364,25 +383,19 @@ export const syncService = {
         return true;
       } catch (err) {
         console.error(`Failed to push ${tableName} record directly:`, err);
-        await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: 'pending' });
-        const saved = await table.get(recordKey);
-        if (isNativeAndroid()) {
-          if (saved) await mirrorNativePosRecord(tableName, saved);
-          await nativePosRepository.setSyncState(tableName as any, recordKey, 'pending');
-        } else if (saved) {
-          await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+        await markPushedRecordState(tableName, recordKey, 'pending');
+        if (!isNativeAndroid()) {
+          const saved = await table.get(recordKey);
+          if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
         }
         return false;
       }
     }
 
-    await updateRecordWithoutSyncHook(tableName, recordKey, { syncStatus: 'pending' });
-    const saved = await table.get(recordKey);
-    if (isNativeAndroid()) {
-      if (saved) await mirrorNativePosRecord(tableName, saved);
-      await nativePosRepository.setSyncState(tableName as any, recordKey, 'pending');
-    } else if (saved) {
-      await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
+    await markPushedRecordState(tableName, recordKey, 'pending');
+    if (!isNativeAndroid()) {
+      const saved = await table.get(recordKey);
+      if (saved) await mirrorNativePosRecord(tableName, saved).catch((error) => console.warn('Android SQLite entity snapshot failed:', error));
     }
     return false;
   },
