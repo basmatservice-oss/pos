@@ -398,7 +398,15 @@ export function consumeInventoryFIFO(
       activeVal += bq * bc;
     }
     if (activeQty > 0) {
-      weightedUnitCost = activeVal / activeQty;
+      weightedUnitCost = Math.round((activeVal / activeQty) * 10000) / 10000;
+      // Keep the remaining batch valuation aligned with the weighted-average
+      // COGS applied to this issue, so later issues do not drift back to FIFO layer costs.
+      for (const batch of availableBatches) {
+        tx.update(inventoryBatches)
+          .set({ costPrice: weightedUnitCost, updatedAt: now, isSynced: 0 })
+          .where(eq(inventoryBatches.id, batch.id))
+          .run();
+      }
     }
   }
 
@@ -446,6 +454,7 @@ export function consumeInventoryFIFO(
   // Update product stock atomically
   tx.update(products)
     .set({
+      ...(valuationMethod === 'weighted_average' ? { costPrice: roundMoney(weightedUnitCost) } : {}),
       stockQuantity: newQty,
       updatedAt: now,
       isSynced: 0,
