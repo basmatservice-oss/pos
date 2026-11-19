@@ -298,9 +298,6 @@ export async function applyNativePosRecordChangesIfAbsent(
   if (result.applied > 0 && result.skipped !== true) {
     notifyNativeRecordChanges(changes.map((change) => change.entity));
   }
-  if (result.applied > 0 && result.skipped !== true) {
-    notifyNativeRecordChanges(changes.map((change) => change.entity));
-  }
   return { applied: result.applied, skipped: result.skipped === true };
 }
 
@@ -331,6 +328,9 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
       (result.skipped !== true && result.applied !== changes.length) ||
       (result.skipped === true && result.applied !== 0)) {
     throw new Error('SQLite returned an invalid field-idempotent record-change result');
+  }
+  if (result.applied > 0 && result.skipped !== true) {
+    notifyNativeRecordChanges(changes.map((change) => change.entity));
   }
   return { applied: result.applied, skipped: result.skipped === true };
 }
