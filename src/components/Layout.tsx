@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { LayoutGrid, Package, FileText, Settings, LogOut, Clock, Wifi, WifiOff, Users, Wallet, Truck, UserCircle, ShoppingBag, ShoppingCart, UserCheck, DollarSign, Tag, Building2, Smartphone, RotateCcw, Bell, RefreshCw, ShieldAlert, Lock } from 'lucide-react';
-import { getFirstPosRecordWhereEquals, getPosRecords } from '../services/posDataAccess';
-import { db } from '../db/db';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useAuth, Role } from '../context/AuthContext';
@@ -185,10 +184,14 @@ export default function Layout() {
         newPinCode: newPin || undefined,
       });
       if (user?.id) {
-        await db.employees.update(user.id, {
-          mustChangePassword: false,
-          syncStatus: 'synced',
-        }).catch(() => {});
+        const employee = await getPosRecord<any>('employees', user.id);
+        if (employee) {
+          await putPosRecord('employees', {
+            ...employee,
+            mustChangePassword: false,
+            syncStatus: 'synced',
+          }).catch(() => {});
+        }
       }
       updateCurrentUser({ mustChangePassword: false });
       setCurPass('');
