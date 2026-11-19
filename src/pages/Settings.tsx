@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Download } from 'lucide-react';
 import { Upload } from 'lucide-react';
@@ -44,7 +44,6 @@ import { db, ExchangeRateRecord, FiscalPeriod } from '../db/db';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
 import { useAuth } from '../context/AuthContext';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { formatNumber } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import toast from 'react-hot-toast';
