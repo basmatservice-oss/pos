@@ -1122,79 +1122,65 @@ db.tables.forEach((table) => {
   }
 });
 
-const RESCUE_STORES = [
-  'settings',
-  'categories',
-  'products',
-  'customers',
-  'suppliers',
-  'employees',
-  'orders',
-  'orderItems',
-  'returns',
-  'returnItems',
-  'purchases',
-  'purchaseItems',
-  'purchaseReturns',
-  'purchaseReturnItems',
-  'customerPayments',
-  'supplierPayments',
-  'shiftMovements',
-  'heldOrders',
-  'expenses',
-  'syncOperations',
-  'serviceRecipes',
-  'exchangeRateHistory',
-  'fiscalPeriods',
-] as const;
-
 async function rescueLegacyIndexedDB(): Promise<Record<string, any[]>> {
-  const rescued: Record<string, any[]> = {};
-  if (typeof indexedDB === 'undefined') return rescued;
+  if (typeof indexedDB === 'undefined') {
+    throw new Error('IndexedDB is unavailable; refusing destructive schema recovery');
+  }
 
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open('RetailPOSDB');
-      req.onerror = () => resolve(rescued);
-      req.onsuccess = () => {
-        const rawDb = req.result;
-        const available = RESCUE_STORES.filter((name) => rawDb.objectStoreNames.contains(name));
-        if (available.length === 0) {
-          rawDb.close();
-          resolve(rescued);
-          return;
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('RetailPOSDB');
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    request.onerror = () => fail(request.error || new Error('Could not open the legacy IndexedDB for recovery'));
+    request.onblocked = () => fail(new Error('Legacy IndexedDB recovery is blocked by another open connection'));
+    request.onsuccess = () => {
+      const rawDb = request.result;
+      const storeNames = Array.from(rawDb.objectStoreNames);
+      if (storeNames.length === 0) {
+        rawDb.close();
+        if (!settled) {
+          settled = true;
+          resolve({});
         }
-        try {
-          const tx = rawDb.transaction(available, 'readonly');
-          let pending = available.length;
-          for (const storeName of available) {
-            const getAllReq = tx.objectStore(storeName).getAll();
-            getAllReq.onsuccess = () => {
-              if (Array.isArray(getAllReq.result) && getAllReq.result.length > 0) {
-                rescued[storeName] = getAllReq.result;
-              }
-              pending -= 1;
-              if (pending === 0) {
-                rawDb.close();
-                resolve(rescued);
-              }
-            };
-            getAllReq.onerror = () => {
-              pending -= 1;
-              if (pending === 0) {
-                rawDb.close();
-                resolve(rescued);
-              }
-            };
-          }
-        } catch {
+        return;
+      }
+
+      try {
+        const transaction = rawDb.transaction(storeNames, 'readonly');
+        const reads = storeNames.map((storeName) => new Promise<[string, any[]]>((readResolve, readReject) => {
+          const read = transaction.objectStore(storeName).getAll();
+          read.onsuccess = () => readResolve([storeName, Array.isArray(read.result) ? read.result : []]);
+          read.onerror = () => readReject(read.error || new Error(`Could not rescue IndexedDB store ${storeName}`));
+        }));
+
+        Promise.all(reads).then((entries) => {
           rawDb.close();
-          resolve(rescued);
-        }
-      };
-    } catch {
-      resolve(rescued);
-    }
+          if (settled) return;
+          settled = true;
+          resolve(Object.fromEntries(entries.filter(([, rows]) => rows.length > 0)));
+        }).catch((error) => {
+          rawDb.close();
+          fail(error);
+        });
+
+        transaction.onabort = () => {
+          rawDb.close();
+          fail(transaction.error || new Error('Legacy IndexedDB recovery transaction was aborted'));
+        };
+        transaction.onerror = () => {
+          rawDb.close();
+          fail(transaction.error || new Error('Legacy IndexedDB recovery transaction failed'));
+        };
+      } catch (error) {
+        rawDb.close();
+        fail(error);
+      }
+    };
   });
 }
 
@@ -1226,13 +1212,16 @@ export function ensureDatabaseReady(): Promise<void> {
         await db.open();
 
         for (const [storeName, rows] of Object.entries(rescued)) {
-          try {
-            const table = (db as any)[storeName];
-            if (table && rows.length > 0) {
+          const table = (db as any)[storeName];
+          if (!table) {
+            throw new Error(`Recovered IndexedDB store ${storeName} has no destination table; refusing to continue with partial recovery`);
+          }
+          if (rows.length > 0) {
+            try {
               await table.bulkPut(rows);
+            } catch (restoreErr) {
+              throw new Error(`Could not restore recovered IndexedDB store ${storeName}: ${String(restoreErr)}`);
             }
-          } catch (restoreErr) {
-            console.warn(`Could not restore ${storeName} after schema recovery:`, restoreErr);
           }
         }
       }
