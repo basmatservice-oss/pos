@@ -4477,7 +4477,7 @@ export async function dispatchOperation(
     }
   }
 
-  await db.syncOperations.put(opRecord);
+  if (!isNativeAndroid()) await db.syncOperations.put(opRecord);
   // Persist the Android outbox before mutating the local business tables. If the
   // WebView closes during the mutation, the durable operation can still replay.
   if (isNativeAndroid()) {
@@ -4497,7 +4497,7 @@ export async function dispatchOperation(
     }
   }
   await applyOperationLocally(type, opRecord.payload, 'pending');
-  if (type === 'purchase_update' || type === 'purchase_delete') {
+  if (!isNativeAndroid() && (type === 'purchase_update' || type === 'purchase_delete')) {
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
 
@@ -4512,15 +4512,13 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        await db.syncOperations.update(operationId, {
-          status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
-        });
-        if (isNativeAndroid()) {
-          await acknowledgeNativePosOperation(operationId).catch((error) =>
-            console.error('Could not acknowledge Android SQLite outbox item:', error)
-          );
+        if (!isNativeAndroid()) {
+          await db.syncOperations.update(operationId, {
+            status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
+          });
         }
         await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId, response.result);
+        if (isNativeAndroid()) await acknowledgeNativePosOperation(operationId);
         // The local mutation is not replayed after acknowledgement; pullAll applies
         // the authoritative server records without duplicating stock or balances.
         useSyncStore.getState().setLastSynced(new Date());
@@ -4537,12 +4535,13 @@ export async function dispatchOperation(
           err.response.status !== 401
         ) {
           const message = err.response?.data?.error || err.message;
-          await db.syncOperations.update(operationId, {
-            status: 'conflict',
-            lastError: message,
-            updatedAt: new Date().toISOString(),
-          });
-          if (isNativeAndroid()) {
+          if (!isNativeAndroid()) {
+            await db.syncOperations.update(operationId, {
+              status: 'conflict',
+              lastError: message,
+              updatedAt: new Date().toISOString(),
+            });
+          } else {
             await markNativePosOperationConflict(operationId, message).catch(() => {});
           }
           throw new Error(message);
