@@ -568,7 +568,7 @@ export async function restoreLocalInventoryFIFO(params: {
     }
   }
   await db.products.update(product.id!, {
-    ...(weightedCost !== undefined ? { costPrice: weightedCost } : {}),
+    ...(weightedCost !== undefined ? { costPrice: roundMoney(weightedCost) } : {}),
     stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
     updatedAt: params.createdAt,
     syncStatus: params.syncStatus || 'pending',
