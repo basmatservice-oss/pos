@@ -3,7 +3,6 @@ import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
-import { db } from '../db/db';
 
 type Props = {
   productId: number;
@@ -46,7 +45,9 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
       try {
         const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
-        if (!isNativeAndroid()) await db.transaction('rw', db.inventoryMovements, async () => {
+        if (!isNativeAndroid()) {
+          const { db } = await import('../db/db');
+          await db.transaction('rw', db.inventoryMovements, async () => {
           const keys = response.items.map((movement: any) => movement.movementKey);
           const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
           const serverIds = new Set(response.items.map((movement: any) => movement.id));
@@ -55,7 +56,8 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
           await db.inventoryMovements.bulkPut(
             response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
           );
-        });
+          });
+        }
       } catch {
         // The locally cached ledger remains available while the POS is offline.
       }
