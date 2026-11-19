@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { apiService } from '../services/apiService';
 import { db } from '../db/db';
@@ -40,7 +41,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
       b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
     );
   }, [productId]) || [];
-  const unitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray(), []) || [];
+  const unitDefinitions = usePosEntityRecords<any>('unitDefinitions');
 
   useEffect(() => {
     let cancelled = false;
