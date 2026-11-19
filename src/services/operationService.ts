@@ -1373,33 +1373,41 @@ async function applyPurchaseLocally(
     if (!Number.isFinite(goodsTotal) || goodsTotal < 0 || !Number.isFinite(itemsGoodsSum) || itemsGoodsSum < 0) {
       throw new Error('إجمالي أصناف فاتورة الشراء غير صالح');
     }
-    const [allBatchesRaw, accounts, journals, transactions, oldItems, oldBatches, oldReturns, allMovements] = await Promise.all([
-      nativePosRepository.getAll<any>('inventoryBatches'),
-      nativePosRepository.getAll<any>('accounts'),
-      nativePosRepository.getAll<any>('journalEntries'),
-      nativePosRepository.getAll<any>('transactions'),
+    const [oldItems, oldBatches, oldReturns, journals, allMovements] = await Promise.all([
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', String(purchase.id)) : Promise.resolve([]),
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(purchase.id)) : Promise.resolve([]),
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(purchase.id)) : Promise.resolve([]),
-      nativePosRepository.getAll<any>('inventoryMovements'),
+      isPurchaseUpdate ? nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(purchase.id)) : Promise.resolve([]),
+      isPurchaseUpdate ? nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(purchase.id)) : Promise.resolve([]),
     ]);
     // Load only products touched by this receipt/reversal, not the entire product catalog.
     const affectedProductIds = [...new Set([
       ...normalized.map((item: any) => Number(item.productId)),
       ...oldItems.map((item: any) => Number(item.productId)),
     ].filter((id: number) => Number.isSafeInteger(id) && id > 0))];
-    const [products, supplier] = await Promise.all([
+    const supplierIds = [...new Set([
+      purchase.supplierId,
+      isPurchaseUpdate ? oldPurchase.supplierId : null,
+    ].filter((id) => id != null).map(String))];
+    const [products, suppliers, batchGroups, transactionGroups] = await Promise.all([
       nativePosRepository.getMany<any>('products', affectedProductIds),
-      purchase.supplierId
-        ? nativePosRepository.get<any>('suppliers', purchase.supplierId)
-        : Promise.resolve(null),
+      nativePosRepository.getMany<any>('suppliers', supplierIds),
+      Promise.all(affectedProductIds.map((id: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', id))),
+      Promise.all(journals.map((entry: any) => nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id)))),
     ]);
-    if (purchase.supplierId && !supplier) {
+    const allBatchesRaw = batchGroups.flat();
+    const transactions = transactionGroups.flat();
+    const accountCodes = [...new Set([
+      '1010', '1020', '1200', '2100',
+      ...transactions.map((line: any) => String(line.accountId || '')),
+    ].filter(Boolean))];
+    const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
+    if (purchase.supplierId && !suppliers.some((entry: any) => String(entry.id) === String(purchase.supplierId))) {
       throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
     }
     const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
     const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
-    const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
+    const supplierMap = new Map<string, any>(suppliers.map((entry: any) => [String(entry.id), entry]));
     const changes: any[] = [];
     const touchedAccountCodes = new Set<string>();
     let allBatches = allBatchesRaw;
@@ -1559,7 +1567,7 @@ async function applyPurchaseLocally(
         }
       }
       for (const [supplierId, updatedSupplier] of supplierMap) {
-        const originalSupplier = allSuppliers.find((entry: any) => String(entry.id) === supplierId);
+        const originalSupplier = suppliers.find((entry: any) => String(entry.id) === supplierId);
         if (originalSupplier && updatedSupplier.balance !== originalSupplier.balance) {
           changes.push({ action: 'put', entity: 'suppliers', record: { ...updatedSupplier, syncStatus }, syncState: syncStatus });
         }
