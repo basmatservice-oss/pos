@@ -2195,6 +2195,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       nativePosRepository.getAll<any>('purchaseReturnItems'),
     ]);
     if (!originalItems.length) throw new Error('لا يمكن إرجاع فاتورة شراء بلا تفاصيل أصناف');
+    if (refundMethod === 'credit_adjustment' && !origPurchase.supplierId) {
+      throw new Error('لا يمكن تسوية مرتجع مشتريات على الحساب دون مورد مرتبط بفاتورة الشراء');
+    }
     if (refundMethod === 'credit_adjustment' && origPurchase.supplierId && !supplier) {
       throw new Error('المورد المرتبط بفاتورة الشراء غير موجود في SQLite؛ أوقف الترحيل لحماية رصيده');
     }
