@@ -46,6 +46,8 @@ export interface PosLocalDatabasePlugin {
   deleteRecords(options: { entity: string; recordIds: string[] }): Promise<{ deleted: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
+  listAllOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number; status: string; lastError?: string }> }>;
+  retryOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   replacePendingOperations(options: { operations: PosQueuedOperation[] }): Promise<{ replaced: boolean; count: number }>;
   applySnapshotAndReplaceOutbox(options: { changes: PosLocalRecordChange[]; operations: PosQueuedOperation[] }): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number; recordUpdated?: boolean }>;
@@ -127,6 +129,19 @@ export async function replaceNativePendingPosOperations(operations: PosQueuedOpe
   if (result.replaced !== true || result.count !== operations.length) {
     throw new Error('SQLite did not confirm the complete outbox replacement');
   }
+}
+
+export async function listAllNativePosOperations() {
+  if (!(await ensureNativePosDatabase())) return [];
+  const result = await posLocalDatabase.listAllOperations();
+  if (!Array.isArray(result.operations)) throw new Error('SQLite returned an invalid operation list');
+  return result.operations;
+}
+
+export async function retryNativePosOperation(operationId: string): Promise<void> {
+  if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
+  const result = await posLocalDatabase.retryOperation({ operationId });
+  if (result.updated !== true) throw new Error(`SQLite did not confirm retry scheduling: ${operationId}`);
 }
 
 export async function updateNativePendingOperationPayload(operationId: string, payload: Record<string, unknown>): Promise<boolean> {
