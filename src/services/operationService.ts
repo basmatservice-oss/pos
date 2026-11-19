@@ -3784,8 +3784,11 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   }
   if (type === 'entity_delete') {
     if (isNativeAndroid()) {
-      const deleted = await nativePosRepository.delete(tableName as any, payload.id);
-      if (!deleted) throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
+      const existing = await nativePosRepository.get<any>(tableName as any, payload.id);
+      if (existing && !(await nativePosRepository.delete(tableName as any, payload.id))) {
+        throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
+      }
+      // A missing row is an already-applied delete, which keeps retries idempotent.
       await table.delete(payload.id);
       await flushNativeDatabaseMirrorWrites();
       return;
