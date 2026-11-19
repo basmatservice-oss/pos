@@ -1,6 +1,7 @@
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { nativePosRepository } from '../native/nativePosRepository';
+import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
+import { applyNativePosRecordChangesIfAbsent } from '../native/posLocalDatabase';
 // Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
@@ -174,8 +175,22 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
         syncState: accountSyncStates.get(accountCode) || journalSyncStatus,
       });
     }
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
+    const atomicChanges = changes.map((change: any) => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+      : {
+          action: 'put' as const,
+          entity: change.entity,
+          recordId: getNativePosRecordId(change.entity, change.record),
+          record: change.record,
+          syncState: change.syncState || 'local',
+        });
+    const committed = await applyNativePosRecordChangesIfAbsent(
+      atomicChanges,
+      'journalEntries',
+      JSON.stringify(entryId),
+    );
+    if (committed.skipped) return entryId;
+    if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
     return entryId;
   }
   await ensureDesktopDatabase();
