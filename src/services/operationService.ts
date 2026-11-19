@@ -190,7 +190,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
         batchMap.set(String(batch.id), updated);
         stage('inventoryBatches', updated);
       }
-      const updatedProduct = { ...product, costPrice: weightedCost, updatedAt: now, syncStatus };
+      const updatedProduct = { ...product, costPrice: roundMoney(weightedCost), updatedAt: now, syncStatus };
       productMap.set(Number(productId), updatedProduct);
       stage('products', updatedProduct);
     }
@@ -201,7 +201,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       const available = Number(batch.remainingQuantity || 0), take = roundQty(Math.min(remaining, available));
       if (take <= 0) continue;
       const costPrice = weightedAverage ? weightedCost : Number(batch.costPrice || 0);
-      const updated = { ...batch, ...(weightedAverage ? { costPrice: weightedCost } : {}),
+      const updated = { ...batch, ...(weightedAverage ? { costPrice: roundMoney(weightedCost) } : {}),
         remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
       batchMap.set(String(batch.id), updated); stage('inventoryBatches', updated);
       totalCost += take * costPrice; allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
@@ -1056,7 +1056,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
       const product: any = productMap.get(productId);
       if (product) {
-        const updated = { ...product, costPrice: Math.round((activeValue / activeQty) * 10000) / 10000,
+        const updated = { ...product, costPrice: roundMoney(activeValue / activeQty),
           updatedAt: effectiveReturnDate, syncStatus };
         productMap.set(productId, updated);
         stage('products', updated);
