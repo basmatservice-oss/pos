@@ -4548,7 +4548,21 @@ export async function dispatchOperation(
         : new Error('تعذر حفظ العملية في طابور SQLite المحلي؛ أُوقِف تنفيذ العملية لحماية البيانات');
     }
   }
-  await applyOperationLocally(type, opRecord.payload, 'pending');
+  try {
+    await applyOperationLocally(type, opRecord.payload, 'pending');
+  } catch (localError: any) {
+    if (isNativeAndroid()) {
+      const message = String(localError?.message || 'فشل تطبيق العملية محليًا في SQLite');
+      await markNativePosOperationConflict(operationId, message);
+    } else {
+      await db.syncOperations.update(operationId, {
+        status: 'conflict',
+        lastError: String(localError?.message || 'فشل تطبيق العملية محليًا'),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    throw localError;
+  }
   if (!isNativeAndroid() && (type === 'purchase_update' || type === 'purchase_delete')) {
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
