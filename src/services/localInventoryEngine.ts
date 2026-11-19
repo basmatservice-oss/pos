@@ -192,7 +192,7 @@ export async function consumeLocalInventoryFIFO(
       const costPrice = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
       changes.push({
         action: 'put', entity: 'inventoryBatches',
-        record: { ...batch, ...(weightedAverage ? { costPrice: roundMoney(weightedUnitCost) } : {}),
+        record: { ...batch, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
           remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: params.createdAt,
           syncStatus: params.syncStatus || 'pending' },
         syncState: params.syncStatus || row.syncState,
@@ -208,7 +208,7 @@ export async function consumeLocalInventoryFIFO(
     }
     changes.push({
       action: 'put', entity: 'products',
-      record: { ...product, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}), stockQuantity: nextQty, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+      record: { ...product, ...(weightedAverage ? { costPrice: roundMoney(weightedUnitCost) } : {}), stockQuantity: nextQty, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
       syncState: params.syncStatus || productRow!.syncState,
     });
     if (nextQty < -1e-6) changes.push({
@@ -305,7 +305,7 @@ export async function consumeLocalInventoryFIFO(
   }
 
   await db.products.update(product.id!, {
-    ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
+    ...(weightedAverage ? { costPrice: roundMoney(weightedUnitCost) } : {}),
     stockQuantity: nextQty,
     updatedAt: params.createdAt,
     syncStatus: params.syncStatus || 'pending',
