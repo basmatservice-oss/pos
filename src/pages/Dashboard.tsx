@@ -1,6 +1,4 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { db } from '../db/db';
 import {
   TrendingUp,
   ShoppingBag,
@@ -28,15 +26,27 @@ export default function Dashboard() {
   const startOfToday = startOfDay(today).toISOString();
   const endOfToday = endOfDay(today).toISOString();
 
-  const orders = useLiveQuery(() => db.orders.where('createdAt').between(startOfToday, endOfToday, true, true).toArray()) || [];
+  const allOrders = usePosEntityRecords<any>('orders');
   const orderItems = usePosEntityRecords<any>('orderItems');
-  const returns = useLiveQuery(() => db.returns.where('createdAt').between(startOfToday, endOfToday, true, true).toArray()) || [];
-  const expenses = useLiveQuery(() => db.expenses.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
-  const purchases = useLiveQuery(() => db.purchases.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
+  const allReturns = usePosEntityRecords<any>('returns');
+  const allExpenses = usePosEntityRecords<any>('expenses');
+  const allPurchases = usePosEntityRecords<any>('purchases');
   const products = usePosEntityRecords<any>('products');
   const customers = usePosEntityRecords<any>('customers');
-  const attendance = useLiveQuery(() => db.attendance.where('date').equals(format(today, 'yyyy-MM-dd')).toArray()) || [];
-  const loyaltyTransactions = useLiveQuery(() => db.loyaltyTransactions.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
+  const allAttendance = usePosEntityRecords<any>('attendance');
+  const allLoyaltyTransactions = usePosEntityRecords<any>('loyaltyTransactions');
+  const todayStart = startOfDay(today).getTime();
+  const todayEnd = endOfDay(today).getTime();
+  const isToday = (value: unknown) => {
+    const timestamp = value ? new Date(String(value)).getTime() : Number.NaN;
+    return Number.isFinite(timestamp) && timestamp >= todayStart && timestamp <= todayEnd;
+  };
+  const orders = allOrders.filter((record) => isToday(record.createdAt));
+  const returns = allReturns.filter((record) => isToday(record.createdAt));
+  const expenses = allExpenses.filter((record) => isToday(record.date));
+  const purchases = allPurchases.filter((record) => isToday(record.date));
+  const attendance = allAttendance.filter((record) => record.date === format(today, 'yyyy-MM-dd'));
+  const loyaltyTransactions = allLoyaltyTransactions.filter((record) => isToday(record.date));
 
   const validOrders = orders.filter((o) => o.status !== 'void');
   const validOrderIds = new Set(validOrders.map((o) => o.id));
