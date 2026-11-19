@@ -1,50 +1,63 @@
 import { useEffect, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /**
- * Reactive entity reads with SQLite as the Android source of truth.
- * Desktop continues to use Dexie's live query implementation.
+ * Reactive entity reads with SQLite as Android's source of truth.
+ * Dexie is loaded dynamically only for desktop compatibility.
  */
 export function usePosEntityRecords<T extends Record<string, unknown> = Record<string, unknown>>(
   entity: NativePosEntity,
 ): T[] {
   const isAndroid = isNativeAndroid();
-  const dexieRecords = useLiveQuery(
-    () => isAndroid ? Promise.resolve([] as T[]) : db.table(entity).toArray(),
-    [entity, isAndroid],
-  );
-  const [nativeRecords, setNativeRecords] = useState<T[]>([]);
+  const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
-    if (!isAndroid) return;
     let active = true;
-    let refreshVersion = 0;
+    let unsubscribe: (() => void) | undefined;
 
-    const refresh = async () => {
-      const version = ++refreshVersion;
+    const start = async () => {
+      if (isAndroid) {
+        const refresh = async () => {
+          try {
+            const rows = await nativePosRepository.getAll<T>(entity);
+            if (active) setRecords(rows);
+          } catch (error) {
+            console.error(`Failed to read ${entity} from local SQLite:`, error);
+          }
+        };
+        const onNativeChange = (event: Event) => {
+          const changed = (event as CustomEvent<{ entities?: string[] }>).detail?.entities;
+          if (Array.isArray(changed) && changed.includes(entity)) void refresh();
+        };
+        window.addEventListener('pos-native-records-changed', onNativeChange);
+        unsubscribe = () => window.removeEventListener('pos-native-records-changed', onNativeChange);
+        await refresh();
+        return;
+      }
+
       try {
-        const records = await nativePosRepository.getAll<T>(entity);
-        if (active && version === refreshVersion) setNativeRecords(records);
+        const [{ liveQuery }, { db }] = await Promise.all([
+          import('dexie'),
+          import('../db/db'),
+        ]);
+        if (!active) return;
+        const subscription = liveQuery(() => db.table(entity).toArray()).subscribe({
+          next: (rows) => { if (active) setRecords(rows as T[]); },
+          error: (error) => console.error(`Failed to read ${entity} from desktop database:`, error),
+        });
+        unsubscribe = () => subscription.unsubscribe();
       } catch (error) {
-        console.error(`Failed to read ${entity} from local SQLite:`, error);
+        console.error(`Failed to initialize desktop query for ${entity}:`, error);
       }
     };
 
-    const onNativeChange = (event: Event) => {
-      const changedEntities = (event as CustomEvent<{ entities?: string[] }>).detail?.entities;
-      if (Array.isArray(changedEntities) && changedEntities.includes(entity)) void refresh();
-    };
-
-    window.addEventListener('pos-native-records-changed', onNativeChange);
-    void refresh();
+    void start();
     return () => {
       active = false;
-      window.removeEventListener('pos-native-records-changed', onNativeChange);
+      unsubscribe?.();
     };
   }, [entity, isAndroid]);
 
-  return (isAndroid ? nativeRecords : dexieRecords ?? []) as T[];
+  return records;
 }
