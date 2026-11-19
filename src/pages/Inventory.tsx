@@ -546,8 +546,7 @@ export default function Inventory() {
       // Persist service recipes if applicable
       if (savedParentId) {
         for (const delId of removedRecipeIds) {
-          await apiService.deleteServiceRecipe(delId).catch(() => {});
-          await deletePosRecord('serviceRecipes', delId).catch(() => {});
+          await dispatchOperation('entity_delete', { table: 'serviceRecipes', id: delId }, user?.branchId);
         }
         if (formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') {
           for (const row of recipeRows) {
