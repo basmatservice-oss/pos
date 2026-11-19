@@ -93,10 +93,7 @@ export default function Stocktaking() {
         try {
           const approvedAt = new Date().toISOString();
           const sessionSnapshot = await getPosRecord<any>('stocktakingSessions', session.id!);
-          const entrySnapshots = await db.stocktakingEntries
-            .where('sessionId')
-            .equals(session.id!)
-            .toArray();
+          const entrySnapshots = await getPosRecordsWhereEquals<any>('stocktakingEntries', 'sessionId', session.id!);
           await dispatchOperation(
             'stocktake_approve',
             {
