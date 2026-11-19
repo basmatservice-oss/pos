@@ -420,18 +420,27 @@ export default function Purchases() {
     const batches = await getPosRecordsWhereEquals<any>('inventoryBatches', 'purchaseId', purchase.id!);
 
     const mapped = items.map((item) => {
-      const matchingBatch = batches.find((b) => b.productId === item.productId);
-      const remainingBatchQty = matchingBatch
-        ? Number(matchingBatch.remainingQuantity ?? matchingBatch.quantity)
-        : item.quantity;
+      const productBatches = batches.filter((batch) => Number(batch.productId) === Number(item.productId));
+      const remainingByBatch = productBatches.map((batch) => ({
+        batch,
+        remaining: Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0)),
+      })).filter((entry) => Number.isFinite(entry.remaining) && entry.remaining > 0);
+      const remainingBatchQty = productBatches.length
+        ? remainingByBatch.reduce((sum, entry) => sum + entry.remaining, 0)
+        : Number(item.quantity || 0);
+      const remainingValue = remainingByBatch.reduce((sum, entry) =>
+        sum + entry.remaining * Number(entry.batch.costPrice ?? item.costPrice ?? 0), 0);
+      const costPrice = remainingBatchQty > 0 && productBatches.length
+        ? remainingValue / remainingBatchQty
+        : Number(item.costPrice || 0);
       return {
         productId: item.productId,
         productName: item.productName,
         purchasedQty: item.quantity,
         remainingBatchQty,
-        costPrice: item.costPrice,
+        costPrice,
         returnQty: 0,
-        batchId: matchingBatch?.id ? String(matchingBatch.id) : undefined,
+        batchId: productBatches.length === 1 ? String(productBatches[0].id) : undefined,
       };
     });
 
