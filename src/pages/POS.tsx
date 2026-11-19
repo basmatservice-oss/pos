@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { generateUUID } from '../utils/uuid';
@@ -108,7 +109,7 @@ export default function POS() {
     setTaxRate,
   } = useCartStore();
 
-  const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
   const allOffers = usePosEntityRecords<any>('offers');
   const heldOrders = usePosEntityRecords<any>('heldOrders');
   const serviceRecipes = usePosEntityRecords<any>('serviceRecipes');
