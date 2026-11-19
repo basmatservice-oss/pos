@@ -14,7 +14,7 @@ async function updateRecordWithoutSyncHook(tableName: string, key: any, changes:
 }
 async function migrateLegacyAndroidQueueToSQLite() {
   if (!isNativeAndroid()) return;
-  const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error']).toArray();
+  const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   if (!legacy.length) return;
   const pending = await listNativePendingPosOperations();
   const pendingIds = new Set(pending.map((operation) => String(operation.operationId)));
