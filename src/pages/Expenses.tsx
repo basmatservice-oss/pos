@@ -3,8 +3,7 @@ import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEqu
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Plus, Trash2, Wallet, Calendar, Tag, FileText, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Expense } from '../db/db';
+import type { Expense } from '../db/db';
 import { format } from 'date-fns';
 import { arSA } from 'date-fns/locale';
 import { useSettings } from '../hooks/useSettings';
