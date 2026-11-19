@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
-import { db } from '../db/db';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { getFirstPosRecordWhereEquals, getPosRecords } from '../services/posDataAccess';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { API_BASE, setAuthToken, getAuthToken } from '../services/apiService';
 
 export type Role = 'admin' | 'manager' | 'cashier' | 'sales_rep';
@@ -78,10 +78,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const dbUser = useLiveQuery(
-    () => (user?.id ? db.employees.get(user.id) : undefined),
-    [user?.id]
-  );
+  const dbUsers = usePosRecordsWhereEquals<Record<string, any>>('employees', 'id', user?.id ?? -1);
+  const dbUser = dbUsers[0];
 
   useEffect(() => {
     if (dbUser && user) {
@@ -150,8 +148,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (username?: string, password?: string, pinCode?: string) => {
     const cleanUsername = username?.trim();
     let baseUrl = API_BASE;
-    const serverUrlSetting = await db.settings.where('key').equals('serverUrl').first();
-    const roleSetting = await db.settings.where('key').equals('deviceRole').first();
+    const [serverUrlSetting, roleSetting] = await Promise.all([
+      getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', 'serverUrl'),
+      getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole'),
+    ]);
     if (roleSetting?.value === 'client' && serverUrlSetting?.value) {
       const raw = serverUrlSetting.value.trim();
       const formatted = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`;
@@ -230,8 +230,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 3. Fallback to local Dexie employees (e.g., seeded desktop server before network is up)
-    const employees = await db.employees.toArray();
+    // 3. Fallback to locally stored employees when the network is unavailable.
+    const employees = await getPosRecords<Record<string, any>>('employees');
     if (pinCode) {
       const employee = employees.find((e) => e.status === 'active' && matchSecret(pinCode, e.pinCode));
       if (employee) {
