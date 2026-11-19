@@ -81,11 +81,9 @@ export const syncService = {
       // Dexie entries are only a compatibility mirror and must not be counted.
       let pendingOps = 0;
       if (isNativeAndroid()) {
-        try {
-          pendingOps = (await listNativePendingPosOperations()).length;
-        } catch (error) {
-          console.error('Failed to count Android SQLite outbox:', error);
-        }
+        // Preserve the previous count if SQLite cannot be read; reporting zero
+        // would falsely imply that the durable outbox is empty.
+        pendingOps = (await listNativePendingPosOperations()).length;
       } else {
         pendingOps = await db.syncOperations
           .where('status')
