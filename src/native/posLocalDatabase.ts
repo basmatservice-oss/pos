@@ -43,6 +43,7 @@ export interface PosLocalDatabasePlugin {
   deleteRecords(options: { entity: string; recordIds: string[] }): Promise<{ deleted: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
+  replacePendingOperations(options: { operations: PosQueuedOperation[] }): Promise<{ replaced: boolean; count: number }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number; recordUpdated?: boolean }>;
   acknowledgeOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   markOperationError(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
@@ -89,6 +90,22 @@ export async function listNativePendingPosOperations() {
   if (!(await ensureNativePosDatabase())) return [];
   const result = await posLocalDatabase.listPendingOperations();
   return result.operations;
+}
+
+export async function replaceNativePendingPosOperations(operations: PosQueuedOperation[]): Promise<void> {
+  if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
+  const ids = new Set<string>();
+  for (const operation of operations) {
+    if (!operation.operationId?.trim() || !operation.type?.trim() || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+      throw new Error('Invalid pending operation supplied for SQLite outbox replacement');
+    }
+    if (ids.has(operation.operationId)) throw new Error('Duplicate pending operation ID supplied for SQLite outbox replacement');
+    ids.add(operation.operationId);
+  }
+  const result = await posLocalDatabase.replacePendingOperations({ operations });
+  if (result.replaced !== true || result.count !== operations.length) {
+    throw new Error('SQLite did not confirm the complete outbox replacement');
+  }
 }
 
 export async function updateNativePendingOperationPayload(operationId: string, payload: Record<string, unknown>): Promise<boolean> {
