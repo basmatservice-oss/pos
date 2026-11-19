@@ -279,7 +279,10 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
       changes.push({ action: 'delete', entity: 'journalEntries', key: entry.id });
     }
     for (const [accountCode, account] of accountChanges) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: accountMap.get(accountCode)?.syncState || 'local' });
-    if (changes.length) await nativePosRepository.applyChanges(changes);
+    if (changes.length) {
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع القيود المحلية وتحديث الأرصدة');
+    }
     return;
   }
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
