@@ -168,11 +168,21 @@ export async function consumeLocalInventoryFIFO(
     if (weightedAverage && batches.length) {
       const activeQty = batches.reduce((sum, row) => sum + Number(row.record.remainingQuantity || 0), 0);
       const activeValue = batches.reduce((sum, row) => sum + Number(row.record.remainingQuantity || 0) * Number(row.record.costPrice || 0), 0);
-      if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
+      if (activeQty > 0) weightedUnitCost = Math.round((activeValue / activeQty) * 10000) / 10000;
     }
     let remaining = qtyNeeded, totalCost = 0;
     const allocations: LocalBatchAllocation[] = [];
     const changes: any[] = [];
+    if (weightedAverage) {
+      for (const row of batches) {
+        const batch: any = row.record;
+        changes.push({
+          action: 'put', entity: 'inventoryBatches',
+          record: { ...batch, costPrice: weightedUnitCost, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+          syncState: params.syncStatus || row.syncState,
+        });
+      }
+    }
     for (const row of batches) {
       if (remaining <= 1e-6) break;
       const batch: any = row.record;
@@ -196,7 +206,7 @@ export async function consumeLocalInventoryFIFO(
     }
     changes.push({
       action: 'put', entity: 'products',
-      record: { ...product, stockQuantity: nextQty, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+      record: { ...product, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}), stockQuantity: nextQty, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
       syncState: params.syncStatus || productRow!.syncState,
     });
     if (nextQty < -1e-6) changes.push({
@@ -253,7 +263,17 @@ export async function consumeLocalInventoryFIFO(
   if (weightedAverage && batches.length > 0) {
     const activeQty = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
     const activeValue = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
-    if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
+    if (activeQty > 0) weightedUnitCost = Math.round((activeValue / activeQty) * 10000) / 10000;
+  }
+
+  if (weightedAverage) {
+    for (const batch of batches) {
+      await db.inventoryBatches.update(batch.id!, {
+        costPrice: weightedUnitCost,
+        updatedAt: params.createdAt,
+        syncStatus: params.syncStatus || 'pending',
+      });
+    }
   }
 
   let remaining = qtyNeeded;
@@ -283,6 +303,7 @@ export async function consumeLocalInventoryFIFO(
   }
 
   await db.products.update(product.id!, {
+    ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
     stockQuantity: nextQty,
     updatedAt: params.createdAt,
     syncStatus: params.syncStatus || 'pending',
