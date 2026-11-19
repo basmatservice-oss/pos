@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
@@ -252,7 +253,7 @@ export default function Inventory() {
       handleOpenModal(existingProduct);
     } else {
       // Fallback to DB
-      const dbProd = await db.products.where('barcode').equals(barcode).first();
+      const dbProd = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
       if (dbProd) {
         handleOpenModal(dbProd);
       } else {
@@ -348,7 +349,7 @@ export default function Inventory() {
     if (!barcode) return;
     
     // Check if what was entered/scanned is an exact barcode match - optimized lookup
-    const existingProduct = await db.products.where('barcode').equals(barcode).first();
+    const existingProduct = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
     if (existingProduct) {
       handleOpenModal(existingProduct);
       if (mainSearchInputRef.current) {
@@ -449,8 +450,8 @@ export default function Inventory() {
       variant: 'danger',
       action: async () => {
         try {
-          const category = await db.categories.get(id);
-          const productsToDelete = await db.products.where('categoryId').equals(id).toArray();
+          const category = await getPosRecord<any>('categories', id);
+          const productsToDelete = await getPosRecordsWhereEquals<any>('products', 'categoryId', id);
           for (const p of productsToDelete) {
             if (p.id !== undefined) {
               await dispatchOperation('entity_delete', { table: 'products', id: p.id }, user?.branchId);
@@ -589,7 +590,7 @@ export default function Inventory() {
       variant: 'danger',
       action: async () => {
         try {
-          const product = await db.products.get(id);
+          const product = await getPosRecord<any>('products', id);
           await dispatchOperation('entity_delete', { table: 'products', id }, user?.branchId);
           await logAction(user?.name || 'Unknown', 'حذف منتج', 'product', `تم حذف المنتج: ${product?.name || id}`, 0, 0, product?.name);
           toast.success('تم حذف المنتج بنجاح');
