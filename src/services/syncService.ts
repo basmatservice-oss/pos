@@ -441,10 +441,16 @@ export const syncService = {
       const reachable = await apiService.checkServerReachability(1200);
       if (!reachable) return;
 
-      const pendingOpsCount = await db.syncOperations
+      const dexiePendingOperations = await db.syncOperations
         .where('status')
         .anyOf(['pending', 'error', 'syncing'])
-        .count();
+        .toArray();
+      let pendingOpsCount = dexiePendingOperations.length;
+      if (isNativeAndroid()) {
+        const dexieIds = new Set(dexiePendingOperations.map((operation) => operation.id));
+        const nativePending = await listNativePendingPosOperations();
+        pendingOpsCount += nativePending.filter((operation) => !dexieIds.has(operation.operationId)).length;
+      }
 
       const pullTasks: Array<{
         table: any;
