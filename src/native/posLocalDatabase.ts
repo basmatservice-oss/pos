@@ -29,7 +29,7 @@ export interface PosLocalDatabasePlugin {
   initialize(): Promise<{ ready: boolean; schemaVersion: number; database: string }>;
   putRecord(options: PosLocalRecord): Promise<{ saved: boolean; recordId: string }>;
   putRecords(options: { records: PosLocalRecord[] }): Promise<{ saved: boolean; count: number }>;
-  applyRecordChanges(options: { changes: PosLocalRecordChange[] }): Promise<{ applied: number; count: number }>;
+  applyRecordChanges(options: { changes: PosLocalRecordChange[]; ifAbsentEntity?: string; ifAbsentRecordId?: string }): Promise<{ applied: number; count: number; skipped?: boolean }>;
   replaceRecords(options: { entity: string; records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }> }): Promise<{ replaced: boolean; count: number }>;
   saveRecordAndEnqueueOperation(options: PosLocalRecord & PosQueuedOperation): Promise<{
     saved: boolean;
@@ -258,6 +258,36 @@ export async function replaceNativePosRecords(
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.replaceRecords({ entity, records });
   return result.replaced === true && result.count === records.length;
+}
+
+export async function applyNativePosRecordChangesIfAbsent(
+  changes: PosLocalRecordChange[],
+  guardEntity: string,
+  guardRecordId: string,
+): Promise<{ applied: number; skipped: boolean }> {
+  if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
+  if (!guardEntity.trim() || !guardRecordId.trim()) throw new Error('SQLite idempotency guard requires an entity and record ID');
+  if (changes.length === 0) return { applied: 0, skipped: false };
+  const identities = new Set<string>();
+  for (const change of changes) {
+    if (!change.entity.trim() || !change.recordId.trim()) throw new Error('Native SQLite record changes require entity and record ID');
+    const identity = JSON.stringify([change.entity, change.recordId]);
+    if (identities.has(identity)) throw new Error('Duplicate native SQLite record change');
+    identities.add(identity);
+    if (change.action === 'put' && (!change.record || typeof change.record !== 'object' || Array.isArray(change.record))) {
+      throw new Error('Native SQLite put changes require a record object');
+    }
+  }
+  const result = await posLocalDatabase.applyRecordChanges({
+    changes, ifAbsentEntity: guardEntity, ifAbsentRecordId: guardRecordId,
+  });
+  if (!Number.isInteger(result.count) || result.count !== changes.length ||
+      !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length ||
+      (result.skipped !== true && result.applied !== changes.length) ||
+      (result.skipped === true && result.applied !== 0)) {
+    throw new Error('SQLite returned an invalid idempotent record-change result');
+  }
+  return { applied: result.applied, skipped: result.skipped === true };
 }
 
 export async function applyNativePosRecordChanges(changes: PosLocalRecordChange[]): Promise<number> {
