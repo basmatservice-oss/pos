@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Order, OrderItem, Purchase, PurchaseItem, Product } from '../db/db';
 import { PurchaseReceipt } from '../components/PurchaseReceipt';
@@ -54,19 +55,19 @@ import { formatNumber, formatQty } from '../utils/format';
 export default function Reports() {
   const { user } = useAuth();
   const [activeMainTab, setActiveMainTab] = useState<'overview' | 'financial'>('overview');
-  const orders = useLiveQuery(() => db.orders.toArray()) || [];
-  const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
-  const returns = useLiveQuery(() => db.returns.toArray()) || [];
-  const inventoryBatches = useLiveQuery(() => db.inventoryBatches.toArray()) || [];
-  const products = useLiveQuery(() => db.products.toArray()) || [];
-  const expenses = useLiveQuery(() => db.expenses.toArray()) || [];
-  const payrolls = useLiveQuery(() => db.payroll.toArray()) || [];
-  const journalEntries = useLiveQuery(() => db.journalEntries.toArray()) || [];
-  const transactions = useLiveQuery(() => db.transactions.toArray()) || [];
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
-  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
-  const purchases = useLiveQuery(() => db.purchases.toArray()) || [];
-  const loyaltyTransactions = useLiveQuery(() => db.loyaltyTransactions.toArray()) || [];
+  const orders = usePosEntityRecords<any>('orders');
+  const orderItems = usePosEntityRecords<any>('orderItems');
+  const returns = usePosEntityRecords<any>('returns');
+  const inventoryBatches = usePosEntityRecords<any>('inventoryBatches');
+  const products = usePosEntityRecords<any>('products');
+  const expenses = usePosEntityRecords<any>('expenses');
+  const payrolls = usePosEntityRecords<any>('payroll');
+  const journalEntries = usePosEntityRecords<any>('journalEntries');
+  const transactions = usePosEntityRecords<any>('transactions');
+  const customers = usePosEntityRecords<any>('customers');
+  const suppliers = usePosEntityRecords<any>('suppliers');
+  const purchases = usePosEntityRecords<any>('purchases');
+  const loyaltyTransactions = usePosEntityRecords<any>('loyaltyTransactions');
 
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom'>('today');
   const [customStartDate, setCustomStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
