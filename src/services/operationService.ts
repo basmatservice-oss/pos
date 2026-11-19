@@ -1814,11 +1814,10 @@ async function applyPurchaseLocally(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
-    const [returns, oldItems, oldBatches, movements, journals] = await Promise.all([
+    const [returns, oldItems, oldBatches, journals] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
-      nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', purchaseId),
       nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
     ]);
     if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
