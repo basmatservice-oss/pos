@@ -1611,35 +1611,121 @@ function handlePurchaseReturn(
   const savedItems: any[] = [];
 
   for (const reqItem of items) {
-    const qtyToReturn = Number(reqItem.quantity || 0);
-    if (qtyToReturn <= 0) continue;
+    const qtyToReturn = roundQty(Number(reqItem.quantity || 0));
+    if (!Number.isFinite(qtyToReturn) || qtyToReturn <= 0) continue;
     const prodId = Number(reqItem.productId);
+    if (!Number.isSafeInteger(prodId) || prodId <= 0) {
+      throw new OperationError('صنف مرتجع المشتريات غير صالح', 400);
+    }
+    const product = tx.select().from(products).where(eq(products.id, prodId)).get();
+    if (!product) throw new OperationError(`المنتج ${reqItem.productName || prodId} غير موجود`, 404);
 
-    const matchingBatch = reqItem.batchId
-      ? purchaseBatches.find((b: any) => b.id === String(reqItem.batchId))
-      : purchaseBatches.find((b: any) => b.productId === prodId && Number(b.remainingQuantity) >= qtyToReturn) ||
-        purchaseBatches.find((b: any) => b.productId === prodId);
+    const productBatches = purchaseBatches
+      .filter((batch: any) => Number(batch.productId) === prodId &&
+        String(batch.purchaseId) === String(originalPurchaseId))
+      .sort((a: any, b: any) =>
+        String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+        String(a.id).localeCompare(String(b.id)));
 
-    if (matchingBatch) {
-      if (Number(matchingBatch.remainingQuantity || 0) < qtyToReturn) {
+    const allocations: Array<{ batch: any | null; quantity: number; cost: number }> = [];
+    if (reqItem.batchId !== undefined && reqItem.batchId !== null && String(reqItem.batchId).trim()) {
+      const selectedBatch = purchaseBatches.find((batch: any) =>
+        String(batch.id) === String(reqItem.batchId));
+      if (!selectedBatch || Number(selectedBatch.productId) !== prodId ||
+          String(selectedBatch.purchaseId) !== String(originalPurchaseId)) {
+        throw new OperationError('الدفعة المحددة لا تتبع الصنف أو فاتورة الشراء الأصلية', 400);
+      }
+      const available = Number(selectedBatch.remainingQuantity || 0);
+      if (!Number.isFinite(available) || available < qtyToReturn) {
         throw new OperationError(
-          `الكمية المتبقية في دفعة المنتج ${reqItem.productName} (${matchingBatch.remainingQuantity}) أقل من كمية المرتجع (${qtyToReturn})`,
+          `الكمية المتبقية في دفعة المنتج ${reqItem.productName} (${available}) أقل من كمية المرتجع (${qtyToReturn})`,
           400
         );
       }
-      tx.update(inventoryBatches)
-        .set({
-          remainingQuantity: Number(matchingBatch.remainingQuantity) - qtyToReturn,
-          updatedAt: ctx.now,
-          isSynced: 0,
-        })
-        .where(eq(inventoryBatches.id, matchingBatch.id))
-        .run();
-    } else {
-      const product = tx.select().from(products).where(eq(products.id, prodId)).get();
-      if (!product || Number(product.stockQuantity || 0) < qtyToReturn) {
-        throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
+      allocations.push({
+        batch: selectedBatch,
+        quantity: qtyToReturn,
+        cost: Number(selectedBatch.costPrice ?? reqItem.costPrice ?? 0),
+      });
+    } else if (productBatches.length) {
+      let remainingToAllocate = qtyToReturn;
+      for (const candidate of productBatches) {
+        const available = Number(candidate.remainingQuantity || 0);
+        if (!Number.isFinite(available) || available < 0) {
+          throw new OperationError('بيانات دفعات فاتورة الشراء غير صالحة', 400);
+        }
+        const take = roundQty(Math.min(remainingToAllocate, available));
+        if (take <= 0) continue;
+        allocations.push({
+          batch: candidate,
+          quantity: take,
+          cost: Number(candidate.costPrice ?? reqItem.costPrice ?? 0),
+        });
+        remainingToAllocate = roundQty(remainingToAllocate - take);
+        if (remainingToAllocate <= 0.0001) break;
       }
+      if (remainingToAllocate > 0.0001) {
+        throw new OperationError('مجموع الكميات المتبقية في دفعات فاتورة الشراء لا يكفي لتنفيذ المرتجع', 400);
+      }
+    } else {
+      allocations.push({
+        batch: null,
+        quantity: qtyToReturn,
+        cost: Number(reqItem.costPrice ?? product.costPrice ?? 0),
+      });
+    }
+
+    const currentStock = Number(product.stockQuantity || 0);
+    if (!Number.isFinite(currentStock) || currentStock < qtyToReturn) {
+      throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
+    }
+
+    for (const allocation of allocations) {
+      if (!Number.isFinite(allocation.cost) || allocation.cost < 0) {
+        throw new OperationError('تكلفة دفعة مرتجع المشتريات غير صالحة', 400);
+      }
+      if (allocation.batch) {
+        const updatedRemaining = roundQty(Number(allocation.batch.remainingQuantity || 0) - allocation.quantity);
+        tx.update(inventoryBatches)
+          .set({ remainingQuantity: updatedRemaining, updatedAt: ctx.now, isSynced: 0 })
+          .where(eq(inventoryBatches.id, allocation.batch.id))
+          .run();
+        allocation.batch.remainingQuantity = updatedRemaining;
+      }
+      const lineTotal = roundMoney(allocation.quantity * allocation.cost);
+      totalReturn = roundMoney(totalReturn + lineTotal);
+      const insertedItem = tx
+        .insert(purchaseReturnItems)
+        .values({
+          id: crypto.randomUUID(),
+          purchaseReturnId: returnId,
+          productId: prodId,
+          productName: reqItem.productName || '',
+          quantity: allocation.quantity,
+          costPrice: allocation.cost,
+          total: lineTotal,
+          batchId: allocation.batch?.id || null,
+          isSynced: 0,
+          createdAt: ctx.now,
+        })
+        .returning()
+        .get();
+      savedItems.push(insertedItem);
+      recordInventoryMovement(tx, {
+        movementKey: `purchase_return:${returnId}:out:${prodId}:${savedItems.length}`,
+        productId: prodId,
+        movementType: 'purchase_return',
+        sourceType: 'purchase_return',
+        sourceId: returnId,
+        quantityDeltaBase: -allocation.quantity,
+        unitCost: allocation.cost,
+        totalCost: lineTotal,
+        branchId: branchId ?? origPurchase.branchId ?? null,
+        operationId: ctx.operationId,
+        reason: reason || 'مرتجع مشتريات للمورد',
+        createdBy: ctx.actor,
+        createdAt: ctx.now,
+      });
     }
 
     tx.update(products)
@@ -1650,47 +1736,7 @@ function handlePurchaseReturn(
       })
       .where(eq(products.id, prodId))
       .run();
-
     recalculateProductWeightedCost(tx, prodId);
-
-    const cost = Number(reqItem.costPrice ?? matchingBatch?.costPrice ?? 0);
-    const lineTotal = roundMoney(qtyToReturn * cost);
-    totalReturn = roundMoney(totalReturn + lineTotal);
-
-    const insertedItem = tx
-      .insert(purchaseReturnItems)
-      .values({
-        id: crypto.randomUUID(),
-        purchaseReturnId: returnId,
-        productId: prodId,
-        productName: reqItem.productName || '',
-        quantity: qtyToReturn,
-        costPrice: cost,
-        total: lineTotal,
-        batchId: matchingBatch?.id || null,
-        isSynced: 0,
-        createdAt: ctx.now,
-      })
-      .returning()
-      .get();
-
-    savedItems.push(insertedItem);
-
-    recordInventoryMovement(tx, {
-      movementKey: `purchase_return:${returnId}:out:${prodId}:${savedItems.length}`,
-      productId: prodId,
-      movementType: 'purchase_return',
-      sourceType: 'purchase_return',
-      sourceId: returnId,
-      quantityDeltaBase: -qtyToReturn,
-      unitCost: cost,
-      totalCost: lineTotal,
-      branchId: branchId ?? origPurchase.branchId ?? null,
-      operationId: ctx.operationId,
-      reason: reason || 'مرتجع مشتريات للمورد',
-      createdBy: ctx.actor,
-      createdAt: ctx.now,
-    });
   }
 
   if (savedItems.length === 0) {
