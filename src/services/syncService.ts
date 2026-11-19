@@ -513,6 +513,68 @@ export const syncService = {
             const data = await task.api();
             if (!Array.isArray(data)) continue;
 
+            if (isNativeAndroid()) {
+              const entity = task.table.name;
+              const existingNative = await nativePosRepository.getAllWithSyncState(entity as any);
+              const existingById = new Map(existingNative.map((item) => {
+                const record: any = item.record;
+                return [record.id ?? record.key ?? record.code, record];
+              }));
+              if (task.noSyncStatus) {
+                const changes = data.map((record: any) => ({
+                  action: 'put' as const, entity: entity as any, record, syncState: 'synced' as const,
+                }));
+                const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
+                if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
+                if (data.length) await task.table.bulkPut(data);
+                continue;
+              }
+
+              const pendingLocal = existingNative.filter((item) => item.syncState === 'pending' || item.syncState === 'error');
+              const pendingIds = new Set(pendingLocal.map((item) => {
+                const record: any = item.record;
+                return record.id ?? record.key ?? record.code;
+              }));
+              const changes: Array<any> = [];
+              const staleIds: any[] = [];
+              if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
+                const serverIds = new Set(data.map((item: any) => item.id ?? item.key ?? item.code));
+                for (const item of existingNative) {
+                  const record: any = item.record;
+                  const key = record.id ?? record.key ?? record.code;
+                  if (item.syncState === 'synced' && key !== undefined && !serverIds.has(key)) {
+                    staleIds.push(key);
+                    changes.push({ action: 'delete', entity: entity as any, key });
+                  }
+                }
+              }
+
+              let filtered = data.filter((item: any) => !pendingIds.has(item.id ?? item.key ?? item.code));
+              if (task.excludeKeys) {
+                const excluded = new Set(task.excludeKeys);
+                filtered = filtered.filter((item: any) => !excluded.has(item.key));
+              }
+              const recordsToPut = filtered.map((item: any) => {
+                const normalized = { ...item };
+                if (task.preserveLocalAuth) {
+                  const previous = existingById.get(item.id);
+                  if (previous) {
+                    if (!normalized.password && previous.password) normalized.password = previous.password;
+                    if (!normalized.pinCode && previous.pinCode) normalized.pinCode = previous.pinCode;
+                  }
+                }
+                return { ...normalized, syncStatus: 'synced' };
+              });
+              for (const record of recordsToPut) {
+                changes.push({ action: 'put', entity: entity as any, record, syncState: 'synced' as const });
+              }
+              const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
+              if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
+              if (staleIds.length) await task.table.bulkDelete(staleIds);
+              if (recordsToPut.length) await task.table.bulkPut(recordsToPut);
+              continue;
+            }
+
             if (task.noSyncStatus) {
               await task.table.bulkPut(data);
               continue;
