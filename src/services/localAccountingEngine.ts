@@ -55,6 +55,14 @@ export function setLocalAccountingStandaloneMode(enabled: boolean): void {
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
   if (isNativeAndroid()) {
     const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
+    if (!input.referenceId.trim() || !input.entryKey.trim() || !input.lines.length ||
+        input.lines.some((line) => {
+          const debit = Number(line.debit), credit = Number(line.credit);
+          return !String(line.accountCode || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+            debit < 0 || credit < 0 || (debit > 0 && credit > 0);
+        })) {
+      throw new Error('بيانات القيد المحاسبي تحتوي حسابًا أو مبلغًا غير صالح');
+    }
     const lines = input.lines
       .map((line) => ({ ...line, debit: money(line.debit), credit: money(line.credit) }))
       .filter((line) => line.debit > 0 || line.credit > 0);
