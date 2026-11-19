@@ -1378,6 +1378,12 @@ async function applyPurchaseLocally(
     const purchase = payload?.purchase;
     if (!purchase?.id) throw new Error('معرّف فاتورة الشراء غير صالح');
     const isPurchaseUpdate = type === 'purchase_update';
+    const updateOperationId = isPurchaseUpdate
+      ? String(payload.operationId || purchase.operationId || '').trim()
+      : '';
+    if (isPurchaseUpdate && !updateOperationId) {
+      throw new Error('معرّف عملية تعديل فاتورة الشراء مطلوب لمنع تطبيق التعديل مرتين');
+    }
     const oldPurchase = isPurchaseUpdate
       ? await nativePosRepository.get<any>('purchases', String(purchase.id))
       : null;
@@ -1642,7 +1648,7 @@ async function applyPurchaseLocally(
     }
     const purchaseDoc = {
       ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0,
-      ...(isPurchaseUpdate && payload.operationId ? { lastLocalOperationId: String(payload.operationId) } : {}),
+      ...(isPurchaseUpdate ? { lastLocalOperationId: updateOperationId } : {}),
       syncStatus,
     };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
@@ -1835,9 +1841,26 @@ async function applyPurchaseLocally(
       uniqueChanges.set(String(change.entity) + ':' + String(key), change);
     }
     const finalChanges = [...uniqueChanges.values()];
-    const applied = await nativePosRepository.applyChanges(finalChanges);
-    if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء في معاملة واحدة');
-    // SQLite committed the purchase and all related inventory/accounting records atomically.
+    const nativeChanges = finalChanges.map((change: any) => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+      : {
+          action: 'put' as const,
+          entity: change.entity,
+          recordId: getNativePosRecordId(change.entity, change.record),
+          record: change.record,
+          syncState: change.syncState || 'local',
+        });
+    const committed = isPurchaseUpdate
+      ? await applyNativePosRecordChangesIfFieldAbsent(
+          nativeChanges, 'purchases', 'lastLocalOperationId', updateOperationId,
+        )
+      : await applyNativePosRecordChangesIfAbsent(
+          nativeChanges, 'purchases', JSON.stringify(purchase.id),
+        );
+    if (!committed.skipped && committed.applied !== finalChanges.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء في معاملة واحدة');
+    }
+    // The receipt/update guard and all inventory/accounting changes commit together.
     return;
   }
 
