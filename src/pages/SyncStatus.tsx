@@ -16,8 +16,9 @@ import {
   ShieldCheck,
   MonitorSmartphone,
 } from 'lucide-react';
-import { db, SyncOperation, InventoryAlert } from '../db/db';
+import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
+import { isNativeAndroid, listNativePendingPosOperations } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -106,6 +107,22 @@ export default function SyncStatus() {
   };
 
   const fetchLocalQueue = async () => {
+    if (isNativeAndroid()) {
+      const queued = await listNativePendingPosOperations();
+      const nativeOperations = queued.map((operation: any) => ({
+        id: operation.operationId,
+        type: operation.type,
+        payload: operation.payload,
+        status: 'pending',
+        createdAt: new Date(operation.createdAt).toISOString(),
+        retryCount: operation.retryCount || 0,
+      })) as SyncOperation[];
+      nativeOperations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setOperations(nativeOperations.slice(0, 100));
+      setLocalItems([]);
+      return;
+    }
+    const { db } = await import('../db/db');
     const ops = await db.syncOperations.toArray();
     ops.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     setOperations(ops.slice(0, 100));
@@ -153,6 +170,12 @@ export default function SyncStatus() {
   };
 
   const handleRetryOp = async (op: SyncOperation) => {
+    if (isNativeAndroid()) {
+      await syncService.syncAll();
+      await fetchLocalQueue();
+      return;
+    }
+    const { db } = await import('../db/db');
     await db.syncOperations.update(op.id, {
       status: 'pending',
       nextRetryAt: undefined,
@@ -164,6 +187,8 @@ export default function SyncStatus() {
   };
 
   const handleDeleteOp = async (opId: string) => {
+    if (isNativeAndroid()) return;
+    const { db } = await import('../db/db');
     await db.syncOperations.delete(opId);
     toast.success('تم حذف السجل من طابور العمليات');
     await fetchLocalQueue();
@@ -186,6 +211,8 @@ export default function SyncStatus() {
 
   const handleCancelLocal = async (item: SyncItem) => {
     try {
+      if (isNativeAndroid()) return;
+      const { db } = await import('../db/db');
       await (db as any)[item.table].update(item.id, { syncStatus: 'synced' });
       toast.success('تم إلغاء العملية من الطابور');
       fetchLocalQueue();
@@ -196,6 +223,8 @@ export default function SyncStatus() {
 
   const handleRetryLocal = async (item: SyncItem) => {
     try {
+      if (isNativeAndroid()) return;
+      const { db } = await import('../db/db');
       await (db as any)[item.table].update(item.id, { syncStatus: 'pending' });
       toast.success('تمت إعادة العملية إلى الطابور');
       fetchLocalQueue();
@@ -478,9 +507,11 @@ export default function SyncStatus() {
                                   <RefreshCw className="w-4 h-4" />
                                 </button>
                               )}
-                              <button onClick={() => handleDeleteOp(op.id)} className="text-rose-600 bg-rose-50 p-2 rounded-lg" title="حذف">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {!isNativeAndroid() && (
+                                <button onClick={() => handleDeleteOp(op.id)} className="text-rose-600 bg-rose-50 p-2 rounded-lg" title="حذف">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
