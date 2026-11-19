@@ -77,7 +77,11 @@ async function commitNativeInventoryChanges(
       String(movement.record.movementKey),
       compare,
     );
-    if (result.skipped) return;
+    if (result.skipped) {
+      throw new Error(compare
+        ? 'تغير رصيد الصنف أثناء تنفيذ حركة المخزون؛ أعد تحميل البيانات ثم أعد المحاولة'
+        : 'حركة المخزون مسجلة بالتزامن؛ أوقف العملية لمنع حفظها دون أثر مخزني');
+    }
     if (result.applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
     return;
   }
