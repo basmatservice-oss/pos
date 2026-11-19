@@ -2431,7 +2431,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
           const account = accounts.get(line.accountCode);
           const updatedAccount = {
             ...account,
-            balance: roundMoney(Number(account.balance || 0) + line.debit - line.credit),
+            balance: roundMoney(Number(account.balance || 0) + ((account.type === 'asset' || account.type === 'expense') ? line.debit - line.credit : line.credit - line.debit)),
             updatedAt: now,
           };
           accounts.set(line.accountCode, updatedAccount);
