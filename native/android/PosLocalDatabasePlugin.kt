@@ -142,15 +142,24 @@ class PosLocalDatabasePlugin : Plugin() {
         val ifAbsentRecordId = call.getString("ifAbsentRecordId")?.trim()
         val ifAbsentField = call.getString("ifAbsentField")?.trim()
         val ifAbsentValue = call.getString("ifAbsentValue")
+        val ifMatchEntity = call.getString("ifMatchEntity")?.trim()
+        val ifMatchRecordId = call.getString("ifMatchRecordId")?.trim()
+        val ifMatchField = call.getString("ifMatchField")?.trim()
+        val ifMatchValue = call.getString("ifMatchValue")
         val hasRecordGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()
         val hasFieldGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentField.isNullOrBlank() && ifAbsentValue != null
+        val hasMatchGuard = !ifMatchEntity.isNullOrBlank() && !ifMatchRecordId.isNullOrBlank() &&
+            !ifMatchField.isNullOrBlank() && ifMatchValue != null
+        val hasAnyMatchInput = ifMatchEntity != null || ifMatchRecordId != null || ifMatchField != null || ifMatchValue != null
         if ((ifAbsentRecordId != null && (ifAbsentEntity.isNullOrBlank() || ifAbsentRecordId.isBlank())) ||
             ((ifAbsentField == null) != (ifAbsentValue == null)) ||
             (ifAbsentField != null && (ifAbsentField.isBlank() || ifAbsentEntity.isNullOrBlank())) ||
             (hasRecordGuard && ifAbsentField != null) ||
             (ifAbsentEntity != null && ifAbsentEntity.isBlank()) ||
             (ifAbsentEntity != null && !hasRecordGuard && !hasFieldGuard) ||
-            (ifAbsentEntity == null && (ifAbsentRecordId != null || ifAbsentField != null || ifAbsentValue != null))) {
+            (ifAbsentEntity == null && (ifAbsentRecordId != null || ifAbsentField != null || ifAbsentValue != null)) ||
+            (hasAnyMatchInput && !hasMatchGuard) ||
+            (hasMatchGuard && (hasRecordGuard || hasFieldGuard || ifAbsentEntity != null))) {
             call.reject("شرط منع التكرار غير مكتمل أو يجمع نوعين من الشروط")
             return
         }
@@ -211,6 +220,20 @@ class PosLocalDatabasePlugin : Plugin() {
                                 record.opt(ifAbsentField!!).toString() == ifAbsentValue) {
                                 skipped = true
                             }
+                        }
+                    }
+                } else if (hasMatchGuard) {
+                    db.query(
+                        "pos_records", arrayOf("json"),
+                        "entity = ? AND record_id = ?", arrayOf(ifMatchEntity, ifMatchRecordId),
+                        null, null, null, "1"
+                    ).use { cursor ->
+                        if (!cursor.moveToFirst()) {
+                            skipped = true
+                        } else {
+                            val record = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { null }
+                            if (record == null || record.opt(ifMatchField!!) == null ||
+                                record.opt(ifMatchField!!).toString() != ifMatchValue) skipped = true
                         }
                     }
                 }
