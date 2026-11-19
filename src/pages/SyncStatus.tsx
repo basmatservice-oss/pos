@@ -111,10 +111,12 @@ export default function SyncStatus() {
       const queued = await listNativePendingPosOperations();
       const nativeOperations = queued.map((operation: any) => ({
         id: operation.operationId,
-        type: operation.type,
+        type: operation.type as SyncOperation['type'],
         payload: operation.payload,
+        deviceId: operation.deviceId || 'android',
         status: 'pending',
         createdAt: new Date(operation.createdAt).toISOString(),
+        updatedAt: new Date(operation.createdAt).toISOString(),
         retryCount: operation.retryCount || 0,
       })) as SyncOperation[];
       nativeOperations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
