@@ -427,6 +427,10 @@ export const syncService = {
       try {
         if (String(oldKey) !== String(newKey)) await table.delete(oldKey);
         await table.put(merged);
+      } catch (cacheError) {
+        // SQLite has already committed the acknowledged server state. A
+        // compatibility-cache failure must not enqueue the same push again.
+        console.warn('Android Dexie cache reconciliation deferred to SQLite restore:', tableName, cacheError);
       } finally {
         (globalThis as any).__posApplyingOperation = previous;
       }
