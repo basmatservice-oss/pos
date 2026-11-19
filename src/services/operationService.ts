@@ -2029,40 +2029,63 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     let totalReturn = 0;
     let processedItems = 0;
     for (const reqItem of items) {
-      const qty = roundQty(Number(reqItem.quantity || 0));
-      if (qty <= 0) continue;
+      const qty = roundQty(Number(reqItem.quantity));
       const productId = Number(reqItem.productId);
-      const batch = reqItem.batchId
-        ? batchMap.get(String(reqItem.batchId))
-        : [...batchMap.values()].find((entry: any) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) >= qty)
-          || [...batchMap.values()].find((entry: any) => Number(entry.productId) === productId);
+      if (!Number.isFinite(qty) || qty <= 0 || !Number.isSafeInteger(productId) || productId <= 0) {
+        throw new Error('يحتوي مرتجع المشتريات على صنف أو كمية غير صالحة');
+      }
+      const product = productMap.get(productId);
+      if (!product) throw new Error('الصنف المرتجع غير موجود في SQLite: ' + String(productId));
+      const purchasedBase = purchasedBaseByProduct.get(productId) || 0;
+      const alreadyReturnedBase = returnedBaseByProduct.get(productId) || 0;
+      if (roundQty(alreadyReturnedBase + qty) > purchasedBase + 0.0001) {
+        throw new Error('كمية المرتجع تتجاوز الكمية المشتراة المتبقية للصنف ' + String(reqItem.productName || productId));
+      }
+      let batch: any;
+      if (reqItem.batchId !== undefined && reqItem.batchId !== null && String(reqItem.batchId).trim()) {
+        batch = batchMap.get(String(reqItem.batchId));
+        if (!batch || String(batch.purchaseId) !== String(originalPurchaseId) || Number(batch.productId) !== productId) {
+          throw new Error('الدفعة المحددة لا تتبع الصنف أو فاتورة الشراء الأصلية');
+        }
+      } else {
+        const productPurchaseBatches = [...batchMap.values()].filter((entry: any) =>
+          Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId));
+        batch = productPurchaseBatches.find((entry: any) => Number(entry.remainingQuantity || 0) >= qty);
+        if (!batch && productPurchaseBatches.length) {
+          throw new Error('لا توجد كمية متبقية كافية في دفعات فاتورة الشراء المحددة');
+        }
+      }
       if (batch) {
         const remaining = Number(batch.remainingQuantity || 0);
-        if (remaining < qty) throw new Error('الكمية المتبقية في الدفعة أقل من كمية مرتجع المشتريات');
+        const previouslyReturnedFromBatch = returnedBaseByBatch.get(String(batch.id)) || 0;
+        if (!Number.isFinite(remaining) || remaining < qty || qty + previouslyReturnedFromBatch > Number(batch.quantity || 0) + 0.0001) {
+          throw new Error('الكمية المتبقية في الدفعة أقل من كمية مرتجع المشتريات');
+        }
         const updatedBatch = { ...batch, remainingQuantity: roundQty(remaining - qty), updatedAt: now, syncStatus };
         batchMap.set(String(batch.id), updatedBatch);
         changes.push({ action: 'put', entity: 'inventoryBatches', record: updatedBatch, syncState: syncStatus });
+        returnedBaseByBatch.set(String(batch.id), roundQty(previouslyReturnedFromBatch + qty));
       }
-      const product = productMap.get(productId);
-      if (!batch && (!product || Number(product.stockQuantity || 0) < qty)) {
+      const currentStock = Number(product.stockQuantity || 0);
+      if (!Number.isFinite(currentStock) || currentStock < qty) {
         throw new Error('المخزون المتاح لا يكفي لإرجاع المنتج ' + String(reqItem.productName || productId));
       }
-      if (product) {
-        const effectiveBatches = new Map<string, any>(allBatches.map((entry: any) => [String(entry.id), entry]));
-        for (const [batchId, updatedBatch] of batchMap) effectiveBatches.set(batchId, updatedBatch);
-        const activeBatches = [...effectiveBatches.values()].filter((entry: any) =>
-          Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
-        const activeQty = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0), 0);
-        const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
-        const updatedProduct = {
-          ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
-          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
-          updatedAt: now, syncStatus,
-        };
-        productMap.set(productId, updatedProduct);
-        changes.push({ action: 'put', entity: 'products', record: updatedProduct, syncState: syncStatus });
-      }
+      const effectiveBatches = new Map<string, any>(allBatches.map((entry: any) => [String(entry.id), entry]));
+      for (const [batchId, updatedBatch] of batchMap) effectiveBatches.set(batchId, updatedBatch);
+      const activeBatches = [...effectiveBatches.values()].filter((entry: any) =>
+        Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
+      const activeQty = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0), 0);
+      const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
+      const updatedProduct = {
+        ...product, stockQuantity: roundQty(currentStock - qty),
+        ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
+        updatedAt: now, syncStatus,
+      };
+      productMap.set(productId, updatedProduct);
+      changes.push({ action: 'put', entity: 'products', record: updatedProduct, syncState: syncStatus });
+      returnedBaseByProduct.set(productId, roundQty(alreadyReturnedBase + qty));
       const cost = Number(reqItem.costPrice ?? batch?.costPrice ?? 0);
+      if (!Number.isFinite(cost) || cost < 0) throw new Error('تكلفة الصنف في مرتجع المشتريات غير صالحة');
       const lineTotal = roundMoney(qty * cost);
       totalReturn = roundMoney(totalReturn + lineTotal);
       const itemDoc: any = {
