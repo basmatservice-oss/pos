@@ -192,7 +192,7 @@ export async function consumeLocalInventoryFIFO(
       const costPrice = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
       changes.push({
         action: 'put', entity: 'inventoryBatches',
-        record: { ...batch, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
+        record: { ...batch, ...(weightedAverage ? { costPrice: roundMoney(weightedUnitCost) } : {}),
           remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: params.createdAt,
           syncStatus: params.syncStatus || 'pending' },
         syncState: params.syncStatus || row.syncState,
@@ -461,7 +461,7 @@ export async function restoreLocalInventoryFIFO(params: {
         : undefined;
       changes.push({
         action: 'put', entity: 'products',
-        record: { ...product, ...(weightedCost !== undefined ? { costPrice: weightedCost } : {}),
+        record: { ...product, ...(weightedCost !== undefined ? { costPrice: roundMoney(weightedCost) } : {}),
           stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
           updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
         syncState: params.syncStatus || productRow.syncState,
