@@ -676,7 +676,10 @@ class PosLocalDatabasePlugin : Plugin() {
                     val recordId = change.optString("recordId")
                     if (entity.isBlank() || recordId.isBlank()) throw IllegalArgumentException("Invalid snapshot change at index $index")
                     if (action == "delete") {
-                        applied += db.delete("pos_records", "entity = ? AND record_id = ?", arrayOf(entity, recordId))
+                        db.delete("pos_records", "entity = ? AND record_id = ?", arrayOf(entity, recordId))
+                        // Count successfully processed changes, not affected rows:
+                        // deleting an already-absent key is still an applied snapshot instruction.
+                        applied++
                     } else if (action == "put") {
                         val record = change.optJSONObject("record") ?: throw IllegalArgumentException("Missing snapshot record at index $index")
                         val state = change.optString("syncState", "local")
@@ -702,7 +705,11 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("payload", payload.toString()); put("device_id", operation.optString("deviceId", ""))
                         put("tenant_id", operation.optString("tenantId", "")); put("branch_id", operation.optString("branchId", ""))
                         put("actor", operation.optString("actor", "")); put("schema_version", operation.optInt("schemaVersion", 1).coerceAtLeast(1))
-                        put("created_at", operation.optLong("createdAt", now)); put("status", "pending")
+                        put("created_at", operation.optLong("createdAt", now).coerceAtLeast(0L))
+                        put("retry_count", operation.optInt("retryCount", 0).coerceAtLeast(0))
+                        val nextRetryAt = operation.optLong("nextRetryAt", 0L)
+                        if (nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
+                        put("status", "pending")
                     }
                     db.insertOrThrow("pos_outbox", null, values)
                     val recordValues = ContentValues().apply {
