@@ -1483,6 +1483,148 @@ async function applyPurchaseLocally(
     return;
   }
 
+
+  if (isNativeAndroid() && type === 'purchase_delete') {
+    const purchaseId = String(payload?.id || '');
+    if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
+    const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
+    if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
+    const [returns, oldItems, oldBatches, allBatches, allProducts, suppliers, movements, journals, transactions, accounts] = await Promise.all([
+      nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
+      nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
+      nativePosRepository.getAll<any>('inventoryBatches'),
+      nativePosRepository.getAll<any>('products'),
+      nativePosRepository.getAll<any>('suppliers'),
+      nativePosRepository.getAll<any>('inventoryMovements'),
+      nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
+      nativePosRepository.getAll<any>('transactions'),
+      nativePosRepository.getAll<any>('accounts'),
+    ]);
+    if (returns.length) throw new Error('لا يمكن حذف فاتورة شراء لها مرتجعات مسجلة');
+    if (oldBatches.some((batch: any) => Number(batch.remainingQuantity || 0) < Number(batch.quantity || 0))) {
+      throw new Error('لا يمكن حذف فاتورة شراء تم بيع جزء من مخزونها؛ استخدم مرتجع المشتريات');
+    }
+    const now = new Date().toISOString();
+    const operationId = String(payload.operationId || oldPurchase.operationId || purchaseId);
+    const productMap = new Map<number, any>(allProducts.map((x: any) => [Number(x.id), x]));
+    const supplierMap = new Map<string, any>(suppliers.map((x: any) => [String(x.id), x]));
+    const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
+    const changes: any[] = [];
+    const cacheChanges: any[] = [];
+    for (const item of oldItems) {
+      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor) : 1;
+      const baseQty = roundQty(Number(item.quantity || 0) * factor);
+      const product = productMap.get(Number(item.productId));
+      if (product) {
+        const updated = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) - baseQty), updatedAt: now, syncStatus };
+        productMap.set(Number(item.productId), updated);
+        changes.push({ action: 'put', entity: 'products', record: updated, syncState: syncStatus });
+        cacheChanges.push({ entity: 'products', record: updated });
+      }
+      const movement = {
+        id: generateUUID(),
+        movementKey: 'purchase_reversal:' + purchaseId + ':' + operationId + ':out:' + String(item.productId) + ':' + String(oldItems.indexOf(item)),
+        productId: Number(item.productId), movementType: 'purchase_reversal', sourceType: 'purchase', sourceId: purchaseId,
+        quantityDeltaBase: -baseQty, unitCost: Number(item.landedCostPerBaseUnit || item.costPrice || 0),
+        totalCost: roundMoney(baseQty * Number(item.landedCostPerBaseUnit || item.costPrice || 0)),
+        branchId: oldPurchase.branchId, operationId, reason: 'عكس فاتورة مشتريات', createdBy: payload.createdBy,
+        createdAt: now, syncStatus,
+      };
+      changes.push({ action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus });
+      cacheChanges.push({ entity: 'inventoryMovements', record: movement });
+    }
+    for (const productId of new Set(oldItems.map((x: any) => Number(x.productId)))) {
+      const product = productMap.get(productId);
+      if (!product) continue;
+      const active = allBatches.filter((batch: any) => Number(batch.productId) === productId &&
+        !oldBatches.some((old: any) => String(old.id) === String(batch.id)) && Number(batch.remainingQuantity || 0) > 0);
+      const qty = active.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
+      const value = active.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+      const updated = { ...product, ...(qty > 0 ? { costPrice: roundMoney(value / qty) } : {}), updatedAt: now, syncStatus };
+      productMap.set(productId, updated);
+      changes.push({ action: 'put', entity: 'products', record: updated, syncState: syncStatus });
+      cacheChanges.push({ entity: 'products', record: updated });
+    }
+    const supplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
+    const oldRemaining = roundMoney(Number(oldPurchase.totalAmount || 0) - Number(oldPurchase.paidAmount || 0));
+    if (supplier && oldRemaining > 0) {
+      const updated = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - oldRemaining), updatedAt: now, syncStatus };
+      changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
+      cacheChanges.push({ entity: 'suppliers', record: updated });
+    }
+    if (shouldPostLocalAccounting(syncStatus)) {
+      const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+      for (const entry of journals) {
+        if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
+        const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+        if (!lines.length) continue;
+        const reversalId = 'local-je:' + String(entry.referenceType || 'purchase') + ':' + purchaseId + ':reversal-' + String(entry.id);
+        if (journals.some((x: any) => String(x.id) === reversalId)) continue;
+        const reversalLines = lines.map((line: any) => ({
+          accountCode: String(line.accountId), debit: roundMoney(Number(line.credit || 0)),
+          credit: roundMoney(Number(line.debit || 0)), description: 'عكس: ' + String(line.description || entry.description) + ' (حذف فاتورة مشتريات)',
+          purchaseId: line.purchaseId, returnId: line.returnId,
+        })).filter((line: any) => line.debit > 0 || line.credit > 0);
+        const debit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+        const credit = roundMoney(reversalLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+        if (Math.abs(debit - credit) > 0.02) throw new Error('قيد عكسي غير متوازن');
+        const reversal = { id: reversalId, entryNumber: 'LOCAL-reversal-' + String(entry.id).slice(-16),
+          date: now, referenceId: purchaseId, referenceType: entry.referenceType || 'purchase',
+          description: 'قيد عكسي - ' + String(entry.description) + ' (حذف فاتورة مشتريات)',
+          totalDebit: debit, totalCredit: credit, status: 'posted', createdBy: payload.createdBy || 'System',
+          branchId: entry.branchId, syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now };
+        changes.push({ action: 'put', entity: 'journalEntries', record: reversal, syncState: reversal.syncStatus });
+        cacheChanges.push({ entity: 'journalEntries', record: reversal });
+        reversalLines.forEach((line: any, index: number) => {
+          const code = String(line.accountCode), account = accountMap.get(code);
+          const transaction = { id: reversalId + ':' + String(index), journalEntryId: reversalId, accountId: code,
+            accountName: account?.name || code, type: line.debit > 0 ? 'debit' : 'credit',
+            amount: line.debit > 0 ? line.debit : line.credit, debit: line.debit, credit: line.credit,
+            description: line.description, purchaseId: line.purchaseId, returnId: line.returnId,
+            syncStatus: reversal.syncStatus, createdAt: now };
+          changes.push({ action: 'put', entity: 'transactions', record: transaction, syncState: reversal.syncStatus });
+          cacheChanges.push({ entity: 'transactions', record: transaction });
+          if (account) {
+            const normalDebit = account.type === 'asset' || account.type === 'expense';
+            const updated = { ...account, balance: roundMoney(Number(account.balance || 0) +
+              (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: now };
+            accountMap.set(code, updated);
+          }
+        });
+        changes.push({ action: 'put', entity: 'journalEntries', record: { ...entry, status: 'reversed', reversedEntryId: reversalId }, syncState: syncStatus });
+        cacheChanges.push({ entity: 'journalEntries', record: { ...entry, status: 'reversed', reversedEntryId: reversalId } });
+      }
+      for (const account of accountMap.values()) {
+        if (changes.some((x: any) => x.entity === 'accounts' && String(x.record.code) === String(account.code))) continue;
+        const changedByReversal = transactions.some((line: any) => String(line.accountId) === String(account.code) &&
+          journals.some((entry: any) => String(entry.id) === String(line.journalEntryId) && entry.status === 'posted' && !reversedIds.has(String(entry.id))));
+        if (changedByReversal) {
+          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
+          cacheChanges.push({ entity: 'accounts', record: account });
+        }
+      }
+    }
+    for (const item of oldItems) changes.push({ action: 'delete', entity: 'purchaseItems', key: item.id });
+    for (const batch of oldBatches) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.id });
+    changes.push({ action: 'delete', entity: 'purchases', key: purchaseId });
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
+    await db.transaction('rw', [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches,
+      db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
+      await db.purchases.delete(purchaseId);
+      await db.purchaseItems.where('purchaseId').equals(purchaseId).delete();
+      await db.inventoryBatches.where('purchaseId').equals(purchaseId).delete();
+      for (const item of cacheChanges) await (db as any)[item.entity].put(item.record);
+      for (const movement of changes.filter((x: any) => x.entity === 'inventoryMovements')) await db.inventoryMovements.put(movement.record);
+    });
+    await flushNativeDatabaseMirrorWrites();
+    return;
+  }
+  if (isNativeAndroid() && type === 'purchase_update') {
+    throw new Error('تعديل فاتورة الشراء على Android غير متاح حتى اكتمال ترحيل عكس وإعادة تطبيق الفاتورة إلى SQLite');
+  }
+
   await db.transaction(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.purchaseReturns, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions],
