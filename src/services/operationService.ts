@@ -4221,8 +4221,8 @@ export async function dispatchOperation(
       const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
       if (!lines.length || lines.some((line: any) => {
         const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
-        return !String(line.accountId || '').trim() || !Number.isFinite(debit) || !Number.isFinite(credit) ||
-          debit < 0 || credit < 0 || (debit > 0 && credit > 0);
+        return !String(line.accountId || '').trim() || !accounts.some((account: any) => String(account.code) === String(line.accountId)) ||
+          !Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0 || (debit > 0 && credit > 0);
       })) throw new Error('لا يمكن عكس القيد المحاسبي محليًا؛ تفاصيله ناقصة أو غير صالحة');
       const debit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
       const credit = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0));
@@ -4238,7 +4238,7 @@ export async function dispatchOperation(
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء المطلوب تعديلها غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
     if (!oldPurchase) throw new Error('فاتورة الشراء المطلوب تعديلها غير موجودة في SQLite');
-    const [returns, oldItems, oldBatches, products, suppliers, journals, transactions, allBatches] = await Promise.all([
+    const [returns, oldItems, oldBatches, products, suppliers, journals, transactions, allBatches, accounts] = await Promise.all([
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', purchaseId),
@@ -4247,6 +4247,7 @@ export async function dispatchOperation(
       nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', purchaseId),
       nativePosRepository.getAll<any>('transactions'),
       nativePosRepository.getAll<any>('inventoryBatches'),
+      nativePosRepository.getAll<any>('accounts'),
     ]);
     if (returns.length || Number(oldPurchase.returnedAmount || 0) > 0.0001) {
       throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة؛ لم تُرسل إلى الخادم');
@@ -4313,6 +4314,10 @@ export async function dispatchOperation(
       if (Math.abs(debit - credit) > 0.02 || Math.abs(debit - Number(entry.totalDebit || 0)) > 0.02 ||
           Math.abs(credit - Number(entry.totalCredit || 0)) > 0.02) {
         throw new Error('القيد المحاسبي القديم غير متوازن أو لا تطابق تفاصيله إجمالياته');
+      }
+      const reversalId = 'local-je:' + String(entry.referenceType || 'purchase') + ':' + purchaseId + ':reversal-' + String(entry.id);
+      if (journals.some((candidate: any) => String(candidate.id) === reversalId)) {
+        throw new Error('يوجد قيد عكسي سابق غير مكتمل للفاتورة القديمة؛ أوقف التعديل للمراجعة');
       }
     }
     const newItems = Array.isArray(payload.items) ? payload.items : [];
