@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { apiService, getAuthToken } from './apiService';
 import { useSyncStore } from '../store/syncStore';
-import { isNativeAndroid, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
+import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { mirrorNativePosRecord } from './nativeDatabaseMirror';
 import { nativePosRepository } from '../native/nativePosRepository';
@@ -32,9 +32,15 @@ async function markPushedRecordState(tableName: string, key: any, state: 'pendin
   await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
 }
 async function migrateLegacyAndroidQueueToSQLite() {
-  if (!isNativeAndroid()) return;
+  if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const migrationState = await posLocalDatabase.getMeta({ key: 'legacy_dexie_queue_migrated' });
+  if (migrationState.value === '1') return;
   const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
-  if (!legacy.length) return;
+  if (!legacy.length) {
+    const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
+    if (!completed.saved) throw new Error('تعذر حفظ علامة ترحيل طابور Dexie القديم في SQLite');
+    return;
+  }
   const pending = await listNativePendingPosOperations();
   const pendingIds = new Set(pending.map((operation) => String(operation.operationId)));
   for (const operation of legacy) {
@@ -75,6 +81,8 @@ async function migrateLegacyAndroidQueueToSQLite() {
       status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
     });
   }
+  const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
+  if (!completed.saved) throw new Error('تعذر تأكيد اكتمال ترحيل طابور Dexie القديم إلى SQLite');
 }
 
 export const syncService = {
