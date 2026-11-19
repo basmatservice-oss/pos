@@ -17,6 +17,7 @@ import {
   MonitorSmartphone,
 } from 'lucide-react';
 import { db, SyncOperation, InventoryAlert } from '../db/db';
+import { getPosRecords } from '../services/posDataAccess';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -99,7 +100,7 @@ export default function SyncStatus() {
   };
 
   const fetchAlerts = async () => {
-    const alerts = await db.inventoryAlerts.toArray();
+    const alerts = await getPosRecords<InventoryAlert>('inventoryAlerts');
     alerts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     setInventoryAlerts(alerts);
   };
