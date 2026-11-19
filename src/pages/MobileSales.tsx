@@ -1,4 +1,5 @@
 import { playSuccessSound, playErrorSound, playScanSound } from '../lib/sound';
+import { getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -589,7 +590,7 @@ const MobileSales: React.FC = () => {
           <div
             key={order.id}
             onClick={async () => {
-              const items = await db.orderItems.where('orderId').equals(order.id!).toArray();
+              const items = await getPosRecordsWhereEquals<any>('orderItems', 'orderId', order.id!);
               setCompletedOrder({ order, items });
             }}
             className="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer hover:border-indigo-300"
