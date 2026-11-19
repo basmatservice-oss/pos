@@ -683,8 +683,12 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
       let batchId = allocation.batchId ? String(allocation.batchId) : null;
       if (batchId && batchMap.has(batchId) && Number((batchMap.get(batchId) as any).productId) === Number(productId)) {
         const batch: any = batchMap.get(batchId);
-        const current = Number(batch.remainingQuantity || 0);
-        putBack = roundQty(Math.min(putBack, Math.max(0, Number(batch.quantity || 0) - current)));
+        const current = Number(batch.remainingQuantity || 0), originalQuantity = Number(batch.quantity);
+        if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) ||
+            originalQuantity <= 0 || current > originalQuantity + 0.0001) {
+          throw new Error('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف إلغاء الفاتورة');
+        }
+        putBack = roundQty(Math.min(putBack, Math.max(0, originalQuantity - current)));
         if (putBack <= 1e-6) continue;
         const updated = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: now, syncStatus };
         batchMap.set(batchId, updated); stage('inventoryBatches', updated);
@@ -991,7 +995,8 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         const batch: any = candidateBatch;
         const current = Number(batch.remainingQuantity || 0);
         const originalQuantity = Number(batch.quantity);
-        if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) || originalQuantity < current) {
+        if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) ||
+            originalQuantity <= 0 || current > originalQuantity + 0.0001) {
           throw new Error('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف المرتجع');
         }
         putBack = roundQty(Math.min(putBack, Math.max(0, originalQuantity - current)));
