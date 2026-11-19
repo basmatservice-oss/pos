@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
-import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals, putPosRecord } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { generateUUID } from '../utils/uuid';
 import {
@@ -339,7 +339,7 @@ export default function POS() {
     try {
       const id = generateUUID();
       const label = labelInput?.trim() || `فاتورة معلقة #${heldOrders.length + 1}`;
-      await db.heldOrders.add({
+      await putPosRecord('heldOrders', {
         id,
         label,
         items: items.map((i) => ({ ...i })),
@@ -380,7 +380,7 @@ export default function POS() {
       if (held.orderType) setOrderType(held.orderType);
       if (held.tableNumber) setTableNumber(held.tableNumber);
       setPointsToRedeem(0);
-      await db.heldOrders.delete(held.id);
+      await deletePosRecord('heldOrders', held.id);
       setIsHeldListOpen(false);
       toast.success(`تم استرجاع الفاتورة: ${held.label}`);
     } catch (error) {
@@ -1076,7 +1076,7 @@ export default function POS() {
         variant="danger"
         onConfirm={async () => {
           if (heldDeleteTarget) {
-            await db.heldOrders.delete(heldDeleteTarget.id);
+            await deletePosRecord('heldOrders', heldDeleteTarget.id);
             toast.success('تم حذف الفاتورة المعلقة');
           }
           setHeldDeleteTarget(null);
