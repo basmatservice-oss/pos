@@ -138,6 +138,12 @@ class PosLocalDatabasePlugin : Plugin() {
             call.reject("changes حقل مطلوب")
             return
         }
+        val ifAbsentEntity = call.getString("ifAbsentEntity")?.trim()
+        val ifAbsentRecordId = call.getString("ifAbsentRecordId")?.trim()
+        if ((ifAbsentEntity.isNullOrBlank()) != (ifAbsentRecordId.isNullOrBlank())) {
+            call.reject("شرط منع التكرار يتطلب كيانًا ومعرّف سجل معًا")
+            return
+        }
 
         try {
             class ValidatedChange(val action: String, val entity: String, val recordId: String, val values: ContentValues?)
@@ -175,9 +181,19 @@ class PosLocalDatabasePlugin : Plugin() {
 
             val db = helper.writableDatabase
             var applied = 0
+            var skipped = false
             db.beginTransaction()
             try {
-                for (change in validated) {
+                if (!ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()) {
+                    db.query(
+                        "pos_records", arrayOf("record_id"),
+                        "entity = ? AND record_id = ?", arrayOf(ifAbsentEntity, ifAbsentRecordId),
+                        null, null, null, "1"
+                    ).use { cursor ->
+                        if (cursor.moveToFirst()) skipped = true
+                    }
+                }
+                if (!skipped) for (change in validated) {
                     val action = change.action
                     val entity = change.entity
                     val recordId = change.recordId
@@ -198,7 +214,7 @@ class PosLocalDatabasePlugin : Plugin() {
             } finally {
                 db.endTransaction()
             }
-            call.resolve(JSObject().put("applied", applied).put("count", validated.size))
+            call.resolve(JSObject().put("applied", applied).put("count", validated.size).put("skipped", skipped))
         } catch (error: Exception) {
             call.reject("تعذر تطبيق تغييرات السجلات بصورة ذرية", error)
         }
