@@ -200,6 +200,16 @@ export const syncService = {
         currentOperation = await db.syncOperations.get(queuedOperation.id);
       }
       if (!currentOperation || !['pending', 'error', 'syncing'].includes(currentOperation.status || 'pending')) continue;
+      // Older Android clients may already have a queued purchase_update from
+      // before the SQLite transaction guard was added. Never send it to the
+      // server: local reversal/replacement is not yet atomic in SQLite.
+      if (isNativeOperation && currentOperation.type === 'purchase_update') {
+        await markNativePosOperationConflict(
+          currentOperation.id,
+          'تعديل فاتورة الشراء متوقف على Android حتى اكتمال ترحيله الذري إلى SQLite؛ لم تُرسل العملية إلى الخادم',
+        );
+        continue;
+      }
       const batch = [currentOperation];
       const response = await apiService.executeOperationsBatch(
         batch.map((op) => ({
