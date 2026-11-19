@@ -563,7 +563,7 @@ export const syncService = {
             .count();
 
       const pullTasks: Array<{
-        table: any;
+        entity: string;
         api: () => Promise<any>;
         preserveLocalAuth?: boolean;
         excludeKeys?: string[];
@@ -606,7 +606,8 @@ export const syncService = {
             return allMovements;
           },
           authoritativeReplaceSynced: true,
-        },        { entity: 'inventoryAlerts', api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
+        },
+        { entity: 'inventoryAlerts', api: () => apiService.getInventoryAlerts(), noSyncStatus: true },
         { entity: 'loyaltyTransactions', api: () => apiService.getLoyaltyTransactions() },
         { entity: 'purchases', api: () => apiService.getPurchases() },
         { entity: 'purchaseItems', api: () => apiService.getPurchaseItems(), authoritativeReplaceSynced: true },
