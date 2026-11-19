@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
-import { db, Order, OrderItem, Customer, HeldOrder } from '../db/db';
+import type { Order, OrderItem, Customer, HeldOrder } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
