@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getPosRecords } from '../services/posDataAccess';
+import { getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Download } from 'lucide-react';
 import { Upload } from 'lucide-react';
@@ -547,7 +547,7 @@ const Settings: React.FC = () => {
         source: 'manual',
         notes: newFxNotes || undefined,
       });
-      await db.exchangeRateHistory.put({ ...saved, syncStatus: 'synced' } as ExchangeRateRecord);
+      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as ExchangeRateRecord);
       if ((newFxCurrency.trim().toUpperCase() || 'USD') === 'USD') {
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
@@ -575,7 +575,7 @@ const Settings: React.FC = () => {
         startDate: newPeriodStart,
         endDate: newPeriodEnd,
       });
-      await db.fiscalPeriods.put({ ...saved, syncStatus: 'synced' } as FiscalPeriod);
+      await putPosRecord('fiscalPeriods', { ...saved, syncStatus: 'synced' } as FiscalPeriod);
       setNewPeriodName('');
       setNewPeriodStart('');
       setNewPeriodEnd('');
@@ -594,7 +594,7 @@ const Settings: React.FC = () => {
         action === 'close'
           ? await apiService.closeFiscalPeriod(period.id)
           : await apiService.reopenFiscalPeriod(period.id);
-      await db.fiscalPeriods.put({ ...updated, syncStatus: 'synced' } as FiscalPeriod);
+      await putPosRecord('fiscalPeriods', { ...updated, syncStatus: 'synced' } as FiscalPeriod);
       toast.success(action === 'close' ? 'تم إغلاق الفترة المالية' : 'تم إعادة فتح الفترة المالية');
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'تعذر تنفيذ الإجراء على الفترة المالية');
