@@ -977,7 +977,6 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     returnedAmount: Math.min(roundMoney((origOrder.returnedAmount || 0) + totalRefund), roundMoney(Number(origOrder.netAmount || 0))),
     updatedAt: now, syncStatus });
   if (origOrder.customerId && effectiveRefundMethod === 'credit_adjustment') {
-    const customerRecord: any = customer;
     if (customer) stage('customers', { ...customer, balance: roundMoney((customer.balance || 0) - totalRefund), updatedAt: now, syncStatus });
   }
   stage('returns', { id, returnNumber, originalOrderId, originalReceiptNumber: origOrder.receiptNumber,
