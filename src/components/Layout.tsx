@@ -190,7 +190,7 @@ export default function Layout() {
             ...employee,
             mustChangePassword: false,
             syncStatus: 'synced',
-          }).catch(() => {});
+          }, 'synced').catch(() => {});
         }
       }
       updateCurrentUser({ mustChangePassword: false });
