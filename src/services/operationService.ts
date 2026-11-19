@@ -1920,10 +1920,6 @@ async function applyPurchaseLocally(
     await flushNativeDatabaseMirrorWrites();
     return;
   }
-  if (isNativeAndroid() && type === 'purchase_update') {
-    throw new Error('تعديل فاتورة الشراء على Android غير متاح حتى اكتمال ترحيل عكس وإعادة تطبيق الفاتورة إلى SQLite');
-  }
-
   await db.transaction(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.purchaseReturns, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions],
@@ -4109,13 +4105,6 @@ export async function dispatchOperation(
   const operationId = payload?.operationId || generateUUID();
   const deviceId = getDeviceId();
   const role = await getDeviceRole();
-  // Do not let Android submit a purchase update to the server until its full
-  // reversal-and-replacement transaction is implemented atomically in SQLite.
-  // The previous guard ran only during local application, after a server could
-  // already have committed the update and left the device cache stale.
-  if (isNativeAndroid() && type === 'purchase_update') {
-    throw new Error('تعديل فاتورة الشراء على Android متوقف مؤقتًا لحماية تطابق الخادم وSQLite حتى اكتمال الترحيل الذري');
-  }
   // Validate Android purchase deletion against the authoritative local SQLite state
   // before any server request can delete the invoice remotely.
   if (isNativeAndroid() && type === 'purchase_delete') {
