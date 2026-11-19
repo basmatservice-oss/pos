@@ -13,8 +13,8 @@ import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
-import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
-import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+import { applyNativePosRecordChangesIfAbsent, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
+import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
 // operation module; native Android operations use SQLite repositories only.
@@ -846,6 +846,9 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     nativePosRepository.whereEquals<any>('orderItems', 'orderId', originalOrderId),
   ]);
   if (existingReturn) return;
+  if (id === undefined || id === null || String(id).trim() === '' || !Array.isArray(items) || !items.length) {
+    throw new Error('بيانات مرتجع المبيعات غير مكتملة');
+  }
   if (!origOrder || origOrder.status === 'void') throw new Error('لا يمكن إرجاع فاتورة غير موجودة أو ملغاة');
   const changes = new Map<string, any>();
   const stage = (entity: string, record: any) => {
@@ -884,16 +887,29 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const restore = (productId: number, quantity: number, allocations: any[], fallbackCost: number, suffix: string) => {
     const qtyToRestore = roundQty(quantity);
     if (qtyToRestore <= 0) return 0;
+    const product: any = productMap.get(Number(productId));
+    if (!product) throw new Error('الصنف ' + productId + ' غير موجود في SQLite؛ أُوقف المرتجع لحماية المخزون');
+    if (!Number.isFinite(fallbackCost) || fallbackCost < 0 || !Array.isArray(allocations) ||
+        allocations.some((allocation: any) => !allocation || !Number.isFinite(Number(allocation.quantity)) ||
+          Number(allocation.quantity) < 0 || !Number.isFinite(Number(allocation.costPrice ?? fallbackCost)) ||
+          Number(allocation.costPrice ?? fallbackCost) < 0)) {
+      throw new Error('تخصيصات دفعات أو تكاليف مرتجع المبيعات غير صالحة');
+    }
     let remaining = qtyToRestore, totalCost = 0;
     for (let i = allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
       const allocation = allocations[i];
       if (!allocation || Number(allocation.quantity) <= 0) continue;
       let putBack = roundQty(Math.min(remaining, Number(allocation.quantity)));
       const allocationCost = Number(allocation.costPrice ?? fallbackCost);
-      if (allocation.batchId && batchMap.has(String(allocation.batchId))) {
-        const batch: any = batchMap.get(String(allocation.batchId));
+      const candidateBatch: any = allocation.batchId ? batchMap.get(String(allocation.batchId)) : null;
+      if (candidateBatch && Number(candidateBatch.productId) === Number(productId)) {
+        const batch: any = candidateBatch;
         const current = Number(batch.remainingQuantity || 0);
-        putBack = roundQty(Math.min(putBack, Math.max(0, Number(batch.quantity) - current)));
+        const originalQuantity = Number(batch.quantity);
+        if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) || originalQuantity < current) {
+          throw new Error('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف المرتجع');
+        }
+        putBack = roundQty(Math.min(putBack, Math.max(0, originalQuantity - current)));
         if (putBack <= 1e-6) continue;
         const updated = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: effectiveReturnDate, syncStatus };
         batchMap.set(String(updated.id), updated); stage('inventoryBatches', updated);
@@ -915,11 +931,8 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       batchMap.set(batchId, created); stage('inventoryBatches', created);
       totalCost += remaining * fallbackCost;
     }
-    const product: any = productMap.get(Number(productId));
-    if (product) {
-      const updated = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: effectiveReturnDate, syncStatus };
-      productMap.set(Number(productId), updated); stage('products', updated);
-    }
+    const updatedProduct = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: effectiveReturnDate, syncStatus };
+    productMap.set(Number(productId), updatedProduct); stage('products', updatedProduct);
     const movementKey = 'return:' + String(id) + ':in:' + String(productId) + ':' + suffix;
     if (!movements.some((x: any) => x.movementKey === movementKey)) {
       const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
@@ -941,9 +954,14 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         || origItems.find((x: any) => Number(x.productId) === Number(reqItem.productId));
     if (!origItem) throw new Error('الصنف غير موجود في الفاتورة الأصلية: ' + String(reqItem.productName || reqItem.productId));
     const qty = requestedQuantity;
-    if (qty > roundQty(Number(origItem.quantity || 0) - Number(origItem.returnedQuantity || 0)) + 1e-6)
+    const originalQuantity = Number(origItem.quantity);
+    const factor = Number(origItem.conversionFactor ?? 1);
+    if (!Number.isFinite(originalQuantity) || originalQuantity <= 0 || !Number.isFinite(factor) || factor <= 0) {
+      throw new Error('بيانات كمية أو معامل تحويل الصنف الأصلي غير صالحة');
+    }
+    if (qty > roundQty(originalQuantity - Number(origItem.returnedQuantity || 0)) + 1e-6)
       throw new Error('الكمية المرتجعة تتجاوز الكمية المتبقية القابلة للإرجاع للمنتج ' + origItem.productName);
-    const ratio = qty / Number(origItem.quantity);
+    const ratio = qty / originalQuantity;
     const lineSub = roundMoney(Number(origItem.subTotal) * ratio), lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
     const lineTotal = roundMoney(Number(origItem.total) * ratio);
     const lineDiscount = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
@@ -1068,9 +1086,24 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       { accountCode: '5100', debit: 0, credit: totalDamagedCostReversed, orderId: originalOrderId, returnId: id },
     ]);
   }
-  const nativeChanges = [...changes.values()];
-  const applied = await nativePosRepository.applyChanges(nativeChanges);
-  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المبيعات');
+  const stagedChanges = [...changes.values()];
+  const nativeChanges = stagedChanges.map((change: any) => change.action === 'delete'
+    ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
+    : {
+        action: 'put' as const,
+        entity: change.entity,
+        recordId: getNativePosRecordId(change.entity, change.record),
+        record: change.record,
+        syncState: change.syncState || 'local',
+      });
+  const committed = await applyNativePosRecordChangesIfAbsent(
+    nativeChanges,
+    'returns',
+    JSON.stringify(id),
+  );
+  if (!committed.skipped && committed.applied !== nativeChanges.length) {
+    throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المبيعات');
+  }
   // SQLite has committed the complete return transaction; no Dexie mirror write is needed.
 }
 
