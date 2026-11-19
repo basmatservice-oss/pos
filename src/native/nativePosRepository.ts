@@ -189,7 +189,6 @@ export const nativePosRepository = {
     assertEntity(entity);
     const entry: PosLocalRecord = { entity, recordId: recordIdFor(entity, record), record, syncState };
     if (!(await putNativePosRecord(entry))) throw new Error(`SQLite did not confirm saving ${entity}`);
-    notifyNativeEntityChanges([entity]);
   },
 
   async putMany(
@@ -203,7 +202,6 @@ export const nativePosRepository = {
       entity, recordId: recordIdFor(entity, record), record, syncState,
     }));
     if (!(await putNativePosRecords(entries))) throw new Error(`SQLite did not confirm saving all ${entity} records`);
-    if (entries.length) notifyNativeEntityChanges([entity]);
   },
 
   async applyChanges(changes: Array<
@@ -225,7 +223,6 @@ export const nativePosRepository = {
       };
     });
     const applied = await applyNativePosRecordChanges(nativeChanges);
-    if (applied > 0) notifyNativeEntityChanges(nativeChanges.map((change) => change.entity));
     return applied;
   },
 
@@ -233,7 +230,6 @@ export const nativePosRepository = {
     requireAndroid();
     assertEntity(entity);
     const deleted = await deleteNativePosRecord(entity, serializeKey(key));
-    if (deleted) notifyNativeEntityChanges([entity]);
     return deleted;
   },
 
@@ -241,7 +237,6 @@ export const nativePosRepository = {
     requireAndroid();
     assertEntity(entity);
     const deleted = await deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
-    if (deleted > 0) notifyNativeEntityChanges([entity]);
     return deleted;
   },
 
