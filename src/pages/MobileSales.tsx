@@ -1,4 +1,5 @@
 import { playSuccessSound, playErrorSound, playScanSound } from '../lib/sound';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -64,24 +65,23 @@ const MobileSales: React.FC = () => {
 
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
-  const products =
-    useLiveQuery(async () => {
-      if (selectedCategory === 'all') {
-        return await db.products.toArray();
-      }
-      const categoryId = parseInt(selectedCategory, 10);
-      if (isNaN(categoryId)) return [];
-      return await db.products.where('categoryId').equals(categoryId).toArray();
-    }, [selectedCategory]) || [];
+  const allProducts = usePosEntityRecords<any>('products');
+  const products = useMemo(() => {
+    if (selectedCategory === 'all') return allProducts;
+    const categoryId = parseInt(selectedCategory, 10);
+    return Number.isNaN(categoryId) ? [] : allProducts.filter((product) => product.categoryId === categoryId);
+  }, [allProducts, selectedCategory]);
 
   const categories = usePosEntityRecords<any>('categories');
   const customers = usePosEntityRecords<any>('customers');
   const allOffers = usePosEntityRecords<any>('offers');
-  const currentShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
-  const myOrders =
-    useLiveQuery(() => db.orders.where('createdBy').equals(user?.name || '').reverse().toArray()) || [];
+  const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
+  const allOrders = usePosEntityRecords<any>('orders');
+  const myOrders = useMemo(() => allOrders
+    .filter((order) => order.createdBy === (user?.name || ''))
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()), [allOrders, user?.name]);
 
-  const openSession = useLiveQuery(() => db.stocktakingSessions.where('status').equals('open').first());
+  const openSession = usePosFirstRecordWhereEquals<any>('stocktakingSessions', 'status', 'open');
 
   const now = new Date();
   const offers = allOffers.filter(
