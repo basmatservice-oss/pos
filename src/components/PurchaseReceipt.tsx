@@ -1,6 +1,6 @@
 import { forwardRef } from 'react';
 import { formatAmount } from '../utils/numberFormat.js';
-import { Purchase, PurchaseItem } from '../db/db';
+import type { Purchase, PurchaseItem } from '../db/db';
 import { format } from 'date-fns';
 
 interface PurchaseReceiptProps {
