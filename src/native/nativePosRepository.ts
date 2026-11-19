@@ -91,6 +91,13 @@ function recordIdForKey(_entity: NativePosEntity, key: unknown): string {
   return serializeKey(key);
 }
 
+function notifyNativeEntityChanges(entities: Iterable<NativePosEntity>): void {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  const changed = Array.from(new Set(entities));
+  if (!changed.length) return;
+  window.dispatchEvent(new CustomEvent('pos-native-records-changed', { detail: { entities: changed } }));
+}
+
 function requireAndroid(): void {
   if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
 }
@@ -182,6 +189,7 @@ export const nativePosRepository = {
     assertEntity(entity);
     const entry: PosLocalRecord = { entity, recordId: recordIdFor(entity, record), record, syncState };
     if (!(await putNativePosRecord(entry))) throw new Error(`SQLite did not confirm saving ${entity}`);
+    notifyNativeEntityChanges([entity]);
   },
 
   async putMany(
@@ -195,6 +203,7 @@ export const nativePosRepository = {
       entity, recordId: recordIdFor(entity, record), record, syncState,
     }));
     if (!(await putNativePosRecords(entries))) throw new Error(`SQLite did not confirm saving all ${entity} records`);
+    if (entries.length) notifyNativeEntityChanges([entity]);
   },
 
   async applyChanges(changes: Array<
@@ -215,19 +224,25 @@ export const nativePosRepository = {
         syncState: change.syncState ?? 'local',
       };
     });
-    return applyNativePosRecordChanges(nativeChanges);
+    const applied = await applyNativePosRecordChanges(nativeChanges);
+    if (applied > 0) notifyNativeEntityChanges(nativeChanges.map((change) => change.entity));
+    return applied;
   },
 
   async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
     requireAndroid();
     assertEntity(entity);
-    return deleteNativePosRecord(entity, serializeKey(key));
+    const deleted = await deleteNativePosRecord(entity, serializeKey(key));
+    if (deleted) notifyNativeEntityChanges([entity]);
+    return deleted;
   },
 
   async deleteMany(entity: NativePosEntity, keys: unknown[]): Promise<number> {
     requireAndroid();
     assertEntity(entity);
-    return deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
+    const deleted = await deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
+    if (deleted > 0) notifyNativeEntityChanges([entity]);
+    return deleted;
   },
 
   async setSyncState(
@@ -240,5 +255,6 @@ export const nativePosRepository = {
     if (!(await updateNativePosRecordSyncState(entity, serializeKey(key), syncState))) {
       throw new Error(`SQLite did not confirm sync-state update for ${entity}`);
     }
+    notifyNativeEntityChanges([entity]);
   },
 };
