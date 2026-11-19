@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Search,
@@ -48,7 +49,7 @@ export default function Customers() {
   const allOrders = usePosEntityRecords<any>('orders');
   const allReturns = usePosEntityRecords<any>('returns');
   const allPayments = usePosEntityRecords<any>('customerPayments');
-  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const openShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
   const customers = useMemo(() => {
     if (!searchQuery) return allCustomers;
