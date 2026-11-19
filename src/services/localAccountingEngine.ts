@@ -307,6 +307,98 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
 }
 
 export async function reverseLocalJournalEntriesByReference(referenceId: string, reason: string, createdBy?: string): Promise<void> {
+  if (isNativeAndroid()) {
+    const [entries, transactions, accountRows] = await Promise.all([
+      nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId),
+      nativePosRepository.getAll<any>('transactions'),
+      nativePosRepository.getAllWithSyncState('accounts'),
+    ]);
+    const reversalEntryIds = new Set(entries.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
+    const accountRowsByCode = new Map(accountRows.map((row) => [String(row.record.code), row]));
+    const accountChanges = new Map<string, any>();
+    const changes: any[] = [];
+    const now = new Date().toISOString();
+    const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
+    for (const entry of entries) {
+      if (entry.status !== 'posted' || reversalEntryIds.has(String(entry.id))) continue;
+      const lines = transactions.filter((line: any) => String(line.journalEntryId) === String(entry.id));
+      if (!lines.length) continue;
+      const reversalId = 'local-je:' + String(entry.referenceType || 'order') + ':' + referenceId + ':reversal-' + String(entry.id);
+      if (await nativePosRepository.get<any>('journalEntries', reversalId)) continue;
+      const reversalLines = lines.map((line: any) => ({
+        accountCode: String(line.accountId),
+        debit: money(Number(line.credit || 0)),
+        credit: money(Number(line.debit || 0)),
+        description: 'عكس: ' + String(line.description || entry.description) + ' (' + reason + ')',
+        orderId: line.orderId, purchaseId: line.purchaseId, returnId: line.returnId,
+      })).filter((line: any) => line.debit > 0 || line.credit > 0);
+      const totalDebit = money(reversalLines.reduce((sum: number, line: any) => sum + line.debit, 0));
+      const totalCredit = money(reversalLines.reduce((sum: number, line: any) => sum + line.credit, 0));
+      if (Math.abs(totalDebit - totalCredit) > 0.02) throw new Error('القيد العكسي غير متوازن: ' + String(entry.id));
+      const reversalEntry = {
+        id: reversalId,
+        entryNumber: 'LOCAL-reversal-' + String(entry.id) + '-' + referenceId.slice(0, 8),
+        date: now,
+        referenceId,
+        referenceType: entry.referenceType || 'order',
+        description: 'قيد عكسي - ' + String(entry.description) + ' (' + reason + ')',
+        totalDebit, totalCredit, status: 'posted',
+        createdBy: createdBy || 'System',
+        branchId: entry.branchId,
+        syncStatus: journalSyncStatus,
+        createdAt: now,
+      };
+      changes.push({ action: 'put', entity: 'journalEntries', record: reversalEntry, syncState: journalSyncStatus });
+      reversalLines.forEach((line: any, index: number) => {
+        const lineId = reversalId + ':' + index;
+        changes.push({
+          action: 'put', entity: 'transactions',
+          record: {
+            id: lineId, journalEntryId: reversalId, accountId: line.accountCode,
+            accountName: accountRowsByCode.get(line.accountCode)?.record.name || line.accountCode,
+            type: line.debit > 0 ? 'debit' : 'credit',
+            amount: line.debit > 0 ? line.debit : line.credit,
+            debit: line.debit, credit: line.credit, description: line.description,
+            orderId: line.orderId, purchaseId: line.purchaseId, returnId: line.returnId,
+            syncStatus: journalSyncStatus, createdAt: now,
+          },
+          syncState: journalSyncStatus,
+        });
+        const accountRow = accountRowsByCode.get(line.accountCode);
+        const account = accountChanges.get(line.accountCode) || accountRow?.record;
+        if (account) {
+          const normalDebit = account.type === 'asset' || account.type === 'expense';
+          const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
+          accountChanges.set(line.accountCode, {
+            ...account, balance: money(Number(account.balance || 0) + delta), updatedAt: now,
+          });
+        }
+      });
+      changes.push({
+        action: 'put', entity: 'journalEntries',
+        record: { ...entry, status: 'reversed', reversedEntryId: reversalId, updatedAt: now },
+        syncState: entry.syncStatus || 'local',
+      });
+    }
+    for (const [code, account] of accountChanges) {
+      changes.push({
+        action: 'put', entity: 'accounts', record: account,
+        syncState: accountRowsByCode.get(code)?.syncState || 'local',
+      });
+    }
+    if (changes.length) {
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع القيود العكسية');
+      await db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
+        for (const change of changes) {
+          if (change.entity === 'accounts') await db.accounts.put(change.record);
+          else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
+          else if (change.entity === 'transactions') await db.transactions.put(change.record);
+        }
+      });
+    }
+    return;
+  }
   return db.transaction('rw', db.accounts, db.journalEntries, db.transactions, async () => {
   const entries = await db.journalEntries.where('referenceId').equals(referenceId).toArray();
   const reversalEntryIds = new Set(entries.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
