@@ -4444,7 +4444,7 @@ export async function dispatchOperation(
     return { synced: true, operationId };
   }
 
-  if (role === 'server' && token) {
+  if (role === 'server' && token && !isNativeAndroid()) {
     let serverCommitted = false;
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
