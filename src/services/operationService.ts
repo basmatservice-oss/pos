@@ -714,7 +714,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     const movementKey = 'order_void:' + targetOrderId + ':in:' + String(productId) + ':' + suffix;
     if (!movementKeys.has(movementKey)) {
       const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_void', sourceType: 'order_void',
-        sourceId: targetOrderId, quantityDeltaBase: quantity, unitCost: quantity > 0 ? totalCost / quantity : fallbackCost,
+        sourceId: targetOrderId, quantityDeltaBase: quantity, unitCost: Math.round((quantity > 0 ? totalCost / quantity : fallbackCost) * 10000) / 10000,
         totalCost: roundMoney(totalCost), branchId: order.branchId, operationId, reason: String(payload.reason || 'إلغاء فاتورة مبيعات'),
         createdBy: payload.createdBy, createdAt: now, syncStatus };
       movementKeys.add(movementKey); stage('inventoryMovements', movement);
@@ -737,7 +737,12 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   const productUpdates = new Map<number, any>();
   for (const item of orderItems) {
     if (String(item.itemType || 'stock') === 'service') continue;
-    const factor = Number(item.conversionFactor || 1), baseQty = roundQty(Number(item.quantity || 0) * factor);
+    const itemQuantity = Number(item.quantity || 0), factor = Number(item.conversionFactor ?? 1);
+    if (!Number.isFinite(itemQuantity) || itemQuantity < 0 || !Number.isFinite(factor) || factor <= 0) {
+      throw new Error('بيانات كمية أو معامل تحويل الصنف غير صالحة؛ أُوقف إلغاء الفاتورة');
+    }
+    const baseQty = roundQty(itemQuantity * factor);
+    if (!Number.isFinite(baseQty)) throw new Error('كمية الصنف الأساسية غير صالحة؛ أُوقف إلغاء الفاتورة');
     if (baseQty <= 0) continue;
     let parsed: any = [];
     try { parsed = typeof item.batchAllocations === 'string' ? JSON.parse(item.batchAllocations) : item.batchAllocations || []; } catch { parsed = []; }
@@ -1027,7 +1032,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     const movementKey = 'return:' + String(id) + ':in:' + String(productId) + ':' + suffix;
     if (!movements.some((x: any) => x.movementKey === movementKey)) {
       const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
-        sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: totalCost / qtyToRestore, totalCost,
+        sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: Math.round((totalCost / qtyToRestore) * 10000) / 10000, totalCost: roundMoney(totalCost),
         branchId: branchId ?? origOrder.branchId, operationId, reason: reason || 'مرتجع مبيعات', createdBy,
         createdAt: effectiveReturnDate, syncStatus };
       movements.push(movement); stage('inventoryMovements', movement);
