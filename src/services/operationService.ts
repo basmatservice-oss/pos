@@ -1411,6 +1411,7 @@ async function applyPurchaseLocally(
       const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier'
         ? roundMoney(oldTotal + oldShipping + oldCustoms + oldOther) : roundMoney(oldTotal);
       const oldOutstanding = roundMoney(oldPayable - oldPaid);
+      if (oldOutstanding < -0.02) throw new Error('المبلغ المدفوع في الفاتورة القديمة يتجاوز مستحقاتها ولا يمكن عكسها تلقائيًا');
       const oldSupplier = oldPurchase.supplierId ? supplierMap.get(String(oldPurchase.supplierId)) : null;
       if (oldPurchase.supplierId && oldOutstanding > 0 && !oldSupplier) {
         throw new Error('المورد القديم غير موجود في SQLite ولا يمكن عكس رصيده');
@@ -1596,11 +1597,17 @@ async function applyPurchaseLocally(
     for (const batch of batchDocs) changes.push({ action: 'put', entity: 'inventoryBatches', record: batch, syncState: syncStatus });
     for (const movement of movementDocs) changes.push({ action: 'put', entity: 'inventoryMovements', record: movement, syncState: syncStatus });
     for (const product of productUpdates.values()) changes.push({ action: 'put', entity: 'products', record: product, syncState: syncStatus });
-    const invoicePayable = purchase.extraCostsPaymentMethod === 'supplier' ? roundMoney(goodsTotal + extraCost) : goodsTotal;
-    const remaining = roundMoney(invoicePayable - Number(purchase.paidAmount || 0));
+    const extraMethod = String(purchase.extraCostsPaymentMethod || 'cash');
+    if (!['cash', 'card', 'supplier'].includes(extraMethod)) throw new Error('طريقة سداد المصروفات الإضافية في فاتورة الشراء غير صالحة');
+    const invoicePayable = extraMethod === 'supplier' ? roundMoney(goodsTotal + extraCost) : goodsTotal;
+    const remaining = roundMoney(invoicePayable - paidAmount);
+    if (remaining < -0.02) throw new Error('المبلغ المدفوع يتجاوز إجمالي مستحقات فاتورة الشراء');
+    if (remaining > 0 && purchase.supplierId && !supplier) throw new Error('المورد غير موجود ولا يمكن تسجيل الرصيد المستحق عليه');
     let updatedSupplier: any = null;
     if (supplier && remaining > 0) {
-      updatedSupplier = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) + remaining), updatedAt: now, syncStatus };
+      const supplierBalance = Number(supplier.balance || 0);
+      if (!Number.isFinite(supplierBalance)) throw new Error('رصيد المورد غير صالح');
+      updatedSupplier = { ...supplier, balance: roundMoney(supplierBalance + remaining), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus });
     }
     if (shouldPostLocalAccounting(syncStatus)) {
@@ -1655,7 +1662,6 @@ async function applyPurchaseLocally(
         }));
         journals.push(journal);
       };
-      const extraMethod = String(purchase.extraCostsPaymentMethod || 'cash');
       const capitalized = roundMoney(goodsTotal + extraCost);
       const credits = extraMethod === 'supplier'
         ? [{ accountCode: '2100', debit: 0, credit: capitalized, purchaseId: purchase.id }]
@@ -1666,7 +1672,7 @@ async function applyPurchaseLocally(
       if (capitalized > 0) await postJournal('purchase', 'purchase-inventory-' + entryKey, 'فاتورة مشتريات من المورد: ' + String(purchase.supplierName || ''), [
         { accountCode: '1200', debit: capitalized, credit: 0, purchaseId: purchase.id }, ...credits,
       ]);
-      const paid = roundMoney(Number(purchase.paidAmount || 0));
+      const paid = roundMoney(paidAmount);
       if (paid > 0) await postJournal('payment', 'purchase-payment-' + entryKey, 'سداد للمورد عن فاتورة مشتريات: ' + String(purchase.supplierName || ''), [
         { accountCode: '2100', debit: paid, credit: 0, purchaseId: purchase.id },
         { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paid, purchaseId: purchase.id },
