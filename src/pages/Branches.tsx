@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { 
   MapPin, 
   Plus, 
@@ -19,7 +20,7 @@ import { dispatchOperation } from '../services/operationService';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const Branches: React.FC = () => {
-  const branches = useLiveQuery(() => db.branches.toArray());
+  const branches = usePosEntityRecords<any>('branches');
   const isLoading = branches === undefined;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
