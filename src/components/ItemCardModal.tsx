@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { X, Package, ArrowDownLeft, ArrowUpRight, RefreshCw, History, Layers } from 'lucide-react';
-import { Product } from '../db/db';
+import type { Product } from '../db/db';
 import { formatMoney, formatQty, roundQty } from '../utils/format';
 import { useSettings } from '../hooks/useSettings';
 
