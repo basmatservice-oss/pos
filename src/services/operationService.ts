@@ -707,7 +707,19 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
       movementKeys.add(movementKey); stage('inventoryMovements', movement);
     }
   };
-  const products = await nativePosRepository.getMany<any>('products', [...new Set(orderItems.map((x: any) => Number(x.productId)))]);
+  const affectedProductIds = [...new Set(orderItems.flatMap((item: any) => {
+    const ids = [Number(item.productId)];
+    let parsed: any = item.batchAllocations || [];
+    try { parsed = typeof parsed === 'string' ? JSON.parse(parsed) : parsed; } catch { parsed = []; }
+    if (parsed?.kind === 'recipe' && Array.isArray(parsed.ingredients)) {
+      for (const ingredient of parsed.ingredients) ids.push(Number(ingredient.ingredientProductId));
+    }
+    return ids;
+  }).filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+  const [products, valuationSetting] = await Promise.all([
+    nativePosRepository.getMany<any>('products', affectedProductIds),
+    nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
+  ]);
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
   const productUpdates = new Map<number, any>();
   for (const item of orderItems) {
@@ -729,6 +741,23 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     const allocations = Array.isArray(parsed) ? parsed : [];
     const fallback = factor > 0 ? Number(item.costPriceAtTimeOfSale || 0) / factor : Number(item.costPriceAtTimeOfSale || 0);
     restore(Number(item.productId), baseQty, allocations, fallback, String(item.id));
+  }
+  if (valuationSetting?.value === 'weighted_average') {
+    for (const productId of affectedProductIds) {
+      const activeBatches = [...batchMap.values()].filter((batch: any) =>
+        Number(batch.productId) === productId && Number(batch.remainingQuantity || 0) > 0,
+      );
+      const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
+      if (activeQty <= 0) continue;
+      const activeValue = activeBatches.reduce((sum: number, batch: any) =>
+        sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+      const product: any = productUpdates.get(productId) || productMap.get(productId);
+      if (product) {
+        const updated = { ...product, costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus };
+        productUpdates.set(productId, updated);
+        stage('products', updated);
+      }
+    }
   }
   if (order.customerId) {
     const pointsDelta = loyalty.reduce((sum: number, entry: any) =>
@@ -787,10 +816,21 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
       stage('journalEntries', { ...entry, status: 'reversed', reversedEntryId: reversalId });
     }
   }
-  const nativeChanges = [...changes.values()];
-  const applied = await nativePosRepository.applyChanges(nativeChanges);
-  if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
-  // SQLite has committed the complete void transaction; Dexie is not authoritative on Android.
+  const stagedChanges = [...changes.values()];
+  const nativeChanges = stagedChanges.map((change: any) => ({
+    action: 'put' as const,
+    entity: change.entity,
+    recordId: getNativePosRecordId(change.entity, change.record),
+    record: change.record,
+    syncState: change.syncState || 'local',
+  }));
+  const committed = await applyNativePosRecordChangesIfFieldAbsent(
+    nativeChanges, 'orders', 'status', 'void',
+  );
+  if (!committed.skipped && committed.applied !== nativeChanges.length) {
+    throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
+  }
+  // The void status guard and all stock/accounting reversals commit atomically.
 }
 
 async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
