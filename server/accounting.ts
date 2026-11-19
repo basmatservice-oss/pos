@@ -550,7 +550,7 @@ export function restoreInventoryFIFO(
         .from(inventoryBatches)
         .where(eq(inventoryBatches.id, alloc.batchId))
         .get();
-      if (batch) {
+      if (batch && Number(batch.productId) === Number(productId)) {
         const room = roundQty(Math.max(0, Number(batch.quantity) - Number(batch.remainingQuantity)));
         putBack = roundQty(Math.min(putBack, room));
         if (putBack <= 1e-6) continue;
