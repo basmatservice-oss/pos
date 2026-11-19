@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Plus,
   Search,
@@ -67,10 +68,10 @@ export default function Suppliers() {
   });
 
   // Data State using Dexie Live Query
-  const allSuppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
-  const allPurchases = useLiveQuery(() => db.purchases.toArray()) || [];
-  const allPurchaseReturns = useLiveQuery(() => db.purchaseReturns.toArray()) || [];
-  const allSupplierPayments = useLiveQuery(() => db.supplierPayments.toArray()) || [];
+  const allSuppliers = usePosEntityRecords<any>('suppliers');
+  const allPurchases = usePosEntityRecords<any>('purchases');
+  const allPurchaseReturns = usePosEntityRecords<any>('purchaseReturns');
+  const allSupplierPayments = usePosEntityRecords<any>('supplierPayments');
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   const suppliers = useMemo(() => {
