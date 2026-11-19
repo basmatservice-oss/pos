@@ -179,20 +179,7 @@ const Settings: React.FC = () => {
         const existing = existingByKey.get(key);
 
         if (DEVICE_LOCAL_SETTING_KEYS.has(key)) {
-          if (existing) {
-            await db.settings.update(existing.id!, {
-              value: stringVal,
-              syncStatus: 'synced',
-              updatedAt: now,
-            });
-          } else {
-            await db.settings.add({
-              key,
-              value: stringVal,
-              syncStatus: 'synced',
-              updatedAt: now,
-            } as any);
-          }
+          await putPosSetting(key, stringVal, 'synced');
           continue;
         }
 
