@@ -256,6 +256,10 @@ export default function SyncStatus() {
 
   const handleCancelSupabase = async (id: string) => {
     try {
+      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        toast.error('إدارة طابور الخادم غير متاحة في وضع التشغيل المستقل');
+        return;
+      }
       await apiService.deleteSyncQueueItem(id);
       toast.success('تم إلغاء العملية السحابية');
       fetchSupabaseQueue();
@@ -266,6 +270,10 @@ export default function SyncStatus() {
 
   const handleRetrySupabase = async (id: string) => {
     try {
+      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        toast.error('إعادة محاولة طابور الخادم غير متاحة في وضع التشغيل المستقل');
+        return;
+      }
       await apiService.retrySyncQueueItem(id);
       toast.success('تمت إعادة المحاولة السحابية');
       fetchSupabaseQueue();
