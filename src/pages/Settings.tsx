@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { getPosRecords } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Download } from 'lucide-react';
 import { Upload } from 'lucide-react';
@@ -138,7 +139,7 @@ const Settings: React.FC = () => {
 
   const fetchSettings = async () => {
     try {
-      const res = await db.settings.toArray();
+      const res = await getPosRecords<any>('settings');
       if (res && res.length > 0) {
         const settingsObj = res.reduce((acc: any, curr: any) => {
           let val = curr.value;
@@ -169,7 +170,7 @@ const Settings: React.FC = () => {
   const handleSave = async () => {
     try {
       const now = new Date().toISOString();
-      const existingRows = await db.settings.toArray();
+      const existingRows = await getPosRecords<any>('settings');
       const existingByKey = new Map(existingRows.map((row) => [row.key, row]));
 
       for (const [key, value] of Object.entries(settings)) {
