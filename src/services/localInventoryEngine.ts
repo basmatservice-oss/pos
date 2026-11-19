@@ -333,6 +333,15 @@ export async function restoreLocalInventoryFIFO(params: {
       nativePosRepository.getAllWithSyncState('inventoryBatches'),
       (async () => (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId))(),
     ]);
+    if (!productRow) throw new Error('الصنف غير موجود؛ أُوقف ترحيل المرتجع لمنع إنشاء حركة مخزون يتيمة');
+    if (!Number.isFinite(Number(params.fallbackCost)) || Number(params.fallbackCost) < 0 ||
+        params.allocations.some((allocation) =>
+          !allocation || !Number.isFinite(Number(allocation.quantity)) || Number(allocation.quantity) < 0 ||
+          !Number.isFinite(Number(allocation.costPrice ?? params.fallbackCost)) ||
+          Number(allocation.costPrice ?? params.fallbackCost) < 0
+        )) {
+      throw new Error('بيانات تكلفة أو كميات المرتجع غير صالحة');
+    }
     let remaining = qtyToRestore, totalCost = 0;
     const changes: any[] = [];
     const stagedBatches = new Map<string, any>();
@@ -344,7 +353,7 @@ export async function restoreLocalInventoryFIFO(params: {
       let restoredBatchId: string | null = allocation.batchId;
       if (allocation.batchId) {
         const row = batchRows.find((item) => String(item.record.id) === String(allocation.batchId));
-        if (row) {
+        if (row && Number(row.record.productId) === params.productId) {
           const batch: any = stagedBatches.get(String(allocation.batchId)) || row.record;
           const current = Number(batch.remainingQuantity || 0);
           const room = roundQty(Math.max(0, Number(batch.quantity) - current));
@@ -385,7 +394,7 @@ export async function restoreLocalInventoryFIFO(params: {
       });
       totalCost += remaining * params.fallbackCost;
     }
-    if (productRow) {
+    {
       const product: any = productRow.record;
       changes.push({
         action: 'put', entity: 'products',
