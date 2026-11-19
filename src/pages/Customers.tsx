@@ -16,8 +16,8 @@ import {
   Printer,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Customer, Order, OrderItem } from '../db/db';
+import { db } from '../db/db';
+import type { Customer, Order, OrderItem } from '../db/db';
 import { format } from 'date-fns';
 import { useReactToPrint } from 'react-to-print';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
