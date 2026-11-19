@@ -322,6 +322,9 @@ export async function restoreLocalInventoryFIFO(params: {
   if (isNativeAndroid()) {
     const qtyToRestore = roundQty(params.quantityInBaseUnits);
     if (qtyToRestore <= 0) return 0;
+    const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
+    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
+    if (existingMovement) return roundMoney(Number(existingMovement.totalCost || 0));
     const [batchRows, productRow] = await Promise.all([
       nativePosRepository.getAllWithSyncState('inventoryBatches'),
       (async () => (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId))(),
@@ -386,9 +389,7 @@ export async function restoreLocalInventoryFIFO(params: {
         syncState: params.syncStatus || productRow.syncState,
       });
     }
-    const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
-    const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
-    if (!existingMovement) changes.push({
+    changes.push({
       action: 'put', entity: 'inventoryMovements',
       record: {
         id: generateUUID(), movementKey, productId: params.productId,
