@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
+import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
 import { db } from '../db/db';
 
@@ -35,12 +36,8 @@ function amount(value: number) {
 }
 
 export default function InventoryMovementHistory({ productId, currency }: Props) {
-  const movements = useLiveQuery(async () => {
-    const rows = await db.inventoryMovements.where('productId').equals(productId).toArray();
-    return rows.sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
-    );
-  }, [productId]) || [];
+  const movements = usePosRecordsWhereEquals<any>('inventoryMovements', 'productId', productId)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')) || String(b.id).localeCompare(String(a.id)));
   const unitDefinitions = usePosEntityRecords<any>('unitDefinitions');
 
   useEffect(() => {
@@ -49,7 +46,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
       try {
         const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
-        await db.transaction('rw', db.inventoryMovements, async () => {
+        if (!isNativeAndroid()) await db.transaction('rw', db.inventoryMovements, async () => {
           const keys = response.items.map((movement: any) => movement.movementKey);
           const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
           const serverIds = new Set(response.items.map((movement: any) => movement.id));
