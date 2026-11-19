@@ -880,6 +880,16 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
   const journalMap = new Map(journals.map((x: any) => [String(x.id), x]));
   const effectiveRefundMethod = refundMethod || (origOrder.paymentMethod === 'credit' ? 'credit_adjustment' : origOrder.paymentMethod === 'card' ? 'card' : 'cash');
+  if (!['cash', 'card', 'credit_adjustment'].includes(String(effectiveRefundMethod))) {
+    throw new Error('طريقة رد مبلغ مرتجع المبيعات غير معروفة');
+  }
+  const orderNetAmount = Number(origOrder.netAmount || 0);
+  const orderReturnedAmount = Number(origOrder.returnedAmount || 0);
+  if (!Number.isFinite(orderNetAmount) || orderNetAmount < 0 ||
+      !Number.isFinite(orderReturnedAmount) || orderReturnedAmount < 0 ||
+      orderReturnedAmount > orderNetAmount + 0.05) {
+    throw new Error('إجمالي الفاتورة أو المرتجعات السابقة غير صالح؛ أوقف الترحيل للمراجعة');
+  }
   const operationId = String(payload.operationId || id), deviceId = String(payload.deviceId || 'local-device');
   let totalRefund = 0, totalTax = 0, totalSub = 0, totalCostReversed = 0;
   let totalDiscount = 0, totalResalableCostReversed = 0, totalDamagedCostReversed = 0, processedItems = 0;
@@ -964,6 +974,9 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     const ratio = qty / originalQuantity;
     const lineSub = roundMoney(Number(origItem.subTotal) * ratio), lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
     const lineTotal = roundMoney(Number(origItem.total) * ratio);
+    if ([lineSub, lineTax, lineTotal].some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new Error('القيم المالية للصنف الأصلي غير صالحة؛ أوقف ترحيل المرتجع');
+    }
     const lineDiscount = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
     let lineCost = 0;
     const condition = reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
@@ -1005,7 +1018,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     processedItems++;
   }
   if (!processedItems) throw new Error('لا توجد أصناف صالحة للإرجاع');
-  if (roundMoney(totalRefund) > roundMoney(Number(origOrder.netAmount || 0) - Number(origOrder.returnedAmount || 0)) + 0.05)
+  if (roundMoney(totalRefund) > roundMoney(orderNetAmount - orderReturnedAmount) + 0.05)
     throw new Error('إجمالي المرتجع يتجاوز المتبقي من الفاتورة الأصلية');
   const fullReturn = origItems.every((x: any) => roundQty(Number(x.returnedQuantity || 0)) >= roundQty(Number(x.quantity || 0)) - 1e-6);
   stage('orders', { ...origOrder, status: fullReturn ? 'returned' : 'partially_returned',
