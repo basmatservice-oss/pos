@@ -80,31 +80,37 @@ export async function migrateLegacyAndroidQueueToSQLite() {
     const schemaVersion = Number(operation.schemaVersion || 1);
     const retryCount = Number(operation.retryCount || 0);
     const nextRetryAt = operation.nextRetryAt == null ? undefined : new Date(operation.nextRetryAt).getTime();
-    if (
+    const invalidMetadata =
       !Number.isFinite(createdAt) || createdAt <= 0 ||
       !Number.isInteger(schemaVersion) || schemaVersion <= 0 ||
       !Number.isInteger(retryCount) || retryCount < 0 ||
-      (nextRetryAt !== undefined && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))
-    ) {
-      await db.syncOperations.update(operation.id, {
-        status: 'conflict',
-        lastError: 'تعذر ترحيل عملية قديمة: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة',
-        updatedAt: new Date().toISOString(),
-      });
-      continue;
-    }
+      (nextRetryAt !== undefined && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0));
+    const safeCreatedAt = Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now();
+    const safeSchemaVersion = Number.isInteger(schemaVersion) && schemaVersion > 0 ? schemaVersion : 1;
+    const safeRetryCount = Number.isInteger(retryCount) && retryCount >= 0 ? retryCount : 0;
+    const safeNextRetryAt = nextRetryAt !== undefined && Number.isFinite(nextRetryAt) && nextRetryAt > 0
+      ? nextRetryAt
+      : undefined;
     const queued = await enqueueNativePosOperation({
       operationId: id,
       type: String(operation.type),
       payload: operation.payload as Record<string, unknown>,
       deviceId: String(operation.deviceId || ''),
       branchId: operation.branchId == null ? undefined : String(operation.branchId),
-      schemaVersion,
-      createdAt,
-      retryCount,
-      nextRetryAt,
+      schemaVersion: safeSchemaVersion,
+      createdAt: safeCreatedAt,
+      retryCount: safeRetryCount,
+      nextRetryAt: safeNextRetryAt,
     });
     if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
+    if (invalidMetadata) {
+      const reason = 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
+      await markNativePosOperationConflict(id, reason);
+      await db.syncOperations.update(operation.id, {
+        status: 'conflict', lastError: reason, updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
     await db.syncOperations.update(operation.id, {
       status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
     });
