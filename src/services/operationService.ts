@@ -3405,8 +3405,6 @@ async function applyShiftLocally(
         syncStatus,
       };
       await nativePosRepository.put('shifts', record, syncStatus);
-      await db.shifts.put(record as any);
-      await flushNativeDatabaseMirrorWrites();
       return;
     }
     if (await db.shifts.get(shiftId)) return;
@@ -3432,8 +3430,6 @@ async function applyShiftLocally(
         syncStatus,
       };
       await nativePosRepository.put('shifts', record, syncStatus);
-      await db.shifts.put(record as any);
-      await flushNativeDatabaseMirrorWrites();
       return;
     }
     await db.shifts.update(payload.id, {
