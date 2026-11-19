@@ -45,7 +45,7 @@ ensureDatabaseReady()
       if (isNativeAndroid()) throw err;
     }
     await restoreDesktopRuntimeConfig();
-    installNativeDatabaseMirrorHooks();
+    await installNativeDatabaseMirrorHooks();
     try {
       if (!restoredFromSQLite) await mirrorNativePosDatabase();
     } catch (err) {
