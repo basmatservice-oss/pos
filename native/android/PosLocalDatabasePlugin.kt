@@ -822,6 +822,81 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun listAllOperations(call: PluginCall) {
+        try {
+            val rows = JSArray()
+            helper.readableDatabase.query(
+                "pos_outbox", null, null, null, null, null, "created_at ASC"
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val item = JSObject()
+                    item.put("operationId", cursor.getString(cursor.getColumnIndexOrThrow("operation_id")))
+                    item.put("type", cursor.getString(cursor.getColumnIndexOrThrow("type")))
+                    item.put("payload", JSONObject(cursor.getString(cursor.getColumnIndexOrThrow("payload"))))
+                    item.put("deviceId", cursor.getString(cursor.getColumnIndexOrThrow("device_id")))
+                    item.put("tenantId", cursor.getString(cursor.getColumnIndexOrThrow("tenant_id")))
+                    item.put("branchId", cursor.getString(cursor.getColumnIndexOrThrow("branch_id")))
+                    item.put("actor", cursor.getString(cursor.getColumnIndexOrThrow("actor")))
+                    item.put("schemaVersion", cursor.getInt(cursor.getColumnIndexOrThrow("schema_version")))
+                    item.put("createdAt", cursor.getLong(cursor.getColumnIndexOrThrow("created_at")))
+                    item.put("retryCount", cursor.getInt(cursor.getColumnIndexOrThrow("retry_count")))
+                    item.put("status", cursor.getString(cursor.getColumnIndexOrThrow("status")))
+                    val lastError = cursor.getString(cursor.getColumnIndexOrThrow("last_error"))
+                    if (!lastError.isNullOrBlank()) item.put("lastError", lastError)
+                    val nextRetryAt = cursor.getLong(cursor.getColumnIndexOrThrow("next_retry_at"))
+                    if (nextRetryAt > 0) item.put("nextRetryAt", nextRetryAt)
+                    rows.put(item)
+                }
+            }
+            call.resolve(JSObject().put("operations", rows))
+        } catch (error: Exception) {
+            call.reject("تعذر قراءة سجل عمليات SQLite", error)
+        }
+    }
+
+    @PluginMethod
+    fun retryOperation(call: PluginCall) {
+        val operationId = call.getString("operationId")?.trim().orEmpty()
+        if (operationId.isBlank()) {
+            call.reject("operationId حقل مطلوب")
+            return
+        }
+        try {
+            val db = helper.writableDatabase
+            var updated = 0
+            db.beginTransaction()
+            try {
+                updated = db.update(
+                    "pos_outbox",
+                    ContentValues().apply {
+                        put("status", "pending")
+                        put("retry_count", 0)
+                        putNull("next_retry_at")
+                        putNull("last_error")
+                    },
+                    "operation_id = ? AND status IN ('error', 'conflict')",
+                    arrayOf(operationId)
+                )
+                if (updated != 1) throw IllegalStateException("Retryable SQLite operation was not found: $operationId")
+                val recordUpdated = db.update(
+                    "pos_records",
+                    ContentValues().apply {
+                        put("sync_state", "pending")
+                        put("updated_at", System.currentTimeMillis())
+                    },
+                    "entity = ? AND record_id = ?",
+                    arrayOf("operations", operationId)
+                )
+                if (recordUpdated != 1) throw IllegalStateException("SQLite operation record is missing: $operationId")
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+            call.resolve(JSObject().put("updated", true).put("operationId", operationId))
+        } catch (error: Exception) {
+            call.reject("تعذر إعادة جدولة عملية SQLite", error)
+        }
+    }
+
+    @PluginMethod
     fun updatePendingOperationPayload(call: PluginCall) {
         val operationId = call.getString("operationId")?.trim().orEmpty()
         val payload = call.getObject("payload")
