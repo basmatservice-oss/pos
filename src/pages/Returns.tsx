@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search, RotateCcw, AlertCircle, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -29,7 +30,7 @@ export default function Returns() {
   const [reason, setReason] = useState('');
   const { user } = useAuth();
 
-  const returnsHistory = useLiveQuery(() => db.returns.toArray()) || [];
+  const returnsHistory = usePosEntityRecords<any>('returns');
   const sortedReturns = useMemo(
     () => [...returnsHistory].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [returnsHistory]
