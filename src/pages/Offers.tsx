@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { 
   Tag, 
   Plus, 
@@ -27,9 +28,9 @@ import ConfirmationModal from '../components/ConfirmationModal';
 
 const Offers: React.FC = () => {
   const { user } = useAuth();
-  const offers = useLiveQuery(() => db.offers.toArray());
+  const offers = usePosEntityRecords<any>('offers');
   const isLoading = offers === undefined;
-  const products = useLiveQuery(() => db.products.toArray()) || [];
+  const products = usePosEntityRecords<any>('products');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
