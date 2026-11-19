@@ -45,7 +45,7 @@ async function migrateLegacyAndroidQueueToSQLite() {
   const pendingIds = new Set(pending.map((operation) => String(operation.operationId)));
   for (const operation of legacy) {
     const id = String(operation.id || '');
-    if (!id) continue;
+    if (!id) throw new Error('تعذر ترحيل عملية Android قديمة لا تحتوي على معرّف؛ أُوقفت العملية لحماية الطابور');
     const nativeRecord = await getNativePosRecord('operations', id);
     const existingState = nativeRecord?.syncState ? String(nativeRecord.syncState) : undefined;
     if (pendingIds.has(id) || existingState === 'synced') {
