@@ -3398,7 +3398,10 @@ async function applyShiftLocally(
         };
         changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
       }
-      await nativePosRepository.applyChanges(changes);
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) {
+        throw new Error('لم تؤكد SQLite حفظ جميع سجلات حركة الوردية والقيود المحاسبية');
+      }
       await db.transaction('rw', [db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
         await db.shiftMovements.put(movement as any);
         if (journalEntry && accountRecords.length) {
