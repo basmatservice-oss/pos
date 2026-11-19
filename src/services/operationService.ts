@@ -3694,7 +3694,11 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
       };
       put('auditLogs', audit);
     }
-    await nativePosRepository.applyChanges([...changes.values()]);
+    const finalChanges = [...changes.values()];
+    const applied = await nativePosRepository.applyChanges(finalChanges);
+    if (applied !== finalChanges.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات اعتماد الجرد والقيود المرتبطة به');
+    }
     await db.transaction('rw', [
       db.products, db.stocktakingSessions, db.inventoryBatches, db.inventoryMovements,
       db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
