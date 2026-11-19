@@ -3,43 +3,61 @@ import { RefreshCw, Server, ServerOff } from 'lucide-react';
 import { useSyncStore } from '../store/syncStore';
 import { syncService } from '../services/syncService';
 import { apiService } from '../services/apiService';
+import { isNativeAndroid } from '../native/posLocalDatabase';
+import { nativePosRepository } from '../native/nativePosRepository';
 
 export default function SyncIndicator() {
   const { isOnline, isSyncing, lastSynced, pendingItemsCount, setOnlineStatus } = useSyncStore();
 
   useEffect(() => {
     let active = true;
+    let cleanupProbe = () => {};
 
-    const probeAndSync = async () => {
-      const reachable = await apiService.checkServerReachability(2000);
-      if (!active) return;
-      setOnlineStatus(reachable);
-      if (reachable) {
-        syncService.syncAll().catch(() => {});
-      } else {
-        syncService.updatePendingCount().catch(() => {});
+    const start = async () => {
+      if (isNativeAndroid()) {
+        const role = await nativePosRepository.firstWhereEquals<{ key: string; value: unknown }>(
+          'settings', 'key', 'deviceRole',
+        );
+        if (!active) return;
+        if (role?.value === 'standalone') {
+          // A standalone device has no server dependency: do not probe the LAN
+          // or schedule periodic synchronization checks.
+          setOnlineStatus(false);
+          syncService.updatePendingCount().catch(() => {});
+          return;
+        }
       }
+
+      const probeAndSync = async () => {
+        const reachable = await apiService.checkServerReachability(2000);
+        if (!active) return;
+        setOnlineStatus(reachable);
+        if (reachable) {
+          syncService.syncAll().catch(() => {});
+        } else {
+          syncService.updatePendingCount().catch(() => {});
+        }
+      };
+
+      const handleOnline = () => { probeAndSync(); };
+      const handleOffline = () => setOnlineStatus(false);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      probeAndSync();
+      const interval = setInterval(probeAndSync, 15000);
+      cleanupProbe = () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+        clearInterval(interval);
+      };
     };
 
-    const handleOnline = () => {
-      probeAndSync();
-    };
-    const handleOffline = () => setOnlineStatus(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    // Initial check & periodic LAN health probe every 15 seconds
-    probeAndSync();
-    const interval = setInterval(() => {
-      probeAndSync();
-    }, 15000);
-
+    start().catch((error) => {
+      if (active) console.error('Unable to initialize sync indicator:', error);
+    });
     return () => {
       active = false;
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      clearInterval(interval);
+      cleanupProbe();
     };
   }, [setOnlineStatus]);
 
