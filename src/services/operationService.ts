@@ -4259,7 +4259,9 @@ export async function dispatchOperation(
     for (const item of oldItems) {
       const productId = Number(item.productId), quantity = Number(item.quantity), factor = Number(item.conversionFactor ?? 1);
       if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
-          !Number.isFinite(factor) || factor <= 0) throw new Error('تفاصيل الفاتورة القديمة تحتوي كمية أو صنفًا غير صالح');
+          !Number.isFinite(factor) || factor <= 0 || item.id == null || String(item.id).trim() === '') {
+        throw new Error('تفاصيل الفاتورة القديمة تحتوي كمية أو صنفًا أو معرّفًا غير صالح');
+      }
       oldItemQuantities.set(productId, roundQty((oldItemQuantities.get(productId) || 0) + quantity * factor));
     }
     const oldBatchQuantities = new Map<number, number>();
@@ -4268,7 +4270,8 @@ export async function dispatchOperation(
       const productId = Number(batch.productId), quantity = Number(batch.quantity), remaining = Number(batch.remainingQuantity);
       const batchId = String(batch.id);
       if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
-          !Number.isFinite(remaining) || Math.abs(quantity - remaining) > 0.0001 || !batchId || oldBatchIds.has(batchId)) {
+          !Number.isFinite(remaining) || Math.abs(quantity - remaining) > 0.0001 ||
+          String(batch.purchaseId) !== purchaseId || !batchId || oldBatchIds.has(batchId)) {
         throw new Error('لا يمكن تعديل الفاتورة؛ إحدى دفعاتها مستهلكة أو بياناتها غير سليمة');
       }
       oldBatchIds.add(batchId);
@@ -4329,6 +4332,8 @@ export async function dispatchOperation(
     const other = Number(purchase.otherCosts || 0), paid = Number(purchase.paidAmount || 0);
     const declaredTotal = purchase.totalAmount == null ? null : Number(purchase.totalAmount);
     if (!Number.isFinite(fxRate) || fxRate <= 0 ||
+        !['cash', 'card'].includes(String(purchase.paymentMethod || 'cash')) ||
+        !['cash', 'card', 'supplier'].includes(String(purchase.extraCostsPaymentMethod || 'cash')) ||
         [shipping, customs, other, paid].some((value) => !Number.isFinite(value) || value < 0) ||
         (declaredTotal !== null && (!Number.isFinite(declaredTotal) || declaredTotal < 0))) {
       throw new Error('بيانات العملة أو المصروفات أو المبلغ المدفوع في الفاتورة المعدلة غير صالحة');
