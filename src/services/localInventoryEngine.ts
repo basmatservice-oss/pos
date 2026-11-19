@@ -403,7 +403,12 @@ export async function restoreLocalInventoryFIFO(params: {
         if (row && Number(row.record.productId) === params.productId) {
           const batch: any = stagedBatches.get(String(allocation.batchId)) || row.record;
           const current = Number(batch.remainingQuantity || 0);
-          const room = roundQty(Math.max(0, Number(batch.quantity) - current));
+          const originalQuantity = Number(batch.quantity);
+          if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) ||
+              originalQuantity <= 0 || current > originalQuantity + 0.0001) {
+            throw new Error('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف المرتجع');
+          }
+          const room = roundQty(Math.max(0, originalQuantity - current));
           putBack = roundQty(Math.min(putBack, room));
           if (putBack <= 1e-6) continue;
           const updatedBatch = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' };
@@ -499,7 +504,12 @@ export async function restoreLocalInventoryFIFO(params: {
       const batch = await db.inventoryBatches.get(allocation.batchId);
       if (batch && Number(batch.productId) === Number(params.productId)) {
         const current = Number(batch.remainingQuantity || 0);
-        const room = roundQty(Math.max(0, Number(batch.quantity) - current));
+        const originalQuantity = Number(batch.quantity);
+        if (!Number.isFinite(current) || current < 0 || !Number.isFinite(originalQuantity) ||
+            originalQuantity <= 0 || current > originalQuantity + 0.0001) {
+          throw new Error('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف المرتجع');
+        }
+        const room = roundQty(Math.max(0, originalQuantity - current));
         putBack = roundQty(Math.min(putBack, room));
         if (putBack <= 1e-6) continue;
         await db.inventoryBatches.update(batch.id!, {
