@@ -1536,8 +1536,36 @@ async function applyPurchaseLocally(
     }
     const purchaseDoc = { ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0, syncStatus };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
-    const itemDocs: any[] = Array.isArray(payload._serverItems) && payload._serverItems.length
-      ? payload._serverItems.map((item: any) => ({ ...item, syncStatus }))
+    const serverItems = Array.isArray(payload._serverItems) ? payload._serverItems : [];
+    if (serverItems.length && serverItems.length !== normalized.length) {
+      throw new Error('عدد تفاصيل فاتورة الشراء الواردة من الخادم لا يطابق عدد الأصناف؛ أوقف الحفظ المحلي');
+    }
+    const serverItemIds = new Set<string>();
+    const itemDocs: any[] = serverItems.length
+      ? serverItems.map((serverItem: any, index: number) => {
+          const source = normalized[index];
+          const serverId = serverItem?.id == null ? '' : String(serverItem.id);
+          const serverProductId = Number(serverItem?.productId);
+          const serverQuantity = Number(serverItem?.quantity);
+          const serverFactor = Number(serverItem?.conversionFactor ?? source.factor);
+          if (!serverId || serverItemIds.has(serverId) || serverProductId !== source.productId ||
+              !Number.isFinite(serverQuantity) || Math.abs(serverQuantity - source.quantity) > 0.0001 ||
+              !Number.isFinite(serverFactor) || Math.abs(serverFactor - source.factor) > 0.0001 ||
+              (serverItem.purchaseId != null && String(serverItem.purchaseId) !== String(purchase.id))) {
+            throw new Error('تفاصيل فاتورة الشراء الواردة من الخادم لا تطابق الأصناف المرسلة');
+          }
+          serverItemIds.add(serverId);
+          const serverCost = Number(serverItem.costPrice ?? source.unitCost);
+          const serverLandedCost = Number(serverItem.landedCostPerBaseUnit ?? 0);
+          if (!Number.isFinite(serverCost) || serverCost < 0 ||
+              (serverItem.landedCostPerBaseUnit != null && (!Number.isFinite(serverLandedCost) || serverLandedCost < 0))) {
+            throw new Error('تكلفة أحد أصناف فاتورة الشراء الواردة من الخادم غير صالحة');
+          }
+          return {
+            ...serverItem, id: serverId, purchaseId: String(purchase.id), productId: source.productId,
+            quantity: source.quantity, conversionFactor: source.factor, costPrice: serverCost, syncStatus,
+          };
+        })
       : [];
     const batchDocs: any[] = [];
     const movementDocs: any[] = [];
