@@ -41,7 +41,9 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, ExchangeRateRecord, FiscalPeriod } from '../db/db';
+import type { ExchangeRateRecord, FiscalPeriod } from '../db/db';
+import { isNativeAndroid, listNativePendingPosOperations, acknowledgeNativePosOperation, enqueueNativePosOperation } from '../native/posLocalDatabase';
+import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '../native/nativePosRepository';
 import { updateApiBase, apiService } from '../services/apiService';
 import { dispatchOperation } from '../services/operationService';
 import { useAuth } from '../context/AuthContext';
@@ -370,8 +372,12 @@ const Settings: React.FC = () => {
   const handleExportData = async () => {
     try {
       const data: any = {};
-      for (const table of db.tables) {
-        data[table.name] = await table.toArray();
+      if (isNativeAndroid()) {
+        for (const entity of NATIVE_POS_ENTITIES) data[entity] = await nativePosRepository.getAll(entity);
+        data._nativePendingOperations = await listNativePendingPosOperations();
+      } else {
+        const { db } = await import('../db/db');
+        for (const table of db.tables) data[table.name] = await table.toArray();
       }
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -395,15 +401,53 @@ const Settings: React.FC = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       
-      await db.transaction('rw', db.tables, async () => {
-        for (const tableName of Object.keys(data)) {
-          const table = db.table(tableName);
-          if (table) {
-            await table.clear();
-            await table.bulkAdd(data[tableName]);
+      if (isNativeAndroid()) {
+        const changes: any[] = [];
+        for (const entity of NATIVE_POS_ENTITIES) {
+          if (!Array.isArray(data[entity])) continue;
+          const existing = await nativePosRepository.getAllWithSyncState(entity);
+          for (const row of existing) {
+            const record = row.record as any;
+            changes.push({ action: 'delete', entity, key: record.id ?? record.code ?? record.key });
+          }
+          for (const record of data[entity]) {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+              throw new Error('ملف النسخة الاحتياطية يحتوي سجلًا غير صالح في ' + entity);
+            }
+            getNativePosRecordId(entity, record);
+            const state = ['pending', 'synced', 'error'].includes(String(record.syncStatus))
+              ? record.syncStatus
+              : 'local';
+            changes.push({ action: 'put', entity, record, syncState: state });
           }
         }
-      });
+        const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
+        if (applied !== changes.length) throw new Error('SQLite لم تؤكد استعادة جميع سجلات النسخة الاحتياطية');
+        const pending = await listNativePendingPosOperations();
+        for (const operation of pending) await acknowledgeNativePosOperation(operation.operationId);
+        for (const operation of Array.isArray(data._nativePendingOperations) ? data._nativePendingOperations : []) {
+          const queued = await enqueueNativePosOperation({
+            operationId: String(operation.operationId),
+            type: String(operation.type),
+            payload: operation.payload,
+            deviceId: String(operation.deviceId || ''),
+            branchId: operation.branchId == null ? undefined : String(operation.branchId),
+            schemaVersion: Number(operation.schemaVersion || 1),
+          });
+          if (!queued) throw new Error('تعذر استعادة عملية معلقة إلى طابور SQLite: ' + String(operation.operationId));
+        }
+      } else {
+        const { db } = await import('../db/db');
+        await db.transaction('rw', db.tables, async () => {
+          for (const tableName of Object.keys(data)) {
+            const table = db.table(tableName);
+            if (table && Array.isArray(data[tableName])) {
+              await table.clear();
+              await table.bulkAdd(data[tableName]);
+            }
+          }
+        });
+      }
       toast.success('تم استيراد البيانات بنجاح');
       setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
@@ -432,20 +476,31 @@ const Settings: React.FC = () => {
     if (mode === 'none') return;
 
     try {
-      if (mode === 'system') {
-        await db.transaction('rw', db.tables, async () => {
-          for (const table of db.tables) {
-            await table.clear();
+      if (isNativeAndroid()) {
+        const changes: any[] = [];
+        for (const entity of NATIVE_POS_ENTITIES) {
+          if (mode !== 'system' && entity === 'settings') continue;
+          const existing = await nativePosRepository.getAllWithSyncState(entity);
+          for (const row of existing) {
+            const record = row.record as any;
+            changes.push({ action: 'delete', entity, key: record.id ?? record.code ?? record.key });
           }
-        });
+        }
+        const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
+        if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع سجلات البيانات');
+        const pending = await listNativePendingPosOperations();
+        for (const operation of pending) await acknowledgeNativePosOperation(operation.operationId);
       } else {
-        await db.transaction('rw', db.tables, async () => {
-          for (const table of db.tables) {
-            if (table.name !== 'settings') {
-              await table.clear();
-            }
-          }
-        });
+        const { db } = await import('../db/db');
+        if (mode === 'system') {
+          await db.transaction('rw', db.tables, async () => {
+            for (const table of db.tables) await table.clear();
+          });
+        } else {
+          await db.transaction('rw', db.tables, async () => {
+            for (const table of db.tables) if (table.name !== 'settings') await table.clear();
+          });
+        }
       }
 
       try {
