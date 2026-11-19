@@ -283,6 +283,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     if (returnId) {
       await mark('purchaseReturns', (row) => String(row.id) === returnId);
       await mark('purchaseReturnItems', (row) => String(row.purchaseReturnId) === returnId);
+      await mark('inventoryMovements', (row) => String(row.sourceId) === returnId && row.sourceType === 'purchase_return');
       const returnJournalIds = new Set((await load('journalEntries'))
         .filter((row) => String(row.record.referenceId) === returnId && row.record.referenceType === 'purchase_return')
         .map((row) => String(row.record.id)));
