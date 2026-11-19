@@ -373,9 +373,10 @@ export async function restoreLocalInventoryFIFO(params: {
     const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
     const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
     if (existingMovement) return roundMoney(Number(existingMovement.totalCost || 0));
-    const [batchRows, productRow] = await Promise.all([
+    const [batchRows, productRow, valuation] = await Promise.all([
       nativePosRepository.getAllWithSyncState('inventoryBatches'),
       (async () => (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId))(),
+      nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
     ]);
     if (!productRow) throw new Error('الصنف غير موجود؛ أُوقف ترحيل المرتجع لمنع إنشاء حركة مخزون يتيمة');
     if (!Number.isFinite(Number(params.fallbackCost)) || Number(params.fallbackCost) < 0 ||
@@ -440,9 +441,27 @@ export async function restoreLocalInventoryFIFO(params: {
     }
     {
       const product: any = productRow.record;
+      const valuationBatches = new Map<string, any>(batchRows.map((row) => [String(row.record.id),
+        stagedBatches.get(String(row.record.id)) || row.record]));
+      for (const change of changes) {
+        if (change.action === 'put' && change.entity === 'inventoryBatches') {
+          valuationBatches.set(String(change.record.id), change.record);
+        }
+      }
+      const activeBatches = [...valuationBatches.values()].filter((batch: any) =>
+        Number(batch.productId) === params.productId && Number(batch.remainingQuantity || 0) > 0,
+      );
+      const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
+      const activeValue = activeBatches.reduce((sum: number, batch: any) =>
+        sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+      const weightedCost = valuation?.value === 'weighted_average' && activeQty > 0
+        ? Math.round((activeValue / activeQty) * 10000) / 10000
+        : undefined;
       changes.push({
         action: 'put', entity: 'products',
-        record: { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+        record: { ...product, ...(weightedCost !== undefined ? { costPrice: weightedCost } : {}),
+          stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
+          updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
         syncState: params.syncStatus || productRow.syncState,
       });
     }
@@ -523,13 +542,25 @@ export async function restoreLocalInventoryFIFO(params: {
   }
 
   const product = await db.products.get(params.productId);
-  if (product) {
-    await db.products.update(product.id!, {
-      stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
-      updatedAt: params.createdAt,
-      syncStatus: params.syncStatus || 'pending',
-    });
+  if (!product) throw new Error('الصنف غير موجود؛ أُوقف ترحيل المرتجع لمنع إنشاء حركة مخزون يتيمة');
+  const valuation = await db.settings.where('key').equals('inventoryValuationMethod').first();
+  let weightedCost: number | undefined;
+  if (valuation?.value === 'weighted_average') {
+    const activeBatches = (await db.inventoryBatches.where('productId').equals(params.productId).toArray())
+      .filter((batch) => Number(batch.remainingQuantity || 0) > 0);
+    const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
+    if (activeQty > 0) {
+      const activeValue = activeBatches.reduce((sum, batch) =>
+        sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+      weightedCost = Math.round((activeValue / activeQty) * 10000) / 10000;
+    }
   }
+  await db.products.update(product.id!, {
+    ...(weightedCost !== undefined ? { costPrice: weightedCost } : {}),
+    stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore),
+    updatedAt: params.createdAt,
+    syncStatus: params.syncStatus || 'pending',
+  });
 
   await recordLocalInventoryMovement({
     movementKey: `${params.sourceType || 'return'}:${params.sourceId}:in:${params.productId}:${params.movementKeySuffix}`,
