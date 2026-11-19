@@ -703,25 +703,24 @@ export const syncService = {
               await task.table.bulkPut(recordsToPut);
             }
           } catch (err: any) {
-            // Silently skip or log clean debug warning instead of noisy console.error stack traces
+            // Android commits each server snapshot to SQLite first. Do not hide
+            // a failed native write or continue with a partially refreshed database.
+            if (isNativeAndroid()) throw err;
             if (process.env.NODE_ENV !== 'production') {
               console.warn('Skipped pulling table data:', err?.message || err);
             }
           }
         }
-        if (isNativeAndroid()) {
-          try {
-            const { mirrorNativePosDatabase } = await import('./nativeDatabaseMirror');
-            await mirrorNativePosDatabase();
-          } catch (mirrorError) {
-            console.warn('Android SQLite snapshot refresh failed:', mirrorError);
-          }
-        }
+        // Native rows were already committed directly above. Re-mirroring all
+        // Dexie tables here could overwrite a successful SQLite snapshot with
+        // stale compatibility-cache data after a partial cache write.
+
       } finally {
         (globalThis as any).__posApplyingOperation = false;
       }
     } catch (err) {
-      // Silently catch pull failures when offline or server unreachable
+      if (isNativeAndroid()) throw err;
+      // Desktop/web may remain offline without blocking the local application.
     }
   },
 
