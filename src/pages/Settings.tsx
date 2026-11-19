@@ -448,6 +448,9 @@ const Settings: React.FC = () => {
           branchId: operation.branchId == null ? undefined : String(operation.branchId),
           actor: operation.actor == null ? undefined : String(operation.actor),
           schemaVersion: Number(operation.schemaVersion || 1),
+          createdAt: Number(operation.createdAt || Date.now()),
+          retryCount: Math.max(0, Number(operation.retryCount || 0)),
+          nextRetryAt: operation.nextRetryAt == null ? undefined : Number(operation.nextRetryAt),
         }));
         await applyNativeSnapshotAndReplaceOutbox(nativeChanges, nativeOperations);
       } else {
