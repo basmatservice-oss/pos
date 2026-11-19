@@ -217,77 +217,10 @@ export async function restoreNativePosDatabase(): Promise<boolean> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return false;
   const snapshotState = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
   if (snapshotState.value === 'in_progress') {
-    console.warn('Interrupted Android SQLite snapshot detected; partial records will not be restored. A fresh Dexie snapshot will be attempted.');
+    console.warn('Interrupted Android SQLite snapshot detected; legacy local database migration will be retried.');
     return false;
   }
-  if (snapshotState.value !== '1') return false;
-
-  const { db } = await import('../db/db');
-  // Read and validate every entity before opening the Dexie write transaction.
-  // A corrupt late entity must never leave an earlier subset restored.
-  const restoredByEntity = new Map<string, Array<Record<string, unknown>>>();
-  const tables = MIRRORED_TABLES.map((entity) => {
-    const table = (db as any)[entity];
-    if (!table) throw new Error(`Dexie table is unavailable: ${entity}`);
-    return table;
-  });
-
-  for (const entity of MIRRORED_TABLES) {
-    const result = await posLocalDatabase.getRecords({ entity });
-    if (!Array.isArray(result.records)) {
-      throw new Error(`SQLite returned an invalid record collection for ${entity}`);
-    }
-
-    const restoredIds = new Set<string>();
-    const validRecords = result.records.filter((item) => !(
-      entity === 'settings' && item?.record?.key === 'authSecret'
-    ));
-    for (const item of validRecords) {
-      if (!item || typeof item.recordId !== 'string' || !item.record ||
-          typeof item.record !== 'object' || Array.isArray(item.record)) {
-        throw new Error(`SQLite returned an invalid record in ${entity}`);
-      }
-      const resolvedId = getRecordId(entity, item.record);
-      if (!resolvedId || resolvedId !== item.recordId) {
-        throw new Error(`SQLite record identity mismatch in ${entity}: stored key does not match the record primary key`);
-      }
-      if (restoredIds.has(item.recordId)) {
-        throw new Error(`SQLite returned a duplicate primary key in ${entity}`);
-      }
-      restoredIds.add(item.recordId);
-    }
-
-    restoredByEntity.set(entity, validRecords.map((item) => ({
-      ...item.record,
-      ...(item.record.syncStatus === undefined ? { syncStatus: item.syncState } : {}),
-    })));
-  }
-
-  // The completed SQLite snapshot is authoritative. Reconcile all business
-  // tables in one Dexie transaction so a failure rolls back the entire restore.
-  await db.transaction('rw', ...tables, async () => {
-    for (const entity of MIRRORED_TABLES) {
-      const table = (db as any)[entity];
-      const restoredRows = restoredByEntity.get(entity) ?? [];
-      const restoredIds = new Set(restoredRows.map((row) => getRecordId(entity, row)));
-      const existingRows = await table.toArray();
-      const staleRows = existingRows
-        .filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'))
-        .filter((row: any) => !restoredIds.has(getRecordId(entity, row)));
-      const primaryKeyPath = table.schema.primKey.keyPath;
-      const staleKeys = staleRows.map((row: any) => (
-        typeof primaryKeyPath === 'string'
-          ? row?.[primaryKeyPath]
-          : Array.isArray(primaryKeyPath)
-            ? primaryKeyPath.map((part: string) => row?.[part])
-            : undefined
-      ));
-      if (staleKeys.some((key: any) => key === undefined || key === null)) {
-        throw new Error(`Dexie returned a row without a primary key while reconciling ${entity}`);
-      }
-      if (staleKeys.length) await table.bulkDelete(staleKeys);
-      if (restoredRows.length) await table.bulkPut(restoredRows);
-    }
-  });
-  return true;
+  // SQLite is the Android source of truth. A complete snapshot means startup
+  // must not hydrate a second, competing Dexie copy.
+  return snapshotState.value === '1';
 }
