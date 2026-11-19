@@ -128,19 +128,17 @@ export const syncService = {
   async pushOperationsQueue() {
     if (await this.getDeviceRole() === 'standalone') return;
     const now = Date.now();
-    const queued = await db.syncOperations
-      .where('status')
-      .anyOf(['pending', 'error'])
-      .toArray();
-
-    // On Android, native SQLite is the durable outbox. Merge older Dexie-only
-    // entries so upgrades do not strand operations created by previous builds.
-    let nativeQueued: Array<any> = [];
-    if (isNativeAndroid()) {
-      // SQLite is the durable Android outbox. If it cannot be read, stop before
-      // sending a partial Dexie-only queue that could omit newer local work.
-      nativeQueued = await listNativePendingPosOperations();
-    }
+    // Android reads only its SQLite outbox. A Dexie read must never be a
+    // prerequisite for delivering durable native operations.
+    const queued = isNativeAndroid()
+      ? []
+      : await db.syncOperations
+          .where('status')
+          .anyOf(['pending', 'error'])
+          .toArray();
+    const nativeQueued: Array<any> = isNativeAndroid()
+      ? await listNativePendingPosOperations()
+      : [];
     const nativeIds = new Set(nativeQueued.map((op) => op.operationId));
     const nativeAsSyncOperations = nativeQueued.map((op) => ({
       id: op.operationId,
