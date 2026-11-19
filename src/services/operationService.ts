@@ -1369,13 +1369,17 @@ async function applyPurchaseLocally(
     const touchedAccountCodes = new Set<string>();
     let allBatches = allBatchesRaw;
     if (isPurchaseUpdate) {
-      if (oldReturns.length) throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة');
+      if (oldReturns.length || Number(oldPurchase.returnedAmount || 0) > 0.0001) {
+        throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة');
+      }
       if (!oldItems.length || !oldBatches.length) throw new Error('تعذر التحقق من تفاصيل ودفعات فاتورة الشراء القديمة؛ أوقف التعديل');
       const oldItemQty = new Map<number, number>();
       for (const oldItem of oldItems) {
         const productId = Number(oldItem.productId), quantity = Number(oldItem.quantity), factor = Number(oldItem.conversionFactor ?? 1);
         if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
-            !Number.isFinite(factor) || factor <= 0) throw new Error('تفاصيل الفاتورة القديمة تحتوي بيانات كمية غير صالحة');
+            !Number.isFinite(factor) || factor <= 0 || oldItem.id == null || String(oldItem.id).trim() === '') {
+          throw new Error('تفاصيل الفاتورة القديمة تحتوي بيانات كمية أو معرّف غير صالح');
+        }
         oldItemQty.set(productId, roundQty((oldItemQty.get(productId) || 0) + quantity * factor));
       }
       const oldBatchQty = new Map<number, number>();
@@ -1384,7 +1388,8 @@ async function applyPurchaseLocally(
         const productId = Number(batch.productId), quantity = Number(batch.quantity), remaining = Number(batch.remainingQuantity);
         const batchId = String(batch.id);
         if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
-            !Number.isFinite(remaining) || Math.abs(remaining - quantity) > 0.0001 || !batchId || oldBatchIds.has(batchId)) {
+            !Number.isFinite(remaining) || Math.abs(remaining - quantity) > 0.0001 ||
+            String(batch.purchaseId) !== String(purchase.id) || !batchId || oldBatchIds.has(batchId)) {
           throw new Error('لا يمكن تعديل فاتورة شراء استُهلك مخزونها أو تحتوي دفعاتها على بيانات غير سليمة');
         }
         oldBatchIds.add(batchId);
