@@ -2137,7 +2137,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     if (type === 'expense_delete') {
       if (existing) {
         const [journals, transactions, accounts] = await Promise.all([
-          nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(expenseId)),
+          nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(expenseId)).then((entries: any[]) => entries.filter((entry: any) => entry.referenceType === 'expense')),
           nativePosRepository.getAll<any>('transactions'),
           nativePosRepository.getAll<any>('accounts'),
         ]);
