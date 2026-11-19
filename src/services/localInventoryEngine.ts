@@ -46,7 +46,10 @@ function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
+async function commitNativeInventoryChanges(
+  changes: any[],
+  compare?: { entity: string; recordId: string; field: string; expectedValue: string },
+): Promise<void> {
   const unique = new Map<string, any>();
   for (const change of changes) {
     const key = change.action === 'delete' ? change.key : (change.record.id ?? change.record.code ?? change.record.key);
@@ -72,6 +75,7 @@ async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
       'inventoryMovements',
       'movementKey',
       String(movement.record.movementKey),
+      compare,
     );
     if (result.skipped) return;
     if (result.applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
@@ -237,7 +241,12 @@ export async function consumeLocalInventoryFIFO(
       },
       syncState: params.syncStatus || 'local',
     });
-    await commitNativeInventoryChanges(changes);
+    await commitNativeInventoryChanges(changes, {
+      entity: 'products',
+      recordId: JSON.stringify(params.productId),
+      field: 'stockQuantity',
+      expectedValue: String(product.stockQuantity ?? 0),
+    });
     return { totalCost: roundMoney(totalCost), averageUnitCost, allocations };
   }
   await ensureDesktopDatabase();
@@ -488,7 +497,12 @@ export async function restoreLocalInventoryFIFO(params: {
       },
       syncState: params.syncStatus || 'local',
     });
-    await commitNativeInventoryChanges(changes);
+    await commitNativeInventoryChanges(changes, {
+      entity: 'products',
+      recordId: JSON.stringify(params.productId),
+      field: 'stockQuantity',
+      expectedValue: String(productRow.record.stockQuantity ?? 0),
+    });
     return roundMoney(totalCost);
   }
   await ensureDesktopDatabase();
