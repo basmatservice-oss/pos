@@ -2227,6 +2227,18 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     }
     const returnedBaseByProduct = new Map<number, number>();
     const returnedBaseByBatch = new Map<string, number>();
+    for (const priorReturn of previousReturns) {
+      const priorRows = previousItemRows.filter((entry: any) => String(entry.purchaseReturnId) === String(priorReturn.id));
+      if (!priorRows.length && Number(priorReturn.totalReturn || 0) > 0) {
+        throw new Error('يوجد مرتجع سابق بلا تفاصيل أصناف؛ لا يمكن التحقق من الكميات المتبقية');
+      }
+      const priorValue = roundMoney(priorRows.reduce((sum: number, entry: any) =>
+        sum + Number(entry.quantity || 0) * Number(entry.costPrice || 0), 0));
+      if (!Number.isFinite(Number(priorReturn.totalReturn || 0)) ||
+          Math.abs(priorValue - Number(priorReturn.totalReturn || 0)) > 0.05) {
+        throw new Error('تفاصيل أحد المرتجعات السابقة لا تطابق إجماليه المالي');
+      }
+    }
     for (const priorItem of previousItemRows) {
       const productId = Number(priorItem.productId), quantity = Number(priorItem.quantity);
       if (!Number.isSafeInteger(productId) || !Number.isFinite(quantity) || quantity <= 0) {
@@ -2235,6 +2247,11 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       returnedBaseByProduct.set(productId, roundQty((returnedBaseByProduct.get(productId) || 0) + quantity));
       if (priorItem.batchId) {
         const batchId = String(priorItem.batchId);
+        const sourceBatch = batchMap.get(batchId);
+        if (!sourceBatch || Number(sourceBatch.productId) !== productId ||
+            String(sourceBatch.purchaseId) !== String(originalPurchaseId)) {
+          throw new Error('أحد المرتجعات السابقة يشير إلى دفعة لا تتبع فاتورة الشراء الأصلية');
+        }
         returnedBaseByBatch.set(batchId, roundQty((returnedBaseByBatch.get(batchId) || 0) + quantity));
       }
     }
