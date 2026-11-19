@@ -533,6 +533,14 @@ export function restoreInventoryFIFO(
   const now = params.createdAt || new Date().toISOString();
 
   const qtyToRestore = roundQty(quantityInBaseUnits);
+  if (!Number.isFinite(qtyToRestore) || qtyToRestore < 0 || !Number.isFinite(Number(fallbackCost)) || Number(fallbackCost) < 0 ||
+      allocations.some((allocation) => !allocation || !Number.isFinite(Number(allocation.quantity)) ||
+        Number(allocation.quantity) < 0 || !Number.isFinite(Number(allocation.costPrice ?? fallbackCost)) ||
+        Number(allocation.costPrice ?? fallbackCost) < 0)) {
+    throw new AccountingError('بيانات كمية أو تكلفة مرتجع المخزون غير صالحة', 400);
+  }
+  const product = tx.select().from(products).where(eq(products.id, productId)).get();
+  if (!product) throw new AccountingError('Product ' + productId + ' not found for stock restoration', 404);
   let remainingToRestore = qtyToRestore;
   let totalCostRestored = 0;
   const restoredAllocations: BatchAllocation[] = [];
@@ -551,7 +559,12 @@ export function restoreInventoryFIFO(
         .where(eq(inventoryBatches.id, alloc.batchId))
         .get();
       if (batch && Number(batch.productId) === Number(productId)) {
-        const room = roundQty(Math.max(0, Number(batch.quantity) - Number(batch.remainingQuantity)));
+        const originalQuantity = Number(batch.quantity), currentQuantity = Number(batch.remainingQuantity);
+        if (!Number.isFinite(originalQuantity) || originalQuantity <= 0 || !Number.isFinite(currentQuantity) ||
+            currentQuantity < 0 || currentQuantity > originalQuantity + 0.0001) {
+          throw new AccountingError('بيانات دفعة المخزون الأصلية غير صالحة؛ أُوقف المرتجع', 400);
+        }
+        const room = roundQty(Math.max(0, originalQuantity - currentQuantity));
         putBack = roundQty(Math.min(putBack, room));
         if (putBack <= 1e-6) continue;
         const newRem = roundQty(Number(batch.remainingQuantity) + putBack);
@@ -604,8 +617,7 @@ export function restoreInventoryFIFO(
     });
   }
 
-  const product = tx.select().from(products).where(eq(products.id, productId)).get();
-  if (product) {
+  {
     const updatedQty = roundQty(Number(product.stockQuantity || 0) + qtyToRestore);
     tx.update(products)
       .set({
