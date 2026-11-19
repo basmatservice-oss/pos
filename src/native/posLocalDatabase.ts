@@ -65,6 +65,13 @@ export const isNativeAndroid = (): boolean =>
   !!(window as any).Capacitor &&
   (window as any).Capacitor.getPlatform?.() === 'android';
 
+function notifyNativeRecordChanges(entities: Iterable<string>): void {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  const changed = Array.from(new Set(entities.filter((entity) => typeof entity === 'string' && entity.trim())));
+  if (!changed.length) return;
+  window.dispatchEvent(new CustomEvent('pos-native-records-changed', { detail: { entities: changed } }));
+}
+
 let nativeDatabaseReady: Promise<boolean> | null = null;
 
 export async function ensureNativePosDatabase(): Promise<boolean> {
@@ -112,6 +119,7 @@ export async function applyNativeSnapshotAndReplaceOutbox(changes: PosLocalRecor
   if (result.committed !== true || result.applied !== changes.length || result.operationCount !== operations.length) {
     throw new Error('SQLite did not confirm the complete atomic snapshot restore');
   }
+  notifyNativeRecordChanges(changes.map((change) => change.entity));
   return { applied: result.applied, operationCount: result.operationCount };
 }
 
@@ -286,6 +294,12 @@ export async function applyNativePosRecordChangesIfAbsent(
       (result.skipped !== true && result.applied !== changes.length) ||
       (result.skipped === true && result.applied !== 0)) {
     throw new Error('SQLite returned an invalid idempotent record-change result');
+  }
+  if (result.applied > 0 && result.skipped !== true) {
+    notifyNativeRecordChanges(changes.map((change) => change.entity));
+  }
+  if (result.applied > 0 && result.skipped !== true) {
+    notifyNativeRecordChanges(changes.map((change) => change.entity));
   }
   return { applied: result.applied, skipped: result.skipped === true };
 }
