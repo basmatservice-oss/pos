@@ -58,6 +58,21 @@ async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
 }
 
 export async function recordLocalInventoryMovement(input: {
+  movementKey: string;
+  productId: number;
+  movementType: string;
+  sourceType: string;
+  sourceId: string;
+  quantityDeltaBase: number;
+  unitCost: number;
+  totalCost: number;
+  branchId?: number;
+  operationId: string;
+  reason?: string;
+  createdBy?: string;
+  createdAt: string;
+  syncStatus?: 'synced' | 'pending';
+}) {
   if (isNativeAndroid()) {
     const existing = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', input.movementKey);
     if (existing) return;
@@ -75,21 +90,7 @@ export async function recordLocalInventoryMovement(input: {
     await commitNativeInventoryChanges([{ action: 'put', entity: 'inventoryMovements', record: movement, syncState: input.syncStatus || 'local' }]);
     return;
   }
-  movementKey: string;
-  productId: number;
-  movementType: string;
-  sourceType: string;
-  sourceId: string;
-  quantityDeltaBase: number;
-  unitCost: number;
-  totalCost: number;
-  branchId?: number;
-  operationId: string;
-  reason?: string;
-  createdBy?: string;
-  createdAt: string;
-  syncStatus?: 'synced' | 'pending';
-}) {
+
   const existing = await db.inventoryMovements.where('movementKey').equals(input.movementKey).first();
   if (existing) return;
   const product = await db.products.get(input.productId);
