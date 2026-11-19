@@ -219,21 +219,15 @@ export const syncService = {
           if (op.type === 'entity_upsert' && op.payload?.record?.id !== undefined && res.result?.id !== undefined) {
             await remapPendingEntityReferences(op.payload.table, op.payload.record.id, res.result.id, op.id);
           }
-          if (isNativeOperation) {
-            // SQLite owns Android's durable queue; acknowledge it before touching
-            // any optional Dexie compatibility copy.
-            await acknowledgeNativePosOperation(op.id);
-            if (queued.some((candidate) => candidate.id === op.id)) {
-              await db.syncOperations.update(op.id, {
-                status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
-              });
-            }
-          } else {
+          if (!isNativeOperation) {
             await db.syncOperations.update(op.id, {
               status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
             });
           }
+          // Keep the durable SQLite outbox row until every local reconciliation
+          // write is confirmed; a failure can then safely retry the server duplicate.
           await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
+          if (isNativeOperation) await acknowledgeNativePosOperation(op.id);
         } else {
           const retryCount = (op.retryCount || 0) + 1;
           const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
