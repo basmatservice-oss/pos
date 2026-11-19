@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { db } from '../db/db';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository } from '../native/nativePosRepository';
 
@@ -35,15 +34,18 @@ const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any
   if (isNativeAndroid()) {
     return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
   }
+  const { db } = await import('../db/db');
   return db.settings.where('key').equals(key).first();
 };
 
 const putRuntimeSetting = async (key: string, value: any, updatedAt: string): Promise<void> => {
   const record = { key, value, syncStatus: 'synced', updatedAt };
-  await db.settings.put(record);
   if (isNativeAndroid()) {
     await nativePosRepository.put('settings', record, 'synced');
+    return;
   }
+  const { db } = await import('../db/db');
+  await db.settings.put(record);
 };
 
 const formatUrl = (url: string) => {
