@@ -182,7 +182,17 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     if (weightedAverage && activeBatches.length) {
       const activeQty = activeBatches.reduce((sum: number, x: any) => sum + Number(x.remainingQuantity || 0), 0);
       const activeValue = activeBatches.reduce((sum: number, x: any) => sum + Number(x.remainingQuantity || 0) * Number(x.costPrice || 0), 0);
-      if (activeQty > 0) weightedCost = activeValue / activeQty;
+      if (activeQty > 0) weightedCost = Math.round((activeValue / activeQty) * 10000) / 10000;
+    }
+    if (weightedAverage) {
+      for (const batch of activeBatches) {
+        const updated = { ...batch, costPrice: weightedCost, updatedAt: now, syncStatus };
+        batchMap.set(String(batch.id), updated);
+        stage('inventoryBatches', updated);
+      }
+      const updatedProduct = { ...product, costPrice: weightedCost, updatedAt: now, syncStatus };
+      productMap.set(Number(productId), updatedProduct);
+      stage('products', updatedProduct);
     }
     let remaining = qtyNeeded, totalCost = 0;
     const allocations: any[] = [];
@@ -200,7 +210,9 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       const fallback = weightedAverage ? weightedCost : Number(product.costPrice || 0);
       totalCost += remaining * fallback; allocations.push({ batchId: null, quantity: remaining, costPrice: fallback });
     }
-    const updatedProduct = { ...product, stockQuantity: nextQty, updatedAt: now, syncStatus };
+    const latestProduct: any = productMap.get(Number(productId)) || product;
+    const updatedProduct = { ...latestProduct, ...(weightedAverage ? { costPrice: weightedCost } : {}),
+      stockQuantity: nextQty, updatedAt: now, syncStatus };
     productMap.set(Number(productId), updatedProduct); stage('products', updatedProduct);
     if (nextQty < -1e-6) {
       const alertId = 'offline-oversell:' + operationId + ':' + String(productId) + ':' + suffix;
