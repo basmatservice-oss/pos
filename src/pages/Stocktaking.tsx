@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, StocktakingSession, StocktakingEntry } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
@@ -64,8 +65,8 @@ export default function Stocktaking() {
   } = useInventoryStore();
 
   // Sync store with database changes
-  const liveProducts = useLiveQuery(() => db.products.toArray());
-  const liveUnitDefinitions = useLiveQuery(() => db.unitDefinitions.toArray()) || [];
+  const liveProducts = usePosEntityRecords<any>('products');
+  const liveUnitDefinitions = usePosEntityRecords<any>('unitDefinitions');
   useEffect(() => {
     if (liveProducts) {
       useInventoryStore.getState().updateProducts(liveProducts);
