@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { generateUUID } from '../utils/uuid';
-import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Clock,
   Play,
@@ -46,82 +46,49 @@ export default function Shifts() {
   // Get current open shift
   const currentShift = usePosFirstRecordWhereEquals<any>('shifts', 'status', 'open');
 
-  // Shift-scoped queries filtered strictly by shiftId (with time-window fallback for tables without shiftId)
-  const shiftOrders =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.orders.where('shiftId').equals(currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
+  // All shift calculations read from the platform's authoritative local store.
+  const allOrders = usePosEntityRecords<any>('orders');
+  const allReturns = usePosEntityRecords<any>('returns');
+  const allExpenses = usePosEntityRecords<any>('expenses');
+  const allMovements = usePosEntityRecords<any>('shiftMovements');
+  const allCustomerPayments = usePosEntityRecords<any>('customerPayments');
+  const allSupplierPayments = usePosEntityRecords<any>('supplierPayments');
+  const allPurchaseReturns = usePosEntityRecords<any>('purchaseReturns');
+  const allPurchases = usePosEntityRecords<any>('purchases');
+  const allPayroll = usePosEntityRecords<any>('payroll');
+  const allShifts = usePosEntityRecords<any>('shifts');
 
-  const shiftReturns =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.returns.filter((r) => r.shiftId === currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
-
-  const shiftExpenses =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.expenses.where('shiftId').equals(currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
-
-  const shiftMovements =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      const list = await db.shiftMovements.where('shiftId').equals(currentShift.id).toArray();
-      return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    }, [currentShift?.id]) || [];
-
-  const shiftCustomerPayments =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.customerPayments.where('shiftId').equals(currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
-
-  const shiftSupplierPayments =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.supplierPayments.where('shiftId').equals(currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
-
-  const shiftPurchaseReturns =
-    useLiveQuery(async () => {
-      if (!currentShift?.id) return [];
-      return db.purchaseReturns.filter((r) => r.shiftId === currentShift.id).toArray();
-    }, [currentShift?.id]) || [];
-
-  const shiftCashPurchases =
-    useLiveQuery(async () => {
-      if (!currentShift) return [];
-      return db.purchases
-        .filter(
-          (p) =>
-            p.createdAt >= currentShift.startTime &&
-            p.paymentMethod !== 'card' &&
-            Number(p.paidAmount || 0) > 0
-        )
-        .toArray();
-    }, [currentShift?.id, currentShift?.startTime]) || [];
-
-  const shiftCashPayrolls =
-    useLiveQuery(async () => {
-      if (!currentShift) return [];
-      return db.payroll
-        .filter(
-          (p) =>
-            p.paymentDate >= currentShift.startTime &&
-            p.paymentMethod !== 'card' &&
-            p.status === 'paid'
-        )
-        .toArray();
-    }, [currentShift?.id, currentShift?.startTime]) || [];
+  const shiftOrders = useMemo(() => currentShift?.id
+    ? allOrders.filter((record) => record.shiftId === currentShift.id) : [], [allOrders, currentShift?.id]);
+  const shiftReturns = useMemo(() => currentShift?.id
+    ? allReturns.filter((record) => record.shiftId === currentShift.id) : [], [allReturns, currentShift?.id]);
+  const shiftExpenses = useMemo(() => currentShift?.id
+    ? allExpenses.filter((record) => record.shiftId === currentShift.id) : [], [allExpenses, currentShift?.id]);
+  const shiftMovements = useMemo(() => currentShift?.id
+    ? allMovements.filter((record) => record.shiftId === currentShift.id)
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))) : [],
+    [allMovements, currentShift?.id]);
+  const shiftCustomerPayments = useMemo(() => currentShift?.id
+    ? allCustomerPayments.filter((record) => record.shiftId === currentShift.id) : [],
+    [allCustomerPayments, currentShift?.id]);
+  const shiftSupplierPayments = useMemo(() => currentShift?.id
+    ? allSupplierPayments.filter((record) => record.shiftId === currentShift.id) : [],
+    [allSupplierPayments, currentShift?.id]);
+  const shiftPurchaseReturns = useMemo(() => currentShift?.id
+    ? allPurchaseReturns.filter((record) => record.shiftId === currentShift.id) : [],
+    [allPurchaseReturns, currentShift?.id]);
+  const shiftCashPurchases = useMemo(() => currentShift
+    ? allPurchases.filter((record) => record.createdAt >= currentShift.startTime &&
+        record.paymentMethod !== 'card' && Number(record.paidAmount || 0) > 0) : [],
+    [allPurchases, currentShift?.id, currentShift?.startTime]);
+  const shiftCashPayrolls = useMemo(() => currentShift
+    ? allPayroll.filter((record) => record.paymentDate >= currentShift.startTime &&
+        record.paymentMethod !== 'card' && record.status === 'paid') : [],
+    [allPayroll, currentShift?.id, currentShift?.startTime]);
 
   // Past shifts
-  const pastShifts =
-    useLiveQuery(async () => {
-      const list = await db.shifts.where('status').equals('closed').toArray();
-      return list.sort((a, b) => b.startTime.localeCompare(a.startTime));
-    }) || [];
+  const pastShifts = useMemo(() => allShifts.filter((record) => record.status === 'closed')
+    .sort((a, b) => String(b.startTime || '').localeCompare(String(a.startTime || ''))), [allShifts]);
 
   // Exact shift cash math
   const metrics = useMemo(() => {
