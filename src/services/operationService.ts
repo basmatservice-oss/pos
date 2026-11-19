@@ -3723,6 +3723,13 @@ export async function dispatchOperation(
   const operationId = payload?.operationId || generateUUID();
   const deviceId = getDeviceId();
   const role = await getDeviceRole();
+  // Do not let Android submit a purchase update to the server until its full
+  // reversal-and-replacement transaction is implemented atomically in SQLite.
+  // The previous guard ran only during local application, after a server could
+  // already have committed the update and left the device cache stale.
+  if (isNativeAndroid() && type === 'purchase_update') {
+    throw new Error('تعديل فاتورة الشراء على Android متوقف مؤقتًا لحماية تطابق الخادم وSQLite حتى اكتمال الترحيل الذري');
+  }
   setLocalAccountingStandaloneMode(role === 'standalone');
   const now = new Date().toISOString();
   const token = getAuthToken();
