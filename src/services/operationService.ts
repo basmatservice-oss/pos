@@ -1,11 +1,21 @@
-import {
-  db,
+import type {
   SyncOperation,
   ReturnRecord,
   ReturnItem,
   PurchaseReturn,
   PurchaseReturnItem,
 } from '../db/db';
+
+// Dexie is a desktop-only compatibility store. Never load it into Android's
+// operation module; native Android operations use SQLite repositories only.
+let db = {} as typeof import('../db/db').db;
+let desktopDatabaseLoaded = false;
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  db = (await import('../db/db')).db;
+  desktopDatabaseLoaded = true;
+}
 import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
@@ -4085,6 +4095,7 @@ export async function dispatchOperation(
   rawPayload: any,
   branchId?: number
 ): Promise<{ synced: boolean; operationId: string; result?: any }> {
+  await ensureDesktopDatabase();
   let payload = { ...enrichPayloadWithStableIds(type, rawPayload) };
   try {
     const localUser = JSON.parse(localStorage.getItem('user') || 'null');
