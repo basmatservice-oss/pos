@@ -3329,13 +3329,22 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   }
   if (!payload?.record) return;
   const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
-  if (payload.record.id !== undefined && finalRecord.id !== undefined && payload.record.id !== finalRecord.id) {
-    await table.delete(payload.record.id).catch(() => {});
+  const previousId = payload.record.id;
+  const hasChangedPrimaryKey = previousId !== undefined && finalRecord.id !== undefined && previousId !== finalRecord.id;
+  if (hasChangedPrimaryKey && !isNativeAndroid()) {
+    await table.delete(previousId).catch(() => {});
   }
   if (tableName !== 'products') {
     if (isNativeAndroid() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
-      await nativePosRepository.put(tableName as any, { ...finalRecord, syncStatus }, syncStatus);
-      await table.put({ ...finalRecord, syncStatus });
+      const nativeChanges: any[] = [];
+      if (hasChangedPrimaryKey) nativeChanges.push({ action: 'delete', entity: tableName, key: previousId });
+      nativeChanges.push({ action: 'put', entity: tableName, record: { ...finalRecord, syncStatus }, syncState: syncStatus });
+      const applied = await nativePosRepository.applyChanges(nativeChanges);
+      if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite تحديث السجل');
+      await db.transaction('rw', [table], async () => {
+        if (hasChangedPrimaryKey) await table.delete(previousId);
+        await table.put({ ...finalRecord, syncStatus });
+      });
       await flushNativeDatabaseMirrorWrites();
       return;
     }
@@ -3347,7 +3356,9 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   if (isNativeAndroid()) {
     if (!Number.isSafeInteger(productId) || productId <= 0) throw new Error('معرّف الصنف غير صالح');
     const productRecord = { ...finalRecord, syncStatus };
-    const changes: any[] = [{ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus }];
+    const changes: any[] = [];
+    if (hasChangedPrimaryKey) changes.push({ action: 'delete', entity: 'products', key: previousId });
+    changes.push({ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus });
     const cacheRecords: Record<string, any[]> = { inventoryBatches: [], inventoryMovements: [], accounts: [], journalEntries: [], transactions: [] };
     if (Number(finalRecord.stockQuantity || 0) > 0 && (!finalRecord.itemType || finalRecord.itemType === 'stock')) {
       const existingBatches = await nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId);
@@ -3441,6 +3452,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     await db.transaction('rw', [
       db.products, db.inventoryBatches, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
     ], async () => {
+      if (hasChangedPrimaryKey) await db.products.delete(previousId);
       await db.products.put(productRecord as any);
       for (const entity of Object.keys(cacheRecords)) {
         for (const record of cacheRecords[entity]) await (db as any)[entity].put(record);
