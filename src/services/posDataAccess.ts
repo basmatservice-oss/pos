@@ -1,5 +1,5 @@
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { nativePosRepository, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
+import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
 
@@ -82,24 +82,50 @@ export async function putPosSetting(
 ): Promise<void> {
   const matches = await getPosRecordsWhereEquals<any>('settings', 'key', key);
   const existing = matches[0];
-  for (const duplicate of matches.slice(1)) {
-    if (duplicate.id != null) await deletePosRecord('settings', duplicate.id);
-  }
   const now = new Date().toISOString();
   const id = existing?.id ?? (Date.now() * 1000 + (++generatedSettingId % 1000));
-  await putPosRecord('settings', {
+  const record = {
     ...existing,
     id,
     key,
     value,
     syncStatus,
     updatedAt: now,
-  }, syncStatus);
+  };
+
+  if (isNativeAndroid()) {
+    // Keep logical-key deduplication and the replacement in one SQLite transaction.
+    const changes = [
+      ...matches.slice(1).filter((item) => item.id != null).map((item) => ({
+        action: 'delete' as const, entity: 'settings' as const, key: item.id,
+      })),
+      { action: 'put' as const, entity: 'settings' as const, record, syncState: syncStatus },
+    ];
+    const applied = await nativePosRepository.applyChanges(changes);
+    if (applied !== changes.length) throw new Error('SQLite did not confirm the complete settings upsert');
+    notifyNativeEntityChanges(['settings']);
+    return;
+  }
+
+  for (const duplicate of matches.slice(1)) {
+    if (duplicate.id != null) await deletePosRecord('settings', duplicate.id);
+  }
+  await putPosRecord('settings', record, syncStatus);
 }
 
 /** Remove every row for a logical setting key. */
 export async function deletePosSettingsByKey(key: string): Promise<void> {
   const matches = await getPosRecordsWhereEquals<any>('settings', 'key', key);
+  if (isNativeAndroid()) {
+    const changes = matches.filter((record) => record.id != null).map((record) => ({
+      action: 'delete' as const, entity: 'settings' as const, key: record.id,
+    }));
+    if (!changes.length) return;
+    const deleted = await nativePosRepository.applyChanges(changes);
+    if (deleted !== changes.length) throw new Error('SQLite did not confirm deletion of every matching setting');
+    notifyNativeEntityChanges(['settings']);
+    return;
+  }
   for (const record of matches) {
     if (record.id != null) await deletePosRecord('settings', record.id);
   }
