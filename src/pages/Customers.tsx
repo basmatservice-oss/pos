@@ -16,8 +16,8 @@ import {
   Printer,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { db } from '../db/db';
 import type { Customer, Order, OrderItem } from '../db/db';
+import { getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { format } from 'date-fns';
 import { useReactToPrint } from 'react-to-print';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
@@ -285,22 +285,17 @@ export default function Customers() {
     setCustomPayMethod('cash');
     setCustomPayNotes('');
     try {
-      const unpaidOrders = await db.orders
-        .where('customerId')
-        .equals(customer.id!)
-        .filter((order) => {
-          if (
-            order.paymentMethod !== 'credit' ||
-            order.status === 'void' ||
-            order.status === 'returned'
-          ) {
-            return false;
-          }
-          const remaining =
-            (order.netAmount || 0) - (order.returnedAmount || 0) - (order.paidAmount || 0);
-          return remaining > 0.01;
-        })
-        .toArray();
+      const customerOrders = await getPosRecordsWhereEquals<Order>('orders', 'customerId', customer.id!);
+      const unpaidOrders = customerOrders.filter((order) => {
+        if (
+          order.paymentMethod !== 'credit' ||
+          order.status === 'void' ||
+          order.status === 'returned'
+        ) return false;
+        const remaining =
+          (order.netAmount || 0) - (order.returnedAmount || 0) - (order.paidAmount || 0);
+        return remaining > 0.01;
+      });
       unpaidOrders.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -828,10 +823,7 @@ export default function Customers() {
                           <div className="flex gap-2">
                             <button
                               onClick={async () => {
-                                const items = await db.orderItems
-                                  .where('orderId')
-                                  .equals(order.id!)
-                                  .toArray();
+                                const items = await getPosRecordsWhereEquals<OrderItem>('orderItems', 'orderId', order.id!);
                                 setSelectedInvoiceForPreview({ order, items });
                               }}
                               className="px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold"
