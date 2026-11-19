@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { X, Package, ArrowDownLeft, ArrowUpRight, RefreshCw, History, Layers } from 'lucide-react';
 import { db, Product } from '../db/db';
@@ -35,35 +36,35 @@ export const ItemCardModal: React.FC<ItemCardModalProps> = ({ product, onClose }
     [productId]
   ) || [];
 
-  const orders = useLiveQuery(() => db.orders.toArray(), []) || [];
+  const orders = usePosEntityRecords<any>('orders');
 
   const returnItems = useLiveQuery(
     () => (productId ? db.returnItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
     [productId]
   ) || [];
 
-  const returns = useLiveQuery(() => db.returns.toArray(), []) || [];
+  const returns = usePosEntityRecords<any>('returns');
 
   const purchaseItems = useLiveQuery(
     () => (productId ? db.purchaseItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
     [productId]
   ) || [];
 
-  const purchases = useLiveQuery(() => db.purchases.toArray(), []) || [];
+  const purchases = usePosEntityRecords<any>('purchases');
 
   const purchaseReturnItems = useLiveQuery(
     () => (productId ? db.purchaseReturnItems.where('productId').equals(productId).toArray() : Promise.resolve([])),
     [productId]
   ) || [];
 
-  const purchaseReturns = useLiveQuery(() => db.purchaseReturns.toArray(), []) || [];
+  const purchaseReturns = usePosEntityRecords<any>('purchaseReturns');
 
   const stocktakeEntries = useLiveQuery(
     () => (productId ? db.stocktakingEntries.where('productId').equals(productId).toArray() : Promise.resolve([])),
     [productId]
   ) || [];
 
-  const auditLogs = useLiveQuery(() => db.auditLogs.toArray(), []) || [];
+  const auditLogs = usePosEntityRecords<any>('auditLogs');
 
   const ledger = useMemo<LedgerRow[]>(() => {
     if (!product || !productId) return [];
