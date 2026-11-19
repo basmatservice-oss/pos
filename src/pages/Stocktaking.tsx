@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, StocktakingSession, StocktakingEntry } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { 
