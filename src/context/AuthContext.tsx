@@ -200,8 +200,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loginUrl = `${baseUrl}/login`;
 
     // Standalone devices authenticate exclusively against their local SQLite/verified credentials.
+    // Remove any JWT retained from a previous server/client configuration.
+    const isStandalone = roleSetting?.value === 'standalone';
+    if (isStandalone) setAuthToken(null);
     // Server and LAN-client devices retain online authentication and its server-side rate limits.
-    let networkFailed = roleSetting?.value === 'standalone';
+    let networkFailed = isStandalone;
     if (!networkFailed) {
       try {
       const controller = new AbortController();
