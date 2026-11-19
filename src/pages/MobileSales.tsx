@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useReactToPrint } from 'react-to-print';
-import { db, Product, Customer, Order, OrderItem, StocktakingEntry } from '../db/db';
+import type { Product, Customer, Order, OrderItem, StocktakingEntry } from '../db/db';
 import toast from 'react-hot-toast';
 import { useSettings } from '../hooks/useSettings';
 import { useAuth } from '../context/AuthContext';
