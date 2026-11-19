@@ -530,7 +530,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
 
       if (order.customerId) {
         const customer = await db.customers.get(order.customerId);
-        if (customer) {
+        if (customerRecord) {
           const balanceDelta = paymentMethod === 'credit' ? netAmount : 0;
           const pointsDelta = Number(pointsEarned || 0) - Number(pointsRedeemed || 0);
           await db.customers.update(customer.id!, {
@@ -834,10 +834,9 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const effectiveReturnDate = payload.returnDate ? new Date(payload.returnDate).toISOString() : now;
-  const [existingReturn, origOrder, origItems, products, customers, batches, movements, accounts, journals] = await Promise.all([
+  const [existingReturn, origOrder, origItems, batches, movements, accounts, journals] = await Promise.all([
     nativePosRepository.get<any>('returns', id), nativePosRepository.get<any>('orders', originalOrderId),
     nativePosRepository.whereEquals<any>('orderItems', 'orderId', originalOrderId),
-    nativePosRepository.getAll<any>('products'), nativePosRepository.getAll<any>('customers'),
     nativePosRepository.getAll<any>('inventoryBatches'), nativePosRepository.getAll<any>('inventoryMovements'),
     nativePosRepository.getAll<any>('accounts'), nativePosRepository.getAll<any>('journalEntries'),
   ]);
@@ -848,8 +847,15 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     const key = entity === 'accounts' ? record.code : record.id;
     changes.set(entity + ':' + JSON.stringify(key), { action: 'put', entity, record, syncState: syncStatus });
   };
+  const affectedProductIds = [...new Set(origItems.map((item: any) => Number(item.productId))
+    .filter((productId: number) => Number.isSafeInteger(productId) && productId > 0))];
+  const [products, customer] = await Promise.all([
+    nativePosRepository.getMany<any>('products', affectedProductIds),
+    origOrder.customerId
+      ? nativePosRepository.get<any>('customers', origOrder.customerId)
+      : Promise.resolve(null),
+  ]);
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
-  const customerMap = new Map(customers.map((x: any) => [String(x.id), x]));
   const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
   const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
   const journalMap = new Map(journals.map((x: any) => [String(x.id), x]));
@@ -971,7 +977,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     returnedAmount: Math.min(roundMoney((origOrder.returnedAmount || 0) + totalRefund), roundMoney(Number(origOrder.netAmount || 0))),
     updatedAt: now, syncStatus });
   if (origOrder.customerId && effectiveRefundMethod === 'credit_adjustment') {
-    const customer: any = customerMap.get(String(origOrder.customerId));
+    const customerRecord: any = customer;
     if (customer) stage('customers', { ...customer, balance: roundMoney((customer.balance || 0) - totalRefund), updatedAt: now, syncStatus });
   }
   stage('returns', { id, returnNumber, originalOrderId, originalReceiptNumber: origOrder.receiptNumber,
