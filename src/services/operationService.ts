@@ -779,7 +779,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
       balance: roundMoney(Number(customer.balance || 0) + (order.paymentMethod === 'credit' ? -Number(order.netAmount || 0) : 0)),
       points: Math.max(0, Number(customer.points || 0) + pointsDelta), updatedAt: now, syncStatus });
   }
-  stage('orders', { ...order, status: 'void', paidAmount: 0, updatedAt: now, syncStatus });
+  stage('orders', { ...order, status: 'void', voidOperationId: operationId, paidAmount: 0, updatedAt: now, syncStatus });
 
   if (shouldPostLocalAccounting(syncStatus)) {
     const unreversedJournals = journals.filter((entry: any) => entry.status === 'posted');
@@ -837,7 +837,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     syncState: change.syncState || 'local',
   }));
   const committed = await applyNativePosRecordChangesIfFieldAbsent(
-    nativeChanges, 'orders', 'status', 'void',
+    nativeChanges, 'orders', 'voidOperationId', operationId,
   );
   if (!committed.skipped && committed.applied !== nativeChanges.length) {
     throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
