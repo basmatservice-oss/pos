@@ -1401,8 +1401,8 @@ async function applyPurchaseLocally(
     }
     if (shouldPostLocalAccounting(syncStatus)) {
       const entryKey = String(payload.operationId || purchase.id);
-      const postJournal = async (suffix: string, description: string, lines: any[]) => {
-        const entryId = 'local-je:purchase:' + String(purchase.id) + ':' + suffix + ':' + entryKey;
+      const postJournal = async (referenceType: 'purchase' | 'payment', journalEntryKey: string, description: string, lines: any[]) => {
+        const entryId = 'local-je:' + referenceType + ':' + String(purchase.id) + ':' + journalEntryKey;
         if (journals.some((entry: any) => String(entry.id) === entryId)) return;
         for (const line of lines) {
           const definitions: any = {
@@ -1417,8 +1417,8 @@ async function applyPurchaseLocally(
         }
         const total = roundMoney(lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0));
         const journal = {
-          id: entryId, entryNumber: 'LOCAL-purchase-' + String(purchase.id).slice(0, 8) + '-' + suffix,
-          date: purchase.date || now, referenceId: String(purchase.id), referenceType: 'purchase',
+          id: entryId, entryNumber: 'LOCAL-' + journalEntryKey + '-' + String(purchase.id).slice(0, 8),
+          date: purchase.date || now, referenceId: String(purchase.id), referenceType,
           description, totalDebit: total, totalCredit: total, status: 'posted',
           createdBy: purchase.createdBy || 'System', branchId: purchase.branchId,
           syncStatus: currentDeviceRole === 'standalone' ? 'synced' : 'pending', createdAt: now,
@@ -1430,7 +1430,7 @@ async function applyPurchaseLocally(
             id: entryId + ':' + index, journalEntryId: entryId, accountId: line.accountCode,
             accountName: accountMap.get(line.accountCode)?.name || line.accountCode,
             type: line.debit > 0 ? 'debit' : 'credit', amount: line.debit || line.credit,
-            debit: line.debit, credit: line.credit, description, purchaseId: String(purchase.id),
+            debit: line.debit, credit: line.credit, description: line.description || description, purchaseId: String(purchase.id),
             syncStatus: journal.syncStatus, createdAt: now,
           }, syncState: journal.syncStatus,
         }));
@@ -1444,11 +1444,11 @@ async function applyPurchaseLocally(
             ...(goodsTotal > 0 ? [{ accountCode: '2100', debit: 0, credit: goodsTotal, purchaseId: purchase.id }] : []),
             ...(extraCost > 0 ? [{ accountCode: extraMethod === 'card' ? '1020' : '1010', debit: 0, credit: extraCost, purchaseId: purchase.id }] : []),
           ];
-      if (capitalized > 0) await postJournal('inventory', 'فاتورة مشتريات من المورد: ' + String(purchase.supplierName || ''), [
+      if (capitalized > 0) await postJournal('purchase', 'purchase-inventory-' + entryKey, 'فاتورة مشتريات من المورد: ' + String(purchase.supplierName || ''), [
         { accountCode: '1200', debit: capitalized, credit: 0, purchaseId: purchase.id }, ...credits,
       ]);
       const paid = roundMoney(Number(purchase.paidAmount || 0));
-      if (paid > 0) await postJournal('payment', 'سداد للمورد عن فاتورة مشتريات: ' + String(purchase.supplierName || ''), [
+      if (paid > 0) await postJournal('payment', 'purchase-payment-' + entryKey, 'سداد للمورد عن فاتورة مشتريات: ' + String(purchase.supplierName || ''), [
         { accountCode: '2100', debit: paid, credit: 0, purchaseId: purchase.id },
         { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paid, purchaseId: purchase.id },
       ]);
