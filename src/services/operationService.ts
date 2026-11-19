@@ -3919,8 +3919,12 @@ export async function dispatchOperation(
       : null;
     const oldNumbers = [oldPurchase.shippingCost, oldPurchase.customsCost, oldPurchase.otherCosts, oldPurchase.totalAmount, oldPurchase.paidAmount]
       .map((value: any) => Number(value || 0));
+    const oldExtra = roundMoney(oldNumbers[0] + oldNumbers[1] + oldNumbers[2]);
+    const oldPayable = oldPurchase.extraCostsPaymentMethod === 'supplier'
+      ? roundMoney(oldNumbers[3] + oldExtra)
+      : oldNumbers[3];
     if (oldNumbers.some((value: number) => !Number.isFinite(value) || value < 0) ||
-        (oldPurchase.supplierId && oldNumbers[3] > oldNumbers[4] + oldNumbers[3] && !supplier)) {
+        (oldPurchase.supplierId && oldPayable > oldNumbers[4] && !supplier)) {
       throw new Error('بيانات فاتورة الشراء أو المورد غير صالحة لعكسها محليًا');
     }
     const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
