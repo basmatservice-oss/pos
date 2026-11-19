@@ -422,7 +422,7 @@ const Settings: React.FC = () => {
           const existing = await nativePosRepository.getAllWithSyncState(entity);
           for (const row of existing) {
             const record = row.record as any;
-            changes.push({ action: 'delete', entity, key: record.id ?? record.code ?? record.key });
+            changes.push({ action: 'delete', entity, key: JSON.parse(row.recordId) });
           }
           for (const record of data[entity]) {
             if (!record || typeof record !== 'object' || Array.isArray(record)) {
@@ -497,7 +497,7 @@ const Settings: React.FC = () => {
           const existing = await nativePosRepository.getAllWithSyncState(entity);
           for (const row of existing) {
             const record = row.record as any;
-            changes.push({ action: 'delete', entity, key: record.id ?? record.code ?? record.key });
+            changes.push({ action: 'delete', entity, key: JSON.parse(row.recordId) });
           }
         }
         const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
