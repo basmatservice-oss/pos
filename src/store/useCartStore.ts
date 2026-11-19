@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { generateUUID } from '../utils/uuid';
-import { Product, ProductUnit } from '../db/db';
-import { calculateVatInclusiveOrder, ComputedOrderTaxSummary } from '../utils/tax';
+import type { Product, ProductUnit } from '../db/db';
+import { calculateVatInclusiveOrder } from '../utils/tax';
+import type { ComputedOrderTaxSummary } from '../utils/tax';
 import { roundQty } from '../utils/format';
 
 export interface CartItem extends Product {
