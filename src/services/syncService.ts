@@ -152,6 +152,7 @@ export const syncService = {
       branchId: op.branchId ? Number(op.branchId) : undefined,
       status: 'pending' as const,
       retryCount: op.retryCount || 0,
+      nextRetryAt: op.nextRetryAt ? new Date(op.nextRetryAt).toISOString() : undefined,
       createdAt: new Date(op.createdAt).toISOString(),
       updatedAt: new Date(op.createdAt).toISOString(),
     }));
@@ -162,7 +163,8 @@ export const syncService = {
     const readyOps = merged
       .filter((op) => {
         const dexieOp = queued.find((candidate) => candidate.id === op.id);
-        return !dexieOp?.nextRetryAt || new Date(dexieOp.nextRetryAt).getTime() <= now;
+        const retryAt = op.nextRetryAt || dexieOp?.nextRetryAt;
+        return !retryAt || new Date(retryAt).getTime() <= now;
       })
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
@@ -175,20 +177,25 @@ export const syncService = {
       const queuedOperation = readyOps[i];
       // Re-read the payload after each acknowledgement: an earlier create may
       // have remapped IDs inside this operation while readyOps was being sorted.
-      let currentOperation: any = await db.syncOperations.get(queuedOperation.id);
-      if (isNativeAndroid() && nativeIds.has(queuedOperation.id)) {
+      const isNativeOperation = isNativeAndroid() && nativeIds.has(queuedOperation.id);
+      let currentOperation: any;
+      if (isNativeOperation) {
         const latestNative = await listNativePendingPosOperations();
         const nativeOperation = latestNative.find((item) => item.operationId === queuedOperation.id);
-        if (nativeOperation) {
-          currentOperation = {
-            ...currentOperation,
-            id: nativeOperation.operationId,
-            type: nativeOperation.type,
-            payload: nativeOperation.payload,
-            deviceId: nativeOperation.deviceId || currentOperation?.deviceId || '',
-            branchId: nativeOperation.branchId ? Number(nativeOperation.branchId) : currentOperation?.branchId,
-          };
-        }
+        if (!nativeOperation) continue;
+        currentOperation = {
+          id: nativeOperation.operationId,
+          type: nativeOperation.type,
+          payload: nativeOperation.payload,
+          deviceId: nativeOperation.deviceId || '',
+          branchId: nativeOperation.branchId ? Number(nativeOperation.branchId) : undefined,
+          status: 'pending',
+          retryCount: nativeOperation.retryCount || 0,
+          nextRetryAt: nativeOperation.nextRetryAt ? new Date(nativeOperation.nextRetryAt).toISOString() : undefined,
+          createdAt: new Date(nativeOperation.createdAt).toISOString(),
+        };
+      } else {
+        currentOperation = await db.syncOperations.get(queuedOperation.id);
       }
       if (!currentOperation || !['pending', 'error', 'syncing'].includes(currentOperation.status || 'pending')) continue;
       const batch = [currentOperation];
@@ -214,34 +221,43 @@ export const syncService = {
           if (op.type === 'entity_upsert' && op.payload?.record?.id !== undefined && res.result?.id !== undefined) {
             await remapPendingEntityReferences(op.payload.table, op.payload.record.id, res.result.id, op.id);
           }
-          await db.syncOperations.update(op.id, {
-            status: 'synced',
-            lastError: undefined,
-            updatedAt: new Date().toISOString(),
-          });
-          if (isNativeAndroid() && nativeIds.has(op.id)) {
-            await acknowledgeNativePosOperation(op.id).catch((error) =>
-              console.error('Could not acknowledge Android SQLite operation:', error)
-            );
+          if (isNativeOperation) {
+            // SQLite owns Android's durable queue; acknowledge it before touching
+            // any optional Dexie compatibility copy.
+            await acknowledgeNativePosOperation(op.id);
+            if (queued.some((candidate) => candidate.id === op.id)) {
+              await db.syncOperations.update(op.id, {
+                status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
+              });
+            }
+          } else {
+            await db.syncOperations.update(op.id, {
+              status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
+            });
           }
           await reconcileLocalOperationAfterAck(op.type, op.payload, op.id, res.result);
         } else {
           const retryCount = (op.retryCount || 0) + 1;
           const backoffMs = Math.min(60000, 2000 * Math.pow(2, retryCount));
           const message = res.error || 'Unknown sync error';
-          await db.syncOperations.update(op.id, {
-            status: retryCount >= 8 ? 'conflict' : 'error',
-            retryCount,
-            lastError: message,
-            nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-          if (isNativeAndroid() && nativeIds.has(op.id)) {
-            if (retryCount >= 8) {
-              await markNativePosOperationConflict(op.id, message).catch(() => {});
-            } else {
-              await markNativePosOperationError(op.id, message).catch(() => {});
+          if (isNativeOperation) {
+            if (retryCount >= 8) await markNativePosOperationConflict(op.id, message);
+            else await markNativePosOperationError(op.id, message);
+            if (queued.some((candidate) => candidate.id === op.id)) {
+              await db.syncOperations.update(op.id, {
+                status: retryCount >= 8 ? 'conflict' : 'error',
+                retryCount, lastError: message,
+                nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
             }
+          } else {
+            await db.syncOperations.update(op.id, {
+              status: retryCount >= 8 ? 'conflict' : 'error',
+              retryCount, lastError: message,
+              nextRetryAt: new Date(Date.now() + backoffMs).toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
           }
         }
       }
