@@ -1311,7 +1311,9 @@ async function applyPurchaseLocally(
     const customsCost = Number(purchase.customsCost || 0);
     const otherCosts = Number(purchase.otherCosts || 0);
     const paidAmount = Number(purchase.paidAmount || 0);
+    const declaredTotal = purchase.totalAmount == null ? null : Number(purchase.totalAmount);
     if (!Number.isFinite(fxRate) || fxRate <= 0 ||
+        (declaredTotal !== null && (!Number.isFinite(declaredTotal) || declaredTotal < 0)) ||
         [shippingCost, customsCost, otherCosts, paidAmount].some((value) => !Number.isFinite(value) || value < 0)) {
       throw new Error('بيانات العملة أو المصروفات أو المبلغ المدفوع في فاتورة الشراء غير صالحة');
     }
