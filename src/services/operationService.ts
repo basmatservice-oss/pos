@@ -4332,7 +4332,6 @@ export async function dispatchOperation(
     const other = Number(purchase.otherCosts || 0), paid = Number(purchase.paidAmount || 0);
     const declaredTotal = purchase.totalAmount == null ? null : Number(purchase.totalAmount);
     if (!Number.isFinite(fxRate) || fxRate <= 0 ||
-        !['cash', 'card'].includes(String(purchase.paymentMethod || 'cash')) ||
         !['cash', 'card', 'supplier'].includes(String(purchase.extraCostsPaymentMethod || 'cash')) ||
         [shipping, customs, other, paid].some((value) => !Number.isFinite(value) || value < 0) ||
         (declaredTotal !== null && (!Number.isFinite(declaredTotal) || declaredTotal < 0))) {
