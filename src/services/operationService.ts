@@ -2228,7 +2228,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       if (shouldPostLocalAccounting(syncStatus)) {
         const cashCode = expenseRecord.paymentMethod === 'card' ? '1020' : '1010';
         const definitions: any = {
-          '5200': { name: 'مصروفات تشغيلية', type: 'expense' },
+          '5200': { name: 'المصروفات التشغيلية', type: 'expense' },
           '1010': { name: 'الصندوق', type: 'asset' },
           '1020': { name: 'البنك / الشبكة', type: 'asset' },
         };
