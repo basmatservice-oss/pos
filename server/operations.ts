@@ -1668,6 +1668,7 @@ function handlePurchaseReturn(
       .filter((batch: any) => Number(batch.productId) === prodId &&
         String(batch.purchaseId) === String(originalPurchaseId))
       .sort((a: any, b: any) =>
+        String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
         String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
         String(a.id).localeCompare(String(b.id)));
 
