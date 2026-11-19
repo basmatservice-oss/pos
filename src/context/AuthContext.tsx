@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
-import { getFirstPosRecordWhereEquals, getPosRecords } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { API_BASE, setAuthToken, getAuthToken } from '../services/apiService';
 
@@ -69,6 +69,7 @@ interface AuthContextType {
   login: (username?: string, password?: string, pinCode?: string) => Promise<void>;
   logout: () => void;
   updateCurrentUser: (patch: Partial<AuthUser>) => void;
+  changeLocalCredentials: (currentPassword: string, newPassword: string, newPinCode?: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -143,6 +144,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('user', JSON.stringify(next));
       return next;
     });
+  };
+
+  const changeLocalCredentials = async (currentPassword: string, newPassword: string, newPinCode?: string) => {
+    if (!user?.id) throw new Error('لا يوجد مستخدم مسجل لتحديث بيانات دخوله');
+    if (!currentPassword || !newPassword || newPassword.length < 6) {
+      throw new Error('يرجى إدخال كلمة المرور الحالية وكلمة مرور جديدة صالحة');
+    }
+    const verifiers = loadOfflineVerifiers();
+    const verifier = verifiers.find((entry) => entry.user.id === user.id);
+    const employees = await getPosRecords<Record<string, any>>('employees');
+    const employee = employees.find((entry) => Number(entry.id) === Number(user.id));
+    const currentMatches =
+      matchSecret(currentPassword, verifier?.passwordHash) ||
+      matchSecret(currentPassword, employee?.password);
+    if (!currentMatches) throw new Error('كلمة المرور الحالية غير صحيحة');
+
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    const pinHash = newPinCode ? bcrypt.hashSync(newPinCode, 10) : verifier?.pinHash;
+    const nextVerifiers = verifiers.filter((entry) => entry.user.id !== user.id);
+    nextVerifiers.push({ user: { ...user, mustChangePassword: false }, passwordHash, pinHash });
+    // Persist the local verifier before reporting success; do not swallow storage errors.
+    localStorage.setItem(OFFLINE_VERIFIERS_KEY, JSON.stringify(nextVerifiers));
+
+    if (employee) {
+      await putPosRecord('employees', {
+        ...employee,
+        password: passwordHash,
+        ...(newPinCode ? { pinCode: bcrypt.hashSync(newPinCode, 10) } : {}),
+        mustChangePassword: false,
+        syncStatus: 'synced',
+      }, 'synced');
+    }
+    const updatedUser = { ...user, mustChangePassword: false };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
   const login = async (username?: string, password?: string, pinCode?: string) => {
@@ -282,7 +318,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, updateCurrentUser, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, updateCurrentUser, changeLocalCredentials, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
