@@ -1366,6 +1366,7 @@ async function applyPurchaseLocally(
     const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
     const supplierMap = new Map<string, any>(allSuppliers.map((entry: any) => [String(entry.id), entry]));
     const changes: any[] = [];
+    const touchedAccountCodes = new Set<string>();
     let allBatches = allBatchesRaw;
     if (isPurchaseUpdate) {
       if (oldReturns.length) throw new Error('لا يمكن تعديل فاتورة شراء لها مرتجعات مسجلة');
@@ -1462,6 +1463,7 @@ async function applyPurchaseLocally(
           if (!Number.isFinite(balance)) throw new Error('رصيد الحساب ' + code + ' غير صالح');
           const normalDebit = account.type === 'asset' || account.type === 'expense';
           accountMap.set(code, { ...account, balance: roundMoney(balance + (normalDebit ? line.debit - line.credit : line.credit - line.debit)), updatedAt: now });
+          touchedAccountCodes.add(code);
           changes.push({ action: 'put', entity: 'transactions', record: {
             id: reversalId + ':' + index, journalEntryId: reversalId, accountId: code,
             accountName: account.name || code, type: line.debit > 0 ? 'debit' : 'credit',
@@ -1631,6 +1633,7 @@ async function applyPurchaseLocally(
           const delta = account.type === 'asset' || account.type === 'expense' ? line.debit - line.credit : line.credit - line.debit;
           const updated = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
           accountMap.set(line.accountCode, updated);
+          touchedAccountCodes.add(String(line.accountCode));
         }
         const journal = {
           id: entryId, entryNumber: 'LOCAL-' + journalEntryKey + '-' + String(purchase.id).slice(0, 8),
@@ -1668,13 +1671,9 @@ async function applyPurchaseLocally(
         { accountCode: '2100', debit: paid, credit: 0, purchaseId: purchase.id },
         { accountCode: purchase.paymentMethod === 'card' ? '1020' : '1010', debit: 0, credit: paid, purchaseId: purchase.id },
       ]);
-      const changedCodes = new Set<string>();
-      for (const change of changes) if (change.entity === 'accounts') changedCodes.add(String(change.record.code));
-      for (const [code, account] of accountMap) {
-        if (!changedCodes.has(code)) {
-          changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
-          changedCodes.add(code);
-        }
+      for (const code of touchedAccountCodes) {
+        const account = accountMap.get(code);
+        if (account) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: syncStatus });
       }
     }
     const uniqueChanges = new Map<string, any>();
