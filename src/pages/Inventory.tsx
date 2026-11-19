@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { Plus, Search, Edit, Trash2, Package, X, Download, Upload, RefreshCcw, Tags, ScanLine, Printer, Image as ImageIcon, Camera, History, Layers } from 'lucide-react';
