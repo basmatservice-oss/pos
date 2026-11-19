@@ -1,4 +1,5 @@
-import { db } from '../db/db';
+import { generateUUID } from '../utils/uuid';
+import { putPosRecord } from './posDataAccess';
 
 export const logAction = async (
   userName: string,
@@ -11,12 +12,8 @@ export const logAction = async (
   branchId?: number
 ) => {
   try {
-    console.log('Logging action:', { userName, operationName, type, details, quantity, value, productName, branchId });
-    if (!db.auditLogs) {
-      console.error('auditLogs table is undefined in db instance');
-      return;
-    }
-    await db.auditLogs.add({
+    await putPosRecord('auditLogs', {
+      id: generateUUID(),
       date: new Date().toISOString(),
       userName,
       productName,
@@ -26,8 +23,8 @@ export const logAction = async (
       quantity,
       value,
       branchId,
-      syncStatus: 'pending'
-    });
+      syncStatus: 'pending',
+    }, 'pending');
   } catch (error) {
     console.error('Error logging action:', error);
   }
