@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { getFirstPosRecordWhereEquals, getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search, RotateCcw, AlertCircle, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -47,7 +48,7 @@ export default function Returns() {
 
     setIsLoading(true);
     try {
-      const orders = await db.orders.toArray();
+      const orders = await getPosRecords<any>('orders');
       const foundOrder = orders.find(
         (o) => o.id?.toString() === q || o.receiptNumber?.toLowerCase() === q.toLowerCase()
       );
@@ -64,12 +65,12 @@ export default function Returns() {
         return;
       }
 
-      const origItems = await db.orderItems.where('orderId').equals(foundOrder.id!).toArray();
-      const existingReturns = await db.returns.where('originalOrderId').equals(foundOrder.id!).toArray();
+      const origItems = await getPosRecordsWhereEquals<any>('orderItems', 'orderId', foundOrder.id!);
+      const existingReturns = await getPosRecordsWhereEquals<any>('returns', 'originalOrderId', foundOrder.id!);
       const existingReturnIds = existingReturns.map((r) => r.id);
       let pastReturnItems: ReturnItem[] = [];
       if (existingReturnIds.length > 0) {
-        const allRetItems = await db.returnItems.toArray();
+        const allRetItems = await getPosRecords<any>('returnItems');
         pastReturnItems = allRetItems.filter((ri) => existingReturnIds.includes(ri.returnId));
       }
 
@@ -158,7 +159,7 @@ export default function Returns() {
     try {
       const returnId = generateUUID();
       const returnNumber = `RET-${Date.now()}`;
-      const currentShift = await db.shifts.where('status').equals('open').first();
+      const currentShift = await getFirstPosRecordWhereEquals<any>('shifts', 'status', 'open');
 
       const payload = {
         id: returnId,
