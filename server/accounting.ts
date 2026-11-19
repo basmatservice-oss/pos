@@ -371,6 +371,7 @@ export function consumeInventoryFIFO(
   if (!product) {
     throw new AccountingError(`Product ${productId} not found`, 404);
   }
+  if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
 
   const prevQty = roundQty(Number(product.stockQuantity || 0));
   const newQty = roundQty(prevQty - qtyNeeded);
@@ -384,7 +385,7 @@ export function consumeInventoryFIFO(
     .select()
     .from(inventoryBatches)
     .where(and(eq(inventoryBatches.productId, productId), gt(inventoryBatches.remainingQuantity, 0)))
-    .orderBy(asc(inventoryBatches.purchaseDate), asc(inventoryBatches.createdAt))
+    .orderBy(asc(inventoryBatches.purchaseDate), asc(inventoryBatches.createdAt), asc(inventoryBatches.id))
     .all();
 
   let weightedUnitCost = Number(product.costPrice || 0);
@@ -541,6 +542,7 @@ export function restoreInventoryFIFO(
   }
   const product = tx.select().from(products).where(eq(products.id, productId)).get();
   if (!product) throw new AccountingError('Product ' + productId + ' not found for stock restoration', 404);
+  if (qtyToRestore <= 0) return { totalCostRestored: 0, restoredAllocations: [] };
   let remainingToRestore = qtyToRestore;
   let totalCostRestored = 0;
   const restoredAllocations: BatchAllocation[] = [];
