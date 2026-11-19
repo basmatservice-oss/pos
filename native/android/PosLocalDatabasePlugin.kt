@@ -647,6 +647,76 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun applySnapshotAndReplaceOutbox(call: PluginCall) {
+        val changes = call.getArray("changes") ?: JSArray()
+        val operations = call.getArray("operations") ?: JSArray()
+        val parsedOperations = mutableListOf<JSONObject>()
+        val operationIds = mutableSetOf<String>()
+        try {
+            for (index in 0 until operations.length()) {
+                val operation = operations.getJSONObject(index)
+                val id = operation.optString("operationId").trim()
+                if (id.isBlank() || operation.optString("type").isBlank() ||
+                    operation.optJSONObject("payload") == null || !operationIds.add(id)) {
+                    throw IllegalArgumentException("Invalid or duplicate outbox operation at index $index")
+                }
+                parsedOperations.add(operation)
+            }
+            val db = helper.writableDatabase
+            var applied = 0
+            db.beginTransaction()
+            try {
+                for (index in 0 until changes.length()) {
+                    val change = changes.getJSONObject(index)
+                    val entity = change.optString("entity").trim()
+                    val action = change.optString("action")
+                    val recordId = change.optString("recordId")
+                    if (entity.isBlank() || recordId.isBlank()) throw IllegalArgumentException("Invalid snapshot change at index $index")
+                    if (action == "delete") {
+                        applied += db.delete("pos_records", "entity = ? AND record_id = ?", arrayOf(entity, recordId))
+                    } else if (action == "put") {
+                        val record = change.optJSONObject("record") ?: throw IllegalArgumentException("Missing snapshot record at index $index")
+                        val state = change.optString("syncState", "local")
+                        if (state !in setOf("local", "pending", "synced", "error")) throw IllegalArgumentException("Invalid sync state")
+                        val values = ContentValues().apply {
+                            put("entity", entity); put("record_id", recordId); put("json", record.toString())
+                            put("sync_state", state); put("updated_at", System.currentTimeMillis())
+                        }
+                        if (db.insertWithOnConflict("pos_records", null, values, SQLiteDatabase.CONFLICT_REPLACE) == -1L) {
+                            throw IllegalStateException("Could not restore snapshot record")
+                        }
+                        applied++
+                    } else throw IllegalArgumentException("Unknown snapshot change action")
+                }
+                db.delete("pos_outbox", null, null)
+                db.delete("pos_records", "entity = ?", arrayOf("operations"))
+                val now = System.currentTimeMillis()
+                for (operation in parsedOperations) {
+                    val id = operation.getString("operationId").trim()
+                    val payload = operation.getJSONObject("payload")
+                    val values = ContentValues().apply {
+                        put("operation_id", id); put("type", operation.getString("type").trim())
+                        put("payload", payload.toString()); put("device_id", operation.optString("deviceId", ""))
+                        put("tenant_id", operation.optString("tenantId", "")); put("branch_id", operation.optString("branchId", ""))
+                        put("actor", operation.optString("actor", "")); put("schema_version", operation.optInt("schemaVersion", 1).coerceAtLeast(1))
+                        put("created_at", operation.optLong("createdAt", now)); put("status", "pending")
+                    }
+                    db.insertOrThrow("pos_outbox", null, values)
+                    val recordValues = ContentValues().apply {
+                        put("entity", "operations"); put("record_id", id); put("json", payload.toString())
+                        put("sync_state", "pending"); put("updated_at", now)
+                    }
+                    db.insertOrThrow("pos_records", null, recordValues)
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+            call.resolve(JSObject().put("applied", applied).put("operationCount", parsedOperations.size).put("committed", true))
+        } catch (error: Exception) {
+            call.reject("تعذر تطبيق النسخة الاحتياطية وطابور المزامنة في معاملة واحدة", error)
+        }
+    }
+
+    @PluginMethod
     fun replacePendingOperations(call: PluginCall) {
         val operations = call.getArray("operations") ?: JSArray()
         val parsed = mutableListOf<JSONObject>()
