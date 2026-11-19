@@ -38,7 +38,7 @@ async function markPushedRecordState(tableName: string, key: any, state: 'pendin
   }
   await updateRecordWithoutSyncHook(tableName, key, { syncStatus: state });
 }
-async function migrateLegacyAndroidQueueToSQLite() {
+export async function migrateLegacyAndroidQueueToSQLite() {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const migrationState = await posLocalDatabase.getMeta({ key: 'legacy_dexie_queue_migrated' });
   if (migrationState.value === '1') return;
