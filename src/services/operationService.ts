@@ -2327,7 +2327,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       const cost = Number(reqItem.costPrice ?? batch?.costPrice ?? 0);
       if (!Number.isFinite(cost) || cost < 0) throw new Error('تكلفة الصنف في مرتجع المشتريات غير صالحة');
       const lineTotal = roundMoney(qty * cost);
+      if (!Number.isFinite(lineTotal) || lineTotal < 0) throw new Error('إجمالي تكلفة صنف المرتجع خارج النطاق المالي المسموح');
       totalReturn = roundMoney(totalReturn + lineTotal);
+      if (!Number.isFinite(totalReturn)) throw new Error('إجمالي مرتجع المشتريات غير صالح');
       const itemDoc: any = {
         id: generateUUID(), purchaseReturnId: id, productId, productName: reqItem.productName || '',
         quantity: qty, costPrice: cost, total: lineTotal, batchId: batch?.id ? String(batch.id) : undefined,
