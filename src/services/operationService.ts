@@ -357,15 +357,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
   const nativeChanges = [...changes.values()];
   const applied = await nativePosRepository.applyChanges(nativeChanges);
   if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة المبيعات');
-  const grouped = new Map<string, any[]>();
-  for (const change of nativeChanges) {
-    const list = grouped.get(change.entity) || []; list.push(change.record); grouped.set(change.entity, list);
-  }
-  const tableNames = [...grouped.keys()];
-  await db.transaction('rw', tableNames.map((name) => (db as any)[name]), async () => {
-    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
-  });
-  await flushNativeDatabaseMirrorWrites();
+  // SQLite has committed the complete sale transaction; no Dexie mirror write is needed.
 }
 
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
@@ -762,15 +754,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
   const nativeChanges = [...changes.values()];
   const applied = await nativePosRepository.applyChanges(nativeChanges);
   if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات إلغاء الفاتورة');
-  const grouped = new Map<string, any[]>();
-  for (const change of nativeChanges) {
-    const list = grouped.get(change.entity) || []; list.push(change.record); grouped.set(change.entity, list);
-  }
-  const tables = [...grouped.keys()];
-  await db.transaction('rw', tables.map((name) => (db as any)[name]), async () => {
-    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
-  });
-  await flushNativeDatabaseMirrorWrites();
+  // SQLite has committed the complete void transaction; Dexie is not authoritative on Android.
 }
 
 async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
@@ -1077,16 +1061,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const nativeChanges = [...changes.values()];
   const applied = await nativePosRepository.applyChanges(nativeChanges);
   if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المبيعات');
-  const grouped = new Map<string, any[]>();
-  for (const change of nativeChanges) {
-    const list = grouped.get(change.entity) || [];
-    list.push(change.record); grouped.set(change.entity, list);
-  }
-  const tableNames = [...grouped.keys()];
-  await db.transaction('rw', tableNames.map((name) => (db as any)[name]), async () => {
-    for (const [entity, records] of grouped) await (db as any)[entity].bulkPut(records);
-  });
-  await flushNativeDatabaseMirrorWrites();
+  // SQLite has committed the complete return transaction; no Dexie mirror write is needed.
 }
 
 async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
@@ -1793,18 +1768,7 @@ async function applyPurchaseLocally(
     const finalChanges = [...uniqueChanges.values()];
     const applied = await nativePosRepository.applyChanges(finalChanges);
     if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء في معاملة واحدة');
-    await db.transaction('rw', [
-      db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches,
-      db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
-    ], async () => {
-      for (const change of finalChanges) {
-        const table = (db as any)[change.entity];
-        if (!table) throw new Error('جدول ذاكرة التوافق غير موجود: ' + String(change.entity));
-        if (change.action === 'delete') await table.delete(change.key);
-        else await table.put(change.record);
-      }
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the purchase and all related inventory/accounting records atomically.
     return;
   }
 
@@ -2018,15 +1982,7 @@ async function applyPurchaseLocally(
     changes.push({ action: 'delete', entity: 'purchases', key: purchaseId });
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
-    await db.transaction('rw', [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches,
-      db.inventoryMovements, db.accounts, db.journalEntries, db.transactions], async () => {
-      await db.purchases.delete(purchaseId);
-      await db.purchaseItems.where('purchaseId').equals(purchaseId).delete();
-      await db.inventoryBatches.where('purchaseId').equals(purchaseId).delete();
-      for (const item of cacheChanges) await (db as any)[item.entity].put(item.record);
-      for (const movement of changes.filter((x: any) => x.entity === 'inventoryMovements')) await db.inventoryMovements.put(movement.record);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite already committed the purchase deletion and its reversal records atomically.
     return;
   }
   await db.transaction(
@@ -2528,25 +2484,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const finalChanges = [...uniqueChanges.values()];
     const applied = await nativePosRepository.applyChanges(finalChanges);
     if (applied !== finalChanges.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مرتجع المشتريات');
-    await db.transaction('rw', [
-      db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products,
-      db.suppliers, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
-    ], async () => {
-      await db.purchaseReturns.put(retDoc);
-      if (itemDocs.length) await db.purchaseReturnItems.bulkPut(itemDocs);
-      await db.purchases.put(updatedPurchase);
-      for (const change of finalChanges) {
-        if (change.entity === 'inventoryBatches') await db.inventoryBatches.put(change.record);
-        else if (change.entity === 'products') await db.products.put(change.record);
-        else if (change.entity === 'inventoryMovements') await db.inventoryMovements.put(change.record);
-        else if (change.entity === 'suppliers') await db.suppliers.put(change.record);
-        else if (change.entity === 'accounts') await db.accounts.put(change.record);
-        else if (change.entity === 'journalEntries') await db.journalEntries.put(change.record);
-        else if (change.entity === 'transactions') await db.transactions.put(change.record);
-        else if (change.entity === 'auditLogs') await db.auditLogs.put(change.record);
-      }
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the return, stock, supplier balance and accounting entries atomically.
     return;
   }
   await db.transaction('rw', [
@@ -2808,19 +2746,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     if (changes.length === 0) return;
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات المصروف');
-    await db.transaction('rw', [
-      db.expenses, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
-    ], async () => {
-      if (type === 'expense_delete' && existing) await db.expenses.delete(expenseId);
-      if (expenseRecord) await db.expenses.put(expenseRecord);
-      for (const record of cacheJournalRecords) {
-        if (record.code) await db.accounts.put(record);
-        else if (record.referenceType) await db.journalEntries.put(record);
-        else if (record.journalEntryId) await db.transactions.put(record);
-      }
-      if (auditRecord) await db.auditLogs.put(auditRecord);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the expense and all accounting changes atomically.
     return;
   }
   await db.transaction('rw', [db.expenses, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
@@ -2981,21 +2907,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       throw new Error('لم تؤكد SQLite حفظ جميع سجلات تحصيل العميل');
     }
 
-    await db.transaction('rw', [
-      db.customers, db.orders, db.customerPayments, db.accounts,
-      db.journalEntries, db.transactions, db.auditLogs,
-    ], async () => {
-      await db.customers.put(updatedCustomer);
-      if (updatedOrder) await db.orders.put(updatedOrder);
-      await db.customerPayments.put(payment);
-      for (const record of journalRecords) {
-        if (record.code) await db.accounts.put(record);
-        else if (record.referenceType === 'payment') await db.journalEntries.put(record);
-        else if (record.journalEntryId) await db.transactions.put(record);
-      }
-      if (auditRecord) await db.auditLogs.put(auditRecord);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the customer payment and its balance/accounting effects atomically.
     return;
   }
 
@@ -3151,21 +3063,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
 
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات سداد المورد');
-    await db.transaction('rw', [
-      db.suppliers, db.purchases, db.supplierPayments, db.accounts,
-      db.journalEntries, db.transactions, db.auditLogs,
-    ], async () => {
-      await db.suppliers.put(updatedSupplier);
-      if (updatedPurchase) await db.purchases.put(updatedPurchase);
-      await db.supplierPayments.put(payment);
-      for (const record of accountingRecords) {
-        if (record.code) await db.accounts.put(record);
-        else if (record.referenceType === 'payment') await db.journalEntries.put(record);
-        else if (record.journalEntryId) await db.transactions.put(record);
-      }
-      if (auditRecord) await db.auditLogs.put(auditRecord);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the supplier payment and its balance/accounting effects atomically.
     return;
   }
 
@@ -3315,16 +3213,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
     }
     const applied = await nativePosRepository.applyChanges(changes);
     if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مسير الراتب');
-    await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
-      await db.payroll.put(record);
-      for (const item of accountingRecords) {
-        if (item.code) await db.accounts.put(item);
-        else if (item.referenceType === 'payroll') await db.journalEntries.put(item);
-        else if (item.journalEntryId) await db.transactions.put(item);
-      }
-      if (auditRecord) await db.auditLogs.put(auditRecord);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed payroll and its accounting entries atomically.
     return;
   }
   await db.transaction('rw', [db.payroll, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
@@ -3455,16 +3344,7 @@ async function applyShiftLocally(
       if (applied !== changes.length) {
         throw new Error('لم تؤكد SQLite حفظ جميع سجلات حركة الوردية والقيود المحاسبية');
       }
-      await db.transaction('rw', [db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
-        await db.shiftMovements.put(movement as any);
-        if (journalEntry && accountRecords.length) {
-          await db.accounts.bulkPut(accountRecords as any);
-          await db.journalEntries.put(journalEntry);
-          await db.transactions.bulkPut(transactionRecords);
-        }
-        if (auditRecord) await db.auditLogs.put(auditRecord as any);
-      });
-      await flushNativeDatabaseMirrorWrites();
+      // SQLite committed the shift movement and its accounting records atomically.
       return;
     }
     await db.transaction('rw', [db.shifts, db.shiftMovements, db.accounts, db.journalEntries, db.transactions, db.auditLogs], async () => {
@@ -3755,24 +3635,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
     if (applied !== finalChanges.length) {
       throw new Error('لم تؤكد SQLite حفظ جميع سجلات اعتماد الجرد والقيود المرتبطة به');
     }
-    await db.transaction('rw', [
-      db.products, db.stocktakingSessions, db.inventoryBatches, db.inventoryMovements,
-      db.inventoryAlerts, db.accounts, db.journalEntries, db.transactions, db.auditLogs,
-    ], async () => {
-      await db.stocktakingSessions.put(updatedSession);
-      if (changedProducts.size) await db.products.bulkPut([...changedProducts.values()]);
-      if (changedBatches.size) await db.inventoryBatches.bulkPut([...changedBatches.values()]);
-      if (changedMovements.length) await db.inventoryMovements.bulkPut(changedMovements);
-      if (changedAlerts.length) await db.inventoryAlerts.bulkPut(changedAlerts);
-      const accountWrites = [...accountMap.values()].filter((account: any) => changes.has('accounts:' + String(account.code)));
-      if (accountWrites.length) await db.accounts.bulkPut(accountWrites);
-      const journalWrites = [...changes.values()].filter((change) => change.entity === 'journalEntries').map((change) => change.record);
-      const transactionWrites = [...changes.values()].filter((change) => change.entity === 'transactions').map((change) => change.record);
-      if (journalWrites.length) await db.journalEntries.bulkPut(journalWrites);
-      if (transactionWrites.length) await db.transactions.bulkPut(transactionWrites);
-      if (audit) await db.auditLogs.put(audit);
-    });
-    await flushNativeDatabaseMirrorWrites();
+    // SQLite committed the stocktake and its accounting adjustments atomically.
     return;
   }
   await db.transaction('rw', [
