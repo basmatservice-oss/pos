@@ -123,7 +123,10 @@ async function remapLocalEntityReferences(tableName: string, oldId: string, newI
         });
       }
     }
-    if (changes.length) await nativePosRepository.applyChanges(changes);
+    if (changes.size) {
+    const applied = await nativePosRepository.applyChanges(Array.from(changes.values()));
+    if (applied !== changes.size) throw new Error('SQLite did not confirm every Android sync reconciliation change');
+  }
     return;
   }
   for (const [storeName, fields] of Object.entries(stores)) {
@@ -182,7 +185,11 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
 
 async function reconcileNativeOperationAfterAck(type: string, payload: any, operationId: string, serverResult: any, pendingRefs: Record<string, Set<string>>) {
   const loaded = new Map<string, Array<{ record: Record<string, any>; recordId: string; syncState: any }>>();
-  const changes: any[] = [];
+  const changes = new Map<string, any>();
+  const queueChange = (change: any) => {
+    const key = change.action === 'delete' ? JSON.stringify(change.key) : JSON.stringify(change.record.id ?? change.record.code ?? change.record.key);
+    changes.set(change.entity + ':' + key, change);
+  };
   const cacheUpdates = new Map<string, Set<string>>();
   const load = async (entity: string) => {
     if (!loaded.has(entity)) loaded.set(entity, await nativePosRepository.getAllWithSyncState(entity as any) as any);
@@ -193,7 +200,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     for (const row of rows) {
       if (!predicate(row.record)) continue;
       const record = { ...row.record, syncStatus: 'synced' };
-      changes.push({ action: 'put', entity, record, syncState: row.syncState });
+      queueChange({ action: 'put', entity, record, syncState: row.syncState });
       const key = record.id ?? record.code ?? record.key;
       if (key !== undefined) {
         if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Set<string>());
@@ -227,7 +234,6 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     }
     await mark('orderItems', (row) => String(row.orderId) === orderId);
     await mark('loyaltyTransactions', (row) => String(row.orderId) === orderId);
-    await mark('inventoryMovements', (row) => String(row.orderId || row.referenceId) === orderId);
     for (const id of productIds) if (!pendingRefs.products.has(id)) await mark('products', (row) => String(row.id) === id);
     await mark('inventoryBatches', (row) => batchIds.has(String(row.id)) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
   };
@@ -313,9 +319,9 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     if (entity && serverId !== undefined) {
       const oldId = payload?.record?.id;
       if (oldId !== undefined && String(oldId) !== String(serverId)) {
-        changes.push({ action: 'delete', entity, key: oldId });
+        queueChange({ action: 'delete', entity, key: oldId });
         if (entity === 'products') {
-          for (const batch of await load('inventoryBatches')) if (String(batch.record.productId) === String(oldId)) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.record.id });
+          for (const batch of await load('inventoryBatches')) if (String(batch.record.productId) === String(oldId)) queueChange({ action: 'delete', entity: 'inventoryBatches', key: batch.record.id });
         }
       }
       if (entity === 'products') {
