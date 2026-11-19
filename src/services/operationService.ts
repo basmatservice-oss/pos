@@ -1553,7 +1553,7 @@ async function applyPurchaseLocally(
       changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
       cacheChanges.push({ entity: 'suppliers', record: updated });
     }
-    if (shouldPostLocalAccounting(syncStatus)) {
+    {
       const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
       for (const entry of journals) {
         if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
