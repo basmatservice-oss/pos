@@ -14,7 +14,6 @@ import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInvent
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
-import { flushNativeDatabaseMirrorWrites } from './nativeDatabaseMirror';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
@@ -4355,7 +4354,6 @@ export async function dispatchOperation(
     // server synchronization queue.
     await applyOperationLocally(type, opRecord.payload, 'synced');
     if (isNativeAndroid()) {
-      await flushNativeDatabaseMirrorWrites();
     }
     return { synced: true, operationId };
   }
@@ -4369,7 +4367,6 @@ export async function dispatchOperation(
       await applyOperationLocally(type, localPayload, 'synced', response.result);
       if (isNativeAndroid()) {
         try {
-          await flushNativeDatabaseMirrorWrites();
         } catch (mirrorError) {
           throw Object.assign(
             new Error('تم قبول العملية على الخادم لكن تعذر تثبيت نسختها المحلية في SQLite؛ يلزم إصلاح النسخة المحلية قبل متابعة العمل'),
@@ -4476,7 +4473,6 @@ export async function dispatchOperation(
   if (isNativeAndroid()) {
     // Every committed Dexie business transaction is mirrored as one atomic
     // SQLite batch before the operation can be reported as accepted locally.
-    await flushNativeDatabaseMirrorWrites();
   }
 
   if (token) {
