@@ -3510,21 +3510,29 @@ async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], p
   if (type === 'sale') postingDates = [payload?.order?.createdAt || now];
   else if (type === 'return') postingDates = [payload?.returnDate || now];
   else if (type === 'order_void') {
-    const order = await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
+    const order = isNativeAndroid()
+      ? await nativePosRepository.get<any>('orders', String(payload?.orderId || payload?.id || ''))
+      : await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
     if (!order) return;
     postingDates = [order.createdAt || now];
   } else if (type === 'purchase') postingDates = [payload?.purchase?.date || now];
   else if (type === 'purchase_update') {
-    const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
+    const oldPurchase = isNativeAndroid()
+      ? await nativePosRepository.get<any>('purchases', String(payload?.purchase?.id || ''))
+      : await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
     postingDates = [oldPurchase.date || now, payload?.purchase?.date || now];
   } else if (type === 'purchase_delete') {
-    const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.id || ''));
+    const oldPurchase = isNativeAndroid()
+      ? await nativePosRepository.get<any>('purchases', String(payload?.id || ''))
+      : await getLocalRecord<any>('purchases', String(payload?.id || ''));
     if (!oldPurchase) return;
     postingDates = [oldPurchase.date || now];
   } else if (type === 'expense') postingDates = [payload?.date || now];
   else if (type === 'expense_delete') {
-    const expense = await getLocalRecord<any>('expenses', Number(payload?.id));
+    const expense = isNativeAndroid()
+      ? await nativePosRepository.get<any>('expenses', Number(payload?.id))
+      : await getLocalRecord<any>('expenses', Number(payload?.id));
     if (!expense) return;
     postingDates = [expense.date || now];
   } else if (type === 'payroll') postingDates = [payload?.paymentDate || now];
@@ -3633,7 +3641,9 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
 }
 
 async function assertLocalOpenFiscalPeriod(dateValues: Array<string | undefined>, payload: any): Promise<void> {
-  const periods = await getLocalRecords<any>('fiscalPeriods');
+  const periods = isNativeAndroid()
+    ? await nativePosRepository.getAll<any>('fiscalPeriods')
+    : await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
   let userRole = String(payload?.userRole || payload?.actor?.role || payload?.role || '').toLowerCase();
   if (!userRole) {
@@ -3664,7 +3674,9 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.returnDate || now);
       break;
     case 'order_void': {
-      const order = await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
+      const order = isNativeAndroid()
+      ? await nativePosRepository.get<any>('orders', String(payload?.orderId || payload?.id || ''))
+      : await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
       dates.push(order?.createdAt || now);
       break;
     }
@@ -3672,12 +3684,16 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.purchase?.date || now);
       break;
     case 'purchase_update': {
-      const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
+      const oldPurchase = isNativeAndroid()
+      ? await nativePosRepository.get<any>('purchases', String(payload?.purchase?.id || ''))
+      : await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
       dates.push(oldPurchase?.date || now, payload?.purchase?.date || now);
       break;
     }
     case 'purchase_delete': {
-      const oldPurchase = await getLocalRecord<any>('purchases', String(payload?.id || ''));
+      const oldPurchase = isNativeAndroid()
+      ? await nativePosRepository.get<any>('purchases', String(payload?.id || ''))
+      : await getLocalRecord<any>('purchases', String(payload?.id || ''));
       if (oldPurchase) dates.push(oldPurchase.date || now);
       break;
     }
