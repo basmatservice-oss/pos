@@ -1,9 +1,18 @@
-import { db } from '../db/db';
 import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngine';
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
 import { isNativeAndroid, listNativePendingPosOperations, updateNativePendingOperationPayload } from '../native/posLocalDatabase';
 import { nativePosRepository } from '../native/nativePosRepository';
+// Dexie is required only for desktop reconciliation; Android reconciliation is SQLite-only.
+let db = {} as typeof import('../db/db').db;
+let desktopDatabaseLoaded = false;
+
+async function ensureDesktopDatabase(): Promise<void> {
+  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  db = (await import('../db/db')).db;
+  desktopDatabaseLoaded = true;
+}
+
 
 function collectPendingReferences(value: any, refs: Record<string, Set<string>>) {
   if (!value || typeof value !== 'object') return;
@@ -149,6 +158,7 @@ async function remapLocalEntityReferences(tableName: string, oldId: string, newI
 
 /** Rewrites references in both durable queues after the server assigns a canonical entity ID. */
 export async function remapPendingEntityReferences(tableName: string, oldId: any, newId: any, acknowledgedOperationId?: string) {
+  await ensureDesktopDatabase();
   const keys = new Set(entityReferenceKeys[tableName] || []);
   if (!keys.size || oldId === undefined || newId === undefined || String(oldId) === String(newId)) return;
   const oldKey = String(oldId);
@@ -190,7 +200,6 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     const key = change.action === 'delete' ? JSON.stringify(change.key) : JSON.stringify(change.record.id ?? change.record.code ?? change.record.key);
     changes.set(change.entity + ':' + key, change);
   };
-  const cacheUpdates = new Map<string, Map<string, any>>();
   const load = async (entity: string) => {
     if (!loaded.has(entity)) loaded.set(entity, await nativePosRepository.getAllWithSyncState(entity as any) as any);
     return loaded.get(entity)!;
@@ -201,11 +210,6 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       if (!predicate(row.record)) continue;
       const record = { ...row.record, syncStatus: 'synced' };
       queueChange({ action: 'put', entity, record, syncState: 'synced' });
-      const key = record.id ?? record.code ?? record.key;
-      if (key !== undefined) {
-        if (!cacheUpdates.has(entity)) cacheUpdates.set(entity, new Map<string, any>());
-        cacheUpdates.get(entity)!.set(String(key), key);
-      }
     }
   };
   const get = async (entity: string, id: unknown) => {
@@ -350,25 +354,10 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     const applied = await nativePosRepository.applyChanges(finalChanges);
     if (applied !== finalChanges.length) throw new Error('SQLite did not confirm every Android operation acknowledgement change');
   }
-  for (const [entity, keys] of cacheUpdates) {
-    const table = db.table(entity);
-    for (const key of keys.values()) try { await table.update(key, { syncStatus: 'synced' }); } catch {}
-  }
-  if (type === 'entity_upsert' && payload?.table && payload?.record?.id !== undefined) {
-    const entity = String(payload.table);
-    const serverId = serverResult?.id ?? payload.record.id;
-    const oldId = payload.record.id;
-    if (String(oldId) !== String(serverId)) {
-      try { await db.table(entity).delete(oldId); } catch {}
-      if (entity === 'products') {
-        const batches = (await load('inventoryBatches')).filter((row) => String(row.record.productId) === String(oldId));
-        for (const batch of batches) try { await db.inventoryBatches.delete(batch.record.id); } catch {}
-      }
-    }
-  }
 }
 
 export async function reconcileLocalOperationAfterAck(type: string, payload: any, operationId: string, serverResult?: any) {
+  await ensureDesktopDatabase();
   const referenceId = type === 'entity_upsert' && payload?.table === 'products'
     ? 'opening:' + String(payload?.record?.id)
     : String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
