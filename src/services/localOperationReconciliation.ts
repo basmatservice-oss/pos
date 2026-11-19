@@ -104,6 +104,27 @@ const localReferenceStores: Record<string, Record<string, string[]>> = {
 async function remapLocalEntityReferences(tableName: string, oldId: string, newId: string) {
   const stores = localReferenceStores[tableName] || {};
   const replacement: any = /^[0-9]+$/.test(newId) ? Number(newId) : newId;
+  if (isNativeAndroid()) {
+    const changes: Array<{ action: 'put'; entity: any; record: any; syncState: any }> = [];
+    for (const [storeName, fields] of Object.entries(stores)) {
+      const rows = await nativePosRepository.getAllWithSyncState(storeName as any);
+      for (const row of rows) {
+        const updated: any = { ...row.record };
+        let changed = false;
+        for (const field of fields) {
+          if (updated[field] !== undefined && String(updated[field]) === oldId) {
+            updated[field] = replacement;
+            changed = true;
+          }
+        }
+        if (changed) changes.push({
+          action: 'put', entity: storeName, record: updated, syncState: row.syncState,
+        });
+      }
+    }
+    if (changes.length) await nativePosRepository.applyChanges(changes);
+    return;
+  }
   for (const [storeName, fields] of Object.entries(stores)) {
     const table = (db as any)[storeName];
     if (!table) continue;
