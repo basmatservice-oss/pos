@@ -2127,7 +2127,8 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const newReturned = roundMoney(recordedReturned + totalReturn);
     if (newReturned > roundMoney(purchaseTotal) + 0.05) throw new Error('قيمة مرتجع المشتريات تتجاوز إجمالي فاتورة الشراء');
     const netPayable = Math.max(0, roundMoney(Number(origPurchase.totalAmount || 0) - newReturned));
-    const paid = roundMoney(Number(origPurchase.paidAmount || 0));
+    const paid = Number(origPurchase.paidAmount || 0);
+    if (!Number.isFinite(paid) || paid < 0) throw new Error('المبلغ المدفوع في فاتورة الشراء غير صالح');
     const updatedPurchase = {
       ...origPurchase, returnedAmount: newReturned,
       paymentStatus: paid >= netPayable ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
@@ -2135,8 +2136,11 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     };
     changes.push({ action: 'put', entity: 'purchases', record: updatedPurchase, syncState: syncStatus });
     let updatedSupplier: any = null;
-    if (refundMethod === 'credit_adjustment' && supplier) {
-      updatedSupplier = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - totalReturn), updatedAt: now, syncStatus };
+    if (refundMethod === 'credit_adjustment' && origPurchase.supplierId) {
+      if (!supplier) throw new Error('المورد المرتبط بفاتورة الشراء غير موجود؛ لا يمكن تسوية المرتجع على الحساب');
+      const supplierBalance = Number(supplier.balance || 0);
+      if (!Number.isFinite(supplierBalance)) throw new Error('رصيد المورد غير صالح ولا يمكن ترحيل مرتجع المشتريات');
+      updatedSupplier = { ...supplier, balance: roundMoney(supplierBalance - totalReturn), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus });
     }
     const retDoc: any = {
@@ -2168,9 +2172,11 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
             code: line.accountCode, name: definition.name, type: definition.type,
             balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
           };
+          const accountBalance = Number(account.balance || 0);
+          if (!Number.isFinite(accountBalance)) throw new Error('رصيد الحساب ' + line.accountCode + ' غير صالح');
           const normalDebit = account.type === 'asset' || account.type === 'expense';
           const delta = normalDebit ? line.debit - line.credit : line.credit - line.debit;
-          const updatedAccount = { ...account, balance: roundMoney(Number(account.balance || 0) + delta), updatedAt: now };
+          const updatedAccount = { ...account, balance: roundMoney(accountBalance + delta), updatedAt: now };
           accountMap.set(line.accountCode, updatedAccount);
           changes.push({ action: 'put', entity: 'accounts', record: updatedAccount, syncState: syncStatus });
         }
