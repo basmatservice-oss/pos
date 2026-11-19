@@ -140,8 +140,16 @@ class PosLocalDatabasePlugin : Plugin() {
         }
         val ifAbsentEntity = call.getString("ifAbsentEntity")?.trim()
         val ifAbsentRecordId = call.getString("ifAbsentRecordId")?.trim()
-        if ((ifAbsentEntity.isNullOrBlank()) != (ifAbsentRecordId.isNullOrBlank())) {
-            call.reject("شرط منع التكرار يتطلب كيانًا ومعرّف سجل معًا")
+        val ifAbsentField = call.getString("ifAbsentField")?.trim()
+        val ifAbsentValue = call.getString("ifAbsentValue")
+        val hasRecordGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()
+        val hasFieldGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentField.isNullOrBlank() && ifAbsentValue != null
+        if ((ifAbsentEntity.isNullOrBlank()) != (ifAbsentRecordId.isNullOrBlank()) ||
+            ((ifAbsentField == null) != (ifAbsentValue == null)) ||
+            (ifAbsentField != null && ifAbsentField.isBlank()) ||
+            (hasRecordGuard && ifAbsentField != null) ||
+            (ifAbsentEntity.isNullOrBlank() && (ifAbsentField != null || ifAbsentValue != null))) {
+            call.reject("شرط منع التكرار غير مكتمل أو يجمع نوعين من الشروط")
             return
         }
 
@@ -184,13 +192,24 @@ class PosLocalDatabasePlugin : Plugin() {
             var skipped = false
             db.beginTransaction()
             try {
-                if (!ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()) {
+                if (hasRecordGuard) {
                     db.query(
                         "pos_records", arrayOf("record_id"),
                         "entity = ? AND record_id = ?", arrayOf(ifAbsentEntity, ifAbsentRecordId),
                         null, null, null, "1"
                     ).use { cursor ->
                         if (cursor.moveToFirst()) skipped = true
+                    }
+                } else if (hasFieldGuard) {
+                    db.query("pos_records", arrayOf("json"), "entity = ?", arrayOf(ifAbsentEntity), null, null, null).use { cursor ->
+                        while (!skipped && cursor.moveToNext()) {
+                            val json = cursor.getString(0)
+                            val record = try { JSONObject(json) } catch (_: Exception) { null }
+                            if (record != null && record.opt(ifAbsentField!!) != null &&
+                                record.opt(ifAbsentField!!).toString() == ifAbsentValue) {
+                                skipped = true
+                            }
+                        }
                     }
                 }
                 if (!skipped) for (change in validated) {
