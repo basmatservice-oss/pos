@@ -1,5 +1,5 @@
 import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
-import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges } from '../native/nativePosRepository';
+import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, nativePosRepository } from '../native/nativePosRepository';
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
