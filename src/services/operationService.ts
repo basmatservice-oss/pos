@@ -127,13 +127,26 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     exchangeRate: Number(order.exchangeRate || 1) };
   if (await nativePosRepository.get<any>('orders', order.id)) return;
   const productIds = [...new Set(items.filter((x: any) => Number(x.quantity || 0) > 0).map((x: any) => Number(x.productId)))];
-  const [products, recipes, batches, movements, alerts, customers, accounts, journals] = await Promise.all([
-    nativePosRepository.getMany<any>('products', productIds), nativePosRepository.getAll<any>('serviceRecipes'),
-    nativePosRepository.getAll<any>('inventoryBatches'), nativePosRepository.getAll<any>('inventoryMovements'),
-    nativePosRepository.getAll<any>('inventoryAlerts'), order.customerId ? nativePosRepository.get<any>('customers', order.customerId) : Promise.resolve(null),
-    nativePosRepository.getAll<any>('accounts'), nativePosRepository.getAll<any>('journalEntries'),
-  ]);
+  const products = await nativePosRepository.getMany<any>('products', productIds);
   const productMap = new Map<number, any>(products.map((x: any) => [Number(x.id), x]));
+  const recipeParentIds = [...new Set(items
+    .filter((item: any) => ['service_with_materials', 'bundle'].includes(String(item.itemType || productMap.get(Number(item.productId))?.itemType || '')))
+    .map((item: any) => Number(item.productId))
+    .filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+  const recipes = (await Promise.all(recipeParentIds.map((id: number) =>
+    nativePosRepository.whereEquals<any>('serviceRecipes', 'parentProductId', id)
+  ))).flat();
+  const batchProductIds = [...new Set([...productIds, ...recipes.map((recipe: any) => Number(recipe.ingredientProductId))]
+    .filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+  const [batchesByProduct, movements, alerts, customers, accounts, journals] = await Promise.all([
+    Promise.all(batchProductIds.map((id: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', id))),
+    nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(order.id)),
+    nativePosRepository.getAll<any>('inventoryAlerts'),
+    order.customerId ? nativePosRepository.get<any>('customers', order.customerId) : Promise.resolve(null),
+    nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2100', '2200', '3100', '3200', '4100', '4200', '4300', '5100', '5200', '5300', '5400']),
+    nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(order.id)),
+  ]);
+  const batches = batchesByProduct.flat();
   const batchMap = new Map<string, any>(batches.map((x: any) => [String(x.id), x]));
   const changes = new Map<string, any>();
   const stage = (entity: string, record: any) => {
