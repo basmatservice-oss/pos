@@ -69,7 +69,8 @@ const Settings: React.FC = () => {
   const [newPeriodStart, setNewPeriodStart] = useState('');
   const [newPeriodEnd, setNewPeriodEnd] = useState('');
 
-  const fxHistory = useLiveQuery(() => db.exchangeRateHistory.reverse().toArray(), []) || [];
+  const fxHistoryRecords = usePosEntityRecords<any>('exchangeRateHistory');
+  const fxHistory = useMemo(() => [...fxHistoryRecords].sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime()), [fxHistoryRecords]);
   const fiscalPeriodsList = usePosEntityRecords<any>('fiscalPeriods');
 
   const [settings, setSettings] = useState<any>({
