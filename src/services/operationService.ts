@@ -4445,8 +4445,10 @@ export async function dispatchOperation(
   }
 
   if (role === 'server' && token) {
+    let serverCommitted = false;
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
+      serverCommitted = true;
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
       if (isNativeAndroid()) {
@@ -4463,6 +4465,12 @@ export async function dispatchOperation(
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (err?.nativeSqliteMirrorFailure) throw err;
+      if (serverCommitted) {
+        throw Object.assign(
+          new Error('تم تنفيذ العملية على الخادم لكن تعذر تثبيت نتيجتها محليًا في SQLite؛ لم تُكرر العملية ولم تُضف إلى الطابور'),
+          { serverCommitted: true, cause: err },
+        );
+      }
       if (
         err?.response &&
         err.response.status >= 400 &&
