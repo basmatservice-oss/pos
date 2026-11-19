@@ -13,8 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Employee } from '../db/db';
+import type { Employee } from '../db/db';
 import { format } from 'date-fns';
 import { useSettings } from '../hooks/useSettings';
 import { PERMISSIONS } from '../constants';
