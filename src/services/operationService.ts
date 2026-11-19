@@ -3775,10 +3775,17 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
 async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', payload: any, syncStatus: 'synced' | 'pending', serverResult?: any) {
   const tableName = payload?.table as keyof typeof db;
   const table = (db as any)[tableName];
-  if (!table) return;
+  if (isNativeAndroid() && !(NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
+    throw new Error('الكيان غير مدعوم في مخزن SQLite المحلي: ' + String(tableName));
+  }
+  if (!table) {
+    if (isNativeAndroid()) throw new Error('جدول الكيان غير متاح في ذاكرة التطبيق: ' + String(tableName));
+    return;
+  }
   if (type === 'entity_delete') {
-    if (isNativeAndroid() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
-      await nativePosRepository.delete(tableName as any, payload.id);
+    if (isNativeAndroid()) {
+      const deleted = await nativePosRepository.delete(tableName as any, payload.id);
+      if (!deleted) throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
       await table.delete(payload.id);
       await flushNativeDatabaseMirrorWrites();
       return;
