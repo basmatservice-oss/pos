@@ -2631,11 +2631,14 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     let auditRecord: any = null;
     if (type === 'expense_delete') {
       if (existing) {
-        const [journals, transactions, accounts] = await Promise.all([
-          nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(expenseId)).then((entries: any[]) => entries.filter((entry: any) => entry.referenceType === 'expense')),
-          nativePosRepository.getAll<any>('transactions'),
-          nativePosRepository.getAll<any>('accounts'),
-        ]);
+        const journals = (await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(expenseId)))
+          .filter((entry: any) => entry.referenceType === 'expense');
+        const transactionGroups = await Promise.all(
+          journals.map((entry: any) => nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id)))
+        );
+        const transactions = transactionGroups.flat();
+        const accountCodes = [...new Set(transactions.map((line: any) => String(line.accountId || '')).filter(Boolean))];
+        const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
         const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
         const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
         for (const entry of journals) {
