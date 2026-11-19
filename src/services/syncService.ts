@@ -76,16 +76,33 @@ export async function migrateLegacyAndroidQueueToSQLite() {
       });
       continue;
     }
+    const createdAt = operation.createdAt == null ? Date.now() : new Date(operation.createdAt).getTime();
+    const schemaVersion = Number(operation.schemaVersion || 1);
+    const retryCount = Number(operation.retryCount || 0);
+    const nextRetryAt = operation.nextRetryAt == null ? undefined : new Date(operation.nextRetryAt).getTime();
+    if (
+      !Number.isFinite(createdAt) || createdAt <= 0 ||
+      !Number.isInteger(schemaVersion) || schemaVersion <= 0 ||
+      !Number.isInteger(retryCount) || retryCount < 0 ||
+      (nextRetryAt !== undefined && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))
+    ) {
+      await db.syncOperations.update(operation.id, {
+        status: 'conflict',
+        lastError: 'تعذر ترحيل عملية قديمة: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة',
+        updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
     const queued = await enqueueNativePosOperation({
       operationId: id,
       type: String(operation.type),
       payload: operation.payload as Record<string, unknown>,
       deviceId: String(operation.deviceId || ''),
       branchId: operation.branchId == null ? undefined : String(operation.branchId),
-      schemaVersion: Number(operation.schemaVersion || 1),
-      createdAt: operation.createdAt ? new Date(operation.createdAt).getTime() : Date.now(),
-      retryCount: Math.max(0, Number(operation.retryCount || 0)),
-      nextRetryAt: operation.nextRetryAt ? new Date(operation.nextRetryAt).getTime() : undefined,
+      schemaVersion,
+      createdAt,
+      retryCount,
+      nextRetryAt,
     });
     if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
     await db.syncOperations.update(operation.id, {
