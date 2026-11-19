@@ -1336,8 +1336,11 @@ async function applyPurchaseLocally(
         throw new Error('تحتوي فاتورة الشراء على صنف أو كمية أو تكلفة أو معامل تحويل غير صالح');
       }
       const batchId = item.batchId == null ? '' : String(item.batchId);
-      return { ...item, productId, quantity, factor, unitCost, batchId, lineTotal: roundMoney(quantity * unitCost) };
+      const lineTotal = roundMoney(quantity * unitCost);
+      if (!Number.isFinite(lineTotal) || lineTotal < 0) throw new Error('قيمة أحد أصناف فاتورة الشراء خارج النطاق المالي المسموح');
+      return { ...item, productId, quantity, factor, unitCost, batchId, lineTotal };
     });
+    if (!Number.isFinite(extraCost)) throw new Error('إجمالي المصروفات الإضافية في فاتورة الشراء غير صالح');
     if (!normalized.length) throw new Error('لا توجد أصناف صالحة في فاتورة الشراء');
     if (normalized.some((item: any) => item.quantity <= 0)) throw new Error('يجب أن تكون كميات جميع أصناف فاتورة الشراء أكبر من صفر');
     const suppliedBatchIds = normalized.map((item: any) => item.batchId).filter(Boolean);
@@ -1348,6 +1351,9 @@ async function applyPurchaseLocally(
       ? roundMoney(Number(purchase.totalAmount))
       : roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
     const itemsGoodsSum = roundMoney(normalized.reduce((sum: number, item: any) => sum + item.lineTotal, 0));
+    if (!Number.isFinite(goodsTotal) || goodsTotal < 0 || !Number.isFinite(itemsGoodsSum) || itemsGoodsSum < 0) {
+      throw new Error('إجمالي أصناف فاتورة الشراء غير صالح');
+    }
     const [products, allSuppliers, allBatchesRaw, accounts, journals, transactions, oldItems, oldBatches, oldReturns, allMovements] = await Promise.all([
       nativePosRepository.getAll<any>('products'),
       nativePosRepository.getAll<any>('suppliers'),
@@ -1586,6 +1592,7 @@ async function applyPurchaseLocally(
       const product = productUpdates.get(Number(item.productId)) || productMap.get(Number(item.productId));
       if (!product) throw new Error('الصنف غير موجود (ID: ' + String(item.productId) + ')');
       const baseQty = roundQty(item.quantity * item.factor);
+      if (!Number.isFinite(baseQty) || baseQty <= 0) throw new Error('الكمية الأساسية للصنف في فاتورة الشراء غير صالحة');
       let allocatedExtra = 0;
       if (extraCost > 0) {
         allocatedExtra = index === normalized.length - 1
@@ -1595,6 +1602,9 @@ async function applyPurchaseLocally(
       }
       const landedTotal = roundMoney(item.lineTotal + allocatedExtra);
       const landedCost = baseQty > 0 ? Math.round(landedTotal / baseQty * 10000) / 10000 : 0;
+      if (!Number.isFinite(landedTotal) || landedTotal < 0 || !Number.isFinite(landedCost) || landedCost < 0) {
+        throw new Error('التكلفة الواصلة للصنف في فاتورة الشراء غير صالحة');
+      }
       if (!Array.isArray(payload._serverItems) || payload._serverItems.length === 0) {
         itemDocs.push({
           id: generateUUID(), purchaseId: String(purchase.id), productId: Number(item.productId),
