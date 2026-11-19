@@ -38,12 +38,18 @@ function roundMoney(value: number): number {
 }
 
 async function commitNativeInventoryChanges(changes: any[]): Promise<void> {
-  if (!changes.length) return;
-  const applied = await nativePosRepository.applyChanges(changes);
-  if (applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
-  const tableNames = Array.from(new Set(changes.map((change) => change.entity)));
+  const unique = new Map<string, any>();
+  for (const change of changes) {
+    const key = change.action === 'delete' ? change.key : (change.record.id ?? change.record.code ?? change.record.key);
+    unique.set(change.entity + ':' + String(key), change);
+  }
+  const batch = Array.from(unique.values());
+  if (!batch.length) return;
+  const applied = await nativePosRepository.applyChanges(batch);
+  if (applied !== batch.length) throw new Error('SQLite لم تؤكد حفظ جميع تغييرات المخزون');
+  const tableNames = Array.from(new Set(batch.map((change) => change.entity)));
   await db.transaction('rw', tableNames.map((name) => db.table(name)), async () => {
-    for (const change of changes) {
+    for (const change of batch) {
       const table = db.table(change.entity);
       if (change.action === 'delete') await table.delete(change.key);
       else await table.put(change.record);
@@ -321,6 +327,7 @@ export async function restoreLocalInventoryFIFO(params: {
     ]);
     let remaining = qtyToRestore, totalCost = 0;
     const changes: any[] = [];
+    const stagedBatches = new Map<string, any>();
     for (let i = params.allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
       const allocation = params.allocations[i];
       if (!allocation || allocation.quantity <= 0) continue;
@@ -330,14 +337,16 @@ export async function restoreLocalInventoryFIFO(params: {
       if (allocation.batchId) {
         const row = batchRows.find((item) => String(item.record.id) === String(allocation.batchId));
         if (row) {
-          const batch: any = row.record;
+          const batch: any = stagedBatches.get(String(allocation.batchId)) || row.record;
           const current = Number(batch.remainingQuantity || 0);
           const room = roundQty(Math.max(0, Number(batch.quantity) - current));
           putBack = roundQty(Math.min(putBack, room));
           if (putBack <= 1e-6) continue;
+          const updatedBatch = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' };
+          stagedBatches.set(String(allocation.batchId), updatedBatch);
           changes.push({
             action: 'put', entity: 'inventoryBatches',
-            record: { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+            record: updatedBatch,
             syncState: params.syncStatus || row.syncState,
           });
         } else {
@@ -491,7 +500,10 @@ export async function removeLocalInventoryArtifactsForOperation(operationId: str
       ...movements.map((movement: any) => ({ action: 'delete' as const, entity: 'inventoryMovements' as const, key: movement.id })),
       ...alerts.map((alert: any) => ({ action: 'delete' as const, entity: 'inventoryAlerts' as const, key: alert.id })),
     ];
-    if (changes.length) await nativePosRepository.applyChanges(changes);
+    if (changes.length) {
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع آثار المخزون');
+    }
     return;
   }
   const movements = await db.inventoryMovements.filter((movement) => movement.operationId === operationId).toArray();
