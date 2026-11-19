@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { db } from '../db/db';
 import {
   TrendingUp,
@@ -28,12 +29,12 @@ export default function Dashboard() {
   const endOfToday = endOfDay(today).toISOString();
 
   const orders = useLiveQuery(() => db.orders.where('createdAt').between(startOfToday, endOfToday, true, true).toArray()) || [];
-  const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
+  const orderItems = usePosEntityRecords<any>('orderItems');
   const returns = useLiveQuery(() => db.returns.where('createdAt').between(startOfToday, endOfToday, true, true).toArray()) || [];
   const expenses = useLiveQuery(() => db.expenses.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
   const purchases = useLiveQuery(() => db.purchases.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
-  const products = useLiveQuery(() => db.products.toArray()) || [];
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
+  const products = usePosEntityRecords<any>('products');
+  const customers = usePosEntityRecords<any>('customers');
   const attendance = useLiveQuery(() => db.attendance.where('date').equals(format(today, 'yyyy-MM-dd')).toArray()) || [];
   const loyaltyTransactions = useLiveQuery(() => db.loyaltyTransactions.where('date').between(startOfToday, endOfToday, true, true).toArray()) || [];
 
