@@ -1106,7 +1106,11 @@ class PosLocalDatabasePlugin : Plugin() {
                     db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
                 } else {
                     values.putNull("next_retry_at")
-                    db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
+                    if (status == "pending") {
+                        db.update("pos_outbox", values, "operation_id = ? AND status IN ('staging','pending')", arrayOf(operationId))
+                    } else {
+                        db.update("pos_outbox", values, "operation_id = ?", arrayOf(operationId))
+                    }
                 }
                 // Never update the business operation record if its durable outbox
                 // entry is missing. Throwing rolls back the transaction unchanged.
