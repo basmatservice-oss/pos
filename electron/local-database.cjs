@@ -175,9 +175,11 @@ function enqueueOperation(operation) {
   }
   const createdAt = Number(operation.createdAt || Date.now());
   const retryCount = Number(operation.retryCount || 0);
-  if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0) throw new Error('Invalid outbox metadata');
+  const schemaVersion = Number(operation.schemaVersion || 1);
+  const nextRetryAt = operation.nextRetryAt == null ? null : Number(operation.nextRetryAt);
+  if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0 || !Number.isInteger(schemaVersion) || schemaVersion < 1 || (nextRetryAt !== null && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))) throw new Error('Invalid outbox metadata');
   const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at,device_id,tenant_id,branch_id,actor,schema_version)
-    VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, operation.nextRetryAt ?? null, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, Number(operation.schemaVersion || 1));
+    VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
   return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
 }
 function saveAndEnqueueOperation(operation) {
@@ -187,8 +189,11 @@ function saveAndEnqueueOperation(operation) {
   const record = operation.record && typeof operation.record === 'object' ? operation.record : operation.payload;
   const recordId = operation.recordId || operation.operationId;
   const tx = db().transaction(() => {
-    const exists = db().prepare('SELECT operation_id FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
-    if (exists) return { saved: true, queued: true, duplicate: true, operationId: operation.operationId };
+    const exists = db().prepare('SELECT operation_id, type, payload FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
+    if (exists) {
+      if (exists.type !== operation.type || exists.payload !== JSON.stringify(operation.payload)) throw new Error('Operation ID was reused with a different payload');
+      return { saved: true, queued: true, duplicate: true, operationId: operation.operationId };
+    }
     db().prepare(`INSERT INTO pos_records(entity,record_id,json,updated_at,sync_state) VALUES(?,?,?,?,?)
       ON CONFLICT(entity,record_id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at,sync_state=excluded.sync_state`)
       .run(operation.entity || 'operations', recordId, JSON.stringify(record), Date.now(), 'pending');
