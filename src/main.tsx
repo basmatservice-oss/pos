@@ -6,20 +6,15 @@ import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/na
 import { isNativeAndroid } from './native/posLocalDatabase';
 import { electronPosRepository, isElectronDesktop } from './native/electronPosRepository';
 import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
+import { putPosSetting } from './services/posDataAccess';
 
 async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
   if (isElectronDesktop()) {
     const role = await desktopApi.getDeviceRole();
     const serverUrl = role === 'client' && desktopApi.getServerUrl ? await desktopApi.getServerUrl() : null;
-    const now = new Date().toISOString();
-    const settings = await electronPosRepository.getAll<any>('settings');
-    const saveSetting = async (key: string, value: unknown) => {
-      const existing = settings.find((item) => item.key === key);
-      await electronPosRepository.put('settings', { ...existing, id: existing?.id ?? Date.now() * 1000 + Math.floor(Math.random() * 1000), key, value, syncStatus: 'synced', updatedAt: now }, 'synced');
-    };
-    if (role === 'server' || role === 'client') await saveSetting('deviceRole', role);
-    if (role === 'client' && serverUrl) await saveSetting('serverUrl', serverUrl);
+    if (role === 'server' || role === 'client') await putPosSetting('deviceRole', role, 'synced');
+    if (role === 'client' && serverUrl) await putPosSetting('serverUrl', serverUrl, 'synced');
     return;
   }
   const { db } = await import('./db/db');
