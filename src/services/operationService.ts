@@ -5052,7 +5052,7 @@ export async function dispatchOperation(
       if (err?.nativeSqliteMirrorFailure) throw err;
       if (serverCommitted) {
         throw Object.assign(
-          new Error('تم تنفيذ العملية على الخادم لكن تعذر تثبيت نتيجتها محليًا في SQLite؛ لم تُكرر العملية ولم تُضف إلى الطابور'),
+          new Error('تم تنفيذ العملية على قاعدة بيانات الخادم لكن تعذر تحديث نسخة العرض المحلية؛ لم تُكرر العملية ولم تُضف إلى الطابور'),
           { serverCommitted: true, cause: err },
         );
       }
