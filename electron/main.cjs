@@ -196,6 +196,7 @@ ipcMain.handle('pos-db:update-operation', guardIpc((id, status, message) => loca
 ipcMain.handle('pos-db:retry-operation', guardIpc((id) => localDatabase.retryOperation(id)));
 ipcMain.handle('pos-db:update-operation-payload', guardIpc((id, payload) => localDatabase.updateOperationPayload(id, payload)));
 ipcMain.handle('pos-db:ack-operation', guardIpc((id) => localDatabase.acknowledgeOperation(id)));
+ipcMain.handle('pos-db:delete-operation', guardIpc((id) => localDatabase.deleteOperation(id)));
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('app:device-role', () => readConfiguredRole());
 ipcMain.handle('app:server-url', () => {
