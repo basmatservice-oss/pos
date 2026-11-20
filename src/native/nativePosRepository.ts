@@ -14,6 +14,7 @@ import {
   type PosLocalRecord,
   type PosLocalRecordChange,
 } from './posLocalDatabase';
+import { electronPosRepository, isElectronDesktop } from './electronPosRepository';
 
 const NATIVE_PRIMARY_KEYS = {
   products: 'id',
@@ -98,8 +99,8 @@ export function notifyNativeEntityChanges(entities: Iterable<NativePosEntity>): 
   window.dispatchEvent(new CustomEvent('pos-native-records-changed', { detail: { entities: changed } }));
 }
 
-function requireAndroid(): void {
-  if (!isNativeAndroid()) throw new Error('The native POS repository is available only on Android');
+function requireLocalSQLite(): void {
+  if (!isNativeAndroid() && !isElectronDesktop()) throw new Error('The local POS repository is available only on Android or Electron');
 }
 
 async function readEquals<T extends Record<string, unknown>>(
@@ -108,7 +109,7 @@ async function readEquals<T extends Record<string, unknown>>(
   value: string | number | boolean,
   limit = 0,
 ): Promise<T[]> {
-  requireAndroid();
+  requireLocalSQLite();
   assertEntity(entity);
   if (!fieldName.trim()) throw new Error('A field name is required');
   const items = await getNativePosRecordsByField(entity, fieldName, value, limit);
@@ -146,6 +147,7 @@ export const nativePosRepository = {
     fieldName: string,
     value: string | number | boolean,
   ): Promise<T[]> {
+    if (isElectronDesktop()) return electronPosRepository.whereEquals<T>(entity, fieldName, value);
     return readEquals<T>(entity, fieldName, value);
   },
 
@@ -154,6 +156,7 @@ export const nativePosRepository = {
     fieldName: string,
     value: string | number | boolean,
   ): Promise<T | null> {
+    if (isElectronDesktop()) return electronPosRepository.firstWhereEquals<T>(entity, fieldName, value);
     const records = await readEquals<T>(entity, fieldName, value, 1);
     return records[0] ?? null;
   },
