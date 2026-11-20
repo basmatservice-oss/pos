@@ -5039,7 +5039,8 @@ export async function dispatchOperation(
     return { synced: true, operationId };
   }
 
-  if (role === 'server' && token && !isLocalSqlite()) {
+  if (role === 'server' && !isLocalSqlite()) {
+    if (!token) throw new Error('يلزم تسجيل الدخول لتنفيذ العملية على قاعدة بيانات الخادم');
     let serverCommitted = false;
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
@@ -5069,6 +5070,7 @@ export async function dispatchOperation(
       ) {
         throw new Error(err.response?.data?.error || err.message);
       }
+      throw new Error('تعذر الوصول إلى قاعدة بيانات Windows Server؛ لم تُحفظ العملية محليًا ولم تُضف إلى طابور Dexie');
     }
   }
 
