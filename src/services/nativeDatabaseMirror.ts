@@ -3,6 +3,48 @@ import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, n
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
+export async function readLegacyIndexedDBStores(): Promise<Record<string, any[]>> {
+  if (typeof indexedDB === 'undefined') {
+    throw new Error('IndexedDB is unavailable; refusing to skip legacy Android data migration');
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('RetailPOSDB');
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    request.onerror = () => fail(request.error || new Error('تعذر فتح قاعدة IndexedDB القديمة'));
+    request.onblocked = () => fail(new Error('ترحيل قاعدة IndexedDB القديمة محجوب باتصال آخر'));
+    request.onsuccess = () => {
+      const legacyDb = request.result;
+      const names = Array.from(legacyDb.objectStoreNames);
+      if (!names.length) {
+        legacyDb.close();
+        if (!settled) { settled = true; resolve({}); }
+        return;
+      }
+      try {
+        const transaction = legacyDb.transaction(names, 'readonly');
+        const reads = names.map((name) => new Promise<[string, any[]]>((readResolve, readReject) => {
+          const read = transaction.objectStore(name).getAll();
+          read.onsuccess = () => readResolve([name, Array.isArray(read.result) ? read.result : []]);
+          read.onerror = () => readReject(read.error || new Error('تعذر قراءة جدول IndexedDB القديم: ' + name));
+        }));
+        Promise.all(reads).then((entries) => {
+          legacyDb.close();
+          if (settled) return;
+          settled = true;
+          resolve(Object.fromEntries(entries));
+        }).catch((error) => { legacyDb.close(); fail(error); });
+        transaction.onabort = () => { legacyDb.close(); fail(transaction.error || new Error('تم إلغاء قراءة قاعدة IndexedDB القديمة')); };
+        transaction.onerror = () => { legacyDb.close(); fail(transaction.error || new Error('فشلت قراءة قاعدة IndexedDB القديمة')); };
+      } catch (error) { legacyDb.close(); fail(error); }
+    };
+  });
+}
+
 function serializeDexieKey(value: unknown): string {
   if (value === undefined || value === null) return '';
   // JSON preserves the distinction between numeric and string Dexie keys,
@@ -155,22 +197,18 @@ export async function installNativeDatabaseMirrorHooks(): Promise<void> {
 }
 
 export async function mirrorNativePosDatabase(): Promise<void> {
-  const { db } = await import('../db/db');
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+  const legacyStores = await readLegacyIndexedDBStores();
   const invalidated = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: 'in_progress' });
   if (!invalidated.saved) throw new Error('تعذر إبطال علامة لقطة SQLite السابقة');
   const failedEntities: string[] = [];
   for (const entity of MIRRORED_TABLES) {
     try {
-      const table = (db as any)[entity];
-      if (!table) throw new Error('Dexie table is unavailable');
-      const rows = await table.toArray();
+      const rows = Array.isArray(legacyStores[entity]) ? legacyStores[entity] : [];
       const businessRows = rows.filter((row: any) => !(entity === 'settings' && row.key === 'authSecret'));
       const records = businessRows.map((row: any) => {
         const recordId = getRecordId(entity, row);
-        if (!recordId) {
-          throw new Error(`A record in ${entity} has no stable primary-key value; refusing to replace the SQLite snapshot`);
-        }
+        if (!recordId) throw new Error(`A record in ${entity} has no stable primary-key value; refusing to replace the SQLite snapshot`);
         return {
           recordId,
           record: row as Record<string, unknown>,
@@ -179,9 +217,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
       });
       const recordIds = new Set<string>();
       for (const record of records) {
-        if (recordIds.has(record.recordId)) {
-          throw new Error(`Duplicate primary-key value ${record.recordId} in ${entity}; refusing to replace the SQLite snapshot`);
-        }
+        if (recordIds.has(record.recordId)) throw new Error(`Duplicate primary-key value ${record.recordId} in ${entity}; refusing to replace the SQLite snapshot`);
         recordIds.add(record.recordId);
       }
       const saved = await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
@@ -191,9 +227,7 @@ export async function mirrorNativePosDatabase(): Promise<void> {
       console.error('تعذر حفظ لقطة SQLite للجدول ' + entity, error);
     }
   }
-  if (failedEntities.length > 0) {
-    throw new Error('SQLite business snapshot incomplete; failed entities: ' + failedEntities.join(', '));
-  }
+  if (failedEntities.length > 0) throw new Error('SQLite business snapshot incomplete; failed entities: ' + failedEntities.join(', '));
   const completed = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: '1' });
   if (!completed.saved) throw new Error('تعذر تأكيد اكتمال لقطة SQLite');
   notifyNativeEntityChanges(MIRRORED_TABLES);
