@@ -76,8 +76,8 @@ async function initializeLocalRuntime(): Promise<void> {
     if (configuredRole !== 'server' && configuredRole !== 'client') throw new Error('Invalid Windows device role');
     setElectronDeviceRole(configuredRole);
     if (configuredRole === 'server') {
-      const { ensureDatabaseReady } = await import('./db/db');
-      await ensureDatabaseReady();
+      // Windows Server reads and writes the authoritative Drizzle database
+      // through its local API; do not initialize a renderer-side Dexie cache.
       await restoreDesktopRuntimeConfig();
       return;
     }
