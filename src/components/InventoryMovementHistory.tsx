@@ -50,10 +50,10 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
         if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') return;
         const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
-        const keys = new Set(response.items.map((movement: any) => String(movement.movementKey)));
+        const keys = new Set<string>(response.items.map((movement: any) => String(movement.movementKey)));
         const serverIds = new Set(response.items.map((movement: any) => String(movement.id)));
         if (isLocalSqlite()) {
-          const existing = await nativePosRepository.getAllWithSyncState<any>('inventoryMovements');
+          const existing = await nativePosRepository.getAllWithSyncState('inventoryMovements');
           const changes: any[] = existing
             .filter((row) => keys.has(String(row.record.movementKey)) &&
               !serverIds.has(String(row.record.id)) && !['pending', 'error'].includes(String(row.syncState)))
