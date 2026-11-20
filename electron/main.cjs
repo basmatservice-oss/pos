@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
+const localDatabase = require('./local-database.cjs');
 
 const SERVER_PORT = Number(process.env.PORT) || 3000;
 const HEALTH_URL = `http://127.0.0.1:${SERVER_PORT}/api/health`;
@@ -162,6 +163,11 @@ async function createWindow() {
   });
 }
 
+ipcMain.handle('pos-db:initialize', () => localDatabase.initializeLocalDatabase(app.getPath('userData')));
+ipcMain.handle('pos-db:get-records', (_event, entity) => localDatabase.getRecords(entity));
+ipcMain.handle('pos-db:get-record', (_event, entity, recordId) => localDatabase.getRecord(entity, recordId));
+ipcMain.handle('pos-db:put-records', (_event, records) => localDatabase.putRecords(records));
+ipcMain.handle('pos-db:apply-record-changes', (_event, changes) => localDatabase.applyRecordChanges(changes));
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('app:device-role', () => readConfiguredRole());
 ipcMain.handle('app:server-url', () => {
@@ -216,6 +222,7 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
+      localDatabase.initializeLocalDatabase(app.getPath('userData'));
       if (!IS_DEV && readConfiguredRole() === 'server') {
         await startBackendServer();
       }
@@ -233,6 +240,9 @@ if (!gotLock) {
 app.on('before-quit', () => {
   quitting = true;
   stopBackendServer();
+  try { localDatabase.closeLocalDatabase(); } catch (error) {
+    console.error('Failed to close local SQLite database:', error);
+  }
 });
 
 app.on('window-all-closed', () => {
