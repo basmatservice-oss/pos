@@ -62,7 +62,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
       active = false;
       unsubscribe?.();
     };
-  }, [entity, field, value, isAndroid]);
+  }, [entity, field, value, isLocalSqlite]);
 
   return records;
 }
