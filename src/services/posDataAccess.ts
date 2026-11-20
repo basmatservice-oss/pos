@@ -1,3 +1,4 @@
+import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
@@ -75,7 +76,6 @@ const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) =>
   serviceRecipes: (key) => `/serviceRecipes/${encodeURIComponent(String(key))}`,
   stocktakingSessions: (key) => `/stocktakingSessions/${encodeURIComponent(String(key))}`,
 };
-import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
 
