@@ -387,11 +387,16 @@ class PosLocalDatabasePlugin : Plugin() {
             db.beginTransaction()
             try {
                 val existing = db.query(
-                    "pos_outbox", arrayOf("operation_id"), "operation_id = ?",
+                    "pos_outbox", arrayOf("type", "payload"), "operation_id = ?",
                     arrayOf(operationId), null, null, null
-                ).use { it.moveToFirst() }
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) Pair(cursor.getString(0), cursor.getString(1)) else null
+                }
 
-                if (existing) {
+                if (existing != null) {
+                    if (existing.first != type || existing.second != payload.toString()) {
+                        throw IllegalStateException("Operation ID was reused with a different type or payload")
+                    }
                     response = JSObject().put("saved", false).put("queued", true)
                         .put("duplicate", true).put("operationId", operationId)
                 } else {
@@ -735,9 +740,15 @@ class PosLocalDatabasePlugin : Plugin() {
             val result = helper.writableDatabase.insertWithOnConflict(
                 "pos_outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE
             )
-            val duplicate = result == -1L && helper.readableDatabase.query(
-                "pos_outbox", arrayOf("operation_id"), "operation_id = ?", arrayOf(operationId), null, null, null
-            ).use { it.moveToFirst() }
+            val existing = if (result == -1L) helper.readableDatabase.query(
+                "pos_outbox", arrayOf("type", "payload"), "operation_id = ?", arrayOf(operationId), null, null, null
+            ).use { cursor ->
+                if (cursor.moveToFirst()) Pair(cursor.getString(0), cursor.getString(1)) else null
+            } else null
+            if (result == -1L && (existing == null || existing.first != type || existing.second != payload.toString())) {
+                throw IllegalStateException("Operation ID was reused with a different type or payload")
+            }
+            val duplicate = result == -1L
             call.resolve(JSObject().put("queued", result != -1L || duplicate).put("duplicate", duplicate).put("operationId", operationId))
         } catch (error: Exception) {
             call.reject("تعذر إضافة العملية إلى قائمة المزامنة", error)
