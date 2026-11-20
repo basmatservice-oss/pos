@@ -3368,14 +3368,16 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
         { code: '1100', name: 'ذمم العملاء', type: 'asset' },
       ];
       const accounts = new Map<string, any>();
+      const existingAccountBalances = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
         if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
+        if (current) existingAccountBalances.set(definition.code, current);
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
       }
-      originalAccountsForCustomerPayment = new Map(accounts);
+      originalAccountsForCustomerPayment = new Map(existingAccountBalances);
       const entryId = `local-je:payment:${paymentId}:customer-payment-${String(payload.operationId || paymentId)}`;
       if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
         const lines = [
@@ -3544,6 +3546,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
     }
 
     const accountingRecords: any[] = [];
+    let originalAccountsForSupplierPayment = new Map<string, any>();
     if (shouldPostLocalAccounting(syncStatus)) {
       const cashCode = paymentMethod === 'card' ? '1020' : '1010';
       const definitions = [
@@ -3551,14 +3554,16 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
         { code: cashCode, name: paymentMethod === 'card' ? 'البنك / الشبكة' : 'الصندوق', type: 'asset' },
       ];
       const accounts = new Map<string, any>();
+      const existingAccountBalances = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
         if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
+        if (current) existingAccountBalances.set(definition.code, current);
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
       }
-      const originalAccountsForSupplierPayment = new Map(accounts);
+      originalAccountsForSupplierPayment = new Map(existingAccountBalances);
       const entryId = `local-je:payment:${paymentId}:supplier-payment-${String(payload.operationId || paymentId)}`;
       if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
         const entry = {
