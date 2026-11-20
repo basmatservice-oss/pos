@@ -19,7 +19,7 @@ type ElectronDatabaseBridge = {
   getRecords(entity: string): Promise<ElectronRecord[]>;
   getRecord(entity: string, recordId: string): Promise<{ found: boolean; item?: ElectronRecord | null }>;
   putRecords(records: Array<{ entity: string; recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState }>): Promise<{ saved: boolean; count: number }>;
-  applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>): Promise<{ applied: number; count: number }>;
+  applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, guards?: Record<string, unknown>): Promise<{ applied: number; count: number; skipped?: boolean }>
   getMeta(key: string): Promise<{ value?: string }>;
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
 };
@@ -101,12 +101,12 @@ export const electronPosRepository = {
   async applyChanges(changes: Array<
     | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
     | { action: 'delete'; entity: NativePosEntity; key: unknown }
-  >): Promise<number> {
+  >, guards?: Record<string, unknown>): Promise<number> {
     await this.isReady();
     const nativeChanges = changes.map(change => change.action === 'delete'
       ? { action: 'delete' as const, entity: change.entity, recordId: recordKey(change.key) }
       : { action: 'put' as const, entity: change.entity, recordId: recordIdFor(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
-    const result = await bridge().applyRecordChanges(nativeChanges);
+    const result = await bridge().applyRecordChanges(nativeChanges, guards);
     if (result.applied !== changes.length || result.count !== changes.length) throw new Error('Electron SQLite did not confirm the complete transaction');
     if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
     return result.applied;
