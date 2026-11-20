@@ -171,7 +171,7 @@ async function createWindow() {
   if (IS_DEV || role === 'server') {
     await mainWindow.loadURL(`http://127.0.0.1:${SERVER_PORT}`);
   } else {
-    // Keep the renderer and its IndexedDB profile on this PC. API requests use
+    // Keep the renderer and its durable SQLite profile on this PC. API requests use
     // the configured LAN server URL from local settings, so the POS shell can
     // still open and queue sales while the server is temporarily unreachable.
     await mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
