@@ -2613,6 +2613,21 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
   let prevProduct: any = null;
   if (tableName === 'products' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
     prevProduct = tx.select().from(products).where(eq(products.id, Number(normalizedClean.id))).get();
+    if (prevProduct) {
+      // Generic entity synchronization may edit product metadata only. Stock and
+      // valuation are controlled by inventory business operations and must not
+      // be overwritten by a stale offline snapshot.
+      normalizedClean.stockQuantity = prevProduct.stockQuantity;
+      normalizedClean.costPrice = prevProduct.costPrice;
+    }
+  }
+  if (tableName === 'customers' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
+    const existing = tx.select().from(customers).where(eq(customers.id, Number(normalizedClean.id))).get();
+    if (existing) normalizedClean.balance = existing.balance;
+  }
+  if (tableName === 'suppliers' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
+    const existing = tx.select().from(suppliers).where(eq(suppliers.id, Number(normalizedClean.id))).get();
+    if (existing) normalizedClean.balance = existing.balance;
   }
 
   if (autoIncTables.has(tableName) && normalizedClean.id && Number(normalizedClean.id) >= 1000000) {
