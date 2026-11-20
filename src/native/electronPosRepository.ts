@@ -158,6 +158,6 @@ export const electronPosRepository = {
   async setSyncState(entity: NativePosEntity, key: unknown, syncState: NativePosSyncState): Promise<void> {
     const record = await this.get<Record<string, unknown>>(entity, key);
     if (!record) throw new Error(`Electron SQLite record not found: ${entity}`);
-    await this.put(entity, record, syncState);
+    await this.put(entity, { ...record, syncStatus }, syncState);
   },
 };
