@@ -380,7 +380,11 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   if (isNativeAndroid()) {
     try {
       const nativePending = await listNativePendingPosOperations();
+      // The operation being acknowledged is still in SQLite until all
+      // reconciliation writes commit. Exclude it from the protection set:
+      // only *other* pending operations must prevent records being marked synced.
       for (const operation of nativePending) {
+        if (String(operation.operationId) === String(operationId)) continue;
         collectPendingReferences(operation.payload, pendingRefs);
         if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
           const tableName = operation.payload?.table;
