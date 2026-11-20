@@ -19,7 +19,7 @@ import {
 import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation, deleteNativePosOperation } from '../native/posLocalDatabase';
-import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { apiService } from '../services/apiService';
