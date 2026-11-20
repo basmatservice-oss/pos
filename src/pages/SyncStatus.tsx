@@ -202,7 +202,7 @@ export default function SyncStatus() {
   };
 
   const handleRetryOp = async (op: SyncOperation) => {
-    if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+    if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
       toast.error('إعادة إرسال العمليات إلى الخادم غير متاحة في وضع التشغيل المستقل');
       return;
     }
@@ -289,7 +289,7 @@ export default function SyncStatus() {
 
   const handleCancelSupabase = async (id: string) => {
     try {
-      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
         toast.error('إدارة طابور الخادم غير متاحة في وضع التشغيل المستقل');
         return;
       }
@@ -303,7 +303,7 @@ export default function SyncStatus() {
 
   const handleRetrySupabase = async (id: string) => {
     try {
-      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
         toast.error('إعادة محاولة طابور الخادم غير متاحة في وضع التشغيل المستقل');
         return;
       }
@@ -319,7 +319,7 @@ export default function SyncStatus() {
     setIsSyncing(true);
     try {
       if (activeTab === 'supabase') {
-        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
           setSupabaseItems([]);
           return;
         }
@@ -327,7 +327,7 @@ export default function SyncStatus() {
         toast.success('تم تشغيل المزامنة السحابية');
         await fetchSupabaseQueue();
       } else {
-        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+        if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
           await fetchLocalQueue();
           await fetchAlerts();
           toast.success('الجهاز يعمل مستقلًا؛ تم تحديث البيانات المحلية دون الاتصال بخادم');
