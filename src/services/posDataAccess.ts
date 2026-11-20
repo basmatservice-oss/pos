@@ -8,6 +8,12 @@ const isWindowsServer = (): boolean => {
   return !isElectronLocalClient() && !isNativeAndroid();
 };
 
+const notifyWindowsServerEntityChange = (entity: NativePosEntity): void => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pos-server-record-changed', { detail: { entity } }));
+  }
+};
+
 const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
   categories: '/categories',
   products: '/products',
@@ -152,6 +158,7 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
     if (entity === 'settings') {
       if (typeof record.key !== 'string') throw new Error('Windows Server settings require a logical key');
       await apiService.updateSetting(record.key, { value: record.value });
+      notifyWindowsServerEntityChange(entity);
       return;
     }
     const endpoint = SERVER_UPDATE_ENDPOINTS[entity]?.(record);
@@ -159,6 +166,7 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
       throw new Error(`No safe Windows Server update endpoint is registered for ${entity}`);
     }
     await apiService.put(endpoint, record);
+    notifyWindowsServerEntityChange(entity);
     return;
   }
   const { db } = await import('../db/db');
@@ -179,12 +187,16 @@ export async function deletePosRecord(
     const { apiService } = await import('./apiService');
     if (entity === 'settings') {
       const setting = await getPosRecord<any>('settings', key);
-      if (setting?.key) await apiService.delete(`/settings/${encodeURIComponent(String(setting.key))}`);
+      if (setting?.key) {
+        await apiService.delete(`/settings/${encodeURIComponent(String(setting.key))}`);
+        notifyWindowsServerEntityChange(entity);
+      }
       return;
     }
     const endpoint = SERVER_DELETE_ENDPOINTS[entity]?.(key);
     if (!endpoint) throw new Error(`No safe Windows Server delete endpoint is registered for ${entity}`);
     await apiService.delete(endpoint);
+    notifyWindowsServerEntityChange(entity);
     return;
   }
   const { db } = await import('../db/db');
