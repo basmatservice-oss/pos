@@ -23,6 +23,7 @@ type ElectronDatabaseBridge = {
   getMeta(key: string): Promise<{ value?: string }>;
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
   enqueueOperation(operation: Record<string, unknown>): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
+  saveAndEnqueueOperation(operation: Record<string, unknown>): Promise<{ saved: boolean; queued: boolean; duplicate: boolean; operationId: string }>;
   listOperations(pendingOnly: boolean): Promise<{ operations: Array<Record<string, any>> }>;
   updateOperation(id: string, status: string, message?: string): Promise<{ updated: boolean }>;
   retryOperation(id: string): Promise<{ updated: boolean }>;
@@ -59,6 +60,7 @@ export const electronPosRepository = {
     if ((await bridge().setMeta(key, value)).saved !== true) throw new Error('Electron SQLite did not persist migration metadata');
   },
   async enqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().enqueueOperation(operation); },
+  async saveAndEnqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().saveAndEnqueueOperation(operation); },
   async listOperations(pendingOnly = false) { await this.isReady(); return bridge().listOperations(pendingOnly); },
   async updateOperation(id: string, status: string, message?: string) { await this.isReady(); return bridge().updateOperation(id, status, message); },
   async retryOperation(id: string) { await this.isReady(); return bridge().retryOperation(id); },
