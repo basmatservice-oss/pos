@@ -1655,7 +1655,10 @@ async function applyPurchaseLocally(
     }
     const productMap = new Map<number, any>(products.map((product: any) => [Number(product.id), product]));
     const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
+    const originalAccountMap = new Map(accountMap);
     const supplierMap = new Map<string, any>(suppliers.map((entry: any) => [String(entry.id), entry]));
+    const originalSupplierMap = new Map(supplierMap);
+    const originalProductMap = new Map(productMap);
     const changes: any[] = [];
     const touchedAccountCodes = new Set<string>();
     let allBatches = allBatchesRaw;
@@ -2047,7 +2050,7 @@ async function applyPurchaseLocally(
     };
     if (isPurchaseUpdate) {
       for (const productId of affectedProductIds) {
-        const original = productMap.get(productId);
+        const original = originalProductMap.get(productId);
         if (!original || !Number.isFinite(Number(original.stockQuantity))) throw new Error('رصيد صنف غير صالح قبل تعديل فاتورة الشراء');
         addPurchaseGuard('products', productId, 'stockQuantity', original.stockQuantity);
       }
@@ -2059,14 +2062,14 @@ async function applyPurchaseLocally(
         addPurchaseGuard('inventoryBatches', batch.id, 'costPrice', batch.costPrice);
       }
       for (const supplierId of supplierIds) {
-        const original = suppliers.find((entry: any) => String(entry.id) === supplierId);
+        const original = originalSupplierMap.get(supplierId);
         if (original) {
           if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد المورد غير صالح قبل تعديل فاتورة الشراء');
           addPurchaseGuard('suppliers', original.id, 'balance', original.balance);
         }
       }
       for (const code of touchedAccountCodes) {
-        const original = accountMap.get(code);
+        const original = originalAccountMap.get(code);
         if (original) {
           if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد حساب غير صالح قبل تعديل فاتورة الشراء: ' + code);
           addPurchaseGuard('accounts', code, 'balance', original.balance);
