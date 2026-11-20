@@ -190,6 +190,7 @@ ipcMain.handle('pos-db:get-meta', guardIpc((key) => localDatabase.getMeta(key)))
 ipcMain.handle('pos-db:set-meta', guardIpc((key, value) => localDatabase.setMeta(key, value)));
 ipcMain.handle('pos-db:enqueue-operation', guardIpc((operation) => localDatabase.enqueueOperation(operation)));
 ipcMain.handle('pos-db:save-enqueue-operation', guardIpc((operation) => localDatabase.saveAndEnqueueOperation(operation)));
+ipcMain.handle('pos-db:apply-snapshot', guardIpc((changes, operations) => localDatabase.applySnapshotAndReplaceOutbox(changes, operations)));
 ipcMain.handle('pos-db:list-operations', guardIpc((pendingOnly) => localDatabase.listOperations(pendingOnly)));
 ipcMain.handle('pos-db:update-operation', guardIpc((id, status, message) => localDatabase.updateOperation(id, status, message)));
 ipcMain.handle('pos-db:retry-operation', guardIpc((id) => localDatabase.retryOperation(id)));
