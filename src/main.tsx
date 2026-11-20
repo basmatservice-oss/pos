@@ -89,6 +89,32 @@ async function initializeLocalRuntime(): Promise<void> {
           throw new Error(`Electron SQLite migration count mismatch for ${entity}: ${records.length} source, ${stored.length} destination`);
         }
       }
+      const legacyOperations = await db.syncOperations.toArray();
+      const legacyPending = legacyOperations
+        .filter((operation: any) => ['pending', 'error', 'conflict', 'syncing'].includes(String(operation.status || 'pending')))
+        .map((operation: any) => {
+          const createdAt = typeof operation.createdAt === 'number'
+            ? operation.createdAt
+            : new Date(operation.createdAt || Date.now()).getTime();
+          const retryAt = operation.nextRetryAt
+            ? (typeof operation.nextRetryAt === 'number' ? operation.nextRetryAt : new Date(operation.nextRetryAt).getTime())
+            : null;
+          return {
+            operationId: String(operation.id ?? operation.operationId ?? ''),
+            type: String(operation.type || ''),
+            payload: operation.payload,
+            createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
+            retryCount: Number(operation.retryCount || 0),
+            nextRetryAt: retryAt && Number.isFinite(retryAt) ? retryAt : null,
+            deviceId: operation.deviceId,
+            tenantId: operation.tenantId,
+            branchId: operation.branchId,
+            actor: operation.actor,
+            schemaVersion: Number(operation.schemaVersion || 1),
+            status: operation.status === 'syncing' ? 'pending' : operation.status,
+          };
+        });
+      await electronPosRepository.applySnapshotAndReplaceOutbox([], legacyPending);
       await electronPosRepository.setMeta('dexie-business-migration-v1', 'complete');
     }
     await restoreDesktopRuntimeConfig();
