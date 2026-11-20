@@ -2462,6 +2462,28 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       .get();
   }
 
+  if (tableName === 'accounts') {
+    const code = String(clean.code || '').trim();
+    const name = String(clean.name || '').trim();
+    const type = String(clean.type || '').trim();
+    if (!code || !name || !type) throw new OperationError('Account code, name and type are required', 400);
+    const existing = tx.select().from(accounts).where(eq(accounts.code, code)).get();
+    if (existing) {
+      return tx.update(accounts).set({
+        name,
+        type,
+        parentCode: clean.parentCode ?? existing.parentCode,
+        isSystem: existing.isSystem,
+        isSynced: 0,
+        updatedAt: now,
+      }).where(eq(accounts.code, code)).returning().get();
+    }
+    return tx.insert(accounts).values({
+      code, name, type, parentCode: clean.parentCode ?? null,
+      balance: 0, isSystem: 0, createdAt: now, updatedAt: now,
+    }).returning().get();
+  }
+
   if (tableName === 'employees') {
     const empData: any = { ...clean };
     delete empData.hasPin;
@@ -2621,13 +2643,18 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       normalizedClean.costPrice = prevProduct.costPrice;
     }
   }
-  if (tableName === 'customers' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
-    const existing = tx.select().from(customers).where(eq(customers.id, Number(normalizedClean.id))).get();
-    if (existing) normalizedClean.balance = existing.balance;
+  if (tableName === 'customers') {
+    const existing = normalizedClean.id
+      ? tx.select().from(customers).where(eq(customers.id, Number(normalizedClean.id))).get()
+      : null;
+    normalizedClean.balance = existing ? existing.balance : 0;
+    normalizedClean.points = existing ? existing.points : 0;
   }
-  if (tableName === 'suppliers' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
-    const existing = tx.select().from(suppliers).where(eq(suppliers.id, Number(normalizedClean.id))).get();
-    if (existing) normalizedClean.balance = existing.balance;
+  if (tableName === 'suppliers') {
+    const existing = normalizedClean.id
+      ? tx.select().from(suppliers).where(eq(suppliers.id, Number(normalizedClean.id))).get()
+      : null;
+    normalizedClean.balance = existing ? existing.balance : 0;
   }
 
   if (autoIncTables.has(tableName) && normalizedClean.id && Number(normalizedClean.id) >= 1000000) {
@@ -2752,6 +2779,44 @@ function handleEntityDelete(tx: any, payload: any) {
   if (!table) {
     throw new OperationError(`Unsupported entity table: ${tableName}`, 400);
   }
+
+  if (tableName === 'accounts') {
+    throw new OperationError('Generic account deletion is disabled to preserve the accounting ledger', 409);
+  }
+  if (tableName === 'products') {
+    const product = tx.select().from(products).where(eq(products.id, Number(id))).get();
+    if (!product) return { table: tableName, deleted: id, alreadyMissing: true };
+    const hasBatch = tx.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, Number(id))).get();
+    const hasSale = tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, Number(id))).get();
+    const hasPurchase = tx.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, Number(id))).get();
+    const hasMovement = tx.select({ id: inventoryMovements.id }).from(inventoryMovements).where(eq(inventoryMovements.productId, Number(id))).get();
+    if (Number(product.stockQuantity || 0) > 0 || hasBatch || hasSale || hasPurchase || hasMovement) {
+      throw new OperationError('Cannot delete a product with stock, batches, movements, or sales/purchase history; deactivate it instead', 409);
+    }
+  }
+  if (tableName === 'customers') {
+    const customer = tx.select().from(customers).where(eq(customers.id, Number(id))).get();
+    if (customer) {
+      const hasSale = tx.select({ id: orders.id }).from(orders).where(eq(orders.customerId, Number(id))).get();
+      const hasPayment = tx.select({ id: customerPayments.id }).from(customerPayments).where(eq(customerPayments.customerId, Number(id))).get();
+      const hasReturn = tx.select({ id: returns.id }).from(returns).where(eq(returns.customerId, Number(id))).get();
+      if (Math.abs(Number(customer.balance || 0)) > 0.005 || hasSale || hasPayment || hasReturn) {
+        throw new OperationError('Cannot delete a customer with a balance or sales/returns/payment history', 409);
+      }
+    }
+  }
+  if (tableName === 'suppliers') {
+    const supplier = tx.select().from(suppliers).where(eq(suppliers.id, Number(id))).get();
+    if (supplier) {
+      const hasPurchase = tx.select({ id: purchases.id }).from(purchases).where(eq(purchases.supplierId, Number(id))).get();
+      const hasReturn = tx.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.supplierId, Number(id))).get();
+      const hasPayment = tx.select({ id: supplierPayments.id }).from(supplierPayments).where(eq(supplierPayments.supplierId, Number(id))).get();
+      if (Math.abs(Number(supplier.balance || 0)) > 0.005 || hasPurchase || hasReturn || hasPayment) {
+        throw new OperationError('Cannot delete a supplier with a balance or purchase/return/payment history', 409);
+      }
+    }
+  }
+
   tx.delete(table).where(eq(table.id, id)).run();
   return { table: tableName, deleted: id };
 }
