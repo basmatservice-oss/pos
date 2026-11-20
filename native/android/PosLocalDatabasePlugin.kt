@@ -248,21 +248,6 @@ class PosLocalDatabasePlugin : Plugin() {
                         }
                     }
                 }
-                if (!skipped && hasMatchGuard) {
-                    db.query(
-                        "pos_records", arrayOf("json"),
-                        "entity = ? AND record_id = ?", arrayOf(ifMatchEntity, ifMatchRecordId),
-                        null, null, null, "1"
-                    ).use { cursor ->
-                        if (!cursor.moveToFirst()) {
-                            skipped = true
-                        } else {
-                            val record = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { null }
-                            if (record == null || record.opt(ifMatchField!!) == null ||
-                                record.opt(ifMatchField!!).toString() != ifMatchValue) skipped = true
-                        }
-                    }
-                }
                 if (!skipped && hasAnyMatchInput) {
                     val guardsToCheck = if (hasMatchGuard) {
                         listOf(MatchGuard(ifMatchEntity!!, ifMatchRecordId!!, ifMatchField!!, ifMatchValue!!))
