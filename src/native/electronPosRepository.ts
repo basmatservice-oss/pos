@@ -29,7 +29,7 @@ type ElectronDatabaseBridge = {
   saveAndEnqueueOperation(operation: Record<string, unknown>): Promise<{ saved: boolean; queued: boolean; duplicate: boolean; operationId: string }>;
   applySnapshotAndReplaceOutbox(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, operations: Array<Record<string, unknown>>): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   listOperations(pendingOnly: boolean): Promise<{ operations: Array<Record<string, any>> }>;
-  updateOperation(id: string, status: string, message?: string): Promise<{ updated: boolean }>;
+  updateOperation(id: string, status: string, message?: string, nextRetryAt?: number): Promise<{ updated: boolean }>;
   retryOperation(id: string): Promise<{ updated: boolean }>;
   updateOperationPayload(id: string, payload: Record<string, unknown>): Promise<{ updated: boolean; rows: number }>;
   acknowledgeOperation(id: string): Promise<{ updated: boolean }>;
@@ -74,7 +74,7 @@ export const electronPosRepository = {
   async enqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().enqueueOperation(operation); },
   async saveAndEnqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().saveAndEnqueueOperation(operation); },
   async listOperations(pendingOnly = false) { await this.isReady(); return bridge().listOperations(pendingOnly); },
-  async updateOperation(id: string, status: string, message?: string) { await this.isReady(); return bridge().updateOperation(id, status, message); },
+  async updateOperation(id: string, status: string, message?: string, nextRetryAt?: number) { await this.isReady(); return bridge().updateOperation(id, status, message, nextRetryAt); },
   async retryOperation(id: string) { await this.isReady(); return bridge().retryOperation(id); },
   async updateOperationPayload(id: string, payload: Record<string, unknown>) { await this.isReady(); return bridge().updateOperationPayload(id, payload); },
   async acknowledgeOperation(id: string) { await this.isReady(); return bridge().acknowledgeOperation(id); },
