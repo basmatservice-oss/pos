@@ -51,6 +51,8 @@ const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
   fiscalPeriods: '/fiscalPeriods',
   inventoryAlerts: '/inventoryAlerts',
   inventoryMovements: '/inventoryMovements',
+  unitDefinitions: '/unitDefinitions',
+  productUnits: '/productUnits',
 };
 
 const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<string, unknown>) => string>> = {
@@ -85,6 +87,8 @@ const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) =>
 type PosRecord = Record<string, unknown>;
 
 async function getWindowsServerRecords<T extends PosRecord>(entity: NativePosEntity): Promise<T[]> {
+  // Held orders are transient UI drafts and are intentionally not persisted by the server.
+  if (entity === 'heldOrders') return [];
   const endpoint = SERVER_READ_ENDPOINTS[entity];
   if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
   const { apiService } = await import('./apiService');
