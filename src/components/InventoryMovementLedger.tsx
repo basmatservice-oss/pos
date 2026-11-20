@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search } from 'lucide-react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository } from '../native/nativePosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 
 async function persistMovementPage(items: any[]): Promise<void> {
   const keys = new Set(items.map((movement) => String(movement.movementKey)));
