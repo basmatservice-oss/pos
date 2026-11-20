@@ -107,8 +107,29 @@ export async function enqueueNativePosOperation(operation: PosQueuedOperation): 
 }
 
 export async function listNativePendingPosOperations() {
-  if (isElectronDesktop()) return (await electronPosRepository.listOperations(true)).operations.filter((op: any) => op.status === 'pending' || op.status === 'error' || op.status === 'syncing').map((op: any) => ({ ...op, operationId: op.operationId }));
+  const now = Date.now();
+  const stagingTimeoutMs = 5 * 60 * 1000;
+  if (isElectronDesktop()) {
+    const all = (await electronPosRepository.listOperations(false)).operations;
+    for (const operation of all as any[]) {
+      if (operation.status === 'staging' && now - Number(operation.createdAt || now) >= stagingTimeoutMs) {
+        await electronPosRepository.updateOperation(operation.operationId, 'conflict', 'توقفت العملية أثناء الحفظ المحلي ولم يكتمل اعتمادها؛ راجعها قبل إعادة التنفيذ');
+      }
+    }
+    return (await electronPosRepository.listOperations(true)).operations
+      .filter((op: any) => op.status === 'pending' || op.status === 'error' || op.status === 'syncing')
+      .map((op: any) => ({ ...op, operationId: op.operationId }));
+  }
   if (!(await ensureNativePosDatabase())) return [];
+  const all = (await posLocalDatabase.listAllOperations()).operations;
+  for (const operation of all as any[]) {
+    if (operation.status === 'staging' && now - Number(operation.createdAt || now) >= stagingTimeoutMs) {
+      await posLocalDatabase.markOperationConflict({
+        operationId: operation.operationId,
+        message: 'توقفت العملية أثناء الحفظ المحلي ولم يكتمل اعتمادها؛ راجعها قبل إعادة التنفيذ',
+      });
+    }
+  }
   const result = await posLocalDatabase.listPendingOperations();
   return result.operations;
 }
