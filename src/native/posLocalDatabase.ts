@@ -29,7 +29,7 @@ export interface PosLocalDatabasePlugin {
   initialize(): Promise<{ ready: boolean; schemaVersion: number; database: string }>;
   putRecord(options: PosLocalRecord): Promise<{ saved: boolean; recordId: string }>;
   putRecords(options: { records: PosLocalRecord[] }): Promise<{ saved: boolean; count: number }>;
-  applyRecordChanges(options: { changes: PosLocalRecordChange[]; ifAbsentEntity?: string; ifAbsentRecordId?: string; ifAbsentField?: string; ifAbsentValue?: string; ifMatchEntity?: string; ifMatchRecordId?: string; ifMatchField?: string; ifMatchValue?: string }): Promise<{ applied: number; count: number; skipped?: boolean }>;
+  applyRecordChanges(options: { changes: PosLocalRecordChange[]; ifAbsentEntity?: string; ifAbsentRecordId?: string; ifAbsentField?: string; ifAbsentValue?: string; ifMatchEntity?: string; ifMatchRecordId?: string; ifMatchField?: string; ifMatchValue?: string; ifMatchGuards?: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> }): Promise<{ applied: number; count: number; skipped?: boolean }>;
   replaceRecords(options: { entity: string; records: Array<{ recordId: string; record: Record<string, unknown>; syncState?: 'local' | 'pending' | 'synced' | 'error' }> }): Promise<{ replaced: boolean; count: number }>;
   saveRecordAndEnqueueOperation(options: PosLocalRecord & PosQueuedOperation): Promise<{
     saved: boolean;
