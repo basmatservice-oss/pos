@@ -1740,6 +1740,13 @@ async function applyPurchaseLocally(
         if (journals.some((candidate: any) => String(candidate.id) === reversalId)) {
           throw new Error('يوجد قيد عكسي سابق غير متطابق مع حالة الفاتورة؛ أوقف التعديل للمراجعة');
         }
+        for (const line of lines) {
+          const code = String(line.accountId || '');
+          const account = accountMap.get(code);
+          if (!account || !Number.isFinite(Number(account.balance))) {
+            throw new Error('الحساب ' + code + ' غير موجود أو رصيده غير صالح؛ أُوقف حذف فاتورة الشراء');
+          }
+        }
         const reversalLines = lines.map((line: any) => ({
           accountCode: String(line.accountId), debit: roundMoney(Number(line.credit || 0)),
           credit: roundMoney(Number(line.debit || 0)), description: 'عكس: ' + String(line.description || entry.description),
@@ -2187,8 +2194,11 @@ async function applyPurchaseLocally(
     const now = new Date().toISOString();
     const operationId = String(payload.operationId || oldPurchase.operationId || purchaseId);
     const productMap = new Map<number, any>(allProducts.map((x: any) => [Number(x.id), x]));
+    const originalProductMap = new Map(productMap);
     const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
+    const originalSupplierMap = new Map(supplierMap);
     const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
+    const originalAccountMap = new Map(accountMap);
     const changes: any[] = [];
     for (const item of oldItems) {
       const factor = Number(item.conversionFactor ?? 1);
@@ -2240,7 +2250,9 @@ async function applyPurchaseLocally(
       throw new Error('لا يمكن عكس فاتورة الشراء؛ سجل المورد غير موجود في SQLite');
     }
     if (supplier && oldRemaining > 0) {
-      const updated = { ...supplier, balance: roundMoney(Number(supplier.balance || 0) - oldRemaining), updatedAt: now, syncStatus };
+      const supplierBalance = Number(supplier.balance);
+      if (!Number.isFinite(supplierBalance)) throw new Error('رصيد المورد غير صالح ولا يمكن عكس فاتورة الشراء');
+      const updated = { ...supplier, balance: roundMoney(supplierBalance - oldRemaining), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updated, syncState: syncStatus });
     }
     {
@@ -2318,6 +2330,38 @@ async function applyPurchaseLocally(
     const firstItemIndex = oldItems.indexOf(oldItems[0]);
     const deletionMovementKey = 'purchase_reversal:' + purchaseId + ':' + operationId +
       ':out:' + String(oldItems[0].productId) + ':' + String(firstItemIndex);
+    const deletionCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    const addDeletionGuard = (entity: string, id: unknown, field: string, value: unknown) => {
+      if (id === undefined || id === null || String(id).trim() === '' || value === undefined || value === null || String(value) === '') {
+        throw new Error('تعذر تثبيت إصدار أحد سجلات المخزون أو الحسابات قبل حذف فاتورة الشراء');
+      }
+      deletionCompareGuards.push({ entity, recordId: JSON.stringify(String(id)), field, expectedValue: String(value) });
+    };
+    for (const productId of oldProductIds) {
+      const original = originalProductMap.get(productId);
+      if (!original || !Number.isFinite(Number(original.stockQuantity))) throw new Error('رصيد صنف غير صالح قبل حذف فاتورة الشراء');
+      addDeletionGuard('products', productId, 'stockQuantity', original.stockQuantity);
+    }
+    for (const batch of allBatches) {
+      if (!Number.isFinite(Number(batch.remainingQuantity)) || !Number.isFinite(Number(batch.costPrice))) {
+        throw new Error('بيانات دفعة مخزون غير صالحة قبل حذف فاتورة الشراء');
+      }
+      addDeletionGuard('inventoryBatches', batch.id, 'remainingQuantity', batch.remainingQuantity);
+      addDeletionGuard('inventoryBatches', batch.id, 'costPrice', batch.costPrice);
+    }
+    if (supplier && oldRemaining > 0) {
+      const original = originalSupplierMap.get(String(supplier.id));
+      if (!original || !Number.isFinite(Number(original.balance))) throw new Error('رصيد المورد غير صالح قبل حذف فاتورة الشراء');
+      addDeletionGuard('suppliers', original.id, 'balance', original.balance);
+    }
+    for (const code of accountCodes) {
+      const original = originalAccountMap.get(code);
+      if (original && changes.some((change: any) => change.entity === 'accounts' && String(change.record.code) === code)) {
+        if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد حساب غير صالح قبل حذف فاتورة الشراء: ' + code);
+        addDeletionGuard('accounts', code, 'balance', original.balance);
+      }
+    }
+    for (const entry of journals) addDeletionGuard('journalEntries', entry.id, 'status', entry.status);
     const committed = await applyNativePosRecordChangesIfFieldAbsent(
       nativeChanges,
       'inventoryMovements',
@@ -2329,6 +2373,7 @@ async function applyPurchaseLocally(
         field: 'updatedAt',
         expectedValue: sourcePurchaseVersion,
       },
+      deletionCompareGuards,
     );
     if (committed.skipped) {
       throw new Error('تغيرت فاتورة الشراء أثناء الحذف؛ أعد تحميل الفاتورة قبل المحاولة مرة أخرى');
