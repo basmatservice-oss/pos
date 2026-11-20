@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { electronPosRepository, isElectronDesktop } from '../native/electronPosRepository';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
-/** Reactive indexed lookup; Android queries SQLite, desktop loads Dexie on demand. */
+/** Reactive indexed lookup; Android and Electron query SQLite; browser desktop retains Dexie until its migration. */
 export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Record<string, unknown>>(
   entity: NativePosEntity,
   field: string,
   value: string | number | boolean | undefined,
 ): T[] {
-  const isAndroid = isNativeAndroid();
+  const isLocalSqlite = isNativeAndroid() || isElectronDesktop();
+  const repository = isNativeAndroid() ? nativePosRepository : electronPosRepository;
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
@@ -21,10 +23,10 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
     }
 
     const start = async () => {
-      if (isAndroid) {
+      if (isLocalSqlite) {
         const refresh = async () => {
           try {
-            const rows = await nativePosRepository.whereEquals<T>(entity, field, value);
+            const rows = await repository.whereEquals<T>(entity, field, value);
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to query ${entity} by ${field} from local SQLite:`, error);
@@ -61,7 +63,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
       active = false;
       unsubscribe?.();
     };
-  }, [entity, field, value, isAndroid]);
+  }, [entity, field, value, isLocalSqlite]);
 
   return records;
 }
