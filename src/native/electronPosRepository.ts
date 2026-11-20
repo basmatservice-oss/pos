@@ -22,6 +22,12 @@ type ElectronDatabaseBridge = {
   applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, guards?: Record<string, unknown>): Promise<{ applied: number; count: number; skipped?: boolean }>
   getMeta(key: string): Promise<{ value?: string }>;
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
+  enqueueOperation(operation: Record<string, unknown>): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
+  listOperations(pendingOnly: boolean): Promise<{ operations: Array<Record<string, any>> }>;
+  updateOperation(id: string, status: string, message?: string): Promise<{ updated: boolean }>;
+  retryOperation(id: string): Promise<{ updated: boolean }>;
+  updateOperationPayload(id: string, payload: Record<string, unknown>): Promise<{ updated: boolean; rows: number }>;
+  acknowledgeOperation(id: string): Promise<{ updated: boolean }>;
 };
 
 function notifyElectronEntityChanges(entities: string[]): void {
@@ -52,6 +58,12 @@ export const electronPosRepository = {
     await this.isReady();
     if ((await bridge().setMeta(key, value)).saved !== true) throw new Error('Electron SQLite did not persist migration metadata');
   },
+  async enqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().enqueueOperation(operation); },
+  async listOperations(pendingOnly = false) { await this.isReady(); return bridge().listOperations(pendingOnly); },
+  async updateOperation(id: string, status: string, message?: string) { await this.isReady(); return bridge().updateOperation(id, status, message); },
+  async retryOperation(id: string) { await this.isReady(); return bridge().retryOperation(id); },
+  async updateOperationPayload(id: string, payload: Record<string, unknown>) { await this.isReady(); return bridge().updateOperationPayload(id, payload); },
+  async acknowledgeOperation(id: string) { await this.isReady(); return bridge().acknowledgeOperation(id); },
   async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
     await this.isReady();
     const recordId = recordKey(key);
