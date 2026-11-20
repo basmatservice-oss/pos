@@ -2884,7 +2884,8 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const retDoc: any = {
       id, returnNumber, originalPurchaseId: String(originalPurchaseId), supplierId: origPurchase.supplierId,
       supplierName: origPurchase.supplierName, branchId: branchId ?? origPurchase.branchId, shiftId,
-      refundMethod, totalReturn, reason, createdBy, createdAt: now, updatedAt: now, syncStatus,
+      refundMethod, totalReturn, reason, createdBy, deviceId: String(payload.deviceId || 'local-device'),
+      operationId, createdAt: now, updatedAt: now, syncStatus,
     };
     changes.push({ action: 'put', entity: 'purchaseReturns', record: retDoc, syncState: syncStatus });
     let journalEntry: any = null;
