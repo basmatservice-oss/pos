@@ -57,7 +57,7 @@ export function usePosFirstRecordWhereEquals<T extends Record<string, unknown> =
       active = false;
       unsubscribe?.();
     };
-  }, [entity, field, value, isAndroid]);
+  }, [entity, field, value, isLocalSqlite]);
 
   return record;
 }
