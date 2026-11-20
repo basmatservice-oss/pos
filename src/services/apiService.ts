@@ -187,6 +187,24 @@ export const apiService = {
     return requestWithRetry(() => axios.post(cleanPath, data).then((r) => r.data));
   },
 
+  async put(endpoint: string, data?: any) {
+    const cleanPath = endpoint.startsWith('/api/')
+      ? `${API_BASE}${endpoint.slice(4)}`
+      : endpoint.startsWith('/')
+      ? `${API_BASE}${endpoint}`
+      : `${API_BASE}/${endpoint}`;
+    return requestWithRetry(() => axios.put(cleanPath, data).then((r) => r.data));
+  },
+
+  async delete(endpoint: string) {
+    const cleanPath = endpoint.startsWith('/api/')
+      ? `${API_BASE}${endpoint.slice(4)}`
+      : endpoint.startsWith('/')
+      ? `${API_BASE}${endpoint}`
+      : `${API_BASE}/${endpoint}`;
+    return requestWithRetry(() => axios.delete(cleanPath).then((r) => r.data));
+  },
+
   // --- Auth & Pairing ---
   async getPublicConfig() {
     return requestWithRetry(() => axios.get(`${API_BASE}/public-config`).then((r) => r.data));
