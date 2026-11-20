@@ -1,6 +1,6 @@
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+import { isElectronLocalClient } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
@@ -15,7 +15,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   return await db.table(entity).get(key as any) as T | undefined;
 }
 
-/** Read all records from SQLite on Android and Dexie on desktop. */
+/** Read from SQLite on Android/Windows Client and Dexie-backed server cache on Windows Server. */
 export async function getPosRecords<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
