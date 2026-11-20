@@ -44,7 +44,7 @@ const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any
 };
 
 const putRuntimeSetting = async (key: string, value: any, updatedAt: string): Promise<void> => {
-  const record = { key, value, syncStatus: 'synced', updatedAt };
+  const record = { key, value, syncStatus: 'synced' as const, updatedAt };
   if (isNativeAndroid()) {
     await nativePosRepository.put('settings', record, 'synced');
     return;
