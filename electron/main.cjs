@@ -171,6 +171,7 @@ ipcMain.handle('pos-db:apply-record-changes', (_event, changes, guards) => local
 ipcMain.handle('pos-db:get-meta', (_event, key) => localDatabase.getMeta(key));
 ipcMain.handle('pos-db:set-meta', (_event, key, value) => localDatabase.setMeta(key, value));
 ipcMain.handle('pos-db:enqueue-operation', (_event, operation) => localDatabase.enqueueOperation(operation));
+ipcMain.handle('pos-db:save-enqueue-operation', (_event, operation) => localDatabase.saveAndEnqueueOperation(operation));
 ipcMain.handle('pos-db:list-operations', (_event, pendingOnly) => localDatabase.listOperations(pendingOnly));
 ipcMain.handle('pos-db:update-operation', (_event, id, status, message) => localDatabase.updateOperation(id, status, message));
 ipcMain.handle('pos-db:retry-operation', (_event, id) => localDatabase.retryOperation(id));
