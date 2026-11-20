@@ -14,6 +14,23 @@ let mainWindow = null;
 let serverProcess = null;
 let quitting = false;
 
+function assertTrustedRenderer(event) {
+  const frameUrl = event?.senderFrame?.url;
+  if (typeof frameUrl !== 'string' || !frameUrl) throw new Error('Untrusted IPC sender');
+  let parsed;
+  try { parsed = new URL(frameUrl); } catch { throw new Error('Untrusted IPC sender URL'); }
+  const localHttp = parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1' && parsed.port === String(SERVER_PORT);
+  const expectedFile = path.join(app.getAppPath(), 'dist', 'index.html');
+  const localFile = parsed.protocol === 'file:' && path.resolve(decodeURIComponent(parsed.pathname)) === path.resolve(expectedFile);
+  if (!localHttp && !localFile) throw new Error('IPC requests are allowed only from the trusted local POS renderer');
+}
+function guardIpc(handler) {
+  return (event, ...args) => {
+    assertTrustedRenderer(event);
+    return handler(...args);
+  };
+}
+
 function getRoleConfigPath() {
   return path.join(app.getPath('userData'), 'runtime-config.json');
 }
@@ -164,19 +181,19 @@ async function createWindow() {
 }
 
 ipcMain.handle('pos-db:initialize', () => localDatabase.initializeLocalDatabase(app.getPath('userData')));
-ipcMain.handle('pos-db:get-records', (_event, entity) => localDatabase.getRecords(entity));
-ipcMain.handle('pos-db:get-record', (_event, entity, recordId) => localDatabase.getRecord(entity, recordId));
-ipcMain.handle('pos-db:put-records', (_event, records) => localDatabase.putRecords(records));
-ipcMain.handle('pos-db:apply-record-changes', (_event, changes, guards) => localDatabase.applyRecordChanges(changes, guards));
-ipcMain.handle('pos-db:get-meta', (_event, key) => localDatabase.getMeta(key));
-ipcMain.handle('pos-db:set-meta', (_event, key, value) => localDatabase.setMeta(key, value));
-ipcMain.handle('pos-db:enqueue-operation', (_event, operation) => localDatabase.enqueueOperation(operation));
-ipcMain.handle('pos-db:save-enqueue-operation', (_event, operation) => localDatabase.saveAndEnqueueOperation(operation));
-ipcMain.handle('pos-db:list-operations', (_event, pendingOnly) => localDatabase.listOperations(pendingOnly));
-ipcMain.handle('pos-db:update-operation', (_event, id, status, message) => localDatabase.updateOperation(id, status, message));
-ipcMain.handle('pos-db:retry-operation', (_event, id) => localDatabase.retryOperation(id));
-ipcMain.handle('pos-db:update-operation-payload', (_event, id, payload) => localDatabase.updateOperationPayload(id, payload));
-ipcMain.handle('pos-db:ack-operation', (_event, id) => localDatabase.acknowledgeOperation(id));
+ipcMain.handle('pos-db:get-records', guardIpc((entity) => localDatabase.getRecords(entity)));
+ipcMain.handle('pos-db:get-record', guardIpc((entity, recordId) => localDatabase.getRecord(entity, recordId)));
+ipcMain.handle('pos-db:put-records', guardIpc((records) => localDatabase.putRecords(records)));
+ipcMain.handle('pos-db:apply-record-changes', guardIpc((changes, guards) => localDatabase.applyRecordChanges(changes, guards)));
+ipcMain.handle('pos-db:get-meta', guardIpc((key) => localDatabase.getMeta(key)));
+ipcMain.handle('pos-db:set-meta', guardIpc((key, value) => localDatabase.setMeta(key, value)));
+ipcMain.handle('pos-db:enqueue-operation', guardIpc((operation) => localDatabase.enqueueOperation(operation)));
+ipcMain.handle('pos-db:save-enqueue-operation', guardIpc((operation) => localDatabase.saveAndEnqueueOperation(operation)));
+ipcMain.handle('pos-db:list-operations', guardIpc((pendingOnly) => localDatabase.listOperations(pendingOnly)));
+ipcMain.handle('pos-db:update-operation', guardIpc((id, status, message) => localDatabase.updateOperation(id, status, message)));
+ipcMain.handle('pos-db:retry-operation', guardIpc((id) => localDatabase.retryOperation(id)));
+ipcMain.handle('pos-db:update-operation-payload', guardIpc((id, payload) => localDatabase.updateOperationPayload(id, payload)));
+ipcMain.handle('pos-db:ack-operation', guardIpc((id) => localDatabase.acknowledgeOperation(id)));
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('app:device-role', () => readConfiguredRole());
 ipcMain.handle('app:server-url', () => {
