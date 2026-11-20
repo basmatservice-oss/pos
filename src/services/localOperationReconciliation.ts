@@ -346,7 +346,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       if (entity === 'products') {
         await mark('products', (row) => String(row.id) === String(serverId));
         await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
-      } else await mark(entity, (row) => String(row.id) === String(serverId));
+      } else await mark(entity, (row) => String(row.id ?? row.code ?? row.key) === String(serverId));
     }
   }
   if (changes.size) {
