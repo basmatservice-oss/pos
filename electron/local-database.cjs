@@ -94,17 +94,6 @@ function putRecords(records) {
     VALUES(@entity, @recordId, @json, @updatedAt, @syncState)
     ON CONFLICT(entity, record_id) DO UPDATE SET json=excluded.json, updated_at=excluded.updated_at, sync_state=excluded.sync_state`);
   const apply = db().transaction(rows => {
-    const findRecord = db().prepare('SELECT json FROM pos_records WHERE entity = ? AND record_id = ?');
-    const findField = db().prepare('SELECT json FROM pos_records WHERE entity = ?');
-    if (guards.ifAbsentEntity && guards.ifAbsentRecordId && findRecord.get(guards.ifAbsentEntity, guards.ifAbsentRecordId)) return { applied: 0, skipped: true };
-    if (guards.ifAbsentEntity && guards.ifAbsentField) {
-      const existing = findField.all(guards.ifAbsentEntity).some(row => JSON.stringify(JSON.parse(row.json)?.[guards.ifAbsentField]) === guards.ifAbsentValue);
-      if (existing) return { applied: 0, skipped: true };
-    }
-    for (const guard of guards.ifMatchGuards || []) {
-      const row = findRecord.get(guard.entity, guard.recordId);
-      if (!row || JSON.stringify(JSON.parse(row.json)?.[guard.field]) !== guard.expectedValue) return { applied: 0, skipped: true };
-    }
     const now = Date.now();
     for (const row of rows) insert.run({ ...row, updatedAt: now });
     return rows.length;
@@ -125,6 +114,17 @@ function applyRecordChanges(changes, guards = {}) {
     return change;
   });
   const apply = db().transaction(rows => {
+    const findRecord = db().prepare('SELECT json FROM pos_records WHERE entity = ? AND record_id = ?');
+    const findField = db().prepare('SELECT json FROM pos_records WHERE entity = ?');
+    if (guards.ifAbsentEntity && guards.ifAbsentRecordId && findRecord.get(guards.ifAbsentEntity, guards.ifAbsentRecordId)) return { applied: 0, skipped: true };
+    if (guards.ifAbsentEntity && guards.ifAbsentField) {
+      const existing = findField.all(guards.ifAbsentEntity).some(row => JSON.stringify(JSON.parse(row.json)?.[guards.ifAbsentField]) === guards.ifAbsentValue);
+      if (existing) return { applied: 0, skipped: true };
+    }
+    for (const guard of guards.ifMatchGuards || []) {
+      const row = findRecord.get(guard.entity, guard.recordId);
+      if (!row || JSON.stringify(JSON.parse(row.json)?.[guard.field]) !== guard.expectedValue) return { applied: 0, skipped: true };
+    }
     const now = Date.now();
     for (const change of rows) {
       if (change.action === 'delete') {
