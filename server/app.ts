@@ -1448,6 +1448,19 @@ export function createPosApp() {
     }
   });
 
+  app.delete('/api/settings/:key', requirePermission('manage_settings'), async (req, res) => {
+    try {
+      const key = req.params.key;
+      if (SENSITIVE_SETTING_KEYS.has(key)) {
+        return res.status(403).json({ error: 'Forbidden setting key' });
+      }
+      const deleted = await db.delete(settings).where(eq(settings.key, key)).returning({ key: settings.key });
+      res.json({ deleted: deleted.length, key });
+    } catch {
+      res.status(500).json({ error: 'Failed to delete setting' });
+    }
+  });
+
   // --- Purchases ---
   app.get('/api/purchases', async (_req, res) => {
     try {
