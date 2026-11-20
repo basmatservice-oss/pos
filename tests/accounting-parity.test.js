@@ -269,8 +269,12 @@ test('server and native SQLite journal engines post matching sale, COGS, return 
   setElectronDeviceRole('client');
   const { db: serverDb, raw } = createServerDatabase();
   const accountRows = [
-    ['1010', 'Cash', 'asset'], ['1200', 'Inventory', 'asset'], ['2200', 'VAT payable', 'liability'],
-    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['5100', 'COGS', 'expense'],
+    ['1010', 'Cash', 'asset'], ['1020', 'Card', 'asset'], ['1100', 'Receivables', 'asset'],
+    ['1200', 'Inventory', 'asset'], ['2100', 'Payables', 'liability'], ['2200', 'VAT payable', 'liability'],
+    ['3100', 'Capital', 'equity'], ['3200', 'Retained earnings', 'equity'],
+    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['4300', 'Discounts', 'revenue'],
+    ['5100', 'COGS', 'expense'], ['5200', 'Expenses', 'expense'], ['5300', 'Payroll', 'expense'],
+    ['5400', 'Inventory adjustment', 'expense'],
   ].map(([code, name, type]) => ({ code, name, type, balance: 0, isSystem: 1, createdAt: now, updatedAt: now }));
   serverDb.insert(schema.accounts).values(accountRows).run();
   for (const account of accountRows) seed('accounts', account);
@@ -334,8 +338,18 @@ test('server and native SQLite journal engines post matching sale, COGS, return 
 test('end-to-end server business operations and native SQLite operations match for sale, partial return, FIFO and COGS', async () => {
   const { bridge, seed, records } = createMemoryElectronBridge();
   globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
-  globalThis.window = { electronAPI: { isElectron: true, posLocalDatabase: bridge }, dispatchEvent() { return true; } };
-  globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+  globalThis.navigator = { onLine: true, userAgent: 'node-test' };
+  const localStorageShim = { getItem() { return null; }, setItem() {} };
+  globalThis.localStorage = localStorageShim;
+  globalThis.window = {
+    location: { hostname: 'localhost', protocol: 'http:', port: '3000', origin: 'http://localhost:3000' },
+    navigator: globalThis.navigator,
+    localStorage: localStorageShim,
+    addEventListener() {},
+    removeEventListener() {},
+    electronAPI: { isElectron: true, posLocalDatabase: bridge },
+    dispatchEvent() { return true; },
+  };
 
   const [{ setElectronDeviceRole }, { dispatchOperation }, { executeBusinessOperation }] = await Promise.all([
     import('../src/native/electronPosRepository.ts'),
