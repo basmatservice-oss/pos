@@ -8,6 +8,8 @@ type ElectronDatabaseBridge = {
   getRecord(entity: string, recordId: string): Promise<{ found: boolean; item?: ElectronRecord | null }>;
   putRecords(records: Array<{ entity: string; recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState }>): Promise<{ saved: boolean; count: number }>;
   applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>): Promise<{ applied: number; count: number }>;
+  getMeta(key: string): Promise<{ value?: string }>;
+  setMeta(key: string, value: string): Promise<{ saved: boolean }>;
 };
 
 function notifyElectronEntityChanges(entities: string[]): void {
@@ -29,6 +31,14 @@ export const electronPosRepository = {
   async isReady(): Promise<boolean> {
     const result = await bridge().initialize();
     return result.ready === true;
+  },
+  async getMeta(key: string): Promise<string | undefined> {
+    await this.isReady();
+    return (await bridge().getMeta(key)).value;
+  },
+  async setMeta(key: string, value: string): Promise<void> {
+    await this.isReady();
+    if ((await bridge().setMeta(key, value)).saved !== true) throw new Error('Electron SQLite did not persist migration metadata');
   },
   async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
     await this.isReady();
