@@ -1,5 +1,17 @@
 import type { NativePosEntity, NativePosSyncState } from './nativePosRepository';
-import { getNativePosRecordId } from './nativePosRepository';
+
+const primaryKeys: Record<NativePosEntity, string> = {
+  products:'id',categories:'id',orders:'id',orderItems:'id',returns:'id',returnItems:'id',accounts:'code',shifts:'id',shiftMovements:'id',customers:'id',customerPayments:'id',expenses:'id',suppliers:'id',supplierPayments:'id',employees:'id',settings:'id',purchases:'id',purchaseItems:'id',purchaseReturns:'id',purchaseReturnItems:'id',attendance:'id',loyaltyTransactions:'id',branches:'id',payroll:'id',offers:'id',auditLogs:'id',journalEntries:'id',transactions:'id',stocktakingSessions:'id',stocktakingEntries:'id',inventoryBatches:'id',inventoryAlerts:'id',heldOrders:'id',serviceRecipes:'id',exchangeRateHistory:'id',fiscalPeriods:'id',unitDefinitions:'code',productUnits:'id',inventoryMovements:'id'
+};
+function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): string {
+  const key = record[primaryKeys[entity]];
+  if (key === undefined || key === null) throw new Error(`Missing primary key for ${entity}`);
+  return JSON.stringify(key);
+}
+function recordKey(key: unknown): string {
+  if (key === undefined || key === null) throw new Error('Missing primary key');
+  return JSON.stringify(key);
+}
 
 type ElectronRecord = { recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState; updatedAt: number };
 type ElectronDatabaseBridge = {
@@ -42,7 +54,7 @@ export const electronPosRepository = {
   },
   async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
     await this.isReady();
-    const recordId = JSON.stringify(key);
+    const recordId = recordKey(key);
     const result = await bridge().getRecord(entity, recordId);
     return result.found && result.item ? result.item.record as T : null;
   },
@@ -56,6 +68,11 @@ export const electronPosRepository = {
     await this.isReady();
     return (await bridge().getRecords(entity)).map(row => ({ record: row.record, recordId: row.recordId, syncState: row.syncState }));
   },
+  async getMany<T extends Record<string, unknown>>(entity: NativePosEntity, keys: unknown[]): Promise<T[]> {
+    const rows = await this.getAllWithSyncState(entity);
+    const ids = new Set(keys.map(recordKey));
+    return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
+  },
   async whereEquals<T extends Record<string, unknown>>(entity: NativePosEntity, field: string, value: string | number | boolean): Promise<T[]> {
     const rows = await this.getAll<T>(entity);
     return rows.filter(row => row[field] === value);
@@ -65,7 +82,7 @@ export const electronPosRepository = {
   },
   async put(entity: NativePosEntity, record: Record<string, unknown>, syncState: NativePosSyncState = 'local'): Promise<void> {
     await this.isReady();
-    const result = await bridge().putRecords([{ entity, recordId: getNativePosRecordId(entity, record), record, syncState }]);
+    const result = await bridge().putRecords([{ entity, recordId: recordIdFor(entity, record), record, syncState }]);
     if (result.saved !== true || result.count !== 1) throw new Error(`Electron SQLite did not confirm saving ${entity}`);
     notifyElectronEntityChanges([entity]);
   },
@@ -82,8 +99,8 @@ export const electronPosRepository = {
   >): Promise<number> {
     await this.isReady();
     const nativeChanges = changes.map(change => change.action === 'delete'
-      ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
-      : { action: 'put' as const, entity: change.entity, recordId: getNativePosRecordId(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
+      ? { action: 'delete' as const, entity: change.entity, recordId: recordKey(change.key) }
+      : { action: 'put' as const, entity: change.entity, recordId: recordIdFor(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
     const result = await bridge().applyRecordChanges(nativeChanges);
     if (result.applied !== changes.length || result.count !== changes.length) throw new Error('Electron SQLite did not confirm the complete transaction');
     if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
