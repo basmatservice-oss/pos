@@ -141,6 +141,42 @@ function applyRecordChanges(changes, guards = {}) {
   return { ...apply(parsed), count: parsed.length };
 }
 
+function enqueueOperation(operation) {
+  if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() ||
+      typeof operation.type !== 'string' || !operation.type.trim() ||
+      !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+    throw new Error('Invalid Electron outbox operation');
+  }
+  const createdAt = Number(operation.createdAt || Date.now());
+  const retryCount = Number(operation.retryCount || 0);
+  if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0) throw new Error('Invalid outbox metadata');
+  const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at)
+    VALUES(?,?,?,?,'pending',?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, operation.nextRetryAt ?? null);
+  return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
+}
+function listOperations(pendingOnly = false) {
+  const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingOnly ? "WHERE status IN ('pending','error','syncing')" : ''} ORDER BY created_at, operation_id`).all();
+  return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined }));
+}
+function updateOperation(operationId, status, message) {
+  if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
+  const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END WHERE operation_id=?')
+    .run(status, message ?? null, status, operationId);
+  return { updated: result.changes === 1 };
+}
+function retryOperation(operationId) {
+  const result = db().prepare("UPDATE pos_outbox SET status='pending', last_error=NULL, next_retry_at=NULL WHERE operation_id=?").run(operationId);
+  return { updated: result.changes === 1 };
+}
+function updateOperationPayload(operationId, payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('payload must be an object');
+  const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending' WHERE operation_id=? AND status IN ('pending','error')").run(JSON.stringify(payload), operationId);
+  return { updated: result.changes === 1, rows: result.changes };
+}
+function acknowledgeOperation(operationId) {
+  const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL WHERE operation_id=?").run(operationId);
+  return { updated: result.changes === 1 };
+}
 function getMeta(key) {
   if (typeof key !== 'string' || !key.trim()) throw new Error('meta key is required');
   const row = db().prepare('SELECT value FROM pos_meta WHERE key = ?').get(key);
@@ -161,4 +197,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
