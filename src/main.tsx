@@ -42,6 +42,13 @@ async function initializeLocalRuntime(): Promise<void> {
     if (!restoredFromSQLite) {
       // One-time migration reads the existing IndexedDB stores directly; it does not instantiate Dexie.
       await mirrorNativePosDatabase();
+
+      // Do not expose the application until the newly written SQLite snapshot
+      // has passed the same identity and completeness checks used on later starts.
+      const migratedSnapshotIsValid = await restoreNativePosDatabase();
+      if (!migratedSnapshotIsValid) {
+        throw new Error('Android SQLite migration completed without a verifiable business snapshot');
+      }
     }
 
     // Migrate any pre-SQLite operation queue even on standalone devices.
