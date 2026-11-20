@@ -13,7 +13,7 @@ import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
-import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
+import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
@@ -3109,6 +3109,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     if (!Number.isSafeInteger(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
     const existing = await nativePosRepository.get<any>('expenses', expenseId);
     const changes: any[] = [];
+    const originalExpenseAccounts = new Map<string, any>();
     let expenseRecord: any = null;
     let auditRecord: any = null;
     if (type === 'expense_delete') {
@@ -3122,6 +3123,10 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
         const accountCodes = [...new Set(transactions.map((line: any) => String(line.accountId || '')).filter(Boolean))];
         const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
         const accountMap = new Map<string, any>(accounts.map((account: any) => [String(account.code), account]));
+        for (const account of accounts) {
+          if (account.balance == null || !Number.isFinite(Number(account.balance))) throw new Error('رصيد الحساب ' + String(account.code) + ' غير صالح');
+          originalExpenseAccounts.set(String(account.code), account);
+        }
         const reversedIds = new Set(journals.map((entry: any) => entry.reversedEntryId).filter(Boolean).map(String));
         for (const entry of journals) {
           if (entry.status !== 'posted' || reversedIds.has(String(entry.id))) continue;
@@ -3267,8 +3272,23 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       }
     }
     if (changes.length === 0) return;
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات المصروف');
+    const expenseCompareGuards = [...originalExpenseAccounts.entries()].map(([code, account]) => ({
+      entity: 'accounts', recordId: JSON.stringify(code), field: 'balance', expectedValue: String(account.balance),
+    }));
+    const committed = type === 'expense_delete'
+      ? await applyNativePosRecordChangesIfFieldAbsent(
+          changes.map((change: any) => change.action === 'put'
+            ? { ...change, recordId: getNativePosRecordId(change.entity, change.record) }
+            : { ...change, recordId: String(change.key) }),
+          'expenses', 'deletionVersion', String(existing?.updatedAt || existing?.createdAt || existing?.id || expenseId),
+          existing ? { entity: 'expenses', recordId: JSON.stringify(expenseId), field: 'updatedAt', expectedValue: String(existing.updatedAt || existing.createdAt || '') } : undefined,
+          expenseCompareGuards,
+        )
+      : await applyNativePosRecordChangesIfFieldAbsent(
+          changes.map((change: any) => ({ ...change, recordId: getNativePosRecordId(change.entity, change.record) })),
+          'expenses', 'id', String(expenseId), undefined, expenseCompareGuards,
+        );
+    if (committed.skipped || committed.applied !== changes.length) throw new Error('تعارض في المصروف أو أرصدة الحسابات؛ أعد تحميل البيانات ثم أعد المحاولة');
     // SQLite committed the expense and all accounting changes atomically.
     return;
   }
@@ -3720,6 +3740,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       { action: 'put', entity: 'payroll', record, syncState: syncStatus },
     ];
     const accountingRecords: any[] = [];
+    const originalPayrollAccounts = new Map<string, any>();
     if (shouldPostLocalAccounting(syncStatus) && record.netSalary > 0 && record.status === 'paid') {
       const cashCode = record.paymentMethod === 'card' ? '1020' : '1010';
       const definitions = [
@@ -3729,6 +3750,8 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       const accounts = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
+        if (current && (current.balance == null || !Number.isFinite(Number(current.balance)))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
+        if (current) originalPayrollAccounts.set(definition.code, current);
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
@@ -3784,8 +3807,14 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       };
       changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
     }
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات مسير الراتب');
+    const payrollCompareGuards = [...originalPayrollAccounts.entries()].map(([code, account]) => ({
+      entity: 'accounts', recordId: JSON.stringify(code), field: 'balance', expectedValue: String(account.balance),
+    }));
+    const committed = await applyNativePosRecordChangesIfFieldAbsent(
+      changes.map((change: any) => ({ ...change, recordId: getNativePosRecordId(change.entity, change.record) })),
+      'payroll', 'id', String(payrollId), undefined, payrollCompareGuards,
+    );
+    if (committed.skipped || committed.applied !== changes.length) throw new Error('تعارض في مسير الراتب أو أرصدة الحسابات؛ أعد تحميل البيانات ثم أعد المحاولة');
     // SQLite committed payroll and its accounting entries atomically.
     return;
   }
