@@ -669,7 +669,8 @@ export const syncService = {
               const existingNative = await nativePosRepository.getAllWithSyncState(entity as any);
               const existingById = new Map(existingNative.map((item) => {
                 const record: any = item.record;
-                return [record.id ?? record.key ?? record.code, record];
+                const key = record.id ?? record.key ?? record.code;
+                return [key === undefined || key === null ? '' : String(key), record];
               }));
               if (task.noSyncStatus) {
                 const changes = data.map((record: any) => ({
@@ -686,23 +687,27 @@ export const syncService = {
               const pendingLocal = existingNative.filter((item) => item.syncState === 'pending' || item.syncState === 'error');
               const pendingIds = new Set(pendingLocal.map((item) => {
                 const record: any = item.record;
-                return record.id ?? record.key ?? record.code;
+                const key = record.id ?? record.key ?? record.code;
+                return key === undefined || key === null ? '' : String(key);
               }));
               const changes: Array<any> = [];
               const staleIds: any[] = [];
               if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
-                const serverIds = new Set(data.map((item: any) => item.id ?? item.key ?? item.code));
+                const serverIds = new Set(data.map((item: any) => String(item.id ?? item.key ?? item.code)));
                 for (const item of existingNative) {
                   const record: any = item.record;
                   const key = record.id ?? record.key ?? record.code;
-                  if (item.syncState === 'synced' && key !== undefined && !serverIds.has(key)) {
+                  if (item.syncState === 'synced' && key !== undefined && !serverIds.has(String(key))) {
                     staleIds.push(key);
                     changes.push({ action: 'delete', entity: entity as any, key });
                   }
                 }
               }
 
-              let filtered = data.filter((item: any) => !pendingIds.has(item.id ?? item.key ?? item.code));
+              let filtered = data.filter((item: any) => {
+                const key = item.id ?? item.key ?? item.code;
+                return key === undefined || key === null || !pendingIds.has(String(key));
+              });
               if (task.excludeKeys) {
                 const excluded = new Set(task.excludeKeys);
                 filtered = filtered.filter((item: any) => !excluded.has(item.key));
@@ -710,7 +715,7 @@ export const syncService = {
               const recordsToPut = filtered.map((item: any) => {
                 const normalized = { ...item };
                 if (task.preserveLocalAuth) {
-                  const previous = existingById.get(item.id);
+                  const previous = existingById.get(String(item.id ?? item.key ?? item.code));
                   if (previous) {
                     if (!normalized.password && previous.password) normalized.password = previous.password;
                     if (!normalized.pinCode && previous.pinCode) normalized.pinCode = previous.pinCode;
