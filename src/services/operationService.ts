@@ -3777,7 +3777,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
     const record = {
       id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
       periodStart: payload.periodStart, periodEnd: payload.periodEnd,
-      salaryType: payload.salaryType === 'hourly' ? 'hourly' : 'monthly',
+      salaryType: (payload.salaryType === 'hourly' ? 'hourly' : 'monthly') as 'hourly' | 'monthly',
       totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
       basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
       deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
@@ -3874,7 +3874,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
     const record = {
       id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
       periodStart: payload.periodStart, periodEnd: payload.periodEnd,
-      salaryType: payload.salaryType === 'hourly' ? 'hourly' : 'monthly',
+      salaryType: (payload.salaryType === 'hourly' ? 'hourly' : 'monthly') as 'hourly' | 'monthly',
       totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
       basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
       deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
