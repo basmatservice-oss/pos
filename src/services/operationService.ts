@@ -4995,8 +4995,6 @@ export async function dispatchOperation(
     // Standalone transactions are committed locally and are not placed in a
     // server synchronization queue.
     await applyOperationLocally(type, opRecord.payload, 'synced');
-    if (isLocalSqlite()) {
-    }
     return { synced: true, operationId };
   }
 
@@ -5007,15 +5005,6 @@ export async function dispatchOperation(
       serverCommitted = true;
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
-      if (isLocalSqlite()) {
-        try {
-        } catch (mirrorError) {
-          throw Object.assign(
-            new Error('تم قبول العملية على الخادم لكن تعذر تثبيت نسختها المحلية في SQLite؛ يلزم إصلاح النسخة المحلية قبل متابعة العمل'),
-            { nativeSqliteMirrorFailure: true, cause: mirrorError },
-          );
-        }
-      }
       import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
@@ -5075,8 +5064,8 @@ export async function dispatchOperation(
   }
 
   if (!isLocalSqlite()) await db.syncOperations.put(opRecord);
-  // Persist the Android outbox before mutating the local business tables. If the
-  // WebView closes during the mutation, the durable operation can still replay.
+  // Persist the local SQLite outbox before mutating business tables so an interrupted
+  // Electron renderer or Android WebView can replay the durable operation.
   if (isLocalSqlite()) {
     try {
       const queued = await enqueueNativePosOperation({
@@ -5110,11 +5099,6 @@ export async function dispatchOperation(
   }
   if (!isLocalSqlite() && (type === 'purchase_update' || type === 'purchase_delete')) {
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
-  }
-
-  if (isLocalSqlite()) {
-    // Every committed Dexie business transaction is mirrored as one atomic
-    // SQLite batch before the operation can be reported as accepted locally.
   }
 
   if (token) {
