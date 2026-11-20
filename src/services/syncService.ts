@@ -45,7 +45,7 @@ export async function migrateLegacyAndroidQueueToSQLite() {
   if (migrationState.value === '1') return;
   const legacyStores = await readLegacyIndexedDBStores();
   const legacy = (Array.isArray(legacyStores.syncOperations) ? legacyStores.syncOperations : [])
-    .filter((operation: any) => ['pending', 'error', 'syncing'].includes(String(operation?.status || '')));
+    .filter((operation: any) => ['pending', 'error', 'syncing', 'conflict'].includes(String(operation?.status || '')));
   if (!legacy.length) {
     const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
     if (!completed.saved) throw new Error('تعذر حفظ علامة ترحيل طابور Dexie القديم في SQLite');
@@ -94,8 +94,10 @@ export async function migrateLegacyAndroidQueueToSQLite() {
       nextRetryAt: safeNextRetryAt,
     });
     if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
-    if (invalidMetadata) {
-      const reason = 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
+    if (operation.status === 'conflict' || invalidMetadata) {
+      const reason = operation.status === 'conflict'
+        ? String(operation.lastError || 'عملية قديمة متعارضة؛ حُفظت للمراجعة في SQLite')
+        : 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
       await markNativePosOperationConflict(id, reason);
       continue;
     }
