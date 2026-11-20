@@ -5,7 +5,7 @@ import './index.css';
 import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
 import { electronPosRepository, isElectronDesktop } from './native/electronPosRepository';
-import { NATIVE_POS_ENTITIES } from './native/nativePosRepository';
+import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
 
 async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
@@ -88,8 +88,10 @@ async function initializeLocalRuntime(): Promise<void> {
           if (matching.length) await electronPosRepository.putMany(entity, matching, state);
         }
         const stored = await electronPosRepository.getAll(entity);
-        if (stored.length !== records.length) {
-          throw new Error(`Electron SQLite migration count mismatch for ${entity}: ${records.length} source, ${stored.length} destination`);
+        const expectedById = new Map(records.map((record) => [getNativePosRecordId(entity, record), JSON.stringify(record)]));
+        const storedById = new Map(stored.map((record) => [getNativePosRecordId(entity, record), JSON.stringify(record)]));
+        if (storedById.size !== expectedById.size || [...expectedById].some(([id, json]) => storedById.get(id) !== json)) {
+          throw new Error(`Electron SQLite migration content verification failed for ${entity}: ${records.length} source, ${stored.length} destination`);
         }
       }
       const legacyOperations = await db.syncOperations.toArray();
