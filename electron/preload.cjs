@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getMeta: (key) => ipcRenderer.invoke('pos-db:get-meta', key),
     setMeta: (key, value) => ipcRenderer.invoke('pos-db:set-meta', key, value),
     enqueueOperation: (operation) => ipcRenderer.invoke('pos-db:enqueue-operation', operation),
+    saveAndEnqueueOperation: (operation) => ipcRenderer.invoke('pos-db:save-enqueue-operation', operation),
     listOperations: (pendingOnly) => ipcRenderer.invoke('pos-db:list-operations', pendingOnly),
     updateOperation: (id, status, message) => ipcRenderer.invoke('pos-db:update-operation', id, status, message),
     retryOperation: (id) => ipcRenderer.invoke('pos-db:retry-operation', id),
