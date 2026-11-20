@@ -13,6 +13,9 @@ function recordKey(key: unknown): string {
   return JSON.stringify(key);
 }
 
+type ElectronChange =
+  | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
+  | { action: 'delete'; entity: NativePosEntity; key: unknown };
 type ElectronRecord = { recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState; updatedAt: number };
 type ElectronDatabaseBridge = {
   initialize(): Promise<{ ready: boolean }>;
@@ -121,7 +124,7 @@ export const electronPosRepository = {
     if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
     return result.applied;
   },
-  async applyChangesIfAbsent(changes: Parameters<typeof this.applyChanges>[0], entity: string, recordId: string, compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
+  async applyChangesIfAbsent(changes: ElectronChange[], entity: string, recordId: string, compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
     const result = await this.applyChanges(changes, { ifAbsentEntity: entity, ifAbsentRecordId: recordId, ifMatchGuards: compareGuards });
     return { applied: result, skipped: result === 0 };
   },
