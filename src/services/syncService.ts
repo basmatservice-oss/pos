@@ -6,6 +6,7 @@ import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRep
 import { readLegacyIndexedDBStores } from './nativeDatabaseMirror';
 import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
 let electronSyncListenerInstalled = false;
@@ -117,7 +118,13 @@ export const syncService = {
   cachedRole: null as string | null,
 
   async getDeviceRole() {
-    await ensureDesktopDatabase();
+    // Windows Server owns the authoritative database and must never inspect a
+    // local Dexie queue/cache to decide whether it should synchronize itself.
+    if (isWindowsServer()) {
+      this.cachedRole = 'server';
+      return this.cachedRole;
+    }
+    if (!isLocalSqlite()) await ensureDesktopDatabase();
     // Read the persisted role each time: onboarding can switch a device to
     // standalone after the sync service has already been initialized.
     const setting = isLocalSqlite()
@@ -132,6 +139,10 @@ export const syncService = {
   },
 
   async updatePendingCount() {
+    if (isWindowsServer()) {
+      useSyncStore.getState().setPendingItemsCount(0);
+      return;
+    }
     try {
       if (!isLocalSqlite()) await ensureDesktopDatabase();
       // The native outbox is the sole durable operation queue on Android;
@@ -199,7 +210,7 @@ export const syncService = {
   },
 
   async syncAll() {
-    if (await this.getDeviceRole() === 'standalone') return false;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return false;
     const token = getAuthToken();
     if (!token) return false;
 
@@ -228,7 +239,7 @@ export const syncService = {
   },
 
   async pushOperationsQueue() {
-    if (await this.getDeviceRole() === 'standalone') return;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return;
     const now = Date.now();
     // Migrate only pre-SQLite Android queue entries; new Android operations
     // are written directly to SQLite and never enter Dexie.
@@ -800,6 +811,7 @@ export const syncService = {
   },
 
   async initAutoSync() {
+    if (isWindowsServer()) return;
     if (isElectronDesktop()) {
       if (!electronSyncListenerInstalled && typeof window !== 'undefined') {
         electronSyncListenerInstalled = true;
