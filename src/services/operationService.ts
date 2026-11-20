@@ -5064,13 +5064,14 @@ export async function dispatchOperation(
   }
 
   if (!isLocalSqlite()) await db.syncOperations.put(opRecord);
-  // Persist the local SQLite outbox before mutating business tables so an interrupted
-  // Electron renderer or Android WebView can replay the durable operation.
+  // Stage the durable operation first, but keep it invisible to sync until every
+  // local business mutation commits. A crash in this window must never send a ghost sale.
   if (isLocalSqlite()) {
     try {
       const queued = await enqueueNativePosOperation({
         operationId, type, payload: opRecord.payload, deviceId,
         branchId: branchId === undefined ? undefined : String(branchId), schemaVersion: 1,
+        status: 'staging',
       });
       if (!queued) {
         throw new Error('تعذر حفظ العملية في طابور SQLite المحلي؛ أُوقِف تنفيذ العملية لحماية البيانات');
@@ -5084,6 +5085,10 @@ export async function dispatchOperation(
   }
   try {
     await applyOperationLocally(type, opRecord.payload, 'pending');
+    if (isLocalSqlite()) {
+      const activated = await activateNativePosOperation(operationId);
+      if (!activated) throw new Error('تعذر تفعيل العملية بعد تأكيد حفظ تغييراتها المحلية؛ ستظل معزولة عن المزامنة');
+    }
   } catch (localError: any) {
     if (isLocalSqlite()) {
       const message = String(localError?.message || 'فشل تطبيق العملية محليًا في SQLite');
