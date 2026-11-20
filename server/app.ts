@@ -736,79 +736,97 @@ export function createPosApp() {
 
   app.post('/api/products', requirePermission('add_product'), async (req: AuthenticatedRequest, res) => {
     try {
-      const data = { ...req.body };
-      if (typeof data.allowFractions === 'boolean') {
-        data.allowFractions = data.allowFractions ? 1 : 0;
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) return res.status(400).json({ error: 'Product name is required' });
+      const data: Record<string, any> = {};
+      const allowedFields = [
+        'barcode', 'categoryId', 'costPrice', 'sellingPrice', 'costInUSD', 'priceInUSD',
+        'stockQuantity', 'minStockLevel', 'unit', 'conversionFactor', 'itemType',
+        'allowFractions', 'unitsJson', 'baseUnitCode', 'quantityPrecision', 'isActive',
+        'vatRate', 'imageUrl', 'branchId', 'expiryDate', 'batchNumber',
+      ];
+      for (const field of allowedFields) {
+        if (Object.prototype.hasOwnProperty.call(body, field)) data[field] = body[field];
       }
-      if (typeof data.isActive === 'boolean') {
-        data.isActive = data.isActive ? 1 : 0;
+      data.name = name;
+      const numericFields = ['costPrice', 'sellingPrice', 'costInUSD', 'priceInUSD', 'stockQuantity',
+        'minStockLevel', 'conversionFactor', 'quantityPrecision', 'vatRate'];
+      for (const field of numericFields) {
+        if (data[field] !== undefined && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
+          return res.status(400).json({ error: `Invalid product field: ${field}` });
+        }
       }
+      if (data.conversionFactor !== undefined && Number(data.conversionFactor) <= 0) {
+        return res.status(400).json({ error: 'Product conversion factor must be greater than zero' });
+      }
+      if (typeof data.allowFractions === 'boolean') data.allowFractions = data.allowFractions ? 1 : 0;
+      if (typeof data.isActive === 'boolean') data.isActive = data.isActive ? 1 : 0;
+      const requestedId = Number(body.id);
       const now = new Date().toISOString();
-      const [product] = await db
-        .insert(products)
-        .values({ ...data, isSynced: 0, updatedAt: now })
-        .onConflictDoUpdate({
-          target: products.id,
-          set: { ...data, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      const product = db.transaction((tx) => {
+        const created = tx.insert(products).values({
+          ...(Number.isSafeInteger(requestedId) && requestedId > 0 ? { id: requestedId } : {}),
+          ...data,
+          stockQuantity: Number(data.stockQuantity || 0),
+          costPrice: Number(data.costPrice || 0),
+          isSynced: 0,
+          createdAt: now,
+          updatedAt: now,
+        }).returning().get();
 
-      // Create initial batch + opening movement if stockQuantity > 0 and no batches exist for this product
-      if (product && Number(product.stockQuantity) > 0 && (!product.itemType || product.itemType === 'stock')) {
-        const existingBatches = await db
-          .select()
-          .from(inventoryBatches)
-          .where(eq(inventoryBatches.productId, product.id));
-        if (existingBatches.length === 0) {
-          await db.insert(inventoryBatches).values({
+        if (Number(created.stockQuantity || 0) > 0) {
+          if (String(created.itemType || 'stock') !== 'stock') {
+            throw new Error('Opening stock is only supported for stock-tracked products');
+          }
+          const openingQuantity = Number(created.stockQuantity);
+          const openingUnitCost = Number(created.costPrice || 0);
+          tx.insert(inventoryBatches).values({
             id: crypto.randomUUID(),
-            productId: product.id,
+            productId: created.id,
             purchaseId: null,
-            quantity: Number(product.stockQuantity),
-            remainingQuantity: Number(product.stockQuantity),
-            costPrice: Number(product.costPrice || 0),
+            quantity: openingQuantity,
+            remainingQuantity: openingQuantity,
+            costPrice: openingUnitCost,
             purchaseDate: now,
-            branchId: product.branchId || null,
+            branchId: created.branchId || null,
             isSynced: 0,
             createdAt: now,
             updatedAt: now,
-          });
-          const openingTotalCost =
-            Math.round(Number(product.stockQuantity) * Number(product.costPrice || 0) * 100) / 100;
-          recordInventoryMovement(db, {
-            movementKey: `opening:${product.id}`,
-            productId: product.id,
+          }).run();
+          const openingTotalCost = Math.round(openingQuantity * openingUnitCost * 100) / 100;
+          recordInventoryMovement(tx, {
+            movementKey: `opening:${created.id}`,
+            productId: created.id,
             movementType: 'opening_balance',
             sourceType: 'product',
-            sourceId: String(product.id),
-            quantityDeltaBase: Number(product.stockQuantity),
-            baseUnitCode: product.baseUnitCode || product.unit || 'piece',
-            unitCost: Number(product.costPrice || 0),
+            sourceId: String(created.id),
+            quantityDeltaBase: openingQuantity,
+            baseUnitCode: created.baseUnitCode || created.unit || 'piece',
+            unitCost: openingUnitCost,
             totalCost: openingTotalCost,
-            branchId: product.branchId || null,
+            branchId: created.branchId || null,
             reason: 'رصيد افتتاحي للصنف',
             createdBy: req.authUser?.name || 'System',
             createdAt: now,
           });
           if (openingTotalCost > 0) {
-            db.transaction((tx) => {
-              postJournalEntry(tx, {
-                date: now,
-                referenceId: `opening:${product.id}`,
-                referenceType: 'opening',
-                description: `رصيد افتتاحي للمخزون: ${product.name}`,
-                lines: [
-                  { accountCode: '1200', debit: openingTotalCost, credit: 0 },
-                  { accountCode: '3100', debit: 0, credit: openingTotalCost },
-                ],
-                createdBy: req.authUser?.name || 'System',
-                branchId: product.branchId || undefined,
-              });
+            postJournalEntry(tx, {
+              date: now,
+              referenceId: `opening:${created.id}`,
+              referenceType: 'opening',
+              description: `رصيد افتتاحي للمخزون: ${created.name}`,
+              lines: [
+                { accountCode: '1200', debit: openingTotalCost, credit: 0 },
+                { accountCode: '3100', debit: 0, credit: openingTotalCost },
+              ],
+              createdBy: req.authUser?.name || 'System',
+              branchId: created.branchId || undefined,
             });
           }
         }
-      }
-
+        return created;
+      });
       res.status(201).json(product);
     } catch (error) {
       console.error(error);
@@ -823,9 +841,10 @@ export function createPosApp() {
       // Generic product edits are metadata-only. Inventory quantity and valuation
       // may only change through purchase, sale, return, stocktake or adjustment operations.
       const allowedFields = [
-        'name', 'barcode', 'sku', 'categoryId', 'description', 'unit', 'baseUnitCode',
-        'itemType', 'salePrice', 'wholesalePrice', 'taxRate', 'minStock', 'maxStock',
-        'allowFractions', 'isActive', 'image',
+        'name', 'barcode', 'categoryId', 'sellingPrice', 'vatRate', 'minStockLevel',
+        'unit', 'baseUnitCode', 'itemType', 'allowFractions', 'unitsJson',
+        'quantityPrecision', 'isActive', 'imageUrl', 'branchId', 'expiryDate', 'batchNumber',
+        'priceInUSD',
       ];
       const data: Record<string, any> = {};
       for (const field of allowedFields) {
@@ -833,6 +852,11 @@ export function createPosApp() {
       }
       if (typeof data.allowFractions === 'boolean') data.allowFractions = data.allowFractions ? 1 : 0;
       if (typeof data.isActive === 'boolean') data.isActive = data.isActive ? 1 : 0;
+      for (const field of ['sellingPrice', 'vatRate', 'minStockLevel', 'quantityPrecision', 'priceInUSD']) {
+        if (data[field] !== undefined && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
+          return res.status(400).json({ error: `Invalid product metadata field: ${field}` });
+        }
+      }
       if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable product metadata was supplied' });
       const [product] = await db
         .update(products)
