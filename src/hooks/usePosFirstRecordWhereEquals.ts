@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /** Reactive first-match lookup; Android and Electron query SQLite; browser desktop retains Dexie. */
@@ -9,7 +9,7 @@ export function usePosFirstRecordWhereEquals<T extends Record<string, unknown> =
   field: string,
   value: string | number | boolean,
 ): T | undefined {
-  const isLocalSqlite = isNativeAndroid() || isElectronDesktop();
+  const isLocalSqlite = isNativeAndroid() || isElectronLocalClient();
   const [record, setRecord] = useState<T | undefined>(undefined);
 
   useEffect(() => {
