@@ -261,6 +261,9 @@ function updateOperation(operationId, status, message, nextRetryAt) {
   return { updated: tx() };
 }
 function retryOperation(operationId) {
+  if (typeof operationId !== 'string' || !operationId.trim() || operationId.length > 256) {
+    throw new Error('operationId is required');
+  }
   const tx = db().transaction(() => {
     const result = db().prepare("UPDATE pos_outbox SET status='pending', retry_count=0, last_error=NULL, next_retry_at=NULL WHERE operation_id=? AND status IN ('error','conflict')").run(operationId);
     if (result.changes !== 1) return false;
@@ -274,8 +277,14 @@ function retryOperation(operationId) {
   return { updated: tx() };
 }
 function updateOperationPayload(operationId, payload) {
+  if (typeof operationId !== 'string' || !operationId.trim() || operationId.length > 256) {
+    throw new Error('operationId is required');
+  }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('payload must be an object');
   const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_RECORD_BYTES) {
+    throw new Error('Operation payload exceeds the local SQLite size limit');
+  }
   const tx = db().transaction(() => {
     const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(serialized, operationId);
     if (result.changes !== 1) return false;
