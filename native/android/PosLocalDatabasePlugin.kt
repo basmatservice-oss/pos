@@ -405,7 +405,7 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("record_id", recordId)
                         put("json", record.toString())
                         put("updated_at", System.currentTimeMillis())
-                        put("sync_state", "pending")
+                        put("sync_state", if (call.getString("status") == "staging") "local" else "pending")
                     }
                     val recordResult = db.insertWithOnConflict(
                         "pos_records", null, recordValues, SQLiteDatabase.CONFLICT_REPLACE
@@ -425,7 +425,7 @@ class PosLocalDatabasePlugin : Plugin() {
                         put("retry_count", (call.getInt("retryCount") ?: 0).coerceAtLeast(0))
                         val nextRetryAt = call.getLong("nextRetryAt")
                         if (nextRetryAt != null && nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
-                        put("status", "pending")
+                        put("status", if (call.getString("status") == "staging") "staging" else "pending")
                     }
                     val inserted = db.insertWithOnConflict(
                         "pos_outbox", null, operationValues, SQLiteDatabase.CONFLICT_IGNORE
@@ -738,7 +738,7 @@ class PosLocalDatabasePlugin : Plugin() {
                 put("retry_count", (call.getInt("retryCount") ?: 0).coerceAtLeast(0))
                 val nextRetryAt = call.getLong("nextRetryAt")
                 if (nextRetryAt != null && nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
-                put("status", "pending")
+                put("status", if (call.getString("status") == "staging") "staging" else "pending")
             }
             val result = helper.writableDatabase.insertWithOnConflict(
                 "pos_outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE
@@ -904,7 +904,7 @@ class PosLocalDatabasePlugin : Plugin() {
             val rows = JSArray()
             helper.readableDatabase.query(
                 "pos_outbox", null,
-                "status = 'pending' OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= ?))",
+                "status IN ('pending','syncing') OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= ?))",
                 arrayOf(System.currentTimeMillis().toString()), null, null, "created_at ASC"
             ).use { cursor ->
                 while (cursor.moveToNext()) {
@@ -1059,6 +1059,11 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun activateOperation(call: PluginCall) {
+        updateOperationStatus(call, "pending", null)
+    }
+
+    @PluginMethod
     fun acknowledgeOperation(call: PluginCall) {
         updateOperationStatus(call, "synced", null)
     }
@@ -1110,7 +1115,11 @@ class PosLocalDatabasePlugin : Plugin() {
                 }
                 // Keep the durable operation record and its outbox state aligned
                 // in the same SQLite transaction after acknowledgement or failure.
-                val recordSyncState = if (status == "synced") "synced" else "error"
+                val recordSyncState = when (status) {
+                    "synced" -> "synced"
+                    "pending", "syncing" -> "pending"
+                    else -> "error"
+                }
                 recordRows = db.update(
                     "pos_records",
                     ContentValues().apply { put("sync_state", recordSyncState); put("updated_at", System.currentTimeMillis()) },
