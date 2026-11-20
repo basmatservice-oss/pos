@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+import { nativePosRepository } from '../native/nativePosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 
@@ -44,20 +47,31 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
     let cancelled = false;
     const loadLatest = async () => {
       try {
-        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
+        if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') return;
         const response = await apiService.getInventoryMovements({ productId, latest: true, limit: 500 });
         if (cancelled || !Array.isArray(response?.items) || response.items.length === 0) return;
-        if (!isNativeAndroid()) {
+        const keys = new Set(response.items.map((movement: any) => String(movement.movementKey)));
+        const serverIds = new Set(response.items.map((movement: any) => String(movement.id)));
+        if (isLocalSqlite()) {
+          const existing = await nativePosRepository.getAllWithSyncState<any>('inventoryMovements');
+          const changes: any[] = existing
+            .filter((row) => keys.has(String(row.record.movementKey)) &&
+              !serverIds.has(String(row.record.id)) && !['pending', 'error'].includes(String(row.syncState)))
+            .map((row) => ({ action: 'delete', entity: 'inventoryMovements', key: row.record.id }));
+          changes.push(...response.items.map((movement: any) => ({
+            action: 'put', entity: 'inventoryMovements', record: { ...movement, syncStatus: 'synced' }, syncState: 'synced',
+          })));
+          if (changes.length) {
+            const applied = await nativePosRepository.applyChanges(changes);
+            if (applied !== changes.length) throw new Error('SQLite did not confirm the complete movement page');
+          }
+        } else {
           const { db } = await import('../db/db');
           await db.transaction('rw', db.inventoryMovements, async () => {
-          const keys = response.items.map((movement: any) => movement.movementKey);
-          const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
-          const serverIds = new Set(response.items.map((movement: any) => movement.id));
-          const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
-          if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
-          await db.inventoryMovements.bulkPut(
-            response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-          );
+            const localRows = await db.inventoryMovements.where('movementKey').anyOf(Array.from(keys)).toArray();
+            const staleIds = localRows.filter((movement) => !serverIds.has(String(movement.id))).map((movement) => movement.id);
+            if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+            await db.inventoryMovements.bulkPut(response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' })));
           });
         }
       } catch {
