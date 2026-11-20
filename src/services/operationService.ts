@@ -602,7 +602,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
 
       if (order.customerId) {
         const customer = await db.customers.get(order.customerId);
-        if (customerRecord) {
+        if (customer) {
           const balanceDelta = paymentMethod === 'credit' ? netAmount : 0;
           const pointsDelta = Number(pointsEarned || 0) - Number(pointsRedeemed || 0);
           await db.customers.update(customer.id!, {
@@ -1039,7 +1039,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
 
   const restore = (productId: number, quantity: number, allocations: any[], fallbackCost: number, suffix: string) => {
     const qtyToRestore = roundQty(quantity);
-    if (qtyToRestore <= 0) return 0;
+    if (qtyToRestore <= 0) return { totalCost: 0, restoredAllocations: [] };
     const product: any = productMap.get(Number(productId));
     if (!product) throw new Error('الصنف ' + productId + ' غير موجود في SQLite؛ أُوقف المرتجع لحماية المخزون');
     if (!Number.isFinite(fallbackCost) || fallbackCost < 0 || !Array.isArray(allocations) ||
@@ -4067,7 +4067,7 @@ async function applyShiftLocally(
       };
       const committed = await applyNativePosRecordChangesIfAbsent(
         [{ action: 'put', entity: 'shifts', recordId: getNativePosRecordId('shifts', record), record, syncState: syncStatus }],
-        'shifts', 'id', String(payload.id),
+        'shifts', JSON.stringify(payload.id),
       );
       if (committed.skipped || committed.applied !== 1) throw new Error('تعذر فتح الوردية بسبب تعارض؛ أعد تحميل البيانات');
       return;
