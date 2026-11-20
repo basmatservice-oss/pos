@@ -4,8 +4,8 @@ import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativeP
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 import { readLegacyIndexedDBStores } from './nativeDatabaseMirror';
-import { isElectronDesktop } from '../native/electronPosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
 let electronSyncListenerInstalled = false;
