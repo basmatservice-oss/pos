@@ -3252,7 +3252,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       expenseRecord = {
         id: expenseId, description: payload.description, amount: Number(payload.amount || 0),
         category: payload.category || 'عام',
-        paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+        paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card',
         shiftId: payload.shiftId, date: payload.date || now, branchId: payload.branchId,
         createdAt: payload.createdAt || now, updatedAt: now, syncStatus,
       };
@@ -3364,7 +3364,7 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
     if (!Number.isFinite(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
     await db.expenses.put({
       id: expenseId, description: payload.description, amount: Number(payload.amount || 0),
-      category: payload.category || 'عام', paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+      category: payload.category || 'عام', paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card',
       shiftId: payload.shiftId, date: payload.date || now, branchId: payload.branchId,
       createdAt: payload.createdAt || now, updatedAt: now, syncStatus,
     });
@@ -3545,7 +3545,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
     await db.customerPayments.put({
       id: paymentId, customerId: Number(payload.customerId),
       customerName: cust.name || payload.customerName, orderId: payload.orderId,
-      amount: payAmount, paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+      amount: payAmount, paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card',
       notes: payload.notes, shiftId: payload.shiftId, branchId: payload.branchId ?? cust.branchId,
       createdBy: payload.createdBy, operationId: payload.operationId,
       syncStatus, createdAt: now,
@@ -3741,7 +3741,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       supplierName: sup?.name || payload.supplierName,
       purchaseId: payload.purchaseId ? String(payload.purchaseId) : undefined,
       amount: payAmount,
-      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash',
+      paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card',
       notes: payload.notes,
       shiftId: payload.shiftId,
       branchId: payload.branchId,
