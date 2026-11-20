@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search } from 'lucide-react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository } from '../native/nativePosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 
@@ -21,6 +21,7 @@ async function persistMovementPage(items: any[]): Promise<void> {
     }
     return;
   }
+  if (isElectronDesktop()) return; // Windows Server keeps the authoritative ledger in Drizzle; no Dexie mirror.
   const { db } = await import('../db/db');
   await db.transaction('rw', db.inventoryMovements, async () => {
     const localRows = await db.inventoryMovements.where('movementKey').anyOf(Array.from(keys)).toArray();
