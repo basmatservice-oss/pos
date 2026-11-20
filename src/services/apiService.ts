@@ -32,6 +32,7 @@ axios.interceptors.request.use((config) => {
 });
 
 const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any } | undefined> => {
+  if (isElectronDesktop() && !isElectronLocalClient()) return key === 'deviceRole' ? { key, value: 'server' } : undefined;
   if (isNativeAndroid()) {
     return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
   }
