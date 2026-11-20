@@ -429,7 +429,18 @@ export async function restoreLocalInventoryFIFO(params: {
     if (qtyToRestore <= 0) return 0;
     const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
     const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
-    if (existingMovement) return roundMoney(Number(existingMovement.totalCost || 0));
+    if (existingMovement) {
+      const existingQuantity = Number(existingMovement.quantityDeltaBase);
+      const existingCost = Number(existingMovement.totalCost);
+      if (Number(existingMovement.productId) !== params.productId ||
+          Math.abs(existingQuantity - qtyToRestore) > 0.000001 ||
+          !Number.isFinite(existingCost) || existingCost < 0 ||
+          String(existingMovement.sourceId) !== String(params.sourceId) ||
+          String(existingMovement.sourceType || 'return') !== String(params.sourceType || 'return')) {
+        throw new Error('مفتاح حركة المرتجع مستخدم سابقًا بكمية أو صنف أو مصدر مختلف؛ أوقف الترحيل للمراجعة');
+      }
+      return roundMoney(existingCost);
+    }
     const [batchRows, productRow, valuation] = await Promise.all([
       nativePosRepository.getAllWithSyncState('inventoryBatches'),
       (async () => (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId))(),
