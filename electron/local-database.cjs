@@ -91,7 +91,7 @@ function getRecord(entity, recordId) {
 }
 
 function putRecords(records) {
-  if (!Array.isArray(records)) throw new Error('records must be an array');
+  if (!Array.isArray(records) || records.length > 100000) throw new Error('records must be an array within the batch limit');
   const seen = new Set();
   const parsed = records.map(item => {
     validateIdentity(item?.entity, item?.recordId);
@@ -117,7 +117,7 @@ function putRecords(records) {
 }
 
 function applyRecordChanges(changes, guards = {}) {
-  if (!Array.isArray(changes) || changes.length > 10000) throw new Error('changes must be an array within the transaction limit');
+  if (!Array.isArray(changes) || changes.length > 100000) throw new Error('changes must be an array within the transaction limit');
   if (!guards || typeof guards !== 'object' || Array.isArray(guards)) throw new Error('Invalid transaction guards');
   if (guards.ifAbsentEntity && !VALID_ENTITIES.has(guards.ifAbsentEntity)) throw new Error('Unsupported idempotency entity');
   if (guards.ifAbsentRecordId && (typeof guards.ifAbsentRecordId !== 'string' || guards.ifAbsentRecordId.length > 512)) throw new Error('Invalid idempotency record ID');
