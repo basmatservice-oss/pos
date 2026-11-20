@@ -154,6 +154,24 @@ function enqueueOperation(operation) {
     VALUES(?,?,?,?,'pending',?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, operation.nextRetryAt ?? null);
   return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
 }
+function saveAndEnqueueOperation(operation) {
+  if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() ||
+      typeof operation.type !== 'string' || !operation.type.trim() ||
+      !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) throw new Error('Invalid operation payload');
+  const record = operation.record && typeof operation.record === 'object' ? operation.record : operation.payload;
+  const recordId = operation.recordId || operation.operationId;
+  const tx = db().transaction(() => {
+    const exists = db().prepare('SELECT operation_id FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
+    if (exists) return { saved: false, queued: false, duplicate: true, operationId: operation.operationId };
+    db().prepare(`INSERT INTO pos_records(entity,record_id,json,updated_at,sync_state) VALUES(?,?,?,?,?)
+      ON CONFLICT(entity,record_id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at,sync_state=excluded.sync_state`)
+      .run(operation.entity || 'operations', recordId, JSON.stringify(record), Date.now(), 'pending');
+    const queued = enqueueOperation(operation);
+    if (!queued.queued) throw new Error('Could not enqueue local operation');
+    return { saved: true, queued: true, duplicate: false, operationId: operation.operationId };
+  });
+  return tx();
+}
 function listOperations(pendingOnly = false) {
   const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingOnly ? "WHERE status IN ('pending','error','syncing')" : ''} ORDER BY created_at, operation_id`).all();
   return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined }));
@@ -197,4 +215,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
