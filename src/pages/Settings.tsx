@@ -427,11 +427,13 @@ const Settings: React.FC = () => {
         for (const entity of NATIVE_POS_ENTITIES) {
           if (!Array.isArray(data[entity])) continue;
           const existing = await nativePosRepository.getAllWithSyncState(entity);
+          const backupRecords = data[entity] as Array<Record<string, unknown>>;
+          const backupIds = new Set(backupRecords.filter((record) => record && typeof record === 'object').map((record) => getNativePosRecordId(entity, record)));
           for (const row of existing) {
-            const record = row.record as any;
+            if (backupIds.has(row.recordId)) continue;
             changes.push({ action: 'delete', entity, key: JSON.parse(row.recordId) });
           }
-          for (const record of data[entity]) {
+          for (const record of backupRecords) {
             if (!record || typeof record !== 'object' || Array.isArray(record)) {
               throw new Error('ملف النسخة الاحتياطية يحتوي سجلًا غير صالح في ' + entity);
             }
