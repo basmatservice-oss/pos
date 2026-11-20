@@ -944,11 +944,17 @@ export function createPosApp() {
 
   app.put('/api/customers/:id', requirePermission('edit_customer'), async (req, res) => {
     try {
-      const [customer] = await db
-        .update(customers)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(customers.id, parseInt(req.params.id)))
-        .returning();
+      const id = parseInt(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid customer id' });
+      // Customer balances are ledger-controlled and must never be overwritten by CRUD.
+      const allowedFields = ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'creditLimit', 'isActive'];
+      const data: Record<string, any> = {};
+      for (const field of allowedFields) if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) data[field] = req.body[field];
+      if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable customer metadata was supplied' });
+      const [customer] = await db.update(customers)
+        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
+        .where(eq(customers.id, id)).returning();
+      if (!customer) return res.status(404).json({ error: 'Customer not found' });
       res.json(customer);
     } catch {
       res.status(500).json({ error: 'Failed to update customer' });
@@ -992,11 +998,17 @@ export function createPosApp() {
 
   app.put('/api/suppliers/:id', requirePermission('edit_supplier'), async (req, res) => {
     try {
-      const [supplier] = await db
-        .update(suppliers)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(suppliers.id, parseInt(req.params.id)))
-        .returning();
+      const id = parseInt(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid supplier id' });
+      // Supplier balances are purchase/payment-ledger controlled.
+      const allowedFields = ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'isActive'];
+      const data: Record<string, any> = {};
+      for (const field of allowedFields) if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) data[field] = req.body[field];
+      if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable supplier metadata was supplied' });
+      const [supplier] = await db.update(suppliers)
+        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
+        .where(eq(suppliers.id, id)).returning();
+      if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
       res.json(supplier);
     } catch {
       res.status(500).json({ error: 'Failed to update supplier' });
