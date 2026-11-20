@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
+import { getPosRecords, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals } from '../services/posDataAccess';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /** Reactive indexed lookup; Android and Electron query SQLite; browser desktop retains Dexie. */
@@ -10,6 +11,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
   value: string | number | boolean | undefined,
 ): T[] {
   const isLocalSqlite = isNativeAndroid() || isElectronLocalClient();
+  const isWindowsServer = isElectronDesktop() && !isElectronLocalClient();
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
@@ -22,6 +24,29 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
     }
 
     const start = async () => {
+      if (isWindowsServer) {
+        const refresh = async () => {
+          try {
+            const rows = await getPosRecordsWhereEquals<T>(entity, field, value);
+            if (active) setRecords(rows);
+          } catch (error) {
+            console.error(`Failed to query ${entity} from Windows Server API:`, error);
+          }
+        };
+        const onServerChange = (event: Event) => {
+          const changed = (event as CustomEvent<{ entity?: string }>).detail?.entity;
+          if (changed === entity) void refresh();
+        };
+        window.addEventListener('pos-server-record-changed', onServerChange);
+        window.addEventListener('focus', refresh);
+        unsubscribe = () => {
+          window.removeEventListener('pos-server-record-changed', onServerChange);
+          window.removeEventListener('focus', refresh);
+        };
+        await refresh();
+        return;
+      }
+
       if (isLocalSqlite) {
         const refresh = async () => {
           try {
