@@ -2653,7 +2653,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     }
     const origPurchase = await nativePosRepository.get<any>('purchases', String(originalPurchaseId));
     if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
-    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems] = await Promise.all([
+    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems, valuationSetting] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getMany<any>('products', [...new Set(items.map((item: any) => Number(item.productId)).filter((id: number) => Number.isSafeInteger(id) && id > 0))]),
@@ -2663,6 +2663,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', String(originalPurchaseId)),
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('purchaseReturnItems'),
+      nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
     ]);
     if (!originalItems.length) throw new Error('لا يمكن إرجاع فاتورة شراء بلا تفاصيل أصناف');
     if (refundMethod === 'credit_adjustment' && !origPurchase.supplierId) {
@@ -2813,7 +2814,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
       const updatedProduct = {
         ...product, stockQuantity: roundQty(currentStock - qty),
-        ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
+        ...(valuationSetting?.value === 'weighted_average' && activeQty > 0
+          ? { costPrice: roundMoney(Math.round((activeValue / activeQty) * 10000) / 10000) }
+          : {}),
         updatedAt: now, syncStatus,
       };
       productMap.set(productId, updatedProduct);
