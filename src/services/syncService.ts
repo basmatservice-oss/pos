@@ -8,6 +8,8 @@ import { isElectronDesktop } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
+let electronSyncListenerInstalled = false;
+let electronSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function ensureDexieDatabase(): Promise<void> {
   if (dexieLoaded) return;
@@ -798,7 +800,20 @@ export const syncService = {
   },
 
   async initAutoSync() {
-    if (isLocalSqlite()) return;
+    if (isElectronDesktop()) {
+      if (!electronSyncListenerInstalled && typeof window !== 'undefined') {
+        electronSyncListenerInstalled = true;
+        window.addEventListener('pos-native-records-changed', () => {
+          if (electronSyncTimer) clearTimeout(electronSyncTimer);
+          electronSyncTimer = setTimeout(() => {
+            electronSyncTimer = null;
+            void this.syncAll().catch((error) => console.warn('Electron SQLite auto-sync deferred:', error));
+          }, 900);
+        });
+      }
+      return;
+    }
+    if (isNativeAndroid()) return;
     await ensureDesktopDatabase();
     const entityTables = new Set([
       'products',
