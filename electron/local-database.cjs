@@ -183,6 +183,27 @@ function enqueueOperation(operation) {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, status, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
   return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
 }
+function mergeOperations(operations) {
+  if (!Array.isArray(operations) || operations.length > 100000) throw new Error('Invalid legacy operation batch');
+  const tx = db().transaction(() => {
+    let inserted = 0;
+    let duplicates = 0;
+    for (const operation of operations) {
+      const result = enqueueOperation(operation);
+      if (result.queued) {
+        inserted += 1;
+        continue;
+      }
+      const existing = db().prepare('SELECT type, payload FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
+      if (!existing || existing.type !== operation.type || existing.payload !== JSON.stringify(operation.payload)) {
+        throw new Error('Legacy operation ID conflicts with an existing local outbox entry');
+      }
+      duplicates += 1;
+    }
+    return { inserted, duplicates, total: operations.length };
+  });
+  return tx();
+}
 function saveAndEnqueueOperation(operation) {
   if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() ||
       typeof operation.type !== 'string' || !operation.type.trim() ||
@@ -269,4 +290,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, deleteOperation, acknowledgeOperation, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, mergeOperations, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, deleteOperation, acknowledgeOperation, closeLocalDatabase };
