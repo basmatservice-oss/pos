@@ -547,7 +547,8 @@ const Settings: React.FC = () => {
       }
 
       try {
-        if (!isLocalSqlite() || await syncService.getDeviceRole() !== 'standalone') {
+        // Only the authoritative server may clear the server database. A Windows/Android client clears its own SQLite snapshot only.
+        if (!isLocalSqlite() && await syncService.getDeviceRole() === 'server') {
           await apiService.clearData();
         }
       } catch (e) {
