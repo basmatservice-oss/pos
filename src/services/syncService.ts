@@ -118,7 +118,7 @@ export const syncService = {
     await ensureDesktopDatabase();
     // Read the persisted role each time: onboarding can switch a device to
     // standalone after the sync service has already been initialized.
-    const setting = isNativeAndroid()
+    const setting = isLocalSqlite()
       ? await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole')
       : await db.settings.where('key').equals('deviceRole').first();
     this.cachedRole = setting ? setting.value : 'server';
@@ -135,7 +135,7 @@ export const syncService = {
       // The native outbox is the sole durable operation queue on Android;
       // Dexie entries are only a compatibility mirror and must not be counted.
       let pendingOps = 0;
-      if (isNativeAndroid()) {
+      if (isLocalSqlite()) {
         // Preserve the previous count if SQLite cannot be read; reporting zero
         // would falsely imply that the durable outbox is empty.
         pendingOps = (await listNativePendingPosOperations()).length;
@@ -180,9 +180,9 @@ export const syncService = {
         'fiscalPeriods',
       ];
       let pendingRecords = 0;
-      if (!isNativeAndroid()) await ensureDesktopDatabase();
+      if (!isLocalSqlite()) await ensureDesktopDatabase();
       for (const table of tables) {
-        if (isNativeAndroid()) {
+        if (isLocalSqlite()) {
           const records = await nativePosRepository.getAllWithSyncState(table as any);
           pendingRecords += records.filter((item) => item.syncState === 'pending' || item.syncState === 'error').length;
         } else if ((db as any)[table]) {
@@ -231,13 +231,13 @@ export const syncService = {
     // Migrate only pre-SQLite Android queue entries; new Android operations
     // are written directly to SQLite and never enter Dexie.
     if (isNativeAndroid()) await migrateLegacyAndroidQueueToSQLite();
-    const queued = isNativeAndroid()
+    const queued = isLocalSqlite()
       ? []
       : await db.syncOperations
           .where('status')
           .anyOf(['pending', 'error'])
           .toArray();
-    const nativeQueued: Array<any> = isNativeAndroid()
+    const nativeQueued: Array<any> = isLocalSqlite()
       ? await listNativePendingPosOperations()
       : [];
     const nativeIds = new Set(nativeQueued.map((op) => op.operationId));
@@ -390,14 +390,14 @@ export const syncService = {
     if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
     const table = isLocalSqlite() ? undefined : (db as any)[tableName];
-    if (!table && (!isNativeAndroid() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
+    if (!table && (!isLocalSqlite() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
     const recordKey = record?.id ?? record?.key;
     if (recordKey === undefined || recordKey === null) return false;
     let sourceRecord = record;
 
     // On Android, read the committed entity from SQLite rather than trusting
     // the Dexie hook payload, which may be stale or only a compatibility copy.
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       sourceRecord = await nativePosRepository.get<any>(tableName as any, recordKey);
       if (!sourceRecord) {
         console.warn('Skipped Android entity push because the SQLite record is missing:', tableName, recordKey);
@@ -410,7 +410,7 @@ export const syncService = {
       try {
         const serverRes = await this.sendRecordToServer(tableName, sourceRecord);
         await this.reconcilePushedRecord(tableName, sourceRecord, serverRes);
-        if (!isNativeAndroid()) {
+        if (!isLocalSqlite()) {
           const savedKey = serverRes?.id ?? sourceRecord.id ?? sourceRecord.key;
           const saved = await table.get(savedKey);
         }
@@ -420,7 +420,7 @@ export const syncService = {
       } catch (err) {
         console.error(`Failed to push ${tableName} record directly:`, err);
         await markPushedRecordState(tableName, recordKey, 'pending');
-        if (!isNativeAndroid()) {
+        if (!isLocalSqlite()) {
           const saved = await table.get(recordKey);
         }
         return false;
@@ -428,7 +428,7 @@ export const syncService = {
     }
 
     await markPushedRecordState(tableName, recordKey, 'pending');
-    if (!isNativeAndroid()) {
+    if (!isLocalSqlite()) {
       const saved = await table.get(recordKey);
     }
     return false;
@@ -436,10 +436,10 @@ export const syncService = {
 
   async reconcilePushedRecord(tableName: string, localRecord: any, serverRes: any) {
     await ensureDesktopDatabase();
-    const table = isNativeAndroid() ? undefined : (db as any)[tableName];
-    if (!table && !isNativeAndroid()) return;
+    const table = isLocalSqlite() ? undefined : (db as any)[tableName];
+    if (!table && !isLocalSqlite()) return;
 
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const oldKey = localRecord.id ?? localRecord.key ?? localRecord.code;
       const merged = {
         ...localRecord,
@@ -547,10 +547,10 @@ export const syncService = {
 
   async pushTable(tableName: string) {
     if (await this.getDeviceRole() === 'standalone') return;
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       if (!NATIVE_POS_ENTITIES.includes(tableName as any)) return;
     } else if (!(db as any)[tableName]) return;
-    const pendingRecords = isNativeAndroid()
+    const pendingRecords = isLocalSqlite()
       ? (await nativePosRepository.getAllWithSyncState(tableName as any))
           .filter((item) => item.syncState === 'pending' || item.syncState === 'error')
           .map((item) => item.record)
@@ -581,7 +581,7 @@ export const syncService = {
       // Android SQLite owns the durable operation queue. Never let a stale
       // Dexie mirror entry prevent an authoritative server snapshot from
       // reconciling SQLite records.
-      const pendingOpsCount = isNativeAndroid()
+      const pendingOpsCount = isLocalSqlite()
         ? (await listNativePendingPosOperations()).length
         : await db.syncOperations
             .where('status')
@@ -656,7 +656,7 @@ export const syncService = {
             const data = await task.api();
             if (!Array.isArray(data)) continue;
 
-            if (isNativeAndroid()) {
+            if (isLocalSqlite()) {
               const entity = task.entity;
               const existingNative = await nativePosRepository.getAllWithSyncState(entity as any);
               const existingById = new Map(existingNative.map((item) => {
@@ -778,7 +778,7 @@ export const syncService = {
           } catch (err: any) {
             // Android commits each server snapshot to SQLite first. Do not hide
             // a failed native write or continue with a partially refreshed database.
-            if (isNativeAndroid()) throw err;
+            if (isLocalSqlite()) throw err;
             if (process.env.NODE_ENV !== 'production') {
               console.warn('Skipped pulling table data:', err?.message || err);
             }
@@ -792,7 +792,7 @@ export const syncService = {
         (globalThis as any).__posApplyingOperation = false;
       }
     } catch (err) {
-      if (isNativeAndroid()) throw err;
+      if (isLocalSqlite()) throw err;
       // Desktop/web may remain offline without blocking the local application.
     }
   },
