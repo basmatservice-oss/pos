@@ -120,6 +120,7 @@ export type NativePosSyncState = 'local' | 'pending' | 'synced' | 'error';
 
 export const nativePosRepository = {
   async isReady(): Promise<boolean> {
+    if (isElectronDesktop()) return electronPosRepository.isReady();
     return ensureNativePosDatabase();
   },
 
