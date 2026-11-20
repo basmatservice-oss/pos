@@ -2253,6 +2253,7 @@ async function applyPurchaseLocally(
       ? roundMoney(oldTotal + oldExtraCost)
       : roundMoney(oldTotal);
     const oldRemaining = roundMoney(oldPayable - oldPaid);
+    if (oldRemaining < -0.02) throw new Error('المبلغ المدفوع في فاتورة الشراء يتجاوز مستحقاتها؛ أوقف الحذف لمراجعة رصيد المورد');
     if (oldPurchase.supplierId && oldRemaining > 0 && !supplier) {
       throw new Error('لا يمكن عكس فاتورة الشراء؛ سجل المورد غير موجود في SQLite');
     }
