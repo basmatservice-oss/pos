@@ -3558,7 +3558,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       const existingAccountBalances = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
-        if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
+        if (current && (current.balance == null || !Number.isFinite(Number(current.balance)))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
         if (current) existingAccountBalances.set(definition.code, current);
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
