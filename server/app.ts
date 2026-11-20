@@ -777,6 +777,7 @@ export function createPosApp() {
         const created = tx.insert(products).values({
           ...(Number.isSafeInteger(requestedId) && requestedId > 0 ? { id: requestedId } : {}),
           ...data,
+          name,
           stockQuantity: Number(data.stockQuantity || 0),
           costPrice: Number(data.costPrice || 0),
           isSynced: 0,
@@ -1949,7 +1950,7 @@ export function createPosApp() {
       const [session] = await db.insert(stocktakingSessions).values({
         id,
         status: 'open',
-        createdBy: req.authUser?.name || (typeof body.createdBy === 'string' ? body.createdBy : 'System'),
+        createdBy: (req as AuthenticatedRequest).authUser?.name || (typeof body.createdBy === 'string' ? body.createdBy : 'System'),
         branchId: Number.isSafeInteger(Number(body.branchId)) && Number(body.branchId) > 0 ? Number(body.branchId) : null,
         isSynced: 0,
         createdAt: new Date().toISOString(),
@@ -2031,7 +2032,7 @@ export function createPosApp() {
         barcode: product[0].barcode || null,
         systemQuantity: Number(product[0].stockQuantity || 0),
         actualQuantity,
-        scannedBy: req.authUser?.name || (typeof body.scannedBy === 'string' ? body.scannedBy : null),
+        scannedBy: (req as AuthenticatedRequest).authUser?.name || (typeof body.scannedBy === 'string' ? body.scannedBy : null),
         isSynced: 0,
         scannedAt: new Date().toISOString(),
       }).returning();
