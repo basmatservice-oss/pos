@@ -60,12 +60,12 @@ async function getLocalRecordsByIndex<T extends Record<string, any>>(
   indexName: string,
   value: string | number | boolean,
 ): Promise<T[]> {
-  if (isNativeAndroid()) return nativePosRepository.whereEquals<T>(entity, indexName, value);
+  if (isLocalSqlite()) return nativePosRepository.whereEquals<T>(entity, indexName, value);
   return (await (db as any)[entity].where(indexName).equals(value).toArray()) as T[];
 }
 
 async function getLocalRecords<T extends Record<string, any>>(entity: any): Promise<T[]> {
-  if (isNativeAndroid()) return nativePosRepository.getAll<T>(entity);
+  if (isLocalSqlite()) return nativePosRepository.getAll<T>(entity);
   return (await (db as any)[entity].toArray()) as T[];
 }
 
@@ -75,7 +75,7 @@ async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
     return currentDeviceRole;
   } catch (error) {
-    if (isNativeAndroid()) throw error;
+    if (isLocalSqlite()) throw error;
     currentDeviceRole = 'server';
     return currentDeviceRole;
   }
@@ -423,7 +423,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
 }
 
 async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  if (isNativeAndroid()) return applySaleLocallyNative(payload, syncStatus);
+  if (isLocalSqlite()) return applySaleLocallyNative(payload, syncStatus);
   const { order, items = [], pointsEarned = 0, pointsRedeemed = 0, _serverItems } = payload;
   const now = order.createdAt || new Date().toISOString();
   const operationId = String(payload.operationId || order.operationId || order.id);
@@ -467,7 +467,7 @@ async function applySaleLocally(payload: any, syncStatus: 'synced' | 'pending') 
       db.accounts, db.journalEntries, db.transactions,
     ],
     async () => {
-      const existingLocalOrder = isNativeAndroid()
+      const existingLocalOrder = isLocalSqlite()
         ? await nativePosRepository.get<any>('orders', order.id)
         : await db.orders.get(order.id);
       if (existingLocalOrder) return;
@@ -891,7 +891,7 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
 }
 
 async function applyOrderVoidLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  if (isNativeAndroid()) return applyOrderVoidLocallyNative(payload, syncStatus);
+  if (isLocalSqlite()) return applyOrderVoidLocallyNative(payload, syncStatus);
   const targetOrderId = String(payload?.orderId || payload?.id || '');
   if (!targetOrderId) throw new Error('Missing orderId for void operation');
   const now = new Date().toISOString();
@@ -1321,7 +1321,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
 }
 
 async function applyReturnLocally(payload: any, syncStatus: 'synced' | 'pending') {
-  if (isNativeAndroid()) return applyReturnLocallyNative(payload, syncStatus);
+  if (isLocalSqlite()) return applyReturnLocallyNative(payload, syncStatus);
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } =
     payload;
   const now = new Date().toISOString();
@@ -2121,7 +2121,7 @@ async function applyPurchaseLocally(
   }
 
 
-  if (isNativeAndroid() && type === 'purchase_delete') {
+  if (isLocalSqlite() && type === 'purchase_delete') {
     const purchaseId = String(payload?.id || '');
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
@@ -2628,7 +2628,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const operationId = String(payload.operationId || id);
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     if (await nativePosRepository.get<any>('purchaseReturns', id)) return;
     if (!id || !originalPurchaseId || !Array.isArray(items) || !items.length) {
       throw new Error('بيانات مرتجع المشتريات غير مكتملة');
@@ -3107,7 +3107,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
 }
 async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: any, syncStatus: 'synced' | 'pending') {
   const now = new Date().toISOString();
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const expenseId = Number(payload?.id);
     if (!Number.isSafeInteger(expenseId) || expenseId <= 0) throw new Error('معرّف المصروف غير صالح');
     const existing = await nativePosRepository.get<any>('expenses', expenseId);
@@ -3345,7 +3345,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
   const payAmount = roundMoney(Number(payload.amount || 0));
   const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
 
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     if (await nativePosRepository.get<any>('customerPayments', paymentId)) return;
     const customerId = Number(payload.customerId);
     const customer = await nativePosRepository.get<any>('customers', customerId);
@@ -3526,7 +3526,7 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
   const payAmount = roundMoney(Number(payload.amount || 0));
   const paymentId = String(payload.paymentId || payload.operationId || generateUUID());
 
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     if (await nativePosRepository.get<any>('supplierPayments', paymentId)) return;
     const supplierId = Number(payload.supplierId);
     const supplier = await nativePosRepository.get<any>('suppliers', supplierId);
@@ -3724,7 +3724,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
   const now = new Date().toISOString();
   const payrollId = Number(payload.id);
   if (!Number.isSafeInteger(payrollId) || payrollId <= 0) throw new Error('معرّف مسير الراتب غير صالح');
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     if (await nativePosRepository.get<any>('payroll', payrollId)) return;
     const record = {
       id: payrollId, employeeId: Number(payload.employeeId), employeeName: payload.employeeName,
@@ -3860,7 +3860,7 @@ async function applyShiftLocally(
 ) {
   const now = new Date().toISOString();
   if (type === 'shift_movement') {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const shiftId = String(payload.shiftId);
       const shiftKey = payload.shiftId !== undefined && payload.shiftId !== null && String(payload.shiftId).trim() !== '' && Number.isFinite(Number(payload.shiftId))
         ? Number(payload.shiftId)
@@ -4004,7 +4004,7 @@ async function applyShiftLocally(
     const shiftId = String(payload.id);
     // SQLite is the authoritative Android store. Read it first so an existing
     // shift is never recreated from a stale Dexie cache.
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (existing) return;
       const openingCash = Number(payload.openingCash || 0);
@@ -4034,7 +4034,7 @@ async function applyShiftLocally(
       syncStatus,
     });
   } else if (type === 'shift_close') {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const shiftId = String(payload.id);
       const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (!existing) return;
@@ -4085,7 +4085,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
   const sessionId = String(payload.sessionId);
   const operationId = String(payload.operationId || sessionId);
   const deviceId = String(payload.deviceId || 'local-device');
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const session = await nativePosRepository.get<any>('stocktakingSessions', sessionId);
     if (!session) throw new Error('جلسة الجرد غير موجودة');
     if (session.status === 'approved') return;
@@ -4338,7 +4338,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   const table = android ? undefined : (db as any)[tableName];
   if (!android && !table) return;
   if (type === 'entity_delete') {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const existing = await nativePosRepository.get<any>(tableName as any, payload.id);
       if (existing && !(await nativePosRepository.delete(tableName as any, payload.id))) {
         throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
@@ -4357,7 +4357,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     await table.delete(previousId).catch(() => {});
   }
   if (tableName !== 'products') {
-    if (isNativeAndroid() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
+    if (isLocalSqlite() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
       const nativeChanges: any[] = [];
       if (hasChangedPrimaryKey) nativeChanges.push({ action: 'delete', entity: tableName, key: previousId });
       nativeChanges.push({ action: 'put', entity: tableName, record: { ...finalRecord, syncStatus }, syncState: syncStatus });
@@ -4371,7 +4371,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   }
   const now = new Date().toISOString();
   const productId = Number(finalRecord.id);
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     if (!Number.isSafeInteger(productId) || productId <= 0) throw new Error('معرّف الصنف غير صالح');
     const productRecord = { ...finalRecord, syncStatus };
     const changes: any[] = [];
@@ -4499,27 +4499,27 @@ async function validateLocalOperationFiscalPeriod(type: SyncOperation['type'], p
   if (type === 'sale') postingDates = [payload?.order?.createdAt || now];
   else if (type === 'return') postingDates = [payload?.returnDate || now];
   else if (type === 'order_void') {
-    const order = isNativeAndroid()
+    const order = isLocalSqlite()
       ? await nativePosRepository.get<any>('orders', String(payload?.orderId || payload?.id || ''))
       : await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
     if (!order) return;
     postingDates = [order.createdAt || now];
   } else if (type === 'purchase') postingDates = [payload?.purchase?.date || now];
   else if (type === 'purchase_update') {
-    const oldPurchase = isNativeAndroid()
+    const oldPurchase = isLocalSqlite()
       ? await nativePosRepository.get<any>('purchases', String(payload?.purchase?.id || ''))
       : await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
     if (!oldPurchase) throw new Error('فاتورة الشراء غير موجودة');
     postingDates = [oldPurchase.date || now, payload?.purchase?.date || now];
   } else if (type === 'purchase_delete') {
-    const oldPurchase = isNativeAndroid()
+    const oldPurchase = isLocalSqlite()
       ? await nativePosRepository.get<any>('purchases', String(payload?.id || ''))
       : await getLocalRecord<any>('purchases', String(payload?.id || ''));
     if (!oldPurchase) return;
     postingDates = [oldPurchase.date || now];
   } else if (type === 'expense') postingDates = [payload?.date || now];
   else if (type === 'expense_delete') {
-    const expense = isNativeAndroid()
+    const expense = isLocalSqlite()
       ? await nativePosRepository.get<any>('expenses', Number(payload?.id))
       : await getLocalRecord<any>('expenses', Number(payload?.id));
     if (!expense) return;
@@ -4632,7 +4632,7 @@ function mergeServerResultIntoPayload(type: SyncOperation['type'], payload: any,
 }
 
 async function assertLocalOpenFiscalPeriod(dateValues: Array<string | undefined>, payload: any): Promise<void> {
-  const periods = isNativeAndroid()
+  const periods = isLocalSqlite()
     ? await nativePosRepository.getAll<any>('fiscalPeriods')
     : await getLocalRecords<any>('fiscalPeriods');
   if (!periods.length) return;
@@ -4665,7 +4665,7 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.returnDate || now);
       break;
     case 'order_void': {
-      const order = isNativeAndroid()
+      const order = isLocalSqlite()
       ? await nativePosRepository.get<any>('orders', String(payload?.orderId || payload?.id || ''))
       : await getLocalRecord<any>('orders', String(payload?.orderId || payload?.id || ''));
       dates.push(order?.createdAt || now);
@@ -4675,14 +4675,14 @@ async function validateStandaloneFiscalPeriod(type: SyncOperation['type'], paylo
       dates.push(payload?.purchase?.date || now);
       break;
     case 'purchase_update': {
-      const oldPurchase = isNativeAndroid()
+      const oldPurchase = isLocalSqlite()
       ? await nativePosRepository.get<any>('purchases', String(payload?.purchase?.id || ''))
       : await getLocalRecord<any>('purchases', String(payload?.purchase?.id || ''));
       dates.push(oldPurchase?.date || now, payload?.purchase?.date || now);
       break;
     }
     case 'purchase_delete': {
-      const oldPurchase = isNativeAndroid()
+      const oldPurchase = isLocalSqlite()
       ? await nativePosRepository.get<any>('purchases', String(payload?.id || ''))
       : await getLocalRecord<any>('purchases', String(payload?.id || ''));
       if (oldPurchase) dates.push(oldPurchase.date || now);
@@ -4720,7 +4720,7 @@ export async function dispatchOperation(
   } catch {}
   if (type === 'purchase_update' || type === 'purchase_delete') {
     const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
-    const [oldPurchase, oldItems] = isNativeAndroid()
+    const [oldPurchase, oldItems] = isLocalSqlite()
       ? await Promise.all([
           nativePosRepository.get<any>('purchases', purchaseId),
           nativePosRepository.whereEquals<any>('purchaseItems', 'purchaseId', purchaseId),
@@ -4740,7 +4740,7 @@ export async function dispatchOperation(
   const role = await getDeviceRole();
   // Validate Android purchase deletion against the authoritative local SQLite state
   // before any server request can delete the invoice remotely.
-  if (isNativeAndroid() && type === 'purchase_delete') {
+  if (isLocalSqlite() && type === 'purchase_delete') {
     const purchaseId = String(payload?.id || '');
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء غير صالح');
     const oldPurchase = await nativePosRepository.get<any>('purchases', purchaseId);
@@ -4824,7 +4824,7 @@ export async function dispatchOperation(
       }
     }
   }
-  if (isNativeAndroid() && type === 'purchase_update') {
+  if (isLocalSqlite() && type === 'purchase_update') {
     const purchase = payload?.purchase;
     const purchaseId = String(purchase?.id || '');
     if (!purchaseId) throw new Error('معرّف فاتورة الشراء المطلوب تعديلها غير صالح');
@@ -4995,19 +4995,19 @@ export async function dispatchOperation(
     // Standalone transactions are committed locally and are not placed in a
     // server synchronization queue.
     await applyOperationLocally(type, opRecord.payload, 'synced');
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
     }
     return { synced: true, operationId };
   }
 
-  if (role === 'server' && token && !isNativeAndroid()) {
+  if (role === 'server' && token && !isLocalSqlite()) {
     let serverCommitted = false;
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       serverCommitted = true;
       const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
       await applyOperationLocally(type, localPayload, 'synced', response.result);
-      if (isNativeAndroid()) {
+      if (isLocalSqlite()) {
         try {
         } catch (mirrorError) {
           throw Object.assign(
@@ -5077,7 +5077,7 @@ export async function dispatchOperation(
   if (!isLocalSqlite()) await db.syncOperations.put(opRecord);
   // Persist the Android outbox before mutating the local business tables. If the
   // WebView closes during the mutation, the durable operation can still replay.
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     try {
       const queued = await enqueueNativePosOperation({
         operationId, type, payload: opRecord.payload, deviceId,
@@ -5096,7 +5096,7 @@ export async function dispatchOperation(
   try {
     await applyOperationLocally(type, opRecord.payload, 'pending');
   } catch (localError: any) {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const message = String(localError?.message || 'فشل تطبيق العملية محليًا في SQLite');
       await markNativePosOperationConflict(operationId, message);
     } else {
@@ -5108,11 +5108,11 @@ export async function dispatchOperation(
     }
     throw localError;
   }
-  if (!isNativeAndroid() && (type === 'purchase_update' || type === 'purchase_delete')) {
+  if (!isLocalSqlite() && (type === 'purchase_update' || type === 'purchase_delete')) {
     await db.syncOperations.update(operationId, { payload: opRecord.payload });
   }
 
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     // Every committed Dexie business transaction is mirrored as one atomic
     // SQLite batch before the operation can be reported as accepted locally.
   }
@@ -5122,13 +5122,13 @@ export async function dispatchOperation(
     if (reachable) {
       try {
         const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
-        if (!isNativeAndroid()) {
+        if (!isLocalSqlite()) {
           await db.syncOperations.update(operationId, {
             status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
           });
         }
         await reconcileLocalOperationAfterAck(type, opRecord.payload, operationId, response.result);
-        if (isNativeAndroid()) await acknowledgeNativePosOperation(operationId);
+        if (isLocalSqlite()) await acknowledgeNativePosOperation(operationId);
         // The local mutation is not replayed after acknowledgement; pullAll applies
         // the authoritative server records without duplicating stock or balances.
         useSyncStore.getState().setLastSynced(new Date());
@@ -5145,7 +5145,7 @@ export async function dispatchOperation(
           err.response.status !== 401
         ) {
           const message = err.response?.data?.error || err.message;
-          if (!isNativeAndroid()) {
+          if (!isLocalSqlite()) {
             await db.syncOperations.update(operationId, {
               status: 'conflict',
               lastError: message,
