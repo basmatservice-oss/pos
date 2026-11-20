@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "dev/**"
+      - "packaging/capacitor-electron22-win7-android8"
   pull_request:
     branches:
       - main
@@ -20,7 +21,9 @@ jobs:
         with:
           node-version: 20
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Rebuild SQLite test driver
+        run: npm rebuild better-sqlite3
       - name: Run unit tests
         run: npm run test:unit
       - name: Verify additive inventory and currency migrations
