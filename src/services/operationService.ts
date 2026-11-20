@@ -5044,9 +5044,14 @@ export async function dispatchOperation(
     try {
       const response = await apiService.executeOperation(type, opRecord.payload, operationId, deviceId);
       serverCommitted = true;
-      const localPayload = mergeServerResultIntoPayload(type, opRecord.payload, response.result);
-      await applyOperationLocally(type, localPayload, 'synced', response.result);
-      import('./syncService').then(({ syncService }) => syncService.pullAll().catch(() => {}));
+      // Windows Server already committed the operation through the authoritative
+      // Drizzle-backed API. Do not replay it into the legacy Dexie cache.
+      if (typeof window !== 'undefined') {
+        for (const entity of NATIVE_POS_ENTITIES) {
+          window.dispatchEvent(new CustomEvent('pos-server-record-changed', { detail: { entity } }));
+        }
+      }
+      useSyncStore.getState().setLastSynced(new Date());
       return { synced: true, operationId, result: response.result };
     } catch (err: any) {
       if (err?.nativeSqliteMirrorFailure) throw err;
