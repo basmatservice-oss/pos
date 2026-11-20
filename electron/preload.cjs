@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getRecord: (entity, recordId) => ipcRenderer.invoke('pos-db:get-record', entity, recordId),
     putRecords: (records) => ipcRenderer.invoke('pos-db:put-records', records),
     applyRecordChanges: (changes) => ipcRenderer.invoke('pos-db:apply-record-changes', changes),
+    getMeta: (key) => ipcRenderer.invoke('pos-db:get-meta', key),
+    setMeta: (key, value) => ipcRenderer.invoke('pos-db:set-meta', key, value),
   },
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:version'),
