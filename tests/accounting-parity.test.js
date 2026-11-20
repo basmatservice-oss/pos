@@ -255,6 +255,70 @@ test('production SQLite FIFO and native SQLite FIFO produce identical sale and r
   raw.close();
 });
 
+test('weighted-average sale and return valuation match between server and native SQLite', async () => {
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.window = { electronAPI: { isElectron: true, posLocalDatabase: bridge }, dispatchEvent() { return true; } };
+  globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+  const [{ setElectronDeviceRole }, localInventory, serverAccounting] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/localInventoryEngine.ts'),
+    import('../server/accounting.ts'),
+  ]);
+  setElectronDeviceRole('client');
+  const { db: serverDb, raw } = createServerDatabase();
+  const product = {
+    id: 2, name: 'Weighted-average product', barcode: null, categoryId: null, costPrice: 6,
+    sellingPrice: 10, stockQuantity: 10, minStockLevel: 0, unit: 'piece', conversionFactor: 1,
+    itemType: 'stock', allowFractions: 0, baseUnitCode: 'piece', quantityPrecision: 0,
+    isActive: 1, vatRate: 0, branchId: 1, isSynced: 0, updatedAt: now, createdAt: now,
+  };
+  const batches = [
+    { id: 'weighted-batch-1', productId: 2, purchaseId: 'p-1', quantity: 5, remainingQuantity: 5, costPrice: 5, purchaseDate: '2026-01-01', branchId: 1, isSynced: 0, createdAt: '2026-01-01', updatedAt: now },
+    { id: 'weighted-batch-2', productId: 2, purchaseId: 'p-2', quantity: 5, remainingQuantity: 5, costPrice: 7, purchaseDate: '2026-02-01', branchId: 1, isSynced: 0, createdAt: '2026-02-01', updatedAt: now },
+  ];
+  serverDb.insert(schema.products).values(product).run();
+  serverDb.insert(schema.inventoryBatches).values(batches).run();
+  seed('products', product);
+  for (const batch of batches) seed('inventoryBatches', batch);
+  seed('settings', { id: 1, key: 'inventoryValuationMethod', value: 'weighted_average' });
+
+  const params = {
+    productId: 2, quantityInBaseUnits: 4, operationId: 'weighted-sale', deviceId: 'test-device',
+    sourceId: 'weighted-order', movementKeySuffix: '0', movementType: 'sale', sourceType: 'order',
+    branchId: 1, createdBy: 'test', createdAt: now, allowNegative: false, syncStatus: 'pending',
+  };
+  const serverSale = serverDb.transaction((tx) => serverAccounting.consumeInventoryFIFO(tx, { ...params, valuationMethod: 'weighted_average' }));
+  const localSale = await localInventory.consumeLocalInventoryFIFO(params);
+  assert.equal(localSale.totalCost, serverSale.totalCost);
+  assert.equal(localSale.averageUnitCost, serverSale.averageUnitCost);
+  assert.deepEqual(localSale.allocations, serverSale.allocations);
+  assert.equal(localSale.totalCost, 24);
+
+  const restoreParams = {
+    productId: 2, quantityInBaseUnits: 2, allocations: localSale.allocations, fallbackCost: 6,
+    operationId: 'weighted-return', deviceId: 'test-device', sourceId: 'weighted-return-1',
+    movementKeySuffix: '0', movementType: 'sale_return', sourceType: 'return',
+    branchId: 1, reason: 'weighted return', createdBy: 'test', createdAt: now, syncStatus: 'pending',
+  };
+  const serverRestore = serverDb.transaction((tx) => serverAccounting.restoreInventoryFIFO(tx, {
+    ...restoreParams, valuationMethod: 'weighted_average',
+  }));
+  const localRestore = await localInventory.restoreLocalInventoryFIFO(restoreParams);
+  assert.equal(localRestore, serverRestore.totalCostRestored);
+  assert.equal(localRestore, 12);
+
+  const serverProduct = serverDb.select().from(schema.products).get();
+  const localProduct = records.get('products').get(JSON.stringify(2)).record;
+  assert.equal(localProduct.stockQuantity, serverProduct.stockQuantity);
+  assert.equal(localProduct.costPrice, serverProduct.costPrice);
+  assert.equal(localProduct.costPrice, 6);
+  const serverBatches = serverDb.select().from(schema.inventoryBatches).all().sort((a, b) => a.id.localeCompare(b.id));
+  const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(localBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]), serverBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]));
+  raw.close();
+});
+
 test('server and native SQLite journal engines post matching sale, COGS, return and COGS-reversal entries', async () => {
   const { bridge, seed, records } = createMemoryElectronBridge();
   globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
