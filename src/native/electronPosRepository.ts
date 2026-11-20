@@ -87,11 +87,6 @@ export const electronPosRepository = {
     const ids = new Set(keys.map(recordKey));
     return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
   },
-  async getMany<T extends Record<string, unknown>>(entity: NativePosEntity, keys: unknown[]): Promise<T[]> {
-    const rows = await this.getAllWithSyncState(entity);
-    const ids = new Set(keys.map(recordKey));
-    return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
-  },
   async whereEquals<T extends Record<string, unknown>>(entity: NativePosEntity, field: string, value: string | number | boolean): Promise<T[]> {
     const rows = await this.getAll<T>(entity);
     return rows.filter(row => row[field] === value);
@@ -121,6 +116,7 @@ export const electronPosRepository = {
       ? { action: 'delete' as const, entity: change.entity, recordId: recordKey(change.key) }
       : { action: 'put' as const, entity: change.entity, recordId: recordIdFor(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
     const result = await bridge().applyRecordChanges(nativeChanges, guards);
+    if (result.skipped === true) return 0;
     if (result.applied !== changes.length || result.count !== changes.length) throw new Error('Electron SQLite did not confirm the complete transaction');
     if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
     return result.applied;
