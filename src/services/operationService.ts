@@ -2038,6 +2038,44 @@ async function applyPurchaseLocally(
           record: change.record,
           syncState: change.syncState || 'local',
         });
+    const purchaseCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    const addPurchaseGuard = (entity: string, id: unknown, field: string, value: unknown) => {
+      if (id === undefined || id === null || String(id).trim() === '' || value === undefined || value === null || String(value) === '') {
+        throw new Error('تعذر تثبيت إصدار أحد سجلات المخزون أو الحسابات قبل حفظ فاتورة الشراء؛ أُوقف التعديل لحماية الأرصدة');
+      }
+      purchaseCompareGuards.push({ entity, recordId: JSON.stringify(String(id)), field, expectedValue: String(value) });
+    };
+    if (isPurchaseUpdate) {
+      for (const productId of affectedProductIds) {
+        const original = productMap.get(productId);
+        if (!original || !Number.isFinite(Number(original.stockQuantity))) throw new Error('رصيد صنف غير صالح قبل تعديل فاتورة الشراء');
+        addPurchaseGuard('products', productId, 'stockQuantity', original.stockQuantity);
+      }
+      for (const batch of allBatchesRaw) {
+        if (!Number.isFinite(Number(batch.remainingQuantity)) || !Number.isFinite(Number(batch.costPrice))) {
+          throw new Error('بيانات دفعة مخزون غير صالحة قبل تعديل فاتورة الشراء');
+        }
+        addPurchaseGuard('inventoryBatches', batch.id, 'remainingQuantity', batch.remainingQuantity);
+        addPurchaseGuard('inventoryBatches', batch.id, 'costPrice', batch.costPrice);
+      }
+      for (const supplierId of supplierIds) {
+        const original = suppliers.find((entry: any) => String(entry.id) === supplierId);
+        if (original) {
+          if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد المورد غير صالح قبل تعديل فاتورة الشراء');
+          addPurchaseGuard('suppliers', original.id, 'balance', original.balance);
+        }
+      }
+      for (const code of touchedAccountCodes) {
+        const original = accountMap.get(code);
+        if (original) {
+          if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد حساب غير صالح قبل تعديل فاتورة الشراء: ' + code);
+          addPurchaseGuard('accounts', code, 'balance', original.balance);
+        }
+      }
+      for (const entry of journals) {
+        addPurchaseGuard('journalEntries', entry.id, 'status', entry.status);
+      }
+    }
     const committed = isPurchaseUpdate
       ? await applyNativePosRecordChangesIfFieldAbsent(
           nativeChanges,
@@ -2050,6 +2088,7 @@ async function applyPurchaseLocally(
             field: 'updatedAt',
             expectedValue: sourcePurchaseVersion,
           },
+          purchaseCompareGuards,
         )
       : await applyNativePosRecordChangesIfAbsent(
           nativeChanges, 'purchases', JSON.stringify(purchase.id),
