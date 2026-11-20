@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.smartpos.studio',
   appName: 'Smart POS Studio',
   webDir: 'dist',
-  bundledWebRuntime: false,
   android: {
     allowMixedContent: true,
   },
