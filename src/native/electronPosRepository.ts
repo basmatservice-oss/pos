@@ -33,6 +33,7 @@ type ElectronDatabaseBridge = {
   retryOperation(id: string): Promise<{ updated: boolean }>;
   updateOperationPayload(id: string, payload: Record<string, unknown>): Promise<{ updated: boolean; rows: number }>;
   acknowledgeOperation(id: string): Promise<{ updated: boolean }>;
+  deleteOperation(id: string): Promise<{ deleted: boolean }>;
 };
 
 function notifyElectronEntityChanges(entities: string[]): void {
@@ -77,6 +78,7 @@ export const electronPosRepository = {
   async retryOperation(id: string) { await this.isReady(); return bridge().retryOperation(id); },
   async updateOperationPayload(id: string, payload: Record<string, unknown>) { await this.isReady(); return bridge().updateOperationPayload(id, payload); },
   async acknowledgeOperation(id: string) { await this.isReady(); return bridge().acknowledgeOperation(id); },
+  async deleteOperation(id: string) { await this.isReady(); return bridge().deleteOperation(id); },
   async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
     await this.isReady();
     const recordId = recordKey(key);
