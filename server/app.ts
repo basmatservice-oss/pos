@@ -756,10 +756,19 @@ export function createPosApp() {
         if (data[field] !== undefined && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
           return res.status(400).json({ error: `Invalid product field: ${field}` });
         }
+        if (data[field] !== undefined) data[field] = Number(data[field]);
       }
       if (data.conversionFactor !== undefined && Number(data.conversionFactor) <= 0) {
         return res.status(400).json({ error: 'Product conversion factor must be greater than zero' });
       }
+      if (data.quantityPrecision !== undefined && !Number.isSafeInteger(Number(data.quantityPrecision))) {
+        return res.status(400).json({ error: 'Product quantity precision must be an integer' });
+      }
+      if (Number(data.stockQuantity || 0) > 0 && String(data.itemType || 'stock') !== 'stock') {
+        return res.status(400).json({ error: 'Opening stock is only supported for stock-tracked products' });
+      }
+      if (data.categoryId !== undefined && data.categoryId !== null) data.categoryId = Number(data.categoryId);
+      if (data.branchId !== undefined && data.branchId !== null) data.branchId = Number(data.branchId);
       if (typeof data.allowFractions === 'boolean') data.allowFractions = data.allowFractions ? 1 : 0;
       if (typeof data.isActive === 'boolean') data.isActive = data.isActive ? 1 : 0;
       const requestedId = Number(body.id);
