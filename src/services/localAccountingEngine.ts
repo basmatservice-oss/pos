@@ -1,7 +1,7 @@
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+import { isElectronLocalClient } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals } from '../native/posLocalDatabase';
 // Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
