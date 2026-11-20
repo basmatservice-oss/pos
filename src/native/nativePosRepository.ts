@@ -124,7 +124,8 @@ export const nativePosRepository = {
   },
 
   async get<T extends Record<string, unknown>>(entity: NativePosEntity, key: unknown): Promise<T | null> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.get<T>(entity, key);
+    requireLocalSQLite();
     assertEntity(entity);
     const item = await getNativePosRecord(entity, serializeKey(key));
     return item ? item.record as T : null;
@@ -134,7 +135,8 @@ export const nativePosRepository = {
     entity: NativePosEntity,
     keys: unknown[],
   ): Promise<T[]> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.getMany<T>(entity, keys);
+    requireLocalSQLite();
     assertEntity(entity);
     const ids = Array.from(new Set(keys.map(serializeKey)));
     const items = await getNativePosRecordsByIds(entity, ids);
@@ -162,7 +164,8 @@ export const nativePosRepository = {
   },
 
   async getAll<T extends Record<string, unknown>>(entity: NativePosEntity): Promise<T[]> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.getAll<T>(entity);
+    requireLocalSQLite();
     assertEntity(entity);
     const items = await getAllNativePosRecords(entity);
     return items.map((item) => item.record as T);
@@ -173,7 +176,8 @@ export const nativePosRepository = {
     recordId: string;
     syncState: NativePosSyncState;
   }>> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.getAllWithSyncState(entity);
+    requireLocalSQLite();
     assertEntity(entity);
     const items = await getAllNativePosRecords(entity);
     return items.map((item) => ({
@@ -188,7 +192,8 @@ export const nativePosRepository = {
     record: Record<string, unknown>,
     syncState: NativePosSyncState = 'local',
   ): Promise<void> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.put(entity, record, syncState);
+    requireLocalSQLite();
     assertEntity(entity);
     const entry: PosLocalRecord = { entity, recordId: recordIdFor(entity, record), record, syncState };
     if (!(await putNativePosRecord(entry))) throw new Error(`SQLite did not confirm saving ${entity}`);
@@ -199,7 +204,8 @@ export const nativePosRepository = {
     records: Record<string, unknown>[],
     syncState: NativePosSyncState = 'local',
   ): Promise<void> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.putMany(entity, records, syncState);
+    requireLocalSQLite();
     assertEntity(entity);
     const entries = records.map((record) => ({
       entity, recordId: recordIdFor(entity, record), record, syncState,
@@ -211,7 +217,8 @@ export const nativePosRepository = {
     | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
     | { action: 'delete'; entity: NativePosEntity; key: unknown }
   >): Promise<number> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.applyChanges(changes);
+    requireLocalSQLite();
     const nativeChanges: PosLocalRecordChange[] = changes.map((change) => {
       assertEntity(change.entity);
       if (change.action === 'delete') {
@@ -230,14 +237,16 @@ export const nativePosRepository = {
   },
 
   async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.delete(entity, key);
+    requireLocalSQLite();
     assertEntity(entity);
     const deleted = await deleteNativePosRecord(entity, serializeKey(key));
     return deleted;
   },
 
   async deleteMany(entity: NativePosEntity, keys: unknown[]): Promise<number> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.deleteMany(entity, keys);
+    requireLocalSQLite();
     assertEntity(entity);
     const deleted = await deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
     return deleted;
@@ -248,11 +257,11 @@ export const nativePosRepository = {
     key: unknown,
     syncState: NativePosSyncState,
   ): Promise<void> {
-    requireAndroid();
+    if (isElectronDesktop()) return electronPosRepository.setSyncState(entity, key, syncState);
+    requireLocalSQLite();
     assertEntity(entity);
-    if (!(await updateNativePosRecordSyncState(entity, serializeKey(key), syncState))) {
-      throw new Error(`SQLite did not confirm sync-state update for ${entity}`);
-    }
-    notifyNativeEntityChanges([entity]);
+    const current = await this.get<Record<string, unknown>>(entity, key);
+    if (!current) throw new Error(`SQLite record not found while updating sync state for ${entity}`);
+    await this.put(entity, { ...current, syncStatus: syncState }, syncState);
   },
 };
