@@ -2053,7 +2053,7 @@ async function applyPurchaseLocally(
       if (id === undefined || id === null || String(id).trim() === '' || value === undefined || value === null || String(value) === '') {
         throw new Error('تعذر تثبيت إصدار أحد سجلات المخزون أو الحسابات قبل حفظ فاتورة الشراء؛ أُوقف التعديل لحماية الأرصدة');
       }
-      purchaseCompareGuards.push({ entity, recordId: JSON.stringify(String(id)), field, expectedValue: String(value) });
+      purchaseCompareGuards.push({ entity, recordId: JSON.stringify(id), field, expectedValue: String(value) });
     };
     if (isPurchaseUpdate) {
       for (const productId of affectedProductIds) {
@@ -2354,7 +2354,7 @@ async function applyPurchaseLocally(
       if (id === undefined || id === null || String(id).trim() === '' || value === undefined || value === null || String(value) === '') {
         throw new Error('تعذر تثبيت إصدار أحد سجلات المخزون أو الحسابات قبل حذف فاتورة الشراء');
       }
-      deletionCompareGuards.push({ entity, recordId: JSON.stringify(String(id)), field, expectedValue: String(value) });
+      deletionCompareGuards.push({ entity, recordId: JSON.stringify(id), field, expectedValue: String(value) });
     };
     for (const productId of oldProductIds) {
       const original = originalProductMap.get(productId);
