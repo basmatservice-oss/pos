@@ -63,6 +63,16 @@ export const electronPosRepository = {
     await this.isReady();
     if ((await bridge().setMeta(key, value)).saved !== true) throw new Error('Electron SQLite did not persist migration metadata');
   },
+  async applySnapshotAndReplaceOutbox(changes: ElectronChange[], operations: Array<Record<string, unknown>>) {
+    await this.isReady();
+    const nativeChanges = changes.map(change => change.action === 'delete'
+      ? { action: 'delete' as const, entity: change.entity, recordId: recordKey(change.key) }
+      : { action: 'put' as const, entity: change.entity, recordId: recordIdFor(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
+    const result = await bridge().applySnapshotAndReplaceOutbox(nativeChanges, operations);
+    if (result.committed !== true || result.applied !== changes.length || result.operationCount !== operations.length) throw new Error('Electron SQLite did not confirm the complete snapshot restore');
+    if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
+    return result;
+  },
   async enqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().enqueueOperation(operation); },
   async saveAndEnqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().saveAndEnqueueOperation(operation); },
   async listOperations(pendingOnly = false) { await this.isReady(); return bridge().listOperations(pendingOnly); },
