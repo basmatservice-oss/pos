@@ -44,6 +44,37 @@ const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
   fiscalPeriods: '/fiscalPeriods',
   inventoryAlerts: '/inventoryAlerts',
 };
+
+const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<string, unknown>) => string>> = {
+  categories: (r) => `/categories/${encodeURIComponent(String(r.id))}`,
+  products: (r) => `/products/${encodeURIComponent(String(r.id))}`,
+  customers: (r) => `/customers/${encodeURIComponent(String(r.id))}`,
+  suppliers: (r) => `/suppliers/${encodeURIComponent(String(r.id))}`,
+  orders: (r) => `/orders/${encodeURIComponent(String(r.id))}`,
+  employees: (r) => `/employees/${encodeURIComponent(String(r.id))}`,
+  shifts: (r) => `/shifts/${encodeURIComponent(String(r.id))}`,
+  attendance: (r) => `/attendance/${encodeURIComponent(String(r.id))}`,
+  branches: (r) => `/branches/${encodeURIComponent(String(r.id))}`,
+  offers: (r) => `/offers/${encodeURIComponent(String(r.id))}`,
+  purchases: (r) => `/purchases/${encodeURIComponent(String(r.id))}`,
+  inventoryBatches: (r) => `/inventoryBatches/${encodeURIComponent(String(r.id))}`,
+  stocktakingSessions: (r) => `/stocktakingSessions/${encodeURIComponent(String(r.id))}`,
+};
+
+const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) => string>> = {
+  categories: (key) => `/categories/${encodeURIComponent(String(key))}`,
+  products: (key) => `/products/${encodeURIComponent(String(key))}`,
+  customers: (key) => `/customers/${encodeURIComponent(String(key))}`,
+  suppliers: (key) => `/suppliers/${encodeURIComponent(String(key))}`,
+  orderItems: (key) => `/orderItems/${encodeURIComponent(String(key))}`,
+  employees: (key) => `/employees/${encodeURIComponent(String(key))}`,
+  branches: (key) => `/branches/${encodeURIComponent(String(key))}`,
+  offers: (key) => `/offers/${encodeURIComponent(String(key))}`,
+  purchases: (key) => `/purchases/${encodeURIComponent(String(key))}`,
+  expenses: (key) => `/expenses/${encodeURIComponent(String(key))}`,
+  serviceRecipes: (key) => `/serviceRecipes/${encodeURIComponent(String(key))}`,
+  stocktakingSessions: (key) => `/stocktakingSessions/${encodeURIComponent(String(key))}`,
+};
 import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
@@ -117,6 +148,20 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
     await nativePosRepository.put(entity, record, syncState);
     return;
   }
+  if (isWindowsServer()) {
+    const { apiService } = await import('./apiService');
+    if (entity === 'settings') {
+      if (typeof record.key !== 'string') throw new Error('Windows Server settings require a logical key');
+      await apiService.updateSetting(record.key, { value: record.value });
+      return;
+    }
+    const endpoint = SERVER_UPDATE_ENDPOINTS[entity]?.(record);
+    if (!endpoint || record.id == null) {
+      throw new Error(`No safe Windows Server update endpoint is registered for ${entity}`);
+    }
+    await apiService.put(endpoint, record);
+    return;
+  }
   const { db } = await import('../db/db');
   await db.table(entity).put(record as any);
 }
@@ -129,6 +174,18 @@ export async function deletePosRecord(
   if (isLocalSqlite()) {
     const deleted = await nativePosRepository.delete(entity, key);
     if (!deleted) throw new Error(`Could not delete ${entity} record from SQLite`);
+    return;
+  }
+  if (isWindowsServer()) {
+    const { apiService } = await import('./apiService');
+    if (entity === 'settings') {
+      const matches = await getPosRecordsWhereEquals<any>('settings', 'key', String(key));
+      if (matches[0]) await apiService.delete(`/settings/${encodeURIComponent(String(matches[0].key))}`);
+      return;
+    }
+    const endpoint = SERVER_DELETE_ENDPOINTS[entity]?.(key);
+    if (!endpoint) throw new Error(`No safe Windows Server delete endpoint is registered for ${entity}`);
+    await apiService.delete(endpoint);
     return;
   }
   const { db } = await import('../db/db');
