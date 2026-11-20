@@ -2,15 +2,16 @@ import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngin
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
 import { isNativeAndroid, listNativePendingPosOperations, updateNativePendingOperationPayload } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { nativePosRepository } from '../native/nativePosRepository';
 // Dexie is required only for desktop reconciliation; Android reconciliation is SQLite-only.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isLocalSqlite() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || isWindowsServer() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
