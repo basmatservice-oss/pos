@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository } from '../native/nativePosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 
