@@ -160,7 +160,7 @@ const Settings: React.FC = () => {
         
         // Fetch Server IP professionally
         try {
-          if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
+          if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') return;
           const ipRes = await apiService.get('/api/server-ip');
           if (ipRes && (ipRes as any).ip) {
             setSettings((prev: any) => ({ ...prev, serverIp: (ipRes as any).ip }));
@@ -530,7 +530,7 @@ const Settings: React.FC = () => {
       }
 
       try {
-        if (!isNativeAndroid() || await syncService.getDeviceRole() !== 'standalone') {
+        if (!isLocalSqlite() || await syncService.getDeviceRole() !== 'standalone') {
           await apiService.clearData();
         }
       } catch (e) {
