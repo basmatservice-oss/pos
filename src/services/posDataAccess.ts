@@ -44,6 +44,7 @@ const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
   exchangeRateHistory: '/exchangeRateHistory',
   fiscalPeriods: '/fiscalPeriods',
   inventoryAlerts: '/inventoryAlerts',
+  inventoryMovements: '/inventoryMovements',
 };
 
 const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<string, unknown>) => string>> = {
