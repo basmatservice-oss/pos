@@ -1114,7 +1114,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     const nextReturned = roundQty(Number(origItem.returnedQuantity || 0) + qty);
     origItem.returnedQuantity = nextReturned;
     if (origItem.id !== undefined && origItem.id !== null) stage('orderItems', { ...origItem, syncStatus });
-    const itemType = String(origItem.itemType || 'stock'), factor = Number(origItem.conversionFactor || 1);
+    const itemType = String(origItem.itemType || 'stock');
     const baseQty = roundQty(qty * factor);
     if (condition === 'resalable' && itemType !== 'service') {
       let parsedAlloc: any = [];
