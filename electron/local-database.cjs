@@ -176,7 +176,7 @@ function enqueueOperation(operation) {
   const createdAt = Number(operation.createdAt || Date.now());
   const retryCount = Number(operation.retryCount || 0);
   const schemaVersion = Number(operation.schemaVersion || 1);
-  const status = ['pending', 'error', 'conflict'].includes(operation.status) ? operation.status : 'pending';
+  const status = ['staging', 'pending', 'error', 'conflict'].includes(operation.status) ? operation.status : 'pending';
   const nextRetryAt = operation.nextRetryAt == null ? null : Number(operation.nextRetryAt);
   if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0 || !Number.isInteger(schemaVersion) || schemaVersion < 1 || (nextRetryAt !== null && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))) throw new Error('Invalid outbox metadata');
   const serializedPayload = JSON.stringify(operation.payload);
@@ -229,7 +229,7 @@ function saveAndEnqueueOperation(operation) {
     }
     db().prepare(`INSERT INTO pos_records(entity,record_id,json,updated_at,sync_state) VALUES(?,?,?,?,?)
       ON CONFLICT(entity,record_id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at,sync_state=excluded.sync_state`)
-      .run(operation.entity || 'operations', recordId, JSON.stringify(record), Date.now(), 'pending');
+      .run(operation.entity || 'operations', recordId, JSON.stringify(record), Date.now(), operation.status === 'staging' ? 'local' : 'pending');
     const queued = enqueueOperation(operation);
     if (!queued.queued) throw new Error('Could not enqueue local operation');
     return { saved: true, queued: true, duplicate: false, operationId: operation.operationId };
@@ -246,7 +246,7 @@ function listOperations(pendingOnly = false) {
 }
 function updateOperation(operationId, status, message, nextRetryAt) {
   if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
-  if (!['pending', 'syncing', 'error', 'conflict', 'synced'].includes(status)) throw new Error('Invalid outbox status');
+  if (!['staging', 'pending', 'syncing', 'error', 'conflict', 'synced'].includes(status)) throw new Error('Invalid outbox status');
   const retryAt = nextRetryAt == null ? null : Number(nextRetryAt);
   if (retryAt !== null && (!Number.isFinite(retryAt) || retryAt <= 0)) throw new Error('Invalid next retry timestamp');
   const tx = db().transaction(() => {
