@@ -252,7 +252,9 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
-      localDatabase.initializeLocalDatabase(app.getPath('userData'));
+      if (readConfiguredRole() === 'client') {
+        localDatabase.initializeLocalDatabase(app.getPath('userData'));
+      }
       if (!IS_DEV && readConfiguredRole() === 'server') {
         await startBackendServer();
       }
