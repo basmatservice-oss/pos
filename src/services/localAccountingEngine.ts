@@ -1,5 +1,7 @@
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals } from '../native/posLocalDatabase';
 // Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
@@ -7,7 +9,7 @@ let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
@@ -63,7 +65,7 @@ export function setLocalAccountingStandaloneMode(enabled: boolean): void {
 }
 
 export async function postLocalJournalEntry(input: LocalJournalInput): Promise<string | null> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
     if (!input.referenceId.trim() || !input.entryKey.trim() || !input.lines.length ||
         input.lines.some((line) => {
@@ -315,7 +317,7 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
 }
 
 export async function removeLocalJournalEntriesForReference(referenceId: string): Promise<void> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const entries = (await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId))
       .filter((entry: any) => String(entry.id).startsWith('local-je:'));
     for (const entry of entries) {
@@ -400,7 +402,7 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
 }
 
 export async function reverseLocalJournalEntriesByReference(referenceId: string, reason: string, createdBy?: string): Promise<void> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const entries = await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId);
     const now = new Date().toISOString();
     const journalSyncStatus = standaloneAccountingMode ? 'synced' : 'pending';
