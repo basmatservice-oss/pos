@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getPosRecords, putPosRecord } from '../services/posDataAccess';
+import { getPosRecords, putPosRecord, putPosSetting } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
+import { listNativePendingPosOperations } from '../native/posLocalDatabase';
 import { Download } from 'lucide-react';
 import { Upload } from 'lucide-react';
 import { Trash2 } from 'lucide-react';
