@@ -413,7 +413,7 @@ test('end-to-end server business operations and native SQLite operations match f
   const serverOrderItem = serverSale.result.items[0];
   const localOrderItem = [...records.get('orderItems').values()].map((row) => row.record)[0];
   assert.equal(serverOrderItem.costPriceAtTimeOfSale, localOrderItem.costPriceAtTimeOfSale);
-  assert.equal(serverOrderItem.costPriceAtTimeOfSale, 39 / 7);
+  assert.equal(serverOrderItem.costPriceAtTimeOfSale, 5.5714);
 
   const serverReturnPayload = {
     id: 'parity-return', returnNumber: 'RET-PARITY', originalOrderId: 'parity-order',
