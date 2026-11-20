@@ -92,7 +92,9 @@ async function initializeLocalRuntime(): Promise<void> {
       const legacyOperations = await db.syncOperations.toArray();
       const legacyPending = legacyOperations
         .filter((operation: any) => ['pending', 'error', 'conflict', 'syncing'].includes(String(operation.status || 'pending')))
-        .map((operation: any) => {
+        .map((operation: any, index: number) => {
+          const validPayload = operation.payload && typeof operation.payload === 'object' && !Array.isArray(operation.payload);
+          const validIdentity = typeof operation.id === 'string' && operation.id.trim() && typeof operation.type === 'string' && operation.type.trim();
           const createdAt = typeof operation.createdAt === 'number'
             ? operation.createdAt
             : new Date(operation.createdAt || Date.now()).getTime();
@@ -100,9 +102,9 @@ async function initializeLocalRuntime(): Promise<void> {
             ? (typeof operation.nextRetryAt === 'number' ? operation.nextRetryAt : new Date(operation.nextRetryAt).getTime())
             : null;
           return {
-            operationId: String(operation.id ?? operation.operationId ?? ''),
-            type: String(operation.type || ''),
-            payload: operation.payload,
+            operationId: String(operation.id ?? operation.operationId ?? '').trim() || 'legacy-invalid-' + String(index),
+            type: validIdentity ? String(operation.type) : 'legacy_malformed',
+            payload: validPayload ? operation.payload : { legacyMalformed: true, originalId: operation.id ?? null, originalType: operation.type ?? null },
             createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
             retryCount: Number(operation.retryCount || 0),
             nextRetryAt: retryAt && Number.isFinite(retryAt) ? retryAt : null,
@@ -111,7 +113,7 @@ async function initializeLocalRuntime(): Promise<void> {
             branchId: operation.branchId,
             actor: operation.actor,
             schemaVersion: Number(operation.schemaVersion || 1),
-            status: operation.status === 'syncing' ? 'pending' : operation.status,
+            status: !validIdentity || !validPayload ? 'conflict' : operation.status === 'syncing' ? 'pending' : operation.status,
           };
         });
       await electronPosRepository.applySnapshotAndReplaceOutbox([], legacyPending);
