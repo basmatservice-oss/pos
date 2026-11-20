@@ -22,7 +22,7 @@ type ElectronDatabaseBridge = {
   getRecords(entity: string): Promise<ElectronRecord[]>;
   getRecord(entity: string, recordId: string): Promise<{ found: boolean; item?: ElectronRecord | null }>;
   putRecords(records: Array<{ entity: string; recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState }>): Promise<{ saved: boolean; count: number }>;
-  applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, guards?: Record<string, unknown>): Promise<{ applied: number; count: number; skipped?: boolean }>
+  applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, guards?: Record<string, unknown>): Promise<{ applied: number; count: number; skipped?: boolean }>;
   getMeta(key: string): Promise<{ value?: string }>;
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
   enqueueOperation(operation: Record<string, unknown>): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
@@ -138,11 +138,11 @@ export const electronPosRepository = {
     const result = await this.applyChanges(changes, { ifAbsentEntity: entity, ifAbsentRecordId: recordId, ifMatchGuards: compareGuards });
     return { applied: result, skipped: result === 0 };
   },
-  async applyChangesIfFieldAbsent(changes: Parameters<typeof this.applyChanges>[0], entity: string, field: string, value: string, compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
+  async applyChangesIfFieldAbsent(changes: ElectronChange[], entity: string, field: string, value: string, compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
     const result = await this.applyChanges(changes, { ifAbsentEntity: entity, ifAbsentField: field, ifAbsentValue: value, ifMatchGuards: compareGuards });
     return { applied: result, skipped: result === 0 };
   },
-  async applyChangesIfFieldEquals(changes: Parameters<typeof this.applyChanges>[0], entity: string, recordId: string, field: string, expectedValue: string, additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
+  async applyChangesIfFieldEquals(changes: ElectronChange[], entity: string, recordId: string, field: string, expectedValue: string, additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = []) {
     const guards = [{ entity, recordId, field, expectedValue }, ...additionalCompareGuards];
     const result = await this.applyChanges(changes, { ifMatchGuards: guards });
     return { applied: result, skipped: result === 0 };
