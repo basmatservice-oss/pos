@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 
 let database = null;
+const VALID_ENTITIES = new Set(['products','categories','orders','orderItems','returns','returnItems','accounts','shifts','shiftMovements','customers','customerPayments','expenses','suppliers','supplierPayments','employees','settings','purchases','purchaseItems','purchaseReturns','purchaseReturnItems','attendance','loyaltyTransactions','branches','payroll','offers','auditLogs','journalEntries','transactions','stocktakingSessions','stocktakingEntries','inventoryBatches','inventoryAlerts','heldOrders','serviceRecipes','exchangeRateHistory','fiscalPeriods','unitDefinitions','productUnits','inventoryMovements']);
+const MAX_RECORD_BYTES = 5 * 1024 * 1024;
 
 function initializeLocalDatabase(userDataPath) {
   if (database) return { ready: true, database: 'pos-local.db', schemaVersion: 1 };
@@ -44,6 +46,7 @@ function initializeLocalDatabase(userDataPath) {
       CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created
         ON pos_outbox(status, created_at);
     `);
+    candidate.prepare(\"UPDATE pos_outbox SET status='pending' WHERE status='syncing'\").run();
     database = candidate;
     return { ready: true, database: 'pos-local.db', schemaVersion: 1 };
   } catch (error) {
@@ -58,14 +61,14 @@ function db() {
 }
 
 function validateIdentity(entity, recordId) {
-  if (typeof entity !== 'string' || !entity.trim() ||
-      typeof recordId !== 'string' || !recordId.trim()) {
+  if (typeof entity !== 'string' || !VALID_ENTITIES.has(entity) ||
+      typeof recordId !== 'string' || !recordId.trim() || recordId.length > 512) {
     throw new Error('A non-empty entity and recordId are required');
   }
 }
 
 function getRecords(entity) {
-  if (typeof entity !== 'string' || !entity.trim()) throw new Error('entity is required');
+  if (typeof entity !== 'string' || !VALID_ENTITIES.has(entity)) throw new Error('Unsupported entity');
   return db().prepare('SELECT record_id AS recordId, json, sync_state AS syncState, updated_at AS updatedAt FROM pos_records WHERE entity = ? ORDER BY updated_at, record_id')
     .all(entity).map(row => ({ recordId: row.recordId, record: JSON.parse(row.json), syncState: row.syncState, updatedAt: row.updatedAt }));
 }
@@ -88,7 +91,9 @@ function putRecords(records) {
     const identity = JSON.stringify([item.entity, item.recordId]);
     if (seen.has(identity)) throw new Error('Duplicate record in batch');
     seen.add(identity);
-    return { ...item, syncState, json: JSON.stringify(item.record) };
+    const json = JSON.stringify(item.record);
+    if (Buffer.byteLength(json, 'utf8') > MAX_RECORD_BYTES) throw new Error('Record exceeds the local SQLite size limit');
+    return { ...item, syncState, json };
   });
   const insert = db().prepare(`INSERT INTO pos_records(entity, record_id, json, updated_at, sync_state)
     VALUES(@entity, @recordId, @json, @updatedAt, @syncState)
@@ -111,6 +116,7 @@ function applyRecordChanges(changes, guards = {}) {
     seen.add(identity);
     if (change.action !== 'put' && change.action !== 'delete') throw new Error('Invalid record change action');
     if (change.action === 'put' && (!change.record || typeof change.record !== 'object' || Array.isArray(change.record))) throw new Error('put change requires a record object');
+    if (change.action === 'put' && Buffer.byteLength(JSON.stringify(change.record), 'utf8') > MAX_RECORD_BYTES) throw new Error('Record exceeds the local SQLite size limit');
     return change;
   });
   const apply = db().transaction(rows => {
