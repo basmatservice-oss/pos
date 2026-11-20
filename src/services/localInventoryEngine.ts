@@ -1,7 +1,8 @@
 import { generateUUID } from '../utils/uuid';
 import { applyNativePosRecordChangesIfFieldAbsent, isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { roundQty } from '../utils/format';
 // Dexie is loaded only for desktop inventory operations; Android writes are transactional in SQLite.
@@ -9,7 +10,7 @@ let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isLocalSqlite() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || isWindowsServer() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
