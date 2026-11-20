@@ -105,7 +105,7 @@ export async function enqueueNativePosOperation(operation: PosQueuedOperation): 
 }
 
 export async function listNativePendingPosOperations() {
-  if (isElectronDesktop()) return (await electronPosRepository.listOperations(true)).operations.filter((op: any) => op.status === 'pending' || op.status === 'error').map((op: any) => ({ ...op, operationId: op.operationId }));
+  if (isElectronDesktop()) return (await electronPosRepository.listOperations(true)).operations.filter((op: any) => op.status === 'pending' || op.status === 'error' || op.status === 'syncing').map((op: any) => ({ ...op, operationId: op.operationId }));
   if (!(await ensureNativePosDatabase())) return [];
   const result = await posLocalDatabase.listPendingOperations();
   return result.operations;
