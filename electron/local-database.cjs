@@ -197,11 +197,13 @@ function listOperations(pendingOnly = false) {
   const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingOnly ? "WHERE status IN ('pending','error','syncing')" : ''} ORDER BY created_at, operation_id`).all();
   return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined, deviceId: row.device_id ?? undefined, tenantId: row.tenant_id ?? undefined, branchId: row.branch_id ?? undefined, actor: row.actor ?? undefined, schemaVersion: row.schema_version ?? 1 }));
 }
-function updateOperation(operationId, status, message) {
+function updateOperation(operationId, status, message, nextRetryAt) {
   if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
   if (!['pending', 'syncing', 'error', 'conflict', 'synced'].includes(status)) throw new Error('Invalid outbox status');
-  const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END WHERE operation_id=?')
-    .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, operationId);
+  const retryAt = nextRetryAt == null ? null : Number(nextRetryAt);
+  if (retryAt !== null && (!Number.isFinite(retryAt) || retryAt <= 0)) throw new Error('Invalid next retry timestamp');
+  const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END, next_retry_at=? WHERE operation_id=?')
+    .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, retryAt, operationId);
   return { updated: result.changes === 1 };
 }
 function retryOperation(operationId) {
