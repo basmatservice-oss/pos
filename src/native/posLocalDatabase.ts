@@ -389,6 +389,7 @@ export async function applyNativePosRecordChangesIfFieldEquals(
   recordId: string,
   field: string,
   expectedValue: string,
+  additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!entity.trim() || !recordId.trim() || !field.trim() || !expectedValue) {
@@ -405,9 +406,14 @@ export async function applyNativePosRecordChangesIfFieldEquals(
       throw new Error('Native SQLite put changes require a record object');
     }
   }
-  const result = await posLocalDatabase.applyRecordChanges({
-    changes, ifMatchEntity: entity, ifMatchRecordId: recordId, ifMatchField: field, ifMatchValue: expectedValue,
-  });
+  const compareGuards = [
+    { entity, recordId, field, expectedValue },
+    ...additionalCompareGuards,
+  ];
+  if (compareGuards.some((guard) =>
+    !guard.entity.trim() || !guard.recordId.trim() || !guard.field.trim() || !guard.expectedValue
+  )) throw new Error('SQLite compare-and-set guard list is incomplete');
+  const result = await posLocalDatabase.applyRecordChanges({ changes, ifMatchGuards: compareGuards });
   if (!Number.isInteger(result.count) || result.count !== changes.length ||
       !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length ||
       (result.skipped !== true && result.applied !== changes.length) ||
