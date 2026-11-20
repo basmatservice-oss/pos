@@ -43,8 +43,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import type { ExchangeRateRecord, FiscalPeriod } from '../db/db';
 import { isNativeAndroid, applyNativeSnapshotAndReplaceOutbox } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '../native/nativePosRepository';
 import type { PosLocalRecordChange, PosQueuedOperation } from '../native/posLocalDatabase';
 import { updateApiBase, apiService } from '../services/apiService';
@@ -382,6 +383,18 @@ const Settings: React.FC = () => {
       if (isLocalSqlite()) {
         for (const entity of NATIVE_POS_ENTITIES) data[entity] = await nativePosRepository.getAll(entity);
         data._nativePendingOperations = await listNativePendingPosOperations();
+      } else if (isWindowsServer()) {
+        const serverEntities = [
+          'categories', 'products', 'customers', 'suppliers', 'orders', 'orderItems',
+          'returns', 'returnItems', 'accounts', 'journalEntries', 'transactions',
+          'shifts', 'shiftMovements', 'expenses', 'employees', 'settings', 'attendance',
+          'loyaltyTransactions', 'payroll', 'branches', 'offers', 'purchases',
+          'purchaseItems', 'purchaseReturns', 'purchaseReturnItems', 'customerPayments',
+          'supplierPayments', 'auditLogs', 'stocktakingSessions', 'stocktakingEntries',
+          'inventoryBatches', 'serviceRecipes', 'exchangeRateHistory', 'fiscalPeriods',
+          'inventoryAlerts', 'inventoryMovements',
+        ] as const;
+        for (const entity of serverEntities) data[entity] = await getPosRecords(entity);
       } else {
         const { db } = await import('../db/db');
         for (const table of db.tables) data[table.name] = await table.toArray();
@@ -409,6 +422,10 @@ const Settings: React.FC = () => {
       const data = JSON.parse(text);
       if (!data || typeof data !== 'object' || Array.isArray(data)) {
         throw new Error('ملف النسخة الاحتياطية غير صالح');
+      }
+
+      if (isWindowsServer()) {
+        throw new Error('استيراد النسخة الاحتياطية إلى Windows Server غير متاح عبر استيراد سجلات محلية؛ استخدم مسار استعادة قاعدة الخادم المعتمد');
       }
 
       if (isLocalSqlite()) {
@@ -516,7 +533,7 @@ const Settings: React.FC = () => {
           action: 'delete', entity: change.entity, recordId: JSON.stringify(change.key),
         }));
         await applyNativeSnapshotAndReplaceOutbox(nativeChanges, []);
-      } else {
+      } else if (!isWindowsServer()) {
         const { db } = await import('../db/db');
         if (mode === 'system') {
           await db.transaction('rw', db.tables, async () => {
