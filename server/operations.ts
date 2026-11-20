@@ -2682,6 +2682,7 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       // be overwritten by a stale offline snapshot.
       normalizedClean.stockQuantity = prevProduct.stockQuantity;
       normalizedClean.costPrice = prevProduct.costPrice;
+      normalizedClean.costInUSD = prevProduct.costInUSD;
     }
   }
   if (tableName === 'customers') {
