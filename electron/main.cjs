@@ -181,7 +181,10 @@ async function createWindow() {
   });
 }
 
-ipcMain.handle('pos-db:initialize', guardIpc(() => localDatabase.initializeLocalDatabase(app.getPath('userData'))));
+ipcMain.handle('pos-db:initialize', guardIpc(() => {
+  if (readConfiguredRole() !== 'client') throw new Error('Windows Server uses the authoritative server database, not a local client SQLite database.');
+  return localDatabase.initializeLocalDatabase(app.getPath('userData'));
+}));
 ipcMain.handle('pos-db:get-records', guardIpc((entity) => localDatabase.getRecords(entity)));
 ipcMain.handle('pos-db:get-record', guardIpc((entity, recordId) => localDatabase.getRecord(entity, recordId)));
 ipcMain.handle('pos-db:put-records', guardIpc((records) => localDatabase.putRecords(records)));
