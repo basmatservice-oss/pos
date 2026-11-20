@@ -348,8 +348,20 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
           syncState: accountMap.get(accountCode)?.syncState || 'local',
         });
       }
+      const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
+        const original = accountMap.get(accountCode)?.record;
+        if (!original || original.balance === undefined || original.balance === null) {
+          throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف حذف القيد');
+        }
+        return {
+          entity: 'accounts',
+          recordId: JSON.stringify(accountCode),
+          field: 'balance',
+          expectedValue: String(original.balance),
+        };
+      });
       const committed = await applyNativePosRecordChangesIfFieldEquals(
-        changes, 'journalEntries', JSON.stringify(entry.id), 'status', sourceStatus,
+        changes, 'journalEntries', JSON.stringify(entry.id), 'status', sourceStatus, accountBalanceGuards,
       );
       if (committed.skipped) continue;
       if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حذف القيد وتحديث أرصدة الأستاذ بالكامل');
@@ -464,6 +476,18 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
           syncState: accountRowsByCode.get(code)?.syncState || 'local',
         });
       }
+      const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
+        const original = accountRowsByCode.get(accountCode)?.record;
+        if (!original || original.balance === undefined || original.balance === null) {
+          throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف عكس القيد');
+        }
+        return {
+          entity: 'accounts',
+          recordId: JSON.stringify(accountCode),
+          field: 'balance',
+          expectedValue: String(original.balance),
+        };
+      });
       const committed = await applyNativePosRecordChangesIfFieldAbsent(
         changes.map((change: any) => ({
           ...change,
@@ -473,6 +497,7 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
         'reversedEntryId',
         reversalId,
         { entity: 'journalEntries', recordId: JSON.stringify(entry.id), field: 'status', expectedValue: 'posted' },
+        accountBalanceGuards,
       );
       if (committed.skipped) continue;
       if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ القيد العكسي وأرصدة الأستاذ بالكامل');
