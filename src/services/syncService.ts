@@ -337,7 +337,7 @@ export const syncService = {
           const message = res.error || 'Unknown sync error';
           if (isNativeOperation) {
             if (retryCount >= 8) await markNativePosOperationConflict(op.id, message);
-            else await markNativePosOperationError(op.id, message);
+            else await markNativePosOperationError(op.id, message, Date.now() + backoffMs);
             if (queued.some((candidate) => candidate.id === op.id)) {
               await db.syncOperations.update(op.id, {
                 status: retryCount >= 8 ? 'conflict' : 'error',
