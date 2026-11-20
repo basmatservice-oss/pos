@@ -3868,7 +3868,7 @@ async function applyShiftLocally(
       const existingMovement = await nativePosRepository.get<any>('shiftMovements', movementId);
       if (existingMovement) return;
       const amount = roundMoney(Number(payload.amount || 0));
-      if (amount <= 0) throw new Error('قيمة حركة الصندوق غير صالحة');
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('قيمة حركة الصندوق غير صالحة');
       const movementType = payload.type === 'withdrawal' ? 'withdrawal' : 'deposit';
       const createdAt = payload.createdAt || now;
       const branchId = payload.branchId ?? shift.branchId;
@@ -4004,10 +4004,12 @@ async function applyShiftLocally(
     if (isNativeAndroid()) {
       const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (existing) return;
+      const openingCash = Number(payload.openingCash || 0);
+      if (!Number.isFinite(openingCash) || openingCash < 0) throw new Error('رصيد افتتاح الوردية غير صالح');
       const record = {
         id: payload.id,
         startTime: payload.startTime || now,
-        openingCash: Number(payload.openingCash || 0),
+        openingCash,
         status: 'open',
         branchId: payload.branchId,
         syncStatus,
@@ -4033,17 +4035,21 @@ async function applyShiftLocally(
       const shiftId = String(payload.id);
       const existing = await nativePosRepository.get<any>('shifts', payload.id);
       if (!existing) return;
+      if (existing.status !== 'open') throw new Error('الوردية مغلقة بالفعل ولا يمكن إغلاقها مرة أخرى');
+      const expectedCash = Number(payload.expectedCash || 0);
+      const actualCash = Number(payload.actualCash || 0);
+      if (!Number.isFinite(expectedCash) || expectedCash < 0 || !Number.isFinite(actualCash) || actualCash < 0) throw new Error('أرصدة إغلاق الوردية غير صالحة');
       const record = {
         ...existing,
         endTime: payload.endTime || now,
-        expectedCash: Number(payload.expectedCash || 0),
-        actualCash: Number(payload.actualCash || 0),
+        expectedCash,
+        actualCash,
         status: 'closed',
         syncStatus,
       };
       const committed = await applyNativePosRecordChangesIfFieldEquals(
         [{ action: 'put', entity: 'shifts', recordId: getNativePosRecordId('shifts', record), record, syncState: syncStatus }],
-        'shifts', getNativePosRecordId('shifts', existing), 'status', String(existing.status),
+        'shifts', getNativePosRecordId('shifts', existing), 'status', 'open',
       );
       if (committed.skipped || committed.applied !== 1) throw new Error('تغيرت حالة الوردية؛ أعد تحميلها قبل الإغلاق');
       return;
