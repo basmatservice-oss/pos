@@ -41,7 +41,12 @@ function initializeLocalDatabase(userDataPath) {
         status TEXT NOT NULL DEFAULT 'pending',
         retry_count INTEGER NOT NULL DEFAULT 0,
         last_error TEXT,
-        next_retry_at INTEGER
+        next_retry_at INTEGER,
+        device_id TEXT,
+        tenant_id TEXT,
+        branch_id TEXT,
+        actor TEXT,
+        schema_version INTEGER NOT NULL DEFAULT 1
       );
       CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created
         ON pos_outbox(status, created_at);
@@ -166,8 +171,8 @@ function enqueueOperation(operation) {
   const createdAt = Number(operation.createdAt || Date.now());
   const retryCount = Number(operation.retryCount || 0);
   if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0) throw new Error('Invalid outbox metadata');
-  const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at)
-    VALUES(?,?,?,?,'pending',?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, operation.nextRetryAt ?? null);
+  const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at,device_id,tenant_id,branch_id,actor,schema_version)
+    VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, operation.nextRetryAt ?? null, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, Number(operation.schemaVersion || 1));
   return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
 }
 function saveAndEnqueueOperation(operation) {
@@ -190,7 +195,7 @@ function saveAndEnqueueOperation(operation) {
 }
 function listOperations(pendingOnly = false) {
   const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingOnly ? "WHERE status IN ('pending','error','syncing')" : ''} ORDER BY created_at, operation_id`).all();
-  return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined }));
+  return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined, deviceId: row.device_id ?? undefined, tenantId: row.tenant_id ?? undefined, branchId: row.branch_id ?? undefined, actor: row.actor ?? undefined, schemaVersion: row.schema_version ?? 1 }));
 }
 function updateOperation(operationId, status, message) {
   if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
