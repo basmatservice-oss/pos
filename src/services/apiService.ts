@@ -80,9 +80,9 @@ const initApiBase = async () => {
         : null;
       if (runtimeRole === 'server' || runtimeRole === 'client') {
         const updatedAt = new Date().toISOString();
-        await putRuntimeSetting('deviceRole', runtimeRole, updatedAt);
+        if (!isElectronDesktop()) await putRuntimeSetting('deviceRole', runtimeRole, updatedAt);
         if (runtimeRole === 'client' && runtimeServerUrl) {
-          await putRuntimeSetting('serverUrl', runtimeServerUrl, updatedAt);
+          if (!isElectronDesktop()) await putRuntimeSetting('serverUrl', runtimeServerUrl, updatedAt);
           API_BASE = formatUrl(runtimeServerUrl);
         } else {
           API_BASE = '/api';
