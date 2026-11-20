@@ -15,6 +15,9 @@ import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalA
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+import { isElectronDesktop } from '../native/electronPosRepository';
+
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
 // operation module; native Android operations use SQLite repositories only.
@@ -22,7 +25,7 @@ let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
@@ -41,14 +44,14 @@ export function getDeviceId(): string {
 }
 
 async function getLocalSettingByKey(key: string): Promise<{ key: string; value: any } | undefined> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
   }
   return db.settings.where('key').equals(key).first();
 }
 
 async function getLocalRecord<T extends Record<string, any>>(entity: any, key: unknown): Promise<T | undefined> {
-  if (isNativeAndroid()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
   return (await (db as any)[entity].get(key)) ?? undefined;
 }
 
@@ -1558,7 +1561,7 @@ async function applyPurchaseLocally(
   syncStatus: 'synced' | 'pending'
 ) {
   const now = new Date().toISOString();
-  if (isNativeAndroid() && (type === 'purchase' || type === 'purchase_update')) {
+  if (isLocalSqlite() && (type === 'purchase' || type === 'purchase_update')) {
     const purchase = payload?.purchase;
     if (!purchase?.id) throw new Error('معرّف فاتورة الشراء غير صالح');
     const isPurchaseUpdate = type === 'purchase_update';
@@ -4327,7 +4330,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
   });
 }
 async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', payload: any, syncStatus: 'synced' | 'pending', serverResult?: any) {
-  const android = isNativeAndroid();
+  const android = isLocalSqlite();
   const tableName = payload?.table as string;
   if (android && !(NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
     throw new Error('الكيان غير مدعوم في مخزن SQLite المحلي: ' + String(tableName));
@@ -4350,7 +4353,7 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
   const previousId = payload.record.id;
   const hasChangedPrimaryKey = previousId !== undefined && finalRecord.id !== undefined && previousId !== finalRecord.id;
-  if (hasChangedPrimaryKey && !isNativeAndroid()) {
+  if (hasChangedPrimaryKey && !isLocalSqlite()) {
     await table.delete(previousId).catch(() => {});
   }
   if (tableName !== 'products') {
@@ -5071,7 +5074,7 @@ export async function dispatchOperation(
     }
   }
 
-  if (!isNativeAndroid()) await db.syncOperations.put(opRecord);
+  if (!isLocalSqlite()) await db.syncOperations.put(opRecord);
   // Persist the Android outbox before mutating the local business tables. If the
   // WebView closes during the mutation, the durable operation can still replay.
   if (isNativeAndroid()) {
