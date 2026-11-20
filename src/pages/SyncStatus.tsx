@@ -143,7 +143,7 @@ export default function SyncStatus() {
       if (isElectronLocalClient()) {
         const items: SyncItem[] = [];
         for (const entity of NATIVE_POS_ENTITIES) {
-          const records = await nativePosRepository.getAllWithSyncState<any>(entity);
+          const records = await nativePosRepository.getAllWithSyncState(entity);
           for (const row of records) {
             const record = row.record as any;
             const status = String(record.syncStatus || row.syncState);
