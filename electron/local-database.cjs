@@ -208,6 +208,11 @@ function updateOperationPayload(operationId, payload) {
   const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending' WHERE operation_id=? AND status IN ('pending','error')").run(JSON.stringify(payload), operationId);
   return { updated: result.changes === 1, rows: result.changes };
 }
+function deleteOperation(operationId) {
+  if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
+  const result = db().prepare('DELETE FROM pos_outbox WHERE operation_id=?').run(operationId);
+  return { deleted: result.changes === 1 };
+}
 function acknowledgeOperation(operationId) {
   const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL WHERE operation_id=?").run(operationId);
   return { updated: result.changes === 1 };
@@ -246,4 +251,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, deleteOperation, acknowledgeOperation, closeLocalDatabase };
