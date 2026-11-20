@@ -346,7 +346,9 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
       if (entity === 'products') {
         await mark('products', (row) => String(row.id) === String(serverId));
         await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
-      } else await mark(entity, (row) => String(row.id ?? row.code ?? row.key) === String(serverId));
+      } else if (!pendingRefs.entityRecords.has(entity + ':' + String(serverId))) {
+        await mark(entity, (row) => String(row.id ?? row.code ?? row.key) === String(serverId));
+      }
     }
   }
   if (changes.size) {
@@ -365,12 +367,13 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   await removeLocalInventoryArtifactsForOperation(operationId);
 
   const pending = isNativeAndroid() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
-  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>() };
+  const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>(), entityRecords: new Set<string>() };
   for (const operation of pending) {
     collectPendingReferences(operation.payload, pendingRefs);
     if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
-      const tableName = operation.payload?.table;
-      const entityId = operation.payload?.record?.id ?? operation.payload?.id;
+      const tableName = String(operation.payload?.table || '');
+      const entityId = operation.payload?.record?.id ?? operation.payload?.record?.code ?? operation.payload?.record?.key ?? operation.payload?.id ?? operation.payload?.code ?? operation.payload?.key;
+      if (tableName && entityId !== undefined && entityId !== null) pendingRefs.entityRecords.add(tableName + ':' + String(entityId));
       if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
       if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
       if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
@@ -387,8 +390,9 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
         if (String(operation.operationId) === String(operationId)) continue;
         collectPendingReferences(operation.payload, pendingRefs);
         if (operation.type === 'entity_upsert' || operation.type === 'entity_delete') {
-          const tableName = operation.payload?.table;
-          const entityId = operation.payload?.record?.id ?? operation.payload?.id;
+          const tableName = String(operation.payload?.table || '');
+          const entityId = operation.payload?.record?.id ?? operation.payload?.record?.code ?? operation.payload?.record?.key ?? operation.payload?.id ?? operation.payload?.code ?? operation.payload?.key;
+          if (tableName && entityId !== undefined && entityId !== null) pendingRefs.entityRecords.add(tableName + ':' + String(entityId));
           if (entityId !== undefined && tableName === 'products') pendingRefs.products.add(String(entityId));
           if (entityId !== undefined && tableName === 'customers') pendingRefs.customers.add(String(entityId));
           if (entityId !== undefined && tableName === 'suppliers') pendingRefs.suppliers.add(String(entityId));
