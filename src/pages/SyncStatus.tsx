@@ -19,9 +19,9 @@ import {
 import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation, deleteNativePosOperation } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -134,7 +134,7 @@ export default function SyncStatus() {
       })) as SyncOperation[];
       nativeOperations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setOperations(nativeOperations.slice(0, 100));
-      if (isElectronDesktop()) {
+      if (isElectronLocalClient()) {
         const items: SyncItem[] = [];
         for (const entity of NATIVE_POS_ENTITIES) {
           const records = await nativePosRepository.getAllWithSyncState<any>(entity);
@@ -227,7 +227,7 @@ export default function SyncStatus() {
 
   const handleDeleteOp = async (opId: string) => {
     if (isNativeAndroid()) return;
-    if (isElectronDesktop()) {
+    if (isElectronLocalClient()) {
       await deleteNativePosOperation(opId);
       toast.success('تم حذف السجل من طابور العمليات');
       await fetchLocalQueue();
