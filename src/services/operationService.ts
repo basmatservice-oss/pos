@@ -3781,7 +3781,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
       basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
       deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
-      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash', branchId: payload.branchId,
+      paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card', branchId: payload.branchId,
       paymentDate: payload.paymentDate || now, status: payload.status || 'paid', syncStatus,
     };
     if (!Number.isFinite(record.netSalary) || record.netSalary < 0) {
@@ -3878,7 +3878,7 @@ async function applyPayrollLocally(payload: any, syncStatus: 'synced' | 'pending
       totalHours: Number(payload.totalHours || 0), hourlyRate: Number(payload.hourlyRate || 0),
       basicSalary: Number(payload.basicSalary || 0), bonuses: Number(payload.bonuses || 0),
       deductions: Number(payload.deductions || 0), netSalary: Number(payload.netSalary || 0),
-      paymentMethod: payload.paymentMethod === 'card' ? 'card' : 'cash', branchId: payload.branchId,
+      paymentMethod: (payload.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card', branchId: payload.branchId,
       paymentDate: payload.paymentDate || now, status: payload.status || 'paid', syncStatus,
     };
     await db.payroll.put(record);
