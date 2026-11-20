@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     retryOperation: (id) => ipcRenderer.invoke('pos-db:retry-operation', id),
     updateOperationPayload: (id, payload) => ipcRenderer.invoke('pos-db:update-operation-payload', id, payload),
     acknowledgeOperation: (id) => ipcRenderer.invoke('pos-db:ack-operation', id),
+    deleteOperation: (id) => ipcRenderer.invoke('pos-db:delete-operation', id),
   },
   platform: process.platform,
   getAppVersion: () => ipcRenderer.invoke('app:version'),
