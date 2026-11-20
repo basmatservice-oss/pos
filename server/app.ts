@@ -54,6 +54,8 @@ import {
   serviceRecipes,
   exchangeRateHistory,
   fiscalPeriods,
+  unitDefinitions,
+  productUnits,
 } from '../drizzle/schema.js';
 import {
   signToken,
@@ -1986,6 +1988,23 @@ export function createPosApp() {
       res.status(201).json(log || req.body);
     } catch {
       res.status(500).json({ error: 'Failed to create audit log' });
+    }
+  });
+
+  // --- Unit catalogs ---
+  app.get('/api/unitDefinitions', async (_req, res) => {
+    try {
+      res.json(await db.select().from(unitDefinitions));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch unit definitions' });
+    }
+  });
+
+  app.get('/api/productUnits', async (_req, res) => {
+    try {
+      res.json(await db.select().from(productUnits));
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch product units' });
     }
   });
 
