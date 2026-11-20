@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveAndEnqueueOperation: (operation) => ipcRenderer.invoke('pos-db:save-enqueue-operation', operation),
     applySnapshotAndReplaceOutbox: (changes, operations) => ipcRenderer.invoke('pos-db:apply-snapshot', changes, operations),
     listOperations: (pendingOnly) => ipcRenderer.invoke('pos-db:list-operations', pendingOnly),
-    updateOperation: (id, status, message) => ipcRenderer.invoke('pos-db:update-operation', id, status, message),
+    updateOperation: (id, status, message, nextRetryAt) => ipcRenderer.invoke('pos-db:update-operation', id, status, message, nextRetryAt),
     retryOperation: (id) => ipcRenderer.invoke('pos-db:retry-operation', id),
     updateOperationPayload: (id, payload) => ipcRenderer.invoke('pos-db:update-operation-payload', id, payload),
     acknowledgeOperation: (id) => ipcRenderer.invoke('pos-db:ack-operation', id),
