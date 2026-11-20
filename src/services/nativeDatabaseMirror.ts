@@ -199,6 +199,13 @@ export async function installNativeDatabaseMirrorHooks(): Promise<void> {
 export async function mirrorNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const legacyStores = await readLegacyIndexedDBStores();
+  const unsupportedStores = Object.keys(legacyStores).filter((name) =>
+    name !== 'syncOperations' && !MIRRORED_TABLES.includes(name as any) &&
+    Array.isArray(legacyStores[name]) && legacyStores[name].length > 0
+  );
+  if (unsupportedStores.length) {
+    throw new Error('توجد جداول IndexedDB قديمة غير مدعومة في ترحيل SQLite: ' + unsupportedStores.join(', '));
+  }
   const invalidated = await posLocalDatabase.setMeta({ key: 'business_snapshot_version', value: 'in_progress' });
   if (!invalidated.saved) throw new Error('تعذر إبطال علامة لقطة SQLite السابقة');
   const failedEntities: string[] = [];
