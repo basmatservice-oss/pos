@@ -169,7 +169,7 @@ export async function getPosRecordsWhereEquals<T extends object = PosRecord>(
   if (isLocalSqlite()) return await nativePosRepository.whereEquals(entity, field, value) as unknown as T[];
   if (isWindowsServer()) {
     const records = await getPosRecords<T>(entity);
-    return records.filter((record) => record[field] === value);
+    return records.filter((record) => (record as PosRecord)[field] === value);
   }
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).toArray() as T[];
