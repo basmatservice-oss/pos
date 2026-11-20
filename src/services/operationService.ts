@@ -4404,8 +4404,15 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   if (tableName !== 'products') {
     if (isLocalSqlite() && (NATIVE_POS_ENTITIES as readonly string[]).includes(String(tableName))) {
       const nativeChanges: any[] = [];
+      let safeRecord = { ...finalRecord };
+      // Ledger balances are derived from posted business operations, never from
+      // generic entity edits or stale form snapshots.
+      if (['customers', 'suppliers', 'accounts'].includes(String(tableName))) {
+        const existing = await nativePosRepository.get<any>(tableName as any, previousId ?? finalRecord.id ?? finalRecord.code);
+        if (existing) safeRecord = { ...safeRecord, balance: existing.balance };
+      }
       if (hasChangedPrimaryKey) nativeChanges.push({ action: 'delete', entity: tableName, key: previousId });
-      nativeChanges.push({ action: 'put', entity: tableName, record: { ...finalRecord, syncStatus }, syncState: syncStatus });
+      nativeChanges.push({ action: 'put', entity: tableName, record: { ...safeRecord, syncStatus }, syncState: syncStatus });
       const applied = await nativePosRepository.applyChanges(nativeChanges);
       if (applied !== nativeChanges.length) throw new Error('لم تؤكد SQLite تحديث السجل');
       // SQLite has committed the canonical entity record; Dexie is not used on Android.
@@ -4418,7 +4425,22 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   const productId = Number(finalRecord.id);
   if (isLocalSqlite()) {
     if (!Number.isSafeInteger(productId) || productId <= 0) throw new Error('معرّف الصنف غير صالح');
-    const productRecord = { ...finalRecord, syncStatus };
+    const existingProduct = await nativePosRepository.get<any>('products', previousId ?? productId);
+    if (existingProduct) {
+      const oldStock = Number(existingProduct.stockQuantity || 0);
+      const newStock = Number(finalRecord.stockQuantity ?? oldStock);
+      const oldCost = Number(existingProduct.costPrice || 0);
+      const newCost = Number(finalRecord.costPrice ?? oldCost);
+      if (!Number.isFinite(newStock) || !Number.isFinite(newCost) ||
+          Math.abs(newStock - oldStock) > 0.0001 || Math.abs(newCost - oldCost) > 0.0001) {
+        throw new Error('لا يمكن تعديل كمية المخزون أو تكلفته عبر تعديل بيانات الصنف؛ استخدم عملية شراء أو جرد أو تسوية مخزون معتمدة');
+      }
+    }
+    const productRecord = {
+      ...finalRecord,
+      ...(existingProduct ? { stockQuantity: existingProduct.stockQuantity, costPrice: existingProduct.costPrice } : {}),
+      syncStatus,
+    };
     const changes: any[] = [];
     if (hasChangedPrimaryKey) changes.push({ action: 'delete', entity: 'products', key: previousId });
     changes.push({ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus });
