@@ -51,9 +51,14 @@ function initializeLocalDatabase(userDataPath) {
       CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created
         ON pos_outbox(status, created_at);
     `);
-    candidate.prepare(\"UPDATE pos_outbox SET status='pending' WHERE status='syncing'\").run();
+    const outboxColumns = new Set(candidate.pragma('table_info(pos_outbox)').map(column => column.name));
+    for (const [name, definition] of [['device_id', 'TEXT'], ['tenant_id', 'TEXT'], ['branch_id', 'TEXT'], ['actor', 'TEXT'], ['schema_version', 'INTEGER NOT NULL DEFAULT 1']]) {
+      if (!outboxColumns.has(name)) candidate.exec('ALTER TABLE pos_outbox ADD COLUMN ' + name + ' ' + definition);
+    }
+    candidate.pragma('user_version = 2');
+    candidate.prepare("UPDATE pos_outbox SET status='pending' WHERE status='syncing'").run();
     database = candidate;
-    return { ready: true, database: 'pos-local.db', schemaVersion: 1 };
+    return { ready: true, database: 'pos-local.db', schemaVersion: 2 };
   } catch (error) {
     candidate.close();
     throw error;
