@@ -183,7 +183,7 @@ export const nativePosRepository = {
     return items.map((item) => ({
       record: item.record,
       recordId: item.recordId,
-      syncState: item.syncState ?? 'local',
+      syncState: (item.syncState ?? 'local') as NativePosSyncState,
     }));
   },
 
@@ -260,7 +260,7 @@ export const nativePosRepository = {
     if (isElectronDesktop()) return electronPosRepository.setSyncState(entity, key, syncState);
     requireLocalSQLite();
     assertEntity(entity);
-    const current = await this.get<Record<string, unknown>>(entity, key);
+    const current = await this.get(entity, key) as Record<string, unknown> | undefined;
     if (!current) throw new Error(`SQLite record not found while updating sync state for ${entity}`);
     await this.put(entity, { ...current, syncStatus: syncState }, syncState);
   },
