@@ -114,11 +114,11 @@ export const electronPosRepository = {
     return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
   },
   async whereEquals<T extends Record<string, unknown>>(entity: NativePosEntity, field: string, value: string | number | boolean): Promise<T[]> {
-    const rows = await this.getAll<T>(entity);
+    const rows = await this.getAll(entity) as T[];
     return rows.filter(row => row[field] === value);
   },
   async firstWhereEquals<T extends Record<string, unknown>>(entity: NativePosEntity, field: string, value: string | number | boolean): Promise<T | null> {
-    return (await this.whereEquals<T>(entity, field, value))[0] ?? null;
+    return ((await this.whereEquals(entity, field, value)) as T[])[0] ?? null;
   },
   async put(entity: NativePosEntity, record: Record<string, unknown>, syncState: NativePosSyncState = 'local'): Promise<void> {
     await this.isReady();
@@ -169,7 +169,7 @@ export const electronPosRepository = {
     return this.applyChanges(keys.map(key => ({ action: 'delete' as const, entity, key })));
   },
   async setSyncState(entity: NativePosEntity, key: unknown, syncState: NativePosSyncState): Promise<void> {
-    const record = await this.get<Record<string, unknown>>(entity, key);
+    const record = await this.get(entity, key) as Record<string, unknown> | undefined;
     if (!record) throw new Error(`Electron SQLite record not found: ${entity}`);
     await this.put(entity, { ...record, syncStatus: syncState }, syncState);
   },
