@@ -12,8 +12,9 @@ async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
   if (isElectronDesktop()) {
     const role = await desktopApi.getDeviceRole();
+    if (role === 'server') return; // Server/client role is device configuration, not tenant business data.
     const serverUrl = role === 'client' && desktopApi.getServerUrl ? await desktopApi.getServerUrl() : null;
-    if (role === 'server' || role === 'client') await putPosSetting('deviceRole', role, 'synced');
+    if (role === 'client') await putPosSetting('deviceRole', role, 'synced');
     if (role === 'client' && serverUrl) await putPosSetting('serverUrl', serverUrl, 'synced');
     return;
   }
