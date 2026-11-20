@@ -494,14 +494,34 @@ test('end-to-end server business operations and native SQLite operations match f
   });
   await dispatchOperation('return', localReturnPayload, 1);
 
+  const serverDamagedPayload = {
+    id: 'parity-return-damaged', returnNumber: 'RET-PARITY-D', originalOrderId: 'parity-order',
+    items: [{ orderItemId: serverOrderItem.id, productId: 1, quantity: 1, condition: 'damaged' }],
+    refundMethod: 'cash', reason: 'damaged parity fixture', returnDate: now,
+  };
+  const localDamagedPayload = {
+    ...serverDamagedPayload,
+    items: [{ ...serverDamagedPayload.items[0], orderItemId: localOrderItem.id }],
+    operationId: 'return-op-parity-damaged', deviceId: 'parity-device',
+  };
+  const serverDamagedReturn = executeBusinessOperation(serverDb, 'return', serverDamagedPayload, {
+    operationId: 'return-op-parity-damaged', deviceId: 'parity-device', userName: 'tester',
+  });
+  await dispatchOperation('return', localDamagedPayload, 1);
+
   const serverProduct = serverDb.select().from(schema.products).get();
   const localProduct = records.get('products').get(JSON.stringify(1)).record;
   assert.equal(localProduct.stockQuantity, serverProduct.stockQuantity);
   assert.equal(localProduct.stockQuantity, 6);
   assert.equal(serverReturn.result.returnRecord.totalCostReversed, 19);
-  const localReturn = [...records.get('returns').values()].map((row) => row.record)[0];
+  const localReturns = [...records.get('returns').values()].map((row) => row.record);
+  const localReturn = localReturns.find((row) => row.id === 'parity-return');
+  const localDamagedReturn = localReturns.find((row) => row.id === 'parity-return-damaged');
   assert.equal(localReturn.totalCostReversed, serverReturn.result.returnRecord.totalCostReversed);
   assert.equal(localReturn.totalRefund, serverReturn.result.returnRecord.totalRefund);
+  assert.equal(localDamagedReturn.totalCostReversed, serverDamagedReturn.result.returnRecord.totalCostReversed);
+  assert.equal(localDamagedReturn.totalCostReversed, 5.57);
+  assert.equal(serverProduct.stockQuantity, 6, 'damaged return must not re-enter sellable stock');
 
   const serverOrder = serverDb.select().from(schema.orders).get();
   const localOrder = records.get('orders').get(JSON.stringify('parity-order')).record;
