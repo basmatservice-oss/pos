@@ -980,7 +980,7 @@ export function createPosApp() {
       const id = parseInt(req.params.id);
       if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid customer id' });
       // Customer balances are ledger-controlled and must never be overwritten by CRUD.
-      const allowedFields = ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'creditLimit', 'isActive'];
+      const allowedFields = ['name', 'phone', 'email', 'branchId'];
       const data: Record<string, any> = {};
       for (const field of allowedFields) if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) data[field] = req.body[field];
       if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable customer metadata was supplied' });
@@ -1036,6 +1036,7 @@ export function createPosApp() {
         name,
         ...(typeof body.phone === 'string' ? { phone: body.phone } : {}),
         ...(typeof body.email === 'string' ? { email: body.email } : {}),
+        ...(typeof body.address === 'string' ? { address: body.address } : {}),
         // Supplier balances are purchase/payment-ledger controlled.
         balance: 0,
         isSynced: 0,
@@ -1053,7 +1054,7 @@ export function createPosApp() {
       const id = parseInt(req.params.id);
       if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid supplier id' });
       // Supplier balances are purchase/payment-ledger controlled.
-      const allowedFields = ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'isActive'];
+      const allowedFields = ['name', 'phone', 'email', 'address'];
       const data: Record<string, any> = {};
       for (const field of allowedFields) if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) data[field] = req.body[field];
       if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable supplier metadata was supplied' });
