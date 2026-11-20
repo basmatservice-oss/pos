@@ -1,4 +1,5 @@
 import { registerPlugin } from '@capacitor/core';
+import { electronPosRepository, isElectronDesktop } from './electronPosRepository';
 
 export interface PosLocalRecord {
   entity: string;
@@ -282,6 +283,10 @@ export async function applyNativePosRecordChangesIfAbsent(
   guardRecordId: string,
   compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
+  if (isElectronDesktop()) {
+    const result = await electronPosRepository.applyChangesIfAbsent(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), guardEntity, guardRecordId, compareGuards);
+    return { applied: result.applied, skipped: result.skipped };
+  }
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!guardEntity.trim() || !guardRecordId.trim()) throw new Error('SQLite idempotency guard requires an entity and record ID');
   if (changes.length === 0) return { applied: 0, skipped: false };
@@ -324,6 +329,10 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
   compare?: { entity: string; recordId: string; field: string; expectedValue: string },
   additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
+  if (isElectronDesktop()) {
+    const result = await electronPosRepository.applyChangesIfFieldAbsent(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), entity, field, value, [...(compare ? [compare] : []), ...additionalCompareGuards]);
+    return { applied: result.applied, skipped: result.skipped };
+  }
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!entity.trim() || !field.trim() || !value) throw new Error('SQLite field idempotency guard requires entity, field and value');
   if (changes.length === 0) return { applied: 0, skipped: false };
@@ -358,6 +367,7 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
 }
 
 export async function applyNativePosRecordChanges(changes: PosLocalRecordChange[]): Promise<number> {
+  if (isElectronDesktop()) return electronPosRepository.applyChanges(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }));
   if (!(await ensureNativePosDatabase())) return 0;
   if (changes.length === 0) return 0;
   const identities = new Set<string>();
@@ -391,6 +401,10 @@ export async function applyNativePosRecordChangesIfFieldEquals(
   expectedValue: string,
   additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
+  if (isElectronDesktop()) {
+    const result = await electronPosRepository.applyChangesIfFieldEquals(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), entity, recordId, field, expectedValue, additionalCompareGuards);
+    return { applied: result.applied, skipped: result.skipped };
+  }
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!entity.trim() || !recordId.trim() || !field.trim() || !expectedValue) {
     throw new Error('SQLite compare-and-set guard requires entity, record ID, field and expected value');
