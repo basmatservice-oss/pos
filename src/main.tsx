@@ -40,9 +40,7 @@ async function initializeLocalRuntime(): Promise<void> {
   if (isNativeAndroid()) {
     const restoredFromSQLite = await restoreNativePosDatabase();
     if (!restoredFromSQLite) {
-      // One-time migration path for existing installs that still have local Dexie data.
-      const { ensureDatabaseReady } = await import('./db/db');
-      await ensureDatabaseReady();
+      // One-time migration reads the existing IndexedDB stores directly; it does not instantiate Dexie.
       await mirrorNativePosDatabase();
     }
 
