@@ -1,7 +1,7 @@
 import { generateUUID } from '../utils/uuid';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
-import { applyNativePosRecordChangesIfAbsent } from '../native/posLocalDatabase';
+import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals } from '../native/posLocalDatabase';
 // Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
@@ -288,32 +288,44 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
   if (isNativeAndroid()) {
     const entries = (await nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', referenceId))
       .filter((entry: any) => String(entry.id).startsWith('local-je:'));
-    const accountRows = await nativePosRepository.getAllWithSyncState('accounts');
-    const accountMap = new Map(accountRows.map((row) => [String(row.record.code), row]));
-    const accountChanges = new Map<string, any>();
-    const changes: any[] = [];
     for (const entry of entries) {
-      const lines = await nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', String(entry.id));
+      const entryId = String(entry.id);
+      const sourceStatus = String(entry.status || '').trim();
+      if (!sourceStatus) throw new Error('القيد المحلي لا يحتوي حالة تسمح بحذفه بأمان');
+      const lines = await nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', entryId);
+      const accountRows = await nativePosRepository.getAllWithSyncState('accounts');
+      const accountMap = new Map(accountRows.map((row) => [String(row.record.code), row]));
+      const accountChanges = new Map<string, any>();
+      const changes: any[] = lines.map((line: any) => ({
+        action: 'delete', entity: 'transactions', recordId: JSON.stringify(line.id),
+      }));
+      changes.push({ action: 'delete', entity: 'journalEntries', recordId: JSON.stringify(entry.id) });
       for (const line of lines) {
         const accountCode = String(line.accountId);
         const accountRow = accountMap.get(accountCode);
         const account = accountChanges.get(accountCode) || accountRow?.record;
-        if (!account) continue;
-        const debit = Number(line.debit || 0);
-        const credit = Number(line.credit || 0);
+        if (!account) throw new Error('الحساب ' + accountCode + ' غير موجود؛ أوقف حذف القيد لمنع اختلاف رصيد الأستاذ');
+        const debit = Number(line.debit || 0), credit = Number(line.credit || 0);
+        if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0) {
+          throw new Error('سطر قيد محاسبي غير صالح؛ أوقف الحذف لحماية رصيد الأستاذ');
+        }
         const normalDebit = account.type === 'asset' || account.type === 'expense';
         const delta = normalDebit ? debit - credit : credit - debit;
         accountChanges.set(accountCode, {
           ...account, balance: money(Number(account.balance || 0) - delta), updatedAt: new Date().toISOString(),
         });
-        changes.push({ action: 'delete', entity: 'transactions', key: line.id });
       }
-      changes.push({ action: 'delete', entity: 'journalEntries', key: entry.id });
-    }
-    for (const [accountCode, account] of accountChanges) changes.push({ action: 'put', entity: 'accounts', record: account, syncState: accountMap.get(accountCode)?.syncState || 'local' });
-    if (changes.length) {
-      const applied = await nativePosRepository.applyChanges(changes);
-      if (applied !== changes.length) throw new Error('SQLite لم تؤكد حذف جميع القيود المحلية وتحديث الأرصدة');
+      for (const [accountCode, account] of accountChanges) {
+        changes.push({
+          action: 'put', entity: 'accounts', recordId: JSON.stringify(accountCode), record: account,
+          syncState: accountMap.get(accountCode)?.syncState || 'local',
+        });
+      }
+      const committed = await applyNativePosRecordChangesIfFieldEquals(
+        changes, 'journalEntries', JSON.stringify(entry.id), 'status', sourceStatus,
+      );
+      if (committed.skipped) continue;
+      if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حذف القيد وتحديث أرصدة الأستاذ بالكامل');
     }
     return;
   }
