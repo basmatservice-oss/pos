@@ -183,7 +183,7 @@ function saveAndEnqueueOperation(operation) {
   const recordId = operation.recordId || operation.operationId;
   const tx = db().transaction(() => {
     const exists = db().prepare('SELECT operation_id FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
-    if (exists) return { saved: false, queued: false, duplicate: true, operationId: operation.operationId };
+    if (exists) return { saved: true, queued: true, duplicate: true, operationId: operation.operationId };
     db().prepare(`INSERT INTO pos_records(entity,record_id,json,updated_at,sync_state) VALUES(?,?,?,?,?)
       ON CONFLICT(entity,record_id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at,sync_state=excluded.sync_state`)
       .run(operation.entity || 'operations', recordId, JSON.stringify(record), Date.now(), 'pending');
