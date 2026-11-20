@@ -216,7 +216,10 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
       JSON.stringify(entryId),
       accountBalanceGuards,
     );
-    if (committed.skipped) return entryId;
+    if (committed.skipped) {
+      if (await nativePosRepository.get<any>('journalEntries', entryId)) return entryId;
+      throw new Error('تغير رصيد أحد الحسابات أثناء ترحيل القيد؛ أعد تحميل البيانات ثم أعد المحاولة');
+    }
     if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
     return entryId;
   }
@@ -363,7 +366,10 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
       const committed = await applyNativePosRecordChangesIfFieldEquals(
         changes, 'journalEntries', JSON.stringify(entry.id), 'status', sourceStatus, accountBalanceGuards,
       );
-      if (committed.skipped) continue;
+      if (committed.skipped) {
+        if (!(await nativePosRepository.get<any>('journalEntries', entry.id))) continue;
+        throw new Error('تغير القيد أو رصيد أحد الحسابات أثناء الحذف؛ أعد تحميل البيانات قبل المحاولة مرة أخرى');
+      }
       if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حذف القيد وتحديث أرصدة الأستاذ بالكامل');
     }
     return;
@@ -499,7 +505,11 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
         { entity: 'journalEntries', recordId: JSON.stringify(entry.id), field: 'status', expectedValue: 'posted' },
         accountBalanceGuards,
       );
-      if (committed.skipped) continue;
+      if (committed.skipped) {
+        const latestEntry = await nativePosRepository.get<any>('journalEntries', entry.id);
+        if (String(latestEntry?.reversedEntryId || '') === reversalId) continue;
+        throw new Error('تغير القيد أو رصيد أحد الحسابات أثناء العكس؛ أعد تحميل البيانات قبل المحاولة مرة أخرى');
+      }
       if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ القيد العكسي وأرصدة الأستاذ بالكامل');
     }
     return;
