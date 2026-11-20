@@ -49,6 +49,7 @@ function roundMoney(value: number): number {
 async function commitNativeInventoryChanges(
   changes: any[],
   compare?: { entity: string; recordId: string; field: string; expectedValue: string },
+  additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<void> {
   const unique = new Map<string, any>();
   for (const change of changes) {
@@ -76,6 +77,7 @@ async function commitNativeInventoryChanges(
       'movementKey',
       String(movement.record.movementKey),
       compare,
+      additionalCompareGuards,
     );
     if (result.skipped) {
       throw new Error(compare
@@ -245,12 +247,33 @@ export async function consumeLocalInventoryFIFO(
       },
       syncState: params.syncStatus || 'local',
     });
+    const batchCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    for (const row of batches) {
+      const original: any = row.record;
+      if (original.remainingQuantity === undefined || original.remainingQuantity === null ||
+          !Number.isFinite(Number(original.remainingQuantity))) {
+        throw new Error('كمية دفعة المخزون غير صالحة؛ أُوقف الخصم لحماية رصيد المخزون');
+      }
+      batchCompareGuards.push({
+        entity: 'inventoryBatches', recordId: JSON.stringify(original.id),
+        field: 'remainingQuantity', expectedValue: String(original.remainingQuantity),
+      });
+      if (weightedAverage) {
+        if (original.costPrice === undefined || original.costPrice === null || !Number.isFinite(Number(original.costPrice))) {
+          throw new Error('تكلفة دفعة المخزون غير صالحة؛ أُوقف الخصم لحماية تكلفة FIFO');
+        }
+        batchCompareGuards.push({
+          entity: 'inventoryBatches', recordId: JSON.stringify(original.id),
+          field: 'costPrice', expectedValue: String(original.costPrice),
+        });
+      }
+    }
     await commitNativeInventoryChanges(changes, {
       entity: 'products',
       recordId: JSON.stringify(params.productId),
       field: 'stockQuantity',
       expectedValue: String(product.stockQuantity ?? 0),
-    });
+    }, batchCompareGuards);
     return { totalCost: roundMoney(totalCost), averageUnitCost, allocations };
   }
   await ensureDesktopDatabase();
@@ -501,12 +524,24 @@ export async function restoreLocalInventoryFIFO(params: {
       },
       syncState: params.syncStatus || 'local',
     });
+    const restoreBatchGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    for (const [batchId, updatedBatch] of stagedBatches) {
+      const original = batchRows.find((row) => String(row.record.id) === batchId)?.record as any;
+      if (!original || original.remainingQuantity === undefined || original.remainingQuantity === null ||
+          !Number.isFinite(Number(original.remainingQuantity))) {
+        throw new Error('كمية دفعة المخزون الأصلية غير صالحة؛ أُوقف إعادة الكمية لمنع تعارض المرتجعات');
+      }
+      restoreBatchGuards.push({
+        entity: 'inventoryBatches', recordId: JSON.stringify(original.id),
+        field: 'remainingQuantity', expectedValue: String(original.remainingQuantity),
+      });
+    }
     await commitNativeInventoryChanges(changes, {
       entity: 'products',
       recordId: JSON.stringify(params.productId),
       field: 'stockQuantity',
       expectedValue: String(productRow.record.stockQuantity ?? 0),
-    });
+    }, restoreBatchGuards);
     return roundMoney(totalCost);
   }
   await ensureDesktopDatabase();
