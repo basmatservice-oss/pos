@@ -392,7 +392,7 @@ const Settings: React.FC = () => {
           'purchaseItems', 'purchaseReturns', 'purchaseReturnItems', 'customerPayments',
           'supplierPayments', 'auditLogs', 'stocktakingSessions', 'stocktakingEntries',
           'inventoryBatches', 'serviceRecipes', 'exchangeRateHistory', 'fiscalPeriods',
-          'inventoryAlerts', 'inventoryMovements',
+          'inventoryAlerts', 'inventoryMovements', 'unitDefinitions', 'productUnits',
         ] as const;
         for (const entity of serverEntities) data[entity] = await getPosRecords(entity);
       } else {
