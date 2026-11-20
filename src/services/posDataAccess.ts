@@ -1,6 +1,49 @@
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { isElectronLocalClient } from '../native/electronPosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+
+const isWindowsServer = (): boolean => {
+  if (typeof window === 'undefined' || !(window as any).electronAPI?.getDeviceRole) return false;
+  return !isElectronLocalClient() && !isNativeAndroid();
+};
+
+const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
+  categories: '/categories',
+  products: '/products',
+  customers: '/customers',
+  suppliers: '/suppliers',
+  orders: '/orders',
+  orderItems: '/orderItems',
+  returns: '/returns',
+  returnItems: '/returnItems',
+  accounts: '/accounts',
+  journalEntries: '/journalEntries',
+  transactions: '/transactions',
+  shifts: '/shifts',
+  shiftMovements: '/shiftMovements',
+  expenses: '/expenses',
+  employees: '/employees',
+  settings: '/settings',
+  attendance: '/attendance',
+  loyaltyTransactions: '/loyalty-transactions',
+  payroll: '/payroll',
+  branches: '/branches',
+  offers: '/offers',
+  purchases: '/purchases',
+  purchaseItems: '/purchaseItems',
+  purchaseReturns: '/purchaseReturns',
+  purchaseReturnItems: '/purchaseReturnItems',
+  customerPayments: '/customerPayments',
+  supplierPayments: '/supplierPayments',
+  auditLogs: '/auditLogs',
+  stocktakingSessions: '/stocktakingSessions',
+  stocktakingEntries: '/stocktakingEntries',
+  inventoryBatches: '/inventoryBatches',
+  serviceRecipes: '/serviceRecipes',
+  exchangeRateHistory: '/exchangeRateHistory',
+  fiscalPeriods: '/fiscalPeriods',
+  inventoryAlerts: '/inventoryAlerts',
+};
 import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
@@ -11,6 +54,13 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   key: unknown,
 ): Promise<T | undefined> {
   if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  if (isWindowsServer()) {
+    const endpoint = SERVER_READ_ENDPOINTS[entity];
+    if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
+    const { apiService } = await import('./apiService');
+    const records = await apiService.get(endpoint) as T[];
+    return records.find((record) => record.id === key || (entity === 'settings' && record.key === key));
+  }
   const { db } = await import('../db/db');
   return await db.table(entity).get(key as any) as T | undefined;
 }
@@ -20,6 +70,12 @@ export async function getPosRecords<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
   if (isLocalSqlite()) return nativePosRepository.getAll<T>(entity);
+  if (isWindowsServer()) {
+    const endpoint = SERVER_READ_ENDPOINTS[entity];
+    if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
+    const { apiService } = await import('./apiService');
+    return await apiService.get(endpoint) as T[];
+  }
   const { db } = await import('../db/db');
   return await db.table(entity).toArray() as T[];
 }
@@ -31,6 +87,10 @@ export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
   value: string | number | boolean,
 ): Promise<T[]> {
   if (isLocalSqlite()) return nativePosRepository.whereEquals<T>(entity, field, value);
+  if (isWindowsServer()) {
+    const records = await getPosRecords<T>(entity);
+    return records.filter((record) => record[field] === value);
+  }
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).toArray() as T[];
 }
@@ -42,6 +102,7 @@ export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosReco
   value: string | number | boolean,
 ): Promise<T | undefined> {
   if (isLocalSqlite()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
+  if (isWindowsServer()) return (await getPosRecordsWhereEquals<T>(entity, field, value))[0];
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).first() as T | undefined;
 }
