@@ -124,12 +124,12 @@ function applyRecordChanges(changes, guards = {}) {
     const findField = db().prepare('SELECT json FROM pos_records WHERE entity = ?');
     if (guards.ifAbsentEntity && guards.ifAbsentRecordId && findRecord.get(guards.ifAbsentEntity, guards.ifAbsentRecordId)) return { applied: 0, skipped: true };
     if (guards.ifAbsentEntity && guards.ifAbsentField) {
-      const existing = findField.all(guards.ifAbsentEntity).some(row => JSON.stringify(JSON.parse(row.json)?.[guards.ifAbsentField]) === guards.ifAbsentValue);
+      const existing = findField.all(guards.ifAbsentEntity).some(row => String(JSON.parse(row.json)?.[guards.ifAbsentField] ?? '') === guards.ifAbsentValue);
       if (existing) return { applied: 0, skipped: true };
     }
     for (const guard of guards.ifMatchGuards || []) {
       const row = findRecord.get(guard.entity, guard.recordId);
-      if (!row || JSON.stringify(JSON.parse(row.json)?.[guard.field]) !== guard.expectedValue) return { applied: 0, skipped: true };
+      if (!row || String(JSON.parse(row.json)?.[guard.field] ?? '') !== guard.expectedValue) return { applied: 0, skipped: true };
     }
     const now = Date.now();
     for (const change of rows) {
@@ -148,9 +148,10 @@ function applyRecordChanges(changes, guards = {}) {
 }
 
 function enqueueOperation(operation) {
-  if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() ||
-      typeof operation.type !== 'string' || !operation.type.trim() ||
-      !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+  if (!operation || typeof operation.operationId !== 'string' || !operation.operationId.trim() || operation.operationId.length > 256 ||
+      typeof operation.type !== 'string' || !operation.type.trim() || operation.type.length > 128 ||
+      !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload) ||
+      Buffer.byteLength(JSON.stringify(operation.payload), 'utf8') > MAX_RECORD_BYTES) {
     throw new Error('Invalid Electron outbox operation');
   }
   const createdAt = Number(operation.createdAt || Date.now());
@@ -184,8 +185,9 @@ function listOperations(pendingOnly = false) {
 }
 function updateOperation(operationId, status, message) {
   if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
+  if (!['pending', 'syncing', 'error', 'conflict', 'synced'].includes(status)) throw new Error('Invalid outbox status');
   const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END WHERE operation_id=?')
-    .run(status, message ?? null, status, operationId);
+    .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, operationId);
   return { updated: result.changes === 1 };
 }
 function retryOperation(operationId) {
