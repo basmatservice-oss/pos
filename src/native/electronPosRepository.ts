@@ -26,6 +26,7 @@ type ElectronDatabaseBridge = {
   getMeta(key: string): Promise<{ value?: string }>;
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
   enqueueOperation(operation: Record<string, unknown>): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
+  mergeOperations(operations: Array<Record<string, unknown>>): Promise<{ inserted: number; duplicates: number; total: number }>;
   saveAndEnqueueOperation(operation: Record<string, unknown>): Promise<{ saved: boolean; queued: boolean; duplicate: boolean; operationId: string }>;
   applySnapshotAndReplaceOutbox(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, operations: Array<Record<string, unknown>>): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   listOperations(pendingOnly: boolean): Promise<{ operations: Array<Record<string, any>> }>;
@@ -72,6 +73,7 @@ export const electronPosRepository = {
     return result;
   },
   async enqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().enqueueOperation(operation); },
+  async mergeOperations(operations: Array<Record<string, unknown>>) { await this.isReady(); return bridge().mergeOperations(operations); },
   async saveAndEnqueueOperation(operation: Record<string, unknown>) { await this.isReady(); return bridge().saveAndEnqueueOperation(operation); },
   async listOperations(pendingOnly = false) { await this.isReady(); return bridge().listOperations(pendingOnly); },
   async updateOperation(id: string, status: string, message?: string, nextRetryAt?: number) { await this.isReady(); return bridge().updateOperation(id, status, message, nextRetryAt); },
