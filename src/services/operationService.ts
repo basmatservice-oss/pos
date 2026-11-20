@@ -2514,6 +2514,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const returnedBaseByBatch = new Map<string, number>();
     const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
+    const originalAccountMap = new Map(accountMap);
     const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
     const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
     for (const priorReturn of previousReturns) {
@@ -2695,8 +2696,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     let updatedSupplier: any = null;
     if (refundMethod === 'credit_adjustment' && origPurchase.supplierId) {
       if (!supplier) throw new Error('المورد المرتبط بفاتورة الشراء غير موجود؛ لا يمكن تسوية المرتجع على الحساب');
-      const supplierBalance = Number(supplier.balance || 0);
-      if (!Number.isFinite(supplierBalance)) throw new Error('رصيد المورد غير صالح ولا يمكن ترحيل مرتجع المشتريات');
+      if (supplier.balance === undefined || supplier.balance === null || !Number.isFinite(Number(supplier.balance))) {
+        throw new Error('رصيد المورد غير صالح ولا يمكن ترحيل مرتجع المشتريات');
+      }
+      const supplierBalance = Number(supplier.balance);
       updatedSupplier = { ...supplier, balance: roundMoney(supplierBalance - totalReturn), updatedAt: now, syncStatus };
       changes.push({ action: 'put', entity: 'suppliers', record: updatedSupplier, syncState: syncStatus });
     }
@@ -2789,12 +2792,39 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     if (!sourceVersion) {
       throw new Error('فاتورة الشراء لا تحتوي إصدار تحديث يمكن استخدامه لمنع تعارض المرتجعات المتزامنة؛ أوقف الترحيل للمراجعة');
     }
+    const accountingGuards = [...new Set(
+      (journalEntry ? ['1010', '1020', '2100', '1200'] : []),
+    )].filter((code) => {
+      const definitionCode = refundMethod === 'cash' ? '1010' : refundMethod === 'card' ? '1020' : '2100';
+      return code === definitionCode || code === '1200';
+    }).map((accountCode) => {
+      const original = originalAccountMap.get(accountCode);
+      if (!original || original.balance === undefined || original.balance === null ||
+          !Number.isFinite(Number(original.balance))) {
+        throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا صالحًا يمكن حمايته من تحديث متزامن');
+      }
+      return {
+        entity: 'accounts',
+        recordId: JSON.stringify(accountCode),
+        field: 'balance',
+        expectedValue: String(original.balance),
+      };
+    });
+    if (updatedSupplier) {
+      accountingGuards.push({
+        entity: 'suppliers',
+        recordId: JSON.stringify(updatedSupplier.id),
+        field: 'balance',
+        expectedValue: String(supplier.balance),
+      });
+    }
     const committed = await applyNativePosRecordChangesIfFieldEquals(
       nativeChanges,
       'purchases',
       JSON.stringify(String(originalPurchaseId)),
       'updatedAt',
       sourceVersion,
+      accountingGuards,
     );
     if (committed.skipped) {
       throw new Error('تم تحديث فاتورة الشراء بواسطة عملية أخرى؛ أعد تحميل الفاتورة ثم أعد محاولة المرتجع');
