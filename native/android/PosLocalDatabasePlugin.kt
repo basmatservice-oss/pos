@@ -521,7 +521,7 @@ class PosLocalDatabasePlugin : Plugin() {
         val entity = call.getString("entity")?.trim().orEmpty()
         val field = call.getString("field")?.trim().orEmpty()
         val valueJson = call.getString("valueJson")
-        val requestedLimit = call.getInt("limit", 0)
+        val requestedLimit = call.getInt("limit") ?: 0
         if (entity.isBlank() || field.isBlank() || valueJson.isNullOrBlank() ||
             !field.matches(Regex("[A-Za-z_][A-Za-z0-9_]*")) || requestedLimit < 0) {
             call.reject("entity و field و valueJson صالحون مطلوبة")
