@@ -997,9 +997,13 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   ]);
   const batches = batchGroups.flat();
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
+  const originalProductMap = new Map(productMap);
   const batchMap = new Map(batches.map((x: any) => [String(x.id), x]));
+  const originalBatchMap = new Map(batchMap);
   const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
+  const originalAccountMap = new Map(accountMap);
   const journalMap = new Map(journals.map((x: any) => [String(x.id), x]));
+  const originalCustomer = customer ? { ...customer } : null;
   const effectiveRefundMethod = refundMethod || (origOrder.paymentMethod === 'credit' ? 'credit_adjustment' : origOrder.paymentMethod === 'card' ? 'card' : 'cash');
   if (!['cash', 'card', 'credit_adjustment'].includes(String(effectiveRefundMethod))) {
     throw new Error('طريقة رد مبلغ مرتجع المبيعات غير معروفة');
@@ -1253,12 +1257,56 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   if (!sourceVersion) {
     throw new Error('فاتورة البيع لا تحتوي إصدار تحديث يمكن استخدامه لمنع تعارض المرتجعات المتزامنة؛ أوقف الترحيل للمراجعة');
   }
+  const returnCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+  for (const change of stagedChanges) {
+    if (change.entity === 'products') {
+      const original = originalProductMap.get(Number(change.record.id));
+      if (!original || original.stockQuantity === undefined || original.stockQuantity === null ||
+          !Number.isFinite(Number(original.stockQuantity))) {
+        throw new Error('رصيد مخزون الصنف لا يحتوي قيمة مرجعية صالحة لحماية المرتجع من التحديث المتزامن');
+      }
+      returnCompareGuards.push({
+        entity: 'products', recordId: JSON.stringify(Number(change.record.id)),
+        field: 'stockQuantity', expectedValue: String(original.stockQuantity),
+      });
+    } else if (change.entity === 'inventoryBatches' && originalBatchMap.has(String(change.record.id))) {
+      const original = originalBatchMap.get(String(change.record.id));
+      if (original.remainingQuantity === undefined || original.remainingQuantity === null ||
+          !Number.isFinite(Number(original.remainingQuantity))) {
+        throw new Error('كمية دفعة المخزون لا تحتوي قيمة مرجعية صالحة لحماية المرتجع من التحديث المتزامن');
+      }
+      returnCompareGuards.push({
+        entity: 'inventoryBatches', recordId: JSON.stringify(String(change.record.id)),
+        field: 'remainingQuantity', expectedValue: String(original.remainingQuantity),
+      });
+    } else if (change.entity === 'accounts') {
+      const original = originalAccountMap.get(String(change.record.code));
+      if (!original || original.balance === undefined || original.balance === null ||
+          !Number.isFinite(Number(original.balance))) {
+        throw new Error('رصيد الحساب ' + String(change.record.code) + ' لا يحتوي قيمة مرجعية صالحة لحماية الأستاذ');
+      }
+      returnCompareGuards.push({
+        entity: 'accounts', recordId: JSON.stringify(String(change.record.code)),
+        field: 'balance', expectedValue: String(original.balance),
+      });
+    } else if (change.entity === 'customers' && originalCustomer) {
+      if (originalCustomer.balance === undefined || originalCustomer.balance === null ||
+          !Number.isFinite(Number(originalCustomer.balance))) {
+        throw new Error('رصيد العميل لا يحتوي قيمة مرجعية صالحة لحماية التسوية المتزامنة');
+      }
+      returnCompareGuards.push({
+        entity: 'customers', recordId: JSON.stringify(originalCustomer.id),
+        field: 'balance', expectedValue: String(originalCustomer.balance),
+      });
+    }
+  }
   const committed = await applyNativePosRecordChangesIfFieldEquals(
     nativeChanges,
     'orders',
     JSON.stringify(String(originalOrderId)),
     'updatedAt',
     sourceVersion,
+    returnCompareGuards,
   );
   if (committed.skipped) {
     throw new Error('تم تحديث فاتورة البيع بواسطة عملية أخرى؛ أعد تحميل الفاتورة ثم أعد محاولة المرتجع');
