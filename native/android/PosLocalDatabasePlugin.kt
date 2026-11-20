@@ -733,8 +733,11 @@ class PosLocalDatabasePlugin : Plugin() {
                 put("tenant_id", call.getString("tenantId") ?: "")
                 put("branch_id", call.getString("branchId") ?: "")
                 put("actor", call.getString("actor") ?: "")
-                put("schema_version", call.getInt("schemaVersion") ?: 1)
-                put("created_at", System.currentTimeMillis())
+                put("schema_version", (call.getInt("schemaVersion") ?: 1).coerceAtLeast(1))
+                put("created_at", (call.getLong("createdAt") ?: System.currentTimeMillis()).coerceAtLeast(1L))
+                put("retry_count", (call.getInt("retryCount") ?: 0).coerceAtLeast(0))
+                val nextRetryAt = call.getLong("nextRetryAt")
+                if (nextRetryAt != null && nextRetryAt > 0L) put("next_retry_at", nextRetryAt)
                 put("status", "pending")
             }
             val result = helper.writableDatabase.insertWithOnConflict(
