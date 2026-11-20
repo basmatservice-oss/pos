@@ -1,5 +1,7 @@
 import { generateUUID } from '../utils/uuid';
 import { applyNativePosRecordChangesIfFieldAbsent, isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { roundQty } from '../utils/format';
 // Dexie is loaded only for desktop inventory operations; Android writes are transactional in SQLite.
