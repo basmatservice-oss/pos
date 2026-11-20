@@ -2513,8 +2513,10 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     const returnedBaseByProduct = new Map<number, number>();
     const returnedBaseByBatch = new Map<string, number>();
     const productMap = new Map<number, any>(products.map((p: any) => [Number(p.id), p]));
+    const originalProductMap = new Map(productMap);
     const accountMap = new Map<string, any>(accounts.map((a: any) => [String(a.code), a]));
     const originalAccountMap = new Map(accountMap);
+    const originalBatchMap = new Map<string, any>(allBatches.map((batch: any) => [String(batch.id), batch]));
     const batchMap = new Map<string, any>(purchaseBatches.map((b: any) => [String(b.id), b]));
     const movementKeys = new Set(existingMovements.map((m: any) => String(m.movementKey)));
     for (const priorReturn of previousReturns) {
@@ -2817,6 +2819,33 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         field: 'balance',
         expectedValue: String(supplier.balance),
       });
+    }
+    for (const change of finalChanges) {
+      if (change.entity === 'products') {
+        const original = originalProductMap.get(Number(change.record.id));
+        if (!original || original.stockQuantity === undefined || original.stockQuantity === null ||
+            !Number.isFinite(Number(original.stockQuantity))) {
+          throw new Error('رصيد مخزون الصنف لا يحتوي قيمة مرجعية صالحة لحماية المرتجع من التحديث المتزامن');
+        }
+        accountingGuards.push({
+          entity: 'products',
+          recordId: JSON.stringify(Number(change.record.id)),
+          field: 'stockQuantity',
+          expectedValue: String(original.stockQuantity),
+        });
+      } else if (change.entity === 'inventoryBatches') {
+        const original = originalBatchMap.get(String(change.record.id));
+        if (!original || original.remainingQuantity === undefined || original.remainingQuantity === null ||
+            !Number.isFinite(Number(original.remainingQuantity))) {
+          throw new Error('كمية دفعة المخزون لا تحتوي قيمة مرجعية صالحة لحماية المرتجع من التحديث المتزامن');
+        }
+        accountingGuards.push({
+          entity: 'inventoryBatches',
+          recordId: JSON.stringify(String(change.record.id)),
+          field: 'remainingQuantity',
+          expectedValue: String(original.remainingQuantity),
+        });
+      }
     }
     const committed = await applyNativePosRecordChangesIfFieldEquals(
       nativeChanges,
