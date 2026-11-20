@@ -2,6 +2,33 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Search } from 'lucide-react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+import { nativePosRepository } from '../native/nativePosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+
+async function persistMovementPage(items: any[]): Promise<void> {
+  const keys = new Set(items.map((movement) => String(movement.movementKey)));
+  const serverIds = new Set(items.map((movement) => String(movement.id)));
+  if (isLocalSqlite()) {
+    const existing = await nativePosRepository.getAllWithSyncState<any>('inventoryMovements');
+    const changes: any[] = existing.filter((row) => keys.has(String(row.record.movementKey)) &&
+      !serverIds.has(String(row.record.id)) && !['pending', 'error'].includes(String(row.syncState)))
+      .map((row) => ({ action: 'delete', entity: 'inventoryMovements', key: row.record.id }));
+    changes.push(...items.map((movement) => ({ action: 'put', entity: 'inventoryMovements', record: { ...movement, syncStatus: 'synced' }, syncState: 'synced' })));
+    if (changes.length) {
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('SQLite did not confirm the complete movement page');
+    }
+    return;
+  }
+  const { db } = await import('../db/db');
+  await db.transaction('rw', db.inventoryMovements, async () => {
+    const localRows = await db.inventoryMovements.where('movementKey').anyOf(Array.from(keys)).toArray();
+    const staleIds = localRows.filter((movement) => !serverIds.has(String(movement.id))).map((movement) => movement.id);
+    if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
+    await db.inventoryMovements.bulkPut(items.map((movement) => ({ ...movement, syncStatus: 'synced' })));
+  });
+}
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 
@@ -59,7 +86,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
       setServerMovements(null);
       setNextOffset(null);
       try {
-        if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') return;
+        if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') return;
         const response = await apiService.getInventoryMovements({
           latest: true,
           offset: 0,
@@ -73,21 +100,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
         setServerMovements(response.items);
         setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
         if (response.items.length === 0) return;
-        if (!isNativeAndroid()) {
-          const { db } = await import('../db/db');
-          await db.transaction('rw', db.inventoryMovements, async () => {
-            const keys = response.items.map((movement: any) => movement.movementKey);
-            const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
-            const serverIds = new Set(response.items.map((movement: any) => movement.id));
-            const staleIds = localRows
-              .filter((movement) => !serverIds.has(movement.id))
-              .map((movement) => movement.id);
-            if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
-            await db.inventoryMovements.bulkPut(
-              response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-            );
-          });
-        }
+        await persistMovementPage(response.items);
       } catch {
         // Keep cached local history available when the server is offline.
       }
@@ -113,19 +126,7 @@ export default function InventoryMovementLedger({ currency }: Props) {
       setServerMovements((previous) => [...(previous || []), ...response.items]);
       setNextOffset(typeof response.nextOffset === 'number' ? response.nextOffset : null);
       if (response.items.length > 0) {
-        if (!isNativeAndroid()) {
-          const { db } = await import('../db/db');
-          await db.transaction('rw', db.inventoryMovements, async () => {
-            const keys = response.items.map((movement: any) => movement.movementKey);
-            const localRows = await db.inventoryMovements.where('movementKey').anyOf(keys).toArray();
-            const serverIds = new Set(response.items.map((movement: any) => movement.id));
-            const staleIds = localRows.filter((movement) => !serverIds.has(movement.id)).map((movement) => movement.id);
-            if (staleIds.length) await db.inventoryMovements.bulkDelete(staleIds);
-            await db.inventoryMovements.bulkPut(
-              response.items.map((movement: any) => ({ ...movement, syncStatus: 'synced' }))
-            );
-          });
-        }
+        await persistMovementPage(response.items);
       }
     } catch {
       // Keep already loaded pages visible if the network drops.
