@@ -927,15 +927,24 @@ export function createPosApp() {
 
   app.post('/api/customers', requirePermission('add_customer'), async (req, res) => {
     try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) return res.status(400).json({ error: 'Customer name is required' });
       const now = new Date().toISOString();
-      const [customer] = await db
-        .insert(customers)
-        .values({ ...req.body, isSynced: 0, createdAt: now, updatedAt: now })
-        .onConflictDoUpdate({
-          target: customers.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      const requestedId = Number(body.id);
+      const [customer] = await db.insert(customers).values({
+        ...(Number.isSafeInteger(requestedId) && requestedId > 0 ? { id: requestedId } : {}),
+        name,
+        ...(typeof body.phone === 'string' ? { phone: body.phone } : {}),
+        ...(typeof body.email === 'string' ? { email: body.email } : {}),
+        ...(Number.isSafeInteger(Number(body.branchId)) && Number(body.branchId) > 0 ? { branchId: Number(body.branchId) } : {}),
+        // Balances and loyalty points are ledger-controlled, never client-supplied.
+        balance: 0,
+        points: 0,
+        isSynced: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
       res.status(201).json(customer);
     } catch {
       res.status(500).json({ error: 'Failed to create customer' });
@@ -963,7 +972,19 @@ export function createPosApp() {
 
   app.delete('/api/customers/:id', requirePermission('delete_customer'), async (req, res) => {
     try {
-      await db.delete(customers).where(eq(customers.id, parseInt(req.params.id)));
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid customer id' });
+      const [customer] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
+      if (!customer) return res.status(404).json({ error: 'Customer not found' });
+      const [sales, payments, returnDocs] = await Promise.all([
+        db.select({ id: orders.id }).from(orders).where(eq(orders.customerId, id)).limit(1),
+        db.select({ id: customerPayments.id }).from(customerPayments).where(eq(customerPayments.customerId, id)).limit(1),
+        db.select({ id: returns.id }).from(returns).where(eq(returns.customerId, id)).limit(1),
+      ]);
+      if (Math.abs(Number(customer.balance || 0)) > 0.005 || sales.length || payments.length || returnDocs.length) {
+        return res.status(409).json({ error: 'لا يمكن حذف عميل له رصيد أو مستندات بيع أو مرتجعات أو دفعات؛ عطّل التعامل معه بدلًا من حذف سجله' });
+      }
+      await db.delete(customers).where(eq(customers.id, id));
       res.json({ message: 'Customer deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete customer' });
@@ -981,15 +1002,22 @@ export function createPosApp() {
 
   app.post('/api/suppliers', requirePermission('add_supplier'), async (req, res) => {
     try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) return res.status(400).json({ error: 'Supplier name is required' });
       const now = new Date().toISOString();
-      const [supplier] = await db
-        .insert(suppliers)
-        .values({ ...req.body, isSynced: 0, createdAt: now, updatedAt: now })
-        .onConflictDoUpdate({
-          target: suppliers.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      const requestedId = Number(body.id);
+      const [supplier] = await db.insert(suppliers).values({
+        ...(Number.isSafeInteger(requestedId) && requestedId > 0 ? { id: requestedId } : {}),
+        name,
+        ...(typeof body.phone === 'string' ? { phone: body.phone } : {}),
+        ...(typeof body.email === 'string' ? { email: body.email } : {}),
+        // Supplier balances are purchase/payment-ledger controlled.
+        balance: 0,
+        isSynced: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
       res.status(201).json(supplier);
     } catch {
       res.status(500).json({ error: 'Failed to create supplier' });
@@ -1017,7 +1045,19 @@ export function createPosApp() {
 
   app.delete('/api/suppliers/:id', requirePermission('delete_supplier'), async (req, res) => {
     try {
-      await db.delete(suppliers).where(eq(suppliers.id, parseInt(req.params.id)));
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid supplier id' });
+      const [supplier] = await db.select().from(suppliers).where(eq(suppliers.id, id)).limit(1);
+      if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+      const [purchaseDocs, returnsDocs, payments] = await Promise.all([
+        db.select({ id: purchases.id }).from(purchases).where(eq(purchases.supplierId, id)).limit(1),
+        db.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.supplierId, id)).limit(1),
+        db.select({ id: supplierPayments.id }).from(supplierPayments).where(eq(supplierPayments.supplierId, id)).limit(1),
+      ]);
+      if (Math.abs(Number(supplier.balance || 0)) > 0.005 || purchaseDocs.length || returnsDocs.length || payments.length) {
+        return res.status(409).json({ error: 'لا يمكن حذف مورد له رصيد أو فواتير شراء أو مرتجعات أو دفعات؛ احتفظ بسجله التاريخي' });
+      }
+      await db.delete(suppliers).where(eq(suppliers.id, id));
       res.json({ message: 'Supplier deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete supplier' });
