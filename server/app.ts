@@ -1648,22 +1648,27 @@ export function createPosApp() {
 
   app.post('/api/shifts', requireAnyPermission(['manage_shifts', 'view_pos', 'view_mobile_sales']), async (req, res) => {
     try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const openingCash = Number(body.openingCash || 0);
+      if (!Number.isFinite(openingCash) || openingCash < 0) {
+        return res.status(400).json({ error: 'Invalid opening cash amount' });
+      }
       const now = new Date().toISOString();
-      const [shift] = await db
-        .insert(shifts)
-        .values({
-          ...req.body,
-          startTime: new Date(req.body.startTime || now).toISOString(),
-          endTime: req.body.endTime ? new Date(req.body.endTime).toISOString() : null,
-          isSynced: 0,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: shifts.id,
-          set: { ...req.body, isSynced: 0, updatedAt: now },
-        })
-        .returning();
+      const startTime = body.startTime ? new Date(body.startTime) : new Date(now);
+      if (!Number.isFinite(startTime.getTime())) return res.status(400).json({ error: 'Invalid shift start time' });
+      const [shift] = await db.insert(shifts).values({
+        id: body.id ? String(body.id) : crypto.randomUUID(),
+        startTime: startTime.toISOString(),
+        endTime: null,
+        openingCash,
+        expectedCash: openingCash,
+        actualCash: null,
+        branchId: Number.isSafeInteger(Number(body.branchId)) && Number(body.branchId) > 0 ? Number(body.branchId) : null,
+        status: 'open',
+        isSynced: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
       res.status(201).json(shift);
     } catch {
       res.status(500).json({ error: 'Failed to create shift' });
@@ -1971,9 +1976,9 @@ export function createPosApp() {
       if (session.status === 'approved') {
         return res.status(409).json({ error: 'لا يمكن حذف جلسة جرد معتمدة؛ فهي جزء من سجل تسويات المخزون' });
       }
-      await db.transaction(async (tx) => {
-        await tx.delete(stocktakingEntries).where(eq(stocktakingEntries.sessionId, req.params.id));
-        await tx.delete(stocktakingSessions).where(eq(stocktakingSessions.id, req.params.id));
+      db.transaction((tx) => {
+        tx.delete(stocktakingEntries).where(eq(stocktakingEntries.sessionId, req.params.id)).run();
+        tx.delete(stocktakingSessions).where(eq(stocktakingSessions.id, req.params.id)).run();
       });
       res.json({ message: 'Stocktaking session deleted' });
     } catch {
@@ -2001,19 +2006,23 @@ export function createPosApp() {
           !Number.isFinite(actualQuantity) || actualQuantity < 0) {
         return res.status(400).json({ error: 'Invalid stocktake entry data' });
       }
-      const [session, product] = await Promise.all([
+      const [session, product, existingEntries] = await Promise.all([
         db.select().from(stocktakingSessions).where(eq(stocktakingSessions.id, sessionId)).limit(1),
         db.select().from(products).where(eq(products.id, productId)).limit(1),
+        db.select().from(stocktakingEntries).where(eq(stocktakingEntries.sessionId, sessionId)),
       ]);
       if (!session[0] || session[0].status !== 'open') return res.status(409).json({ error: 'Stocktaking session is not open' });
       if (!product[0]) return res.status(404).json({ error: 'Product not found' });
+      if (existingEntries.some((entry: any) => Number(entry.productId) === productId)) {
+        return res.status(409).json({ error: 'A product can appear only once in a stocktaking session' });
+      }
       const [entry] = await db.insert(stocktakingEntries).values({
         id: body.id ? String(body.id) : crypto.randomUUID(),
         sessionId,
         productId,
         productName: product[0].name,
-        barcode: typeof body.barcode === 'string' ? body.barcode : product[0].barcode,
-        systemQuantity,
+        barcode: product[0].barcode || null,
+        systemQuantity: Number(product[0].stockQuantity || 0),
         actualQuantity,
         scannedBy: req.authUser?.name || (typeof body.scannedBy === 'string' ? body.scannedBy : null),
         isSynced: 0,
