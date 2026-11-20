@@ -190,7 +190,7 @@ export default function SyncStatus() {
 
   const fetchSupabaseQueue = async () => {
     try {
-      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
         setSupabaseItems([]);
         return;
       }
@@ -359,6 +359,8 @@ export default function SyncStatus() {
         return <span className="inline-flex items-center gap-1 text-rose-600 bg-rose-50 px-2 py-1 rounded-lg text-xs font-bold"><XCircle className="w-3 h-3" /> فشل مؤقت</span>;
       case 'conflict':
         return <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-100 px-2 py-1 rounded-lg text-xs font-bold"><AlertTriangle className="w-3 h-3" /> تعارض</span>;
+      case 'staging':
+        return <span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-2 py-1 rounded-lg text-xs font-bold"><Clock className="w-3 h-3" /> جارٍ الحفظ محليًا</span>;
       case 'pending':
         return <span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-lg text-xs font-bold"><Clock className="w-3 h-3" /> بانتظار الشبكة</span>;
       default:
