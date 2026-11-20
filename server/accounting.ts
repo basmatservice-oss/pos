@@ -482,8 +482,11 @@ export function consumeInventoryFIFO(
       .run();
   }
 
+  // The client persists COGS rounded to currency precision before deriving the
+  // per-sale-unit historical cost. Use the same rounded numerator here so a
+  // fractional-quantity sale cannot diverge by a cent between server and SQLite.
   const averageUnitCost =
-    qtyNeeded > 0 ? totalCost / qtyNeeded : Number(product.costPrice || 0);
+    qtyNeeded > 0 ? roundMoney(totalCost) / qtyNeeded : Number(product.costPrice || 0);
 
   const srcType = params.sourceType || 'order';
   const srcId = params.sourceId || operationId || crypto.randomUUID();
