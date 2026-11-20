@@ -130,6 +130,18 @@ function applyRecordChanges(changes) {
   return { applied: apply(parsed), count: parsed.length };
 }
 
+function getMeta(key) {
+  if (typeof key !== 'string' || !key.trim()) throw new Error('meta key is required');
+  const row = db().prepare('SELECT value FROM pos_meta WHERE key = ?').get(key);
+  return row ? { value: row.value } : {};
+}
+
+function setMeta(key, value) {
+  if (typeof key !== 'string' || !key.trim() || typeof value !== 'string') throw new Error('meta key and string value are required');
+  db().prepare('INSERT INTO pos_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value);
+  return { saved: true };
+}
+
 function closeLocalDatabase() {
   if (database?.open) {
     database.pragma('wal_checkpoint(TRUNCATE)');
@@ -138,4 +150,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, closeLocalDatabase };
