@@ -155,13 +155,13 @@ export async function recordLocalInventoryMovement(input: {
 export async function consumeLocalInventoryFIFO(
   params: ConsumeLocalInventoryParams
 ): Promise<ConsumeLocalInventoryResult> {
+  // Match the server accounting engine: negative stock is allowed unless explicitly disabled.
+  const allowNegative = params.allowNegative ?? true;
   if (isLocalSqlite()) {
     const productRow = (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId);
     const product = productRow?.record as any;
     if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
     const qtyNeeded = roundQty(params.quantityInBaseUnits);
-  // Match the server accounting engine: negative stock is allowed unless explicitly disabled.
-  const allowNegative = params.allowNegative ?? true;
     if (!Number.isFinite(qtyNeeded) || qtyNeeded < 0) throw new Error('كمية الصرف غير صالحة');
     if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
     const productStock = Number(product.stockQuantity);
