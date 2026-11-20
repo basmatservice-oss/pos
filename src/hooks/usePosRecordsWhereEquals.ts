@@ -5,7 +5,7 @@ import { getPosRecords, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals }
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /** Reactive indexed lookup; Android and Electron query SQLite; browser desktop retains Dexie. */
-export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Record<string, unknown>>(
+export function usePosRecordsWhereEquals<T extends object = Record<string, unknown>>(
   entity: NativePosEntity,
   field: string,
   value: string | number | boolean | undefined,
@@ -27,7 +27,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
       if (isWindowsServer) {
         const refresh = async () => {
           try {
-            const rows = await getPosRecordsWhereEquals<T>(entity, field, value);
+            const rows = await getPosRecordsWhereEquals(entity, field, value) as unknown as T[];
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to query ${entity} from Windows Server API:`, error);
@@ -50,7 +50,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
       if (isLocalSqlite) {
         const refresh = async () => {
           try {
-            const rows = await nativePosRepository.whereEquals<T>(entity, field, value);
+            const rows = await nativePosRepository.whereEquals(entity, field, value) as unknown as T[];
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to query ${entity} by ${field} from local SQLite:`, error);
