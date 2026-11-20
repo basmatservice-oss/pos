@@ -256,6 +256,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     if (!movementKeys.has(movementKey)) {
       const movement = { id: generateUUID(), movementKey, productId: Number(productId), movementType,
         sourceType: 'order', sourceId: String(order.id), quantityDeltaBase: -qtyNeeded,
+        baseUnitCode: product.baseUnitCode || product.unit || 'piece',
         unitCost: Math.round((totalCost / qtyNeeded) * 10000) / 10000, totalCost: roundMoney(totalCost), branchId: order.branchId,
         operationId, reason, createdBy: order.createdBy, createdAt: now, syncStatus };
       movements.push(movement); movementKeys.add(movementKey); stage('inventoryMovements', movement);
@@ -1095,7 +1096,9 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       throw new Error('يوجد أثر مخزني سابق لمرتجع المبيعات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع إعادة إضافة المخزون');
     }
     const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
-      sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: Math.round((totalCost / qtyToRestore) * 10000) / 10000, totalCost: roundMoney(totalCost),
+      sourceId: String(id), quantityDeltaBase: qtyToRestore,
+      baseUnitCode: product.baseUnitCode || product.unit || 'piece',
+      unitCost: Math.round((totalCost / qtyToRestore) * 10000) / 10000, totalCost: roundMoney(totalCost),
       branchId: branchId ?? origOrder.branchId, operationId, reason: reason || 'مرتجع مبيعات', createdBy,
       createdAt: effectiveReturnDate, syncStatus };
     movements.push(movement); stage('inventoryMovements', movement);
