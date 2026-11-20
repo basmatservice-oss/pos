@@ -19,7 +19,7 @@
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "lint": "tsc --noEmit",
-    "test:unit": "node --test tests/*.test.js"
+    "test:unit": "node --import tsx --test tests/*.test.js"
   },
   "dependencies": {
     "@capacitor/android": "7.4.3",
