@@ -52,6 +52,7 @@ export interface PosLocalDatabasePlugin {
   replacePendingOperations(options: { operations: PosQueuedOperation[] }): Promise<{ replaced: boolean; count: number }>;
   applySnapshotAndReplaceOutbox(options: { changes: PosLocalRecordChange[]; operations: PosQueuedOperation[] }): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   updatePendingOperationPayload(options: { operationId: string; payload: Record<string, unknown> }): Promise<{ updated: boolean; rows: number; recordUpdated?: boolean }>;
+  activateOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   acknowledgeOperation(options: { operationId: string }): Promise<{ updated: boolean }>;
   markOperationError(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
   markOperationConflict(options: { operationId: string; message: string }): Promise<{ updated: boolean }>;
@@ -174,6 +175,13 @@ export async function updateNativePendingOperationPayload(operationId: string, p
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.updatePendingOperationPayload({ operationId, payload });
   return result.updated === true && result.rows === 1;
+}
+
+export async function activateNativePosOperation(operationId: string): Promise<boolean> {
+  if (isElectronDesktop()) return (await electronPosRepository.updateOperation(operationId, 'pending', null)).updated;
+  if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
+  const result = await posLocalDatabase.activateOperation({ operationId });
+  return result.updated === true;
 }
 
 export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
