@@ -18,7 +18,10 @@ import {
 } from 'lucide-react';
 import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
-import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation } from '../native/posLocalDatabase';
+import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation, deleteNativePosOperation } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -68,7 +71,7 @@ export default function SyncStatus() {
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       syncService.getDeviceRole().then((role) => setIsStandalone(role === 'standalone')).catch(() => setIsStandalone(false));
     }
     fetchData();
@@ -78,7 +81,7 @@ export default function SyncStatus() {
 
   const fetchSystemStatus = async () => {
     try {
-      if (isNativeAndroid() && await syncService.getDeviceRole() === 'standalone') {
+      if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
         setSystemStatus(null);
         return;
       }
@@ -115,7 +118,7 @@ export default function SyncStatus() {
   };
 
   const fetchLocalQueue = async () => {
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       const queued = await listAllNativePosOperations();
       const nativeOperations = queued.map((operation: any) => ({
         id: operation.operationId,
@@ -131,7 +134,19 @@ export default function SyncStatus() {
       })) as SyncOperation[];
       nativeOperations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setOperations(nativeOperations.slice(0, 100));
-      setLocalItems([]);
+      if (isElectronDesktop()) {
+        const items: SyncItem[] = [];
+        for (const entity of NATIVE_POS_ENTITIES) {
+          const records = await nativePosRepository.getAllWithSyncState<any>(entity);
+          for (const row of records) {
+            if (!['pending', 'error'].includes(String(row.syncState))) continue;
+            const record = row.record as any;
+            items.push({ id: record.id ?? record.key ?? record.code, table: entity, status: row.syncState, data: record, updatedAt: record.updatedAt || record.createdAt || new Date().toISOString() });
+          }
+        }
+        items.sort((a,b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+        setLocalItems(items.slice(0,100));
+      } else setLocalItems([]);
       return;
     }
     const { db } = await import('../db/db');
@@ -190,7 +205,7 @@ export default function SyncStatus() {
       toast.error('إعادة إرسال العمليات إلى الخادم غير متاحة في وضع التشغيل المستقل');
       return;
     }
-    if (isNativeAndroid()) {
+    if (isLocalSqlite()) {
       if (op.status === 'error' || op.status === 'conflict') {
         await retryNativePosOperation(String(op.id));
       }
@@ -211,6 +226,13 @@ export default function SyncStatus() {
 
   const handleDeleteOp = async (opId: string) => {
     if (isNativeAndroid()) return;
+    if (isElectronDesktop()) {
+      await deleteNativePosOperation(opId);
+      toast.success('تم حذف السجل من طابور العمليات');
+      await fetchLocalQueue();
+      syncService.updatePendingCount();
+      return;
+    }
     const { db } = await import('../db/db');
     await db.syncOperations.delete(opId);
     toast.success('تم حذف السجل من طابور العمليات');
@@ -220,7 +242,7 @@ export default function SyncStatus() {
 
   const handleResolveAlert = async (alertId: string) => {
     try {
-      const standalone = isNativeAndroid() && await syncService.getDeviceRole() === 'standalone';
+      const standalone = isLocalSqlite() && await syncService.getDeviceRole() === 'standalone';
       if (!standalone) await apiService.resolveInventoryAlert(alertId);
       const alert = await getPosRecord<any>('inventoryAlerts', alertId);
       if (alert) {
@@ -235,9 +257,12 @@ export default function SyncStatus() {
 
   const handleCancelLocal = async (item: SyncItem) => {
     try {
-      if (isNativeAndroid()) return;
-      const { db } = await import('../db/db');
-      await (db as any)[item.table].update(item.id, { syncStatus: 'synced' });
+      if (isLocalSqlite()) {
+        await nativePosRepository.setSyncState(item.table as any, item.id, 'synced');
+      } else {
+        const { db } = await import('../db/db');
+        await (db as any)[item.table].update(item.id, { syncStatus: 'synced' });
+      }
       toast.success('تم إلغاء العملية من الطابور');
       fetchLocalQueue();
     } catch {
@@ -247,9 +272,12 @@ export default function SyncStatus() {
 
   const handleRetryLocal = async (item: SyncItem) => {
     try {
-      if (isNativeAndroid()) return;
-      const { db } = await import('../db/db');
-      await (db as any)[item.table].update(item.id, { syncStatus: 'pending' });
+      if (isLocalSqlite()) {
+        await nativePosRepository.setSyncState(item.table as any, item.id, 'pending');
+      } else {
+        const { db } = await import('../db/db');
+        await (db as any)[item.table].update(item.id, { syncStatus: 'pending' });
+      }
       toast.success('تمت إعادة العملية إلى الطابور');
       fetchLocalQueue();
       syncService.syncAll().catch(() => {});
