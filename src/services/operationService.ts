@@ -2646,8 +2646,17 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
   const { id, returnNumber, originalPurchaseId, items = [], refundMethod = 'credit_adjustment', reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const operationId = String(payload.operationId || id);
+  const operationFingerprint = JSON.stringify({ originalPurchaseId: String(originalPurchaseId || ''), items, refundMethod });
   if (isLocalSqlite()) {
-    if (await nativePosRepository.get<any>('purchaseReturns', id)) return;
+    const existingReturn = id ? await nativePosRepository.get<any>('purchaseReturns', id) : null;
+    if (existingReturn) {
+      if (String(existingReturn.operationId || existingReturn.id) !== operationId ||
+          String(existingReturn.originalPurchaseId) !== String(originalPurchaseId) ||
+          (existingReturn.operationFingerprint && existingReturn.operationFingerprint !== operationFingerprint)) {
+        throw new Error('معرّف مرتجع المشتريات مستخدم لعملية مختلفة؛ أُوقف التكرار لحماية المخزون والحسابات');
+      }
+      return;
+    }
     if (!id || !originalPurchaseId || !Array.isArray(items) || !items.length) {
       throw new Error('بيانات مرتجع المشتريات غير مكتملة');
     }
@@ -2888,7 +2897,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       id, returnNumber, originalPurchaseId: String(originalPurchaseId), supplierId: origPurchase.supplierId,
       supplierName: origPurchase.supplierName, branchId: branchId ?? origPurchase.branchId, shiftId,
       refundMethod, totalReturn, reason, createdBy, deviceId: String(payload.deviceId || 'local-device'),
-      operationId, createdAt: now, updatedAt: now, syncStatus,
+      operationId, operationFingerprint, createdAt: now, updatedAt: now, syncStatus,
     };
     changes.push({ action: 'put', entity: 'purchaseReturns', record: retDoc, syncState: syncStatus });
     let journalEntry: any = null;
