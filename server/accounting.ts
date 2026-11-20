@@ -634,7 +634,9 @@ export function restoreInventoryFIFO(
 
   const srcType = params.sourceType || 'return';
   const srcId = params.sourceId || params.operationId || crypto.randomUUID();
-  const avgRestoredCost = qtyToRestore > 0 ? totalCostRestored / qtyToRestore : fallbackCost;
+  const avgRestoredCost = qtyToRestore > 0
+    ? Math.round((totalCostRestored / qtyToRestore) * 10000) / 10000
+    : Math.round(Number(fallbackCost) * 10000) / 10000;
   recordInventoryMovement(tx, {
     movementKey: `${srcType}:${srcId}:in:${productId}:${params.movementKeySuffix ?? '0'}`,
     productId,
