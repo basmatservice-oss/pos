@@ -73,6 +73,11 @@ export const electronPosRepository = {
     const ids = new Set(keys.map(recordKey));
     return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
   },
+  async getMany<T extends Record<string, unknown>>(entity: NativePosEntity, keys: unknown[]): Promise<T[]> {
+    const rows = await this.getAllWithSyncState(entity);
+    const ids = new Set(keys.map(recordKey));
+    return rows.filter(row => ids.has(row.recordId)).map(row => row.record as T);
+  },
   async whereEquals<T extends Record<string, unknown>>(entity: NativePosEntity, field: string, value: string | number | boolean): Promise<T[]> {
     const rows = await this.getAll<T>(entity);
     return rows.filter(row => row[field] === value);
@@ -88,7 +93,7 @@ export const electronPosRepository = {
   },
   async putMany(entity: NativePosEntity, records: Record<string, unknown>[], syncState: NativePosSyncState = 'local'): Promise<void> {
     await this.isReady();
-    const entries = records.map(record => ({ entity, recordId: getNativePosRecordId(entity, record), record, syncState }));
+    const entries = records.map(record => ({ entity, recordId: recordIdFor(entity, record), record, syncState }));
     const result = await bridge().putRecords(entries);
     if (result.saved !== true || result.count !== entries.length) throw new Error(`Electron SQLite did not confirm saving all ${entity} records`);
     if (entries.length) notifyElectronEntityChanges([entity]);
