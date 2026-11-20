@@ -19,7 +19,7 @@ async function ensureDexieDatabase(): Promise<void> {
 }
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isLocalSqlite()) return;
+  if (isLocalSqlite() || isWindowsServer()) return;
   await ensureDexieDatabase();
 }
 
