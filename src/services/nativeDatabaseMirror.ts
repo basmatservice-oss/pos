@@ -227,8 +227,10 @@ export async function mirrorNativePosDatabase(): Promise<void> {
         if (recordIds.has(record.recordId)) throw new Error(`Duplicate primary-key value ${record.recordId} in ${entity}; refusing to replace the SQLite snapshot`);
         recordIds.add(record.recordId);
       }
-      const saved = await enqueueNativeMirrorWrite(() => replaceNativePosRecords(entity, records));
-      if (!saved) throw new Error('SQLite snapshot write was not confirmed');
+      await enqueueNativeMirrorWrite(async () => {
+        const saved = await replaceNativePosRecords(entity, records);
+        if (!saved) throw new Error('SQLite snapshot write was not confirmed');
+      });
     } catch (error) {
       failedEntities.push(entity);
       console.error('تعذر حفظ لقطة SQLite للجدول ' + entity, error);
