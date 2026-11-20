@@ -10,6 +10,11 @@ type ElectronDatabaseBridge = {
   applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>): Promise<{ applied: number; count: number }>;
 };
 
+function notifyElectronEntityChanges(entities: string[]): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('pos-native-records-changed', { detail: { entities: Array.from(new Set(entities)) } }));
+}
+
 function bridge(): ElectronDatabaseBridge {
   const api = typeof window !== 'undefined' ? (window as any).electronAPI?.posLocalDatabase : null;
   if (!api) throw new Error('Electron local SQLite bridge is unavailable');
@@ -52,12 +57,14 @@ export const electronPosRepository = {
     await this.isReady();
     const result = await bridge().putRecords([{ entity, recordId: getNativePosRecordId(entity, record), record, syncState }]);
     if (result.saved !== true || result.count !== 1) throw new Error(`Electron SQLite did not confirm saving ${entity}`);
+    notifyElectronEntityChanges([entity]);
   },
   async putMany(entity: NativePosEntity, records: Record<string, unknown>[], syncState: NativePosSyncState = 'local'): Promise<void> {
     await this.isReady();
     const entries = records.map(record => ({ entity, recordId: getNativePosRecordId(entity, record), record, syncState }));
     const result = await bridge().putRecords(entries);
     if (result.saved !== true || result.count !== entries.length) throw new Error(`Electron SQLite did not confirm saving all ${entity} records`);
+    if (entries.length) notifyElectronEntityChanges([entity]);
   },
   async applyChanges(changes: Array<
     | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
@@ -69,6 +76,7 @@ export const electronPosRepository = {
       : { action: 'put' as const, entity: change.entity, recordId: getNativePosRecordId(change.entity, change.record), record: change.record, syncState: change.syncState ?? 'local' });
     const result = await bridge().applyRecordChanges(nativeChanges);
     if (result.applied !== changes.length || result.count !== changes.length) throw new Error('Electron SQLite did not confirm the complete transaction');
+    if (changes.length) notifyElectronEntityChanges(changes.map(change => change.entity));
     return result.applied;
   },
   async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
