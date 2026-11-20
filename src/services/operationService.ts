@@ -2746,6 +2746,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
           Number(entry.productId) === productId && String(entry.purchaseId) === String(originalPurchaseId))
         .sort((a: any, b: any) =>
           String(a.purchaseDate || a.createdAt || '').localeCompare(String(b.purchaseDate || b.createdAt || '')) ||
+          String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
           String(a.id).localeCompare(String(b.id)));
       const allocations: Array<{ batch: any | null; quantity: number; costPrice: number }> = [];
       if (reqItem.batchId !== undefined && reqItem.batchId !== null && String(reqItem.batchId).trim()) {
