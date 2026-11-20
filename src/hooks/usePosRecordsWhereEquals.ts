@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
-/** Reactive indexed lookup; Android queries SQLite, desktop loads Dexie on demand. */
+/** Reactive indexed lookup; Android and Electron query SQLite; browser desktop retains Dexie. */
 export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Record<string, unknown>>(
   entity: NativePosEntity,
   field: string,
   value: string | number | boolean | undefined,
 ): T[] {
-  const isAndroid = isNativeAndroid();
+  const isLocalSqlite = isNativeAndroid() || isElectronDesktop();
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
@@ -21,7 +22,7 @@ export function usePosRecordsWhereEquals<T extends Record<string, unknown> = Rec
     }
 
     const start = async () => {
-      if (isAndroid) {
+      if (isLocalSqlite) {
         const refresh = async () => {
           try {
             const rows = await nativePosRepository.whereEquals<T>(entity, field, value);
