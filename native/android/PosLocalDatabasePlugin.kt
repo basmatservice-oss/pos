@@ -1130,6 +1130,7 @@ class PosLocalDatabasePlugin : Plugin() {
                     "entity = ? AND record_id = ?",
                     arrayOf("operations", operationId)
                 )
+                if (recordRows != 1) throw IllegalStateException("Durable operation record is missing: $operationId")
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
