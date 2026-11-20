@@ -44,6 +44,7 @@ export interface PosLocalDatabasePlugin {
   getRecord(options: { entity: string; recordId: string }): Promise<{ found: boolean; item?: { recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number } | null }>;
   updateRecordSyncState(options: { entity: string; recordId: string; syncState: 'local' | 'pending' | 'synced' | 'error' }): Promise<{ updated: boolean; rows: number }>;
   deleteRecord(options: { entity: string; recordId: string }): Promise<{ deleted: boolean; rows: number }>;
+  deleteOperation(options: { operationId: string }): Promise<{ deleted: boolean }>;
   deleteRecords(options: { entity: string; recordIds: string[] }): Promise<{ deleted: number }>;
   enqueueOperation(options: PosQueuedOperation): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   listPendingOperations(): Promise<{ operations: Array<PosQueuedOperation & { createdAt: number; retryCount: number; nextRetryAt?: number }> }>;
@@ -155,6 +156,13 @@ export async function listAllNativePosOperations() {
   const result = await posLocalDatabase.listAllOperations();
   if (!Array.isArray(result.operations)) throw new Error('SQLite returned an invalid operation list');
   return result.operations;
+}
+
+export async function deleteNativePosOperation(operationId: string): Promise<void> {
+  if (isElectronDesktop()) { if (!(await electronPosRepository.deleteOperation(operationId)).deleted) throw new Error('Electron SQLite did not confirm operation deletion'); return; }
+  if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
+  const result = await posLocalDatabase.deleteOperation({ operationId });
+  if (result.deleted !== true) throw new Error('SQLite did not confirm operation deletion');
 }
 
 export async function retryNativePosOperation(operationId: string): Promise<void> {
