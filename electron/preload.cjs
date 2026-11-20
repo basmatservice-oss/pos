@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getMeta: (key) => ipcRenderer.invoke('pos-db:get-meta', key),
     setMeta: (key, value) => ipcRenderer.invoke('pos-db:set-meta', key, value),
     enqueueOperation: (operation) => ipcRenderer.invoke('pos-db:enqueue-operation', operation),
+    mergeOperations: (operations) => ipcRenderer.invoke('pos-db:merge-operations', operations),
     saveAndEnqueueOperation: (operation) => ipcRenderer.invoke('pos-db:save-enqueue-operation', operation),
     applySnapshotAndReplaceOutbox: (changes, operations) => ipcRenderer.invoke('pos-db:apply-snapshot', changes, operations),
     listOperations: (pendingOnly) => ipcRenderer.invoke('pos-db:list-operations', pendingOnly),
