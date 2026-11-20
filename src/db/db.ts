@@ -533,6 +533,7 @@ export interface Purchase {
   operationId?: string;
   syncStatus: 'synced' | 'pending' | 'error';
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface PurchaseItem {
