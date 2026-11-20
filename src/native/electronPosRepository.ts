@@ -27,6 +27,7 @@ type ElectronDatabaseBridge = {
   setMeta(key: string, value: string): Promise<{ saved: boolean }>;
   enqueueOperation(operation: Record<string, unknown>): Promise<{ queued: boolean; duplicate: boolean; operationId: string }>;
   saveAndEnqueueOperation(operation: Record<string, unknown>): Promise<{ saved: boolean; queued: boolean; duplicate: boolean; operationId: string }>;
+  applySnapshotAndReplaceOutbox(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, operations: Array<Record<string, unknown>>): Promise<{ applied: number; operationCount: number; committed: boolean }>;
   listOperations(pendingOnly: boolean): Promise<{ operations: Array<Record<string, any>> }>;
   updateOperation(id: string, status: string, message?: string): Promise<{ updated: boolean }>;
   retryOperation(id: string): Promise<{ updated: boolean }>;
