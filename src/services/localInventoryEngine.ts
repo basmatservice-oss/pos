@@ -157,7 +157,13 @@ export async function consumeLocalInventoryFIFO(
     const product = productRow?.record as any;
     if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
     const qtyNeeded = roundQty(params.quantityInBaseUnits);
+    if (!Number.isFinite(qtyNeeded) || qtyNeeded < 0) throw new Error('كمية الصرف غير صالحة');
     if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
+    const productStock = Number(product.stockQuantity);
+    const productCost = Number(product.costPrice ?? 0);
+    if (!Number.isFinite(productStock) || !Number.isFinite(productCost) || productCost < 0) {
+      throw new Error('رصيد أو تكلفة الصنف غير صالحة؛ أُوقف خصم المخزون لحماية تكلفة البضاعة المباعة');
+    }
     const movementKey = (params.sourceType || 'order') + ':' + params.sourceId + ':out:' + params.productId + ':' + params.movementKeySuffix;
     const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
     if (existingMovement) throw new Error('حركة استهلاك المخزون مسجلة مسبقًا؛ أُوقف التكرار لمنع خصم الكمية مرتين');
@@ -175,6 +181,13 @@ export async function consumeLocalInventoryFIFO(
         const createdOrder = String(a.record.createdAt || '').localeCompare(String(b.record.createdAt || ''));
         return createdOrder || String(a.record.id || '').localeCompare(String(b.record.id || ''));
       });
+    for (const row of batches) {
+      const quantity = Number(row.record.remainingQuantity);
+      const cost = Number(row.record.costPrice);
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(cost) || cost < 0) {
+        throw new Error('توجد دفعة مخزون بكمية أو تكلفة غير صالحة؛ أُوقف الصرف قبل تغيير FIFO');
+      }
+    }
     const weightedAverage = valuation?.value === 'weighted_average';
     let weightedUnitCost = Number(product.costPrice || 0);
     if (weightedAverage && batches.length) {
@@ -410,6 +423,7 @@ export async function restoreLocalInventoryFIFO(params: {
 }): Promise<number> {
   if (isNativeAndroid()) {
     const qtyToRestore = roundQty(params.quantityInBaseUnits);
+    if (!Number.isFinite(qtyToRestore) || qtyToRestore < 0) throw new Error('كمية إعادة المخزون غير صالحة');
     if (qtyToRestore <= 0) return 0;
     const movementKey = (params.sourceType || 'return') + ':' + params.sourceId + ':in:' + params.productId + ':' + params.movementKeySuffix;
     const existingMovement = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', movementKey);
@@ -420,6 +434,8 @@ export async function restoreLocalInventoryFIFO(params: {
       nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
     ]);
     if (!productRow) throw new Error('الصنف غير موجود؛ أُوقف ترحيل المرتجع لمنع إنشاء حركة مخزون يتيمة');
+    const originalProductStock = Number(productRow.record.stockQuantity);
+    if (!Number.isFinite(originalProductStock)) throw new Error('رصيد الصنف غير صالح؛ أُوقف إعادة المخزون لحماية الدفتر المخزني');
     if (!Number.isFinite(Number(params.fallbackCost)) || Number(params.fallbackCost) < 0 ||
         params.allocations.some((allocation) =>
           !allocation || !Number.isFinite(Number(allocation.quantity)) || Number(allocation.quantity) < 0 ||
@@ -497,6 +513,12 @@ export async function restoreLocalInventoryFIFO(params: {
       const activeBatches = [...valuationBatches.values()].filter((batch: any) =>
         Number(batch.productId) === params.productId && Number(batch.remainingQuantity || 0) > 0,
       );
+      for (const batch of activeBatches) {
+        if (!Number.isFinite(Number(batch.remainingQuantity)) || Number(batch.remainingQuantity) <= 0 ||
+            !Number.isFinite(Number(batch.costPrice)) || Number(batch.costPrice) < 0) {
+          throw new Error('توجد دفعة مخزون بكمية أو تكلفة غير صالحة؛ أُوقف المرتجع لحماية متوسط التكلفة');
+        }
+      }
       const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
       const activeValue = activeBatches.reduce((sum: number, batch: any) =>
         sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
