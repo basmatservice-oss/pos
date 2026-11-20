@@ -84,6 +84,34 @@ const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) =>
 
 type PosRecord = Record<string, unknown>;
 
+async function getWindowsServerRecords<T extends PosRecord>(entity: NativePosEntity): Promise<T[]> {
+  const endpoint = SERVER_READ_ENDPOINTS[entity];
+  if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
+  const { apiService } = await import('./apiService');
+  if (entity !== 'inventoryMovements') return await apiService.get(endpoint) as T[];
+
+  const records: T[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await apiService.get(`${endpoint}?offset=${offset}&limit=2000`);
+    if (Array.isArray(page)) {
+      records.push(...page as T[]);
+      break;
+    }
+    if (!Array.isArray(page?.items)) {
+      throw new Error('Windows Server returned an invalid inventory movements page');
+    }
+    records.push(...page.items as T[]);
+    if (page.nextOffset === null || page.nextOffset === undefined) break;
+    const nextOffset = Number(page.nextOffset);
+    if (!Number.isInteger(nextOffset) || nextOffset <= offset) {
+      throw new Error('Windows Server returned an invalid inventory movements cursor');
+    }
+    offset = nextOffset;
+  }
+  return records;
+}
+
 /** Read one business record from the active platform's authoritative database. */
 export async function getPosRecord<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
@@ -91,10 +119,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
 ): Promise<T | undefined> {
   if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
   if (isWindowsServer()) {
-    const endpoint = SERVER_READ_ENDPOINTS[entity];
-    if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
-    const { apiService } = await import('./apiService');
-    const records = await apiService.get(endpoint) as T[];
+    const records = await getWindowsServerRecords<T>(entity);
     return records.find((record) => record.id === key || (entity === 'settings' && record.key === key));
   }
   const { db } = await import('../db/db');
@@ -107,10 +132,7 @@ export async function getPosRecords<T extends PosRecord = PosRecord>(
 ): Promise<T[]> {
   if (isLocalSqlite()) return nativePosRepository.getAll<T>(entity);
   if (isWindowsServer()) {
-    const endpoint = SERVER_READ_ENDPOINTS[entity];
-    if (!endpoint) throw new Error(`No authoritative Windows Server read endpoint is registered for ${entity}`);
-    const { apiService } = await import('./apiService');
-    return await apiService.get(endpoint) as T[];
+    return await getWindowsServerRecords<T>(entity);
   }
   const { db } = await import('../db/db');
   return await db.table(entity).toArray() as T[];
