@@ -819,18 +819,27 @@ export function createPosApp() {
   app.put('/api/products/:id', requirePermission('edit_product'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const data = { ...req.body };
-      if (typeof data.allowFractions === 'boolean') {
-        data.allowFractions = data.allowFractions ? 1 : 0;
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid product id' });
+      // Generic product edits are metadata-only. Inventory quantity and valuation
+      // may only change through purchase, sale, return, stocktake or adjustment operations.
+      const allowedFields = [
+        'name', 'barcode', 'sku', 'categoryId', 'description', 'unit', 'baseUnitCode',
+        'itemType', 'salePrice', 'wholesalePrice', 'taxRate', 'minStock', 'maxStock',
+        'allowFractions', 'isActive', 'image',
+      ];
+      const data: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) data[field] = req.body[field];
       }
-      if (typeof data.isActive === 'boolean') {
-        data.isActive = data.isActive ? 1 : 0;
-      }
+      if (typeof data.allowFractions === 'boolean') data.allowFractions = data.allowFractions ? 1 : 0;
+      if (typeof data.isActive === 'boolean') data.isActive = data.isActive ? 1 : 0;
+      if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable product metadata was supplied' });
       const [product] = await db
         .update(products)
         .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
         .where(eq(products.id, id))
         .returning();
+      if (!product) return res.status(404).json({ error: 'Product not found' });
       res.json(product);
     } catch {
       res.status(500).json({ error: 'Failed to update product' });
@@ -839,7 +848,20 @@ export function createPosApp() {
 
   app.delete('/api/products/:id', requirePermission('delete_product'), async (req, res) => {
     try {
-      await db.delete(products).where(eq(products.id, parseInt(req.params.id)));
+      const id = parseInt(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid product id' });
+      const [product] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const [batches, soldItems, purchasedItems, movements] = await Promise.all([
+        db.select({ id: inventoryBatches.id }).from(inventoryBatches).where(eq(inventoryBatches.productId, id)).limit(1),
+        db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.productId, id)).limit(1),
+        db.select({ id: purchaseItems.id }).from(purchaseItems).where(eq(purchaseItems.productId, id)).limit(1),
+        db.select({ id: inventoryMovements.id }).from(inventoryMovements).where(eq(inventoryMovements.productId, id)).limit(1),
+      ]);
+      if (Number(product.stockQuantity || 0) > 0 || batches.length || soldItems.length || purchasedItems.length || movements.length) {
+        return res.status(409).json({ error: 'لا يمكن حذف صنف له رصيد أو دفعات أو حركات مخزون أو مستندات بيع وشراء؛ عطّله بدلًا من حذفه' });
+      }
+      await db.delete(products).where(eq(products.id, id));
       res.json({ message: 'Product deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete product' });
