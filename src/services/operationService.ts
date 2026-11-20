@@ -3885,15 +3885,22 @@ async function applyShiftLocally(
       const journalLines: any[] = [];
       const transactionRecords: any[] = [];
       const accountRecords: any[] = [];
+      const originalShiftAccounts = new Map<string, any>();
       if (shouldPostLocalAccounting(syncStatus)) {
         const entryKey = 'shift-movement-' + String(payload.operationId || movementId);
         const entryId = `local-je:shift_movement:${movementId}:${entryKey}`;
         journalEntry = await nativePosRepository.get<any>('journalEntries', entryId);
         if (!journalEntry) {
-          const cash = await nativePosRepository.get<any>('accounts', '1010') || {
+          const currentCash = await nativePosRepository.get<any>('accounts', '1010');
+          const currentEquity = await nativePosRepository.get<any>('accounts', '3100');
+          for (const account of [currentCash, currentEquity].filter(Boolean)) {
+            if (account.balance == null || !Number.isFinite(Number(account.balance))) throw new Error('رصيد الحساب ' + String(account.code) + ' غير صالح');
+            originalShiftAccounts.set(String(account.code), account);
+          }
+          const cash = currentCash || {
             code: '1010', name: 'الصندوق', type: 'asset', balance: 0, isSystem: 1, createdAt, updatedAt: createdAt,
           };
-          const equity = await nativePosRepository.get<any>('accounts', '3100') || {
+          const equity = currentEquity || {
             code: '3100', name: 'رأس المال والأرصدة الافتتاحية', type: 'equity', balance: 0, isSystem: 1, createdAt, updatedAt: createdAt,
           };
           const lines = movementType === 'deposit'
@@ -3942,9 +3949,18 @@ async function applyShiftLocally(
         };
         changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
       }
-      const applied = await nativePosRepository.applyChanges(changes);
-      if (applied !== changes.length) {
-        throw new Error('لم تؤكد SQLite حفظ جميع سجلات حركة الوردية والقيود المحاسبية');
+      const shiftCompareGuards = [
+        { entity: 'shifts', recordId: getNativePosRecordId('shifts', shift), field: 'status', expectedValue: 'open' },
+        ...[...originalShiftAccounts.entries()].map(([code, account]) => ({
+          entity: 'accounts', recordId: JSON.stringify(code), field: 'balance', expectedValue: String(account.balance),
+        })),
+      ];
+      const committed = await applyNativePosRecordChangesIfFieldAbsent(
+        changes.map((change: any) => ({ ...change, recordId: getNativePosRecordId(change.entity, change.record) })),
+        'shiftMovements', 'id', movementId, undefined, shiftCompareGuards,
+      );
+      if (committed.skipped || committed.applied !== changes.length) {
+        throw new Error('تغيرت الوردية أو أرصدة الحسابات؛ تعذر اعتماد حركة الصندوق');
       }
       // SQLite committed the shift movement and its accounting records atomically.
       return;
@@ -3996,7 +4012,11 @@ async function applyShiftLocally(
         branchId: payload.branchId,
         syncStatus,
       };
-      await nativePosRepository.put('shifts', record, syncStatus);
+      const committed = await applyNativePosRecordChangesIfAbsent(
+        [{ action: 'put', entity: 'shifts', recordId: getNativePosRecordId('shifts', record), record, syncState: syncStatus }],
+        'shifts', 'id', String(payload.id),
+      );
+      if (committed.skipped || committed.applied !== 1) throw new Error('تعذر فتح الوردية بسبب تعارض؛ أعد تحميل البيانات');
       return;
     }
     if (await db.shifts.get(shiftId)) return;
@@ -4021,7 +4041,11 @@ async function applyShiftLocally(
         status: 'closed',
         syncStatus,
       };
-      await nativePosRepository.put('shifts', record, syncStatus);
+      const committed = await applyNativePosRecordChangesIfFieldEquals(
+        [{ action: 'put', entity: 'shifts', recordId: getNativePosRecordId('shifts', record), record, syncState: syncStatus }],
+        'shifts', getNativePosRecordId('shifts', existing), 'status', String(existing.status),
+      );
+      if (committed.skipped || committed.applied !== 1) throw new Error('تغيرت حالة الوردية؛ أعد تحميلها قبل الإغلاق');
       return;
     }
     await db.shifts.update(payload.id, {
