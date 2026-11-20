@@ -334,7 +334,7 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     }
   } else if (type === 'entity_upsert') {
     const entity = String(payload?.table || '');
-    const serverId = serverResult?.id ?? payload?.record?.id;
+    const serverId = serverResult?.id ?? payload?.record?.id ?? payload?.record?.code ?? payload?.record?.key;
     if (entity && serverId !== undefined) {
       const oldId = payload?.record?.id;
       if (oldId !== undefined && String(oldId) !== String(serverId)) {
@@ -344,7 +344,9 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
         }
       }
       if (entity === 'products') {
-        await mark('products', (row) => String(row.id) === String(serverId));
+        if (!pendingRefs.products.has(String(serverId))) {
+          await mark('products', (row) => String(row.id) === String(serverId));
+        }
         await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
       } else if (!pendingRefs.entityRecords.has(entity + ':' + String(serverId))) {
         await mark(entity, (row) => String(row.id ?? row.code ?? row.key) === String(serverId));
