@@ -377,7 +377,7 @@ const Settings: React.FC = () => {
   const handleExportData = async () => {
     try {
       const data: any = {};
-      if (isNativeAndroid()) {
+      if (isLocalSqlite()) {
         for (const entity of NATIVE_POS_ENTITIES) data[entity] = await nativePosRepository.getAll(entity);
         data._nativePendingOperations = await listNativePendingPosOperations();
       } else {
