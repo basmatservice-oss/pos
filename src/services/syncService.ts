@@ -4,6 +4,8 @@ import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativeP
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 import { readLegacyIndexedDBStores } from './nativeDatabaseMirror';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
 
@@ -14,7 +16,7 @@ async function ensureDexieDatabase(): Promise<void> {
 }
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid()) return;
+  if (isLocalSqlite()) return;
   await ensureDexieDatabase();
 }
 
@@ -27,7 +29,7 @@ async function updateRecordWithoutSyncHook(tableName: string, key: any, changes:
 }
 
 async function markPushedRecordState(tableName: string, key: any, state: 'pending' | 'error' | 'conflict') {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const current = await nativePosRepository.get<any>(tableName as any, key);
     if (!current) throw new Error(`SQLite record is missing while updating ${tableName} sync state`);
     await nativePosRepository.put(
@@ -129,7 +131,7 @@ export const syncService = {
 
   async updatePendingCount() {
     try {
-      if (!isNativeAndroid()) await ensureDesktopDatabase();
+      if (!isLocalSqlite()) await ensureDesktopDatabase();
       // The native outbox is the sole durable operation queue on Android;
       // Dexie entries are only a compatibility mirror and must not be counted.
       let pendingOps = 0;
@@ -272,7 +274,7 @@ export const syncService = {
       const queuedOperation = readyOps[i];
       // Re-read the payload after each acknowledgement: an earlier create may
       // have remapped IDs inside this operation while readyOps was being sorted.
-      const isNativeOperation = isNativeAndroid() && nativeIds.has(queuedOperation.id);
+      const isNativeOperation = isLocalSqlite() && nativeIds.has(queuedOperation.id);
       let currentOperation: any;
       if (isNativeOperation) {
         const latestNative = await listNativePendingPosOperations();
@@ -387,7 +389,7 @@ export const syncService = {
   async pushRecord(tableName: string, record: any) {
     if (await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
-    const table = isNativeAndroid() ? undefined : (db as any)[tableName];
+    const table = isLocalSqlite() ? undefined : (db as any)[tableName];
     if (!table && (!isNativeAndroid() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
     const recordKey = record?.id ?? record?.key;
     if (recordKey === undefined || recordKey === null) return false;
@@ -796,7 +798,7 @@ export const syncService = {
   },
 
   async initAutoSync() {
-    if (isNativeAndroid()) return;
+    if (isLocalSqlite()) return;
     await ensureDesktopDatabase();
     const entityTables = new Set([
       'products',
