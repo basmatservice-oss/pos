@@ -3278,13 +3278,11 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
       entity: 'accounts', recordId: JSON.stringify(code), field: 'balance', expectedValue: String(account.balance),
     }));
     const committed = type === 'expense_delete'
-      ? await applyNativePosRecordChangesIfFieldAbsent(
+      ? await applyNativePosRecordChangesIfFieldEquals(
           changes.map((change: any) => change.action === 'put'
             ? { ...change, recordId: getNativePosRecordId(change.entity, change.record) }
-            : { ...change, recordId: String(change.key) }),
-          'expenses', 'id', String(expenseId),
-          existing ? { entity: 'expenses', recordId: JSON.stringify(expenseId), field: 'id', expectedValue: String(expenseId) } : undefined,
-          expenseCompareGuards,
+            : { ...change, recordId: JSON.stringify(change.key) }),
+          'expenses', JSON.stringify(expenseId), 'id', String(expenseId), expenseCompareGuards,
         )
       : await applyNativePosRecordChangesIfFieldAbsent(
           changes.map((change: any) => ({ ...change, recordId: getNativePosRecordId(change.entity, change.record) })),
