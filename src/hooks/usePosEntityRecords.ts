@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
+import { getPosRecords, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals } from '../services/posDataAccess';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /**
@@ -11,6 +12,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
   entity: NativePosEntity,
 ): T[] {
   const isLocalSqlite = isNativeAndroid() || isElectronLocalClient();
+  const isWindowsServer = isElectronDesktop() && !isElectronLocalClient();
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
@@ -18,6 +20,29 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
     let unsubscribe: (() => void) | undefined;
 
     const start = async () => {
+      if (isWindowsServer) {
+        const refresh = async () => {
+          try {
+            const rows = await getPosRecords<T>(entity);
+            if (active) setRecords(rows);
+          } catch (error) {
+            console.error(`Failed to read ${entity} from Windows Server API:`, error);
+          }
+        };
+        const onServerChange = (event: Event) => {
+          const changed = (event as CustomEvent<{ entity?: string }>).detail?.entity;
+          if (changed === entity) void refresh();
+        };
+        window.addEventListener('pos-server-record-changed', onServerChange);
+        window.addEventListener('focus', refresh);
+        unsubscribe = () => {
+          window.removeEventListener('pos-server-record-changed', onServerChange);
+          window.removeEventListener('focus', refresh);
+        };
+        await refresh();
+        return;
+      }
+
       if (isLocalSqlite) {
         const refresh = async () => {
           try {
