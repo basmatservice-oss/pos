@@ -121,7 +121,10 @@ async function initializeLocalRuntime(): Promise<void> {
             status: !validIdentity || !validPayload ? 'conflict' : operation.status === 'syncing' ? 'pending' : operation.status,
           };
         });
-      await electronPosRepository.applySnapshotAndReplaceOutbox([], legacyPending);
+      const migratedQueue = await electronPosRepository.mergeOperations(legacyPending);
+      if (migratedQueue.total !== legacyPending.length || migratedQueue.inserted + migratedQueue.duplicates !== legacyPending.length) {
+        throw new Error('Electron SQLite legacy operation queue migration was incomplete');
+      }
       await electronPosRepository.setMeta('dexie-business-migration-v1', 'complete');
     }
     await restoreDesktopRuntimeConfig();
