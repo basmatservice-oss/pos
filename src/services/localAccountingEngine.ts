@@ -106,15 +106,12 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
         debit: money(line.debit),
         credit: money(line.credit),
       }));
+      const lineSortKey = (line: { accountCode: string; debit: number; credit: number }) =>
+        line.accountCode + ':' + line.debit.toFixed(2) + ':' + line.credit.toFixed(2);
+      expectedLines.sort((a, b) => lineSortKey(a).localeCompare(lineSortKey(b)));
+      actualLines.sort((a, b) => lineSortKey(a).localeCompare(lineSortKey(b)));
       const sameLines = expectedLines.length === actualLines.length &&
-        expectedLines.every((expected, index) => {
-          const actual = actualLines.find((line) =>
-            line.accountCode === expected.accountCode &&
-            line.debit === expected.debit &&
-            line.credit === expected.credit,
-          );
-          return Boolean(actual) && actualLines.indexOf(actual) === index;
-        });
+        expectedLines.every((expected, index) => lineSortKey(expected) === lineSortKey(actualLines[index]));
       const sameHeader = existingEntry.status === 'posted' &&
         String(existingEntry.referenceId) === input.referenceId &&
         String(existingEntry.referenceType) === input.referenceType &&
