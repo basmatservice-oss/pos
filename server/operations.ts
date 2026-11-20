@@ -334,6 +334,23 @@ function handleSale(
   if (!order || !order.id) {
     throw new OperationError('Invalid sale payload: missing order.id', 400);
   }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new OperationError('Invalid sale payload: at least one sale item is required', 400);
+  }
+  const saleAmounts = [order.totalAmount, order.taxAmount, order.netAmount, order.exchangeRate ?? 1].map(Number);
+  if (saleAmounts.some((value) => !Number.isFinite(value) || value < 0) || saleAmounts[3] <= 0) {
+    throw new OperationError('Invalid sale totals or exchange rate', 400);
+  }
+  for (const item of items) {
+    const productId = Number(item?.productId);
+    const quantity = Number(item?.quantity);
+    const amounts = [item?.unitPrice ?? 0, item?.discountAmount ?? 0, item?.subTotal ?? 0,
+      item?.taxAmount ?? 0, item?.total ?? 0].map(Number);
+    if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0 ||
+        amounts.some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new OperationError('Invalid sale item quantity, product id or financial amount', 400);
+    }
+  }
 
   const existingOrder = tx.select().from(orders).where(eq(orders.id, order.id)).get();
   if (existingOrder) {
@@ -711,6 +728,16 @@ function handleReturn(
       : origOrder.paymentMethod === 'card'
       ? 'card'
       : 'cash');
+  if (!['cash', 'card', 'credit_adjustment'].includes(String(effectiveRefundMethod))) {
+    throw new OperationError('طريقة رد مبلغ مرتجع المبيعات غير معروفة', 400);
+  }
+  const orderNetAmount = Number(origOrder.netAmount || 0);
+  const orderReturnedAmount = Number(origOrder.returnedAmount || 0);
+  if (!Number.isFinite(orderNetAmount) || orderNetAmount < 0 ||
+      !Number.isFinite(orderReturnedAmount) || orderReturnedAmount < 0 ||
+      orderReturnedAmount > orderNetAmount + 0.05) {
+    throw new OperationError('إجمالي الفاتورة أو المرتجعات السابقة غير صالح؛ أوقف الترحيل للمراجعة', 400);
+  }
 
   let totalSub = 0;
   let totalDiscount = 0;
@@ -744,8 +771,15 @@ function handleReturn(
       );
     }
 
-    const alreadyReturned = roundQty(Number(origItem.returnedQuantity || 0));
-    const remainingReturnable = roundQty(Number(origItem.quantity) - alreadyReturned);
+    const originalQuantity = Number(origItem.quantity);
+    const alreadyReturned = Number(origItem.returnedQuantity || 0);
+    const factor = Number(origItem.conversionFactor ?? 1);
+    if (!Number.isFinite(originalQuantity) || originalQuantity <= 0 ||
+        !Number.isFinite(alreadyReturned) || alreadyReturned < 0 || alreadyReturned > originalQuantity + 1e-6 ||
+        !Number.isFinite(factor) || factor <= 0) {
+      throw new OperationError('بيانات كمية أو معامل تحويل الصنف الأصلي غير صالحة', 400);
+    }
+    const remainingReturnable = roundQty(originalQuantity - alreadyReturned);
 
     if (qtyToReturn > remainingReturnable + 1e-6) {
       throw new OperationError(
@@ -754,17 +788,23 @@ function handleReturn(
       );
     }
 
-    const ratio = qtyToReturn / Number(origItem.quantity);
+    const ratio = qtyToReturn / originalQuantity;
     const lineSub = roundMoney(Number(origItem.subTotal) * ratio);
     const lineTax = roundMoney(Number(origItem.taxAmount) * ratio);
     const lineTotal = roundMoney(Number(origItem.total) * ratio);
+    if ([lineSub, lineTax, lineTotal].some((value) => !Number.isFinite(value) || value < 0)) {
+      throw new OperationError('القيم المالية للصنف الأصلي غير صالحة؛ أوقف ترحيل المرتجع', 400);
+    }
+    const originalUnitCost = Number(origItem.costPriceAtTimeOfSale || 0);
+    if (!Number.isFinite(originalUnitCost) || originalUnitCost < 0) {
+      throw new OperationError('تكلفة الصنف الأصلية غير صالحة؛ أوقف ترحيل المرتجع', 400);
+    }
     const lineDisc = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
 
     const condition: 'resalable' | 'damaged' =
       reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
     const itemType = String(origItem.itemType || 'stock');
 
-    const factor = Number(origItem.conversionFactor || 1);
     const baseQty = roundQty(qtyToReturn * factor);
     let parsedAlloc: any = [];
     try {
@@ -898,8 +938,8 @@ function handleReturn(
     throw new OperationError('No valid return items provided', 400);
   }
 
-  const newReturnedAmount = roundMoney(Number(origOrder.returnedAmount || 0) + totalRefund);
-  if (newReturnedAmount > roundMoney(Number(origOrder.netAmount || 0)) + 0.05) {
+  const newReturnedAmount = roundMoney(orderReturnedAmount + totalRefund);
+  if (newReturnedAmount > roundMoney(orderNetAmount) + 0.05) {
     throw new OperationError('إجمالي قيمة المرتجع يتجاوز صافي الفاتورة الأصلية', 400);
   }
 
