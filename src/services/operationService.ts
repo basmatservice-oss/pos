@@ -2181,7 +2181,7 @@ async function applyPurchaseLocally(
       throw new Error('لا يمكن حذف فاتورة شراء استُهلك جزء من دفعاتها أو تحتوي كميات غير سليمة');
     }
     const oldProductIds = [...itemBaseQuantities.keys()];
-    const [allProducts, batchGroups, supplier, transactionGroups] = await Promise.all([
+    const [allProducts, batchGroups, loadedSupplier, transactionGroups] = await Promise.all([
       nativePosRepository.getMany<any>('products', oldProductIds),
       Promise.all(oldProductIds.map((productId: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId))),
       oldPurchase.supplierId ? nativePosRepository.get<any>('suppliers', oldPurchase.supplierId) : Promise.resolve(null),
@@ -2202,7 +2202,7 @@ async function applyPurchaseLocally(
     const operationId = String(payload.operationId || oldPurchase.operationId || purchaseId);
     const productMap = new Map<number, any>(allProducts.map((x: any) => [Number(x.id), x]));
     const originalProductMap = new Map(productMap);
-    const supplierMap = new Map<string, any>(supplier ? [[String(supplier.id), supplier]] : []);
+    const supplierMap = new Map<string, any>(loadedSupplier ? [[String(loadedSupplier.id), loadedSupplier]] : []);
     const originalSupplierMap = new Map(supplierMap);
     const accountMap = new Map<string, any>(accounts.map((x: any) => [String(x.code), x]));
     const originalAccountMap = new Map(accountMap);
