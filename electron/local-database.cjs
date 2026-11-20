@@ -250,7 +250,10 @@ function updateOperation(operationId, status, message, nextRetryAt) {
   const retryAt = nextRetryAt == null ? null : Number(nextRetryAt);
   if (retryAt !== null && (!Number.isFinite(retryAt) || retryAt <= 0)) throw new Error('Invalid next retry timestamp');
   const tx = db().transaction(() => {
-    const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END, next_retry_at=? WHERE operation_id=?')
+    const where = status === 'pending'
+      ? "WHERE operation_id=? AND status IN ('staging','pending')"
+      : 'WHERE operation_id=?';
+    const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END, next_retry_at=? ' + where)
       .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, retryAt, operationId);
     if (result.changes !== 1) return false;
     const syncState = status === 'synced' ? 'synced' : (status === 'error' || status === 'conflict' ? 'error' : 'pending');
