@@ -184,8 +184,8 @@ export async function acknowledgeNativePosOperation(operationId: string): Promis
   }
 }
 
-export async function markNativePosOperationError(operationId: string, message: string): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.updateOperation(operationId, 'error', message)).updated) throw new Error('Electron outbox error update was not confirmed'); return; }
+export async function markNativePosOperationError(operationId: string, message: string, nextRetryAt?: number): Promise<void> {
+  if (isElectronDesktop()) { if (!(await electronPosRepository.updateOperation(operationId, 'error', message, nextRetryAt)).updated) throw new Error('Electron outbox error update was not confirmed'); return; }
   if (await ensureNativePosDatabase()) {
     const result = await posLocalDatabase.markOperationError({ operationId, message });
     if (result.updated !== true) throw new Error(`SQLite outbox error update was not confirmed: ${operationId}`);
