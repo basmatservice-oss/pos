@@ -55,23 +55,33 @@ const SERVER_READ_ENDPOINTS: Partial<Record<NativePosEntity, string>> = {
   productUnits: '/productUnits',
 };
 
+// Generic record writes are deliberately limited to metadata-only endpoints.
+// Stock, costs, customer/supplier balances, shifts and source documents must use
+// executeOperation so inventory/accounting effects cannot be bypassed.
 const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<string, unknown>) => string>> = {
   categories: (r) => `/categories/${encodeURIComponent(String(r.id))}`,
   products: (r) => `/products/${encodeURIComponent(String(r.id))}`,
   customers: (r) => `/customers/${encodeURIComponent(String(r.id))}`,
   suppliers: (r) => `/suppliers/${encodeURIComponent(String(r.id))}`,
   employees: (r) => `/employees/${encodeURIComponent(String(r.id))}`,
-  shifts: (r) => `/shifts/${encodeURIComponent(String(r.id))}`,
   attendance: (r) => `/attendance/${encodeURIComponent(String(r.id))}`,
   branches: (r) => `/branches/${encodeURIComponent(String(r.id))}`,
   offers: (r) => `/offers/${encodeURIComponent(String(r.id))}`,
 };
 
+const SERVER_UPDATE_FIELDS: Partial<Record<NativePosEntity, readonly string[]>> = {
+  categories: ['name', 'description', 'color', 'parentId', 'isActive'],
+  products: ['name', 'barcode', 'sku', 'categoryId', 'description', 'unit', 'baseUnitCode', 'itemType', 'salePrice', 'wholesalePrice', 'taxRate', 'minStock', 'maxStock', 'allowFractions', 'isActive', 'image'],
+  customers: ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'creditLimit', 'isActive'],
+  suppliers: ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'isActive'],
+  employees: ['name', 'phone', 'email', 'address', 'role', 'permissions', 'password', 'pinCode', 'mustChangePassword', 'isActive'],
+  attendance: ['employeeId', 'date', 'checkIn', 'checkOut', 'status', 'notes'],
+  branches: ['name', 'address', 'phone', 'email', 'status', 'isActive'],
+  offers: ['name', 'description', 'type', 'value', 'startDate', 'endDate', 'applicableProducts', 'status', 'isActive'],
+};
+
 const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) => string>> = {
   categories: (key) => `/categories/${encodeURIComponent(String(key))}`,
-  products: (key) => `/products/${encodeURIComponent(String(key))}`,
-  customers: (key) => `/customers/${encodeURIComponent(String(key))}`,
-  suppliers: (key) => `/suppliers/${encodeURIComponent(String(key))}`,
   employees: (key) => `/employees/${encodeURIComponent(String(key))}`,
   branches: (key) => `/branches/${encodeURIComponent(String(key))}`,
   offers: (key) => `/offers/${encodeURIComponent(String(key))}`,
@@ -194,7 +204,14 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
     if (!endpoint || record.id == null) {
       throw new Error(`No safe Windows Server update endpoint is registered for ${entity}`);
     }
-    await apiService.put(endpoint, record);
+    const allowedFields = SERVER_UPDATE_FIELDS[entity];
+    if (!allowedFields) throw new Error(`Windows Server generic updates are disabled for ${entity}; use its business operation endpoint`);
+    const safeRecord: Record<string, unknown> = {};
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(record, field)) safeRecord[field] = record[field];
+    }
+    if (!Object.keys(safeRecord).length) throw new Error(`No safe metadata fields were supplied for ${entity}`);
+    await apiService.put(endpoint, safeRecord);
     notifyWindowsServerEntityChange(entity);
     return;
   }
