@@ -30,6 +30,7 @@ import {
   stocktakingSessions,
   stocktakingEntries,
   inventoryBatches,
+  inventoryMovements,
   inventoryAlerts,
   processedOperations,
   serviceRecipes,
