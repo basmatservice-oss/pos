@@ -77,11 +77,10 @@ async function initializeLocalRuntime(): Promise<void> {
   }
 
   if (isElectronDesktop()) {
-    const { ensureDatabaseReady } = await import('./db/db');
-    await ensureDatabaseReady();
     const marker = await electronPosRepository.getMeta('dexie-business-migration-v1');
     if (marker !== 'complete') {
-      const { db } = await import('./db/db');
+      const { ensureDatabaseReady, db } = await import('./db/db');
+      await ensureDatabaseReady();
       for (const entity of NATIVE_POS_ENTITIES) {
         const records = await db.table(entity).toArray() as Array<Record<string, unknown>>;
         await electronPosRepository.putMany(entity, records, 'local');
