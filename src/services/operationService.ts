@@ -13,7 +13,7 @@ import { roundQty } from '../utils/format';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
-import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
+import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, activateNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 import { isElectronDesktop } from '../native/electronPosRepository';
 
