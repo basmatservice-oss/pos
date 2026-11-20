@@ -987,7 +987,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     }
     return ids;
   }).filter((productId: number) => Number.isSafeInteger(productId) && productId > 0))];
-  const [products, customer, batchGroups, movements, accounts, journals, valuationSetting] = await Promise.all([
+  const [products, customer, batchGroups, movements, accounts, journals, valuationSetting, currencySetting] = await Promise.all([
     nativePosRepository.getMany<any>('products', affectedProductIds),
     origOrder.customerId
       ? nativePosRepository.get<any>('customers', origOrder.customerId)
@@ -997,6 +997,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2200', '4200', '5100', '5400']),
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(id)),
     nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
+    nativePosRepository.firstWhereEquals<any>('settings', 'key', 'currency'),
   ]);
   const batches = batchGroups.flat();
   const productMap = new Map(products.map((x: any) => [Number(x.id), x]));
@@ -1191,9 +1192,11 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   }
   stage('returns', { id, returnNumber, originalOrderId, originalReceiptNumber: origOrder.receiptNumber,
     customerId: origOrder.customerId, customerName: origOrder.customerName, branchId: branchId ?? origOrder.branchId,
-    shiftId: shiftId ?? origOrder.shiftId, refundMethod: effectiveRefundMethod, subTotal: roundMoney(totalSub),
-    discountAmount: roundMoney(totalDiscount), taxAmount: roundMoney(totalTax), totalRefund: roundMoney(totalRefund),
-    totalCostReversed, reason, createdBy, createdAt: effectiveReturnDate, updatedAt: now, syncStatus });
+    shiftId: shiftId ?? origOrder.shiftId, refundMethod: effectiveRefundMethod,
+    currency: origOrder.currency || currencySetting?.value || 'ر.س', exchangeRate: Number(origOrder.exchangeRate || 1),
+    subTotal: roundMoney(totalSub), discountAmount: roundMoney(totalDiscount), taxAmount: roundMoney(totalTax),
+    totalRefund: roundMoney(totalRefund), totalCostReversed, reason, createdBy, deviceId, operationId,
+    createdAt: effectiveReturnDate, updatedAt: now, syncStatus });
 
   const journalSyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
   const accountDefaults: Record<string, any> = {
