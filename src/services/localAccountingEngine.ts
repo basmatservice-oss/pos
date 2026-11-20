@@ -94,25 +94,39 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
     if (await nativePosRepository.get<any>('journalEntries', entryId)) return entryId;
     const now = input.date || new Date().toISOString();
     const changes: any[] = [];
-    const accounts = new Map<string, any>();
-    const accountSyncStates = new Map<string, any>();
-    const accountRows = await nativePosRepository.getAllWithSyncState('accounts');
-    for (const row of accountRows) {
-      accounts.set(String(row.record.code), row.record);
-      accountSyncStates.set(String(row.record.code), row.syncState);
-    }
-    const accountChanges = new Map<string, any>();
+    let accountRows = await nativePosRepository.getAllWithSyncState('accounts');
+    const existingAccountCodes = new Set(accountRows.map((row) => String(row.record.code)));
     for (const definition of SYSTEM_ACCOUNTS) {
-      const existing = accounts.get(definition.code);
-      const account = existing || {
+      if (existingAccountCodes.has(definition.code)) continue;
+      const seed = {
         ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
       };
-      accounts.set(definition.code, account);
-      if (!existing) {
-        accountChanges.set(definition.code, account);
-        accountSyncStates.set(definition.code, 'local');
+      const seeded = await applyNativePosRecordChangesIfAbsent(
+        [{
+          action: 'put',
+          entity: 'accounts',
+          recordId: JSON.stringify(definition.code),
+          record: seed,
+          syncState: 'local',
+        }],
+        'accounts',
+        JSON.stringify(definition.code),
+      );
+      if (!seeded.skipped && seeded.applied !== 1) {
+        throw new Error('SQLite لم تؤكد تهيئة الحساب النظامي ' + definition.code);
       }
     }
+    accountRows = await nativePosRepository.getAllWithSyncState('accounts');
+    const accounts = new Map<string, any>();
+    const originalAccounts = new Map<string, any>();
+    const accountSyncStates = new Map<string, any>();
+    for (const row of accountRows) {
+      const code = String(row.record.code);
+      accounts.set(code, row.record);
+      originalAccounts.set(code, row.record);
+      accountSyncStates.set(code, row.syncState);
+    }
+    const accountChanges = new Map<string, any>();
     const journal = {
       id: entryId,
       entryNumber: 'LOCAL-' + input.entryKey + '-' + input.referenceId.slice(0, 8),
@@ -184,10 +198,23 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
           record: change.record,
           syncState: change.syncState || 'local',
         });
+    const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
+      const original = originalAccounts.get(accountCode);
+      if (!original || original.balance === undefined || original.balance === null) {
+        throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف الترحيل لمنع فقدان تحديث متزامن');
+      }
+      return {
+        entity: 'accounts',
+        recordId: JSON.stringify(accountCode),
+        field: 'balance',
+        expectedValue: String(original.balance),
+      };
+    });
     const committed = await applyNativePosRecordChangesIfAbsent(
       atomicChanges,
       'journalEntries',
       JSON.stringify(entryId),
+      accountBalanceGuards,
     );
     if (committed.skipped) return entryId;
     if (committed.applied !== changes.length) throw new Error('SQLite لم تؤكد حفظ جميع أجزاء القيد المحاسبي');
