@@ -257,8 +257,9 @@ function updateOperation(operationId, status, message, nextRetryAt) {
       .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, retryAt, operationId);
     if (result.changes !== 1) return false;
     const syncState = status === 'synced' ? 'synced' : (status === 'error' || status === 'conflict' ? 'error' : 'pending');
-    db().prepare('UPDATE pos_records SET sync_state=?, updated_at=? WHERE entity=? AND record_id=?')
+    const recordResult = db().prepare('UPDATE pos_records SET sync_state=?, updated_at=? WHERE entity=? AND record_id=?')
       .run(syncState, Date.now(), 'operations', operationId);
+    if (recordResult.changes !== 1) throw new Error('Durable operation record is missing; outbox status update rolled back');
     return true;
   });
   return { updated: tx() };
