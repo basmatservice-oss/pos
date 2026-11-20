@@ -15,9 +15,9 @@ import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalA
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, activateNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 
-const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 
 // Dexie is a desktop-only compatibility store. Never load it into Android's
 // operation module; native Android operations use SQLite repositories only.
