@@ -964,11 +964,20 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
   const { id, returnNumber, originalOrderId, items = [], refundMethod, reason, branchId, shiftId, createdBy } = payload;
   const now = new Date().toISOString();
   const effectiveReturnDate = payload.returnDate ? new Date(payload.returnDate).toISOString() : now;
+  const operationId = String(payload.operationId || id);
+  const operationFingerprint = JSON.stringify({ originalOrderId: String(originalOrderId || ''), items, refundMethod: refundMethod ?? null });
   const [existingReturn, origOrder, origItems] = await Promise.all([
     nativePosRepository.get<any>('returns', id), nativePosRepository.get<any>('orders', originalOrderId),
     nativePosRepository.whereEquals<any>('orderItems', 'orderId', originalOrderId),
   ]);
-  if (existingReturn) return;
+  if (existingReturn) {
+    if (String(existingReturn.operationId || existingReturn.id) !== operationId ||
+        String(existingReturn.originalOrderId) !== String(originalOrderId) ||
+        (existingReturn.operationFingerprint && existingReturn.operationFingerprint !== operationFingerprint)) {
+      throw new Error('معرّف مرتجع المبيعات مستخدم لعملية مختلفة؛ أُوقف التكرار لحماية المخزون والحسابات');
+    }
+    return;
+  }
   if (id === undefined || id === null || String(id).trim() === '' || !Array.isArray(items) || !items.length) {
     throw new Error('بيانات مرتجع المبيعات غير مكتملة');
   }
@@ -1019,7 +1028,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       orderReturnedAmount > orderNetAmount + 0.05) {
     throw new Error('إجمالي الفاتورة أو المرتجعات السابقة غير صالح؛ أوقف الترحيل للمراجعة');
   }
-  const operationId = String(payload.operationId || id), deviceId = String(payload.deviceId || 'local-device');
+  const deviceId = String(payload.deviceId || 'local-device');
   let totalRefund = 0, totalTax = 0, totalSub = 0, totalCostReversed = 0;
   let totalDiscount = 0, totalResalableCostReversed = 0, totalDamagedCostReversed = 0, processedItems = 0;
 
@@ -1195,7 +1204,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     shiftId: shiftId ?? origOrder.shiftId, refundMethod: effectiveRefundMethod,
     currency: origOrder.currency || currencySetting?.value || 'ر.س', exchangeRate: Number(origOrder.exchangeRate || 1),
     subTotal: roundMoney(totalSub), discountAmount: roundMoney(totalDiscount), taxAmount: roundMoney(totalTax),
-    totalRefund: roundMoney(totalRefund), totalCostReversed, reason, createdBy, deviceId, operationId,
+    totalRefund: roundMoney(totalRefund), totalCostReversed, reason, createdBy, deviceId, operationId, operationFingerprint,
     createdAt: effectiveReturnDate, updatedAt: now, syncStatus });
 
   const journalSyncStatus = currentDeviceRole === 'standalone' ? 'synced' : 'pending';
