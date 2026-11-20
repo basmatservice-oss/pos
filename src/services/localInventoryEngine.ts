@@ -251,7 +251,7 @@ export async function consumeLocalInventoryFIFO(
       },
       syncState: params.syncStatus || 'local',
     });
-    const averageUnitCost = totalCost / qtyNeeded;
+    const averageUnitCost = roundMoney(totalCost) / qtyNeeded;
     changes.push({
       action: 'put', entity: 'inventoryMovements',
       record: {
@@ -384,7 +384,7 @@ export async function consumeLocalInventoryFIFO(
     });
   }
 
-  const averageUnitCost = totalCost / qtyNeeded;
+  const averageUnitCost = roundMoney(totalCost) / qtyNeeded;
   await recordLocalInventoryMovement({
     movementKey: `${params.sourceType || 'order'}:${params.sourceId}:out:${params.productId}:${params.movementKeySuffix}`,
     productId: params.productId,
