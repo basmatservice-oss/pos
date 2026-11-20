@@ -60,7 +60,7 @@ const NATIVE_PRIMARY_KEYS = {
 export type NativePosEntity = keyof typeof NATIVE_PRIMARY_KEYS;
 
 // Keep the mirror entity list derived from the same key registry to prevent schema drift.
-// syncOperations is intentionally excluded: Android stores its durable queue in pos_outbox.
+// syncOperations is intentionally excluded: Android and Electron store durable queues in pos_outbox.
 export const NATIVE_POS_ENTITIES = Object.keys(NATIVE_PRIMARY_KEYS) as NativePosEntity[];
 
 function assertEntity(entity: string): asserts entity is NativePosEntity {
