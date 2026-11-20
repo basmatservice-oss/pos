@@ -212,6 +212,20 @@ function acknowledgeOperation(operationId) {
   const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL WHERE operation_id=?").run(operationId);
   return { updated: result.changes === 1 };
 }
+function applySnapshotAndReplaceOutbox(changes, operations) {
+  if (!Array.isArray(operations) || operations.length > 100000) throw new Error('Invalid snapshot outbox');
+  const tx = db().transaction(() => {
+    const recordResult = applyRecordChanges(changes);
+    if (recordResult.skipped || recordResult.applied !== changes.length) throw new Error('Snapshot record transaction was incomplete');
+    db().prepare('DELETE FROM pos_outbox').run();
+    for (const operation of operations) {
+      const result = enqueueOperation(operation);
+      if (!result.queued) throw new Error('Duplicate or invalid operation in snapshot outbox');
+    }
+    return { applied: recordResult.applied, operationCount: operations.length, committed: true };
+  });
+  return tx();
+}
 function getMeta(key) {
   if (typeof key !== 'string' || !key.trim()) throw new Error('meta key is required');
   const row = db().prepare('SELECT value FROM pos_meta WHERE key = ?').get(key);
@@ -232,4 +246,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, acknowledgeOperation, closeLocalDatabase };
