@@ -3,6 +3,7 @@ import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
+import { readLegacyIndexedDBStores } from './nativeDatabaseMirror';
 let db = {} as typeof import('../db/db').db;
 let dexieLoaded = false;
 
@@ -42,8 +43,9 @@ export async function migrateLegacyAndroidQueueToSQLite() {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
   const migrationState = await posLocalDatabase.getMeta({ key: 'legacy_dexie_queue_migrated' });
   if (migrationState.value === '1') return;
-  await ensureDexieDatabase(); // One-time migration of the legacy Android Dexie queue.
-  const legacy = await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  const legacyStores = await readLegacyIndexedDBStores();
+  const legacy = (Array.isArray(legacyStores.syncOperations) ? legacyStores.syncOperations : [])
+    .filter((operation: any) => ['pending', 'error', 'syncing'].includes(String(operation?.status || '')));
   if (!legacy.length) {
     const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
     if (!completed.saved) throw new Error('تعذر حفظ علامة ترحيل طابور Dexie القديم في SQLite');
@@ -57,24 +59,13 @@ export async function migrateLegacyAndroidQueueToSQLite() {
     const nativeRecord = await getNativePosRecord('operations', id);
     const existingState = nativeRecord?.syncState ? String(nativeRecord.syncState) : undefined;
     if (pendingIds.has(id) || existingState === 'synced') {
-      await db.syncOperations.update(operation.id, {
-        status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
-      });
       continue;
     }
     if (existingState === 'conflict') {
-      await db.syncOperations.update(operation.id, {
-        status: 'conflict', lastError: operation.lastError || 'عملية قديمة محفوظة كمتعارضة في SQLite',
-        updatedAt: new Date().toISOString(),
-      });
       continue;
     }
     if (!operation.type || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
-      await db.syncOperations.update(operation.id, {
-        status: 'conflict', lastError: 'تعذر ترحيل عملية قديمة: نوع العملية أو محتواها غير صالح',
-        updatedAt: new Date().toISOString(),
-      });
-      continue;
+      throw new Error('عملية مزامنة قديمة غير صالحة؛ أُوقفت عملية الترحيل لحماية الطابور');
     }
     const createdAt = operation.createdAt == null ? Date.now() : new Date(operation.createdAt).getTime();
     const schemaVersion = Number(operation.schemaVersion || 1);
@@ -106,14 +97,8 @@ export async function migrateLegacyAndroidQueueToSQLite() {
     if (invalidMetadata) {
       const reason = 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
       await markNativePosOperationConflict(id, reason);
-      await db.syncOperations.update(operation.id, {
-        status: 'conflict', lastError: reason, updatedAt: new Date().toISOString(),
-      });
       continue;
     }
-    await db.syncOperations.update(operation.id, {
-      status: 'synced', lastError: undefined, updatedAt: new Date().toISOString(),
-    });
   }
   const completed = await posLocalDatabase.setMeta({ key: 'legacy_dexie_queue_migrated', value: '1' });
   if (!completed.saved) throw new Error('تعذر تأكيد اكتمال ترحيل طابور Dexie القديم إلى SQLite');
