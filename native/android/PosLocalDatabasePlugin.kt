@@ -152,7 +152,10 @@ class PosLocalDatabasePlugin : Plugin() {
         if (ifMatchGuardsArray != null) {
             for (index in 0 until ifMatchGuardsArray.length()) {
                 val item = ifMatchGuardsArray.optJSONObject(index)
-                    ?: run { call.reject("شرط مقارنة SQLite متعدد غير صالح"); return }
+                if (item == null) {
+                    call.reject("شرط مقارنة SQLite متعدد غير صالح")
+                    return
+                }
                 val entity = item.optString("entity").trim()
                 val recordId = item.optString("recordId").trim()
                 val field = item.optString("field").trim()
