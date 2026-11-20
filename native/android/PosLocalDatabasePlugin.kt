@@ -1024,7 +1024,12 @@ class PosLocalDatabasePlugin : Plugin() {
             var recordRows = 0
             db.beginTransaction()
             try {
-                val values = ContentValues().apply { put("payload", payload.toString()) }
+                val values = ContentValues().apply {
+                    put("payload", payload.toString())
+                    put("retry_count", 0)
+                    putNull("last_error")
+                    putNull("next_retry_at")
+                }
                 outboxRows = db.update(
                     "pos_outbox", values, "operation_id = ? AND status IN ('pending', 'error')",
                     arrayOf(operationId)
