@@ -126,7 +126,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   return await db.table(entity).get(key as any) as T | undefined;
 }
 
-/** Read from SQLite on Android/Windows Client and Dexie-backed server cache on Windows Server. */
+/** Read from SQLite on Android/Windows Client and the authoritative API on Windows Server. */
 export async function getPosRecords<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
@@ -138,7 +138,7 @@ export async function getPosRecords<T extends PosRecord = PosRecord>(
   return await db.table(entity).toArray() as T[];
 }
 
-/** Equality-filtered reads are executed by SQLite on Android, not in the Dexie cache. */
+/** Equality-filtered reads use the platform's authoritative data source. */
 export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
   field: string,
