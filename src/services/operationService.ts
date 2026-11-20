@@ -3218,6 +3218,8 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
           const accounts = new Map<string, any>();
           for (const code of ['5200', cashCode]) {
             const current = await nativePosRepository.get<any>('accounts', code);
+            if (current && (current.balance == null || !Number.isFinite(Number(current.balance)))) throw new Error('رصيد الحساب ' + code + ' غير صالح');
+            if (current) originalExpenseAccounts.set(code, current);
             accounts.set(code, current || {
               code, ...definitions[code], balance: 0, isSystem: 1,
               createdAt: now, updatedAt: now,
@@ -3280,8 +3282,8 @@ async function applyExpenseLocally(type: 'expense' | 'expense_delete', payload: 
           changes.map((change: any) => change.action === 'put'
             ? { ...change, recordId: getNativePosRecordId(change.entity, change.record) }
             : { ...change, recordId: String(change.key) }),
-          'expenses', 'deletionVersion', String(existing?.updatedAt || existing?.createdAt || existing?.id || expenseId),
-          existing ? { entity: 'expenses', recordId: JSON.stringify(expenseId), field: 'updatedAt', expectedValue: String(existing.updatedAt || existing.createdAt || '') } : undefined,
+          'expenses', 'id', String(expenseId),
+          existing ? { entity: 'expenses', recordId: JSON.stringify(expenseId), field: 'id', expectedValue: String(expenseId) } : undefined,
           expenseCompareGuards,
         )
       : await applyNativePosRecordChangesIfFieldAbsent(
