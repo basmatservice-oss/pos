@@ -286,7 +286,7 @@ function updateOperationPayload(operationId, payload) {
     throw new Error('Operation payload exceeds the local SQLite size limit');
   }
   const tx = db().transaction(() => {
-    const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(serialized, operationId);
+    const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', retry_count=0, last_error=NULL, next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(serialized, operationId);
     if (result.changes !== 1) return false;
     db().prepare('UPDATE pos_records SET json=?, updated_at=? WHERE entity=? AND record_id=?')
       .run(serialized, Date.now(), 'operations', operationId);
