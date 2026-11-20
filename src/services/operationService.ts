@@ -3326,11 +3326,13 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
     if (await nativePosRepository.get<any>('customerPayments', paymentId)) return;
     const customerId = Number(payload.customerId);
     const customer = await nativePosRepository.get<any>('customers', customerId);
-    if (!customer || !Number.isFinite(payAmount) || payAmount <= 0) {
+    if (!customer || !Number.isFinite(payAmount) || payAmount <= 0 ||
+        !Number.isFinite(Number(customer.balance ?? 0))) {
       throw new Error('بيانات تحصيل العميل غير صالحة');
     }
     const orderId = payload.orderId ? String(payload.orderId) : undefined;
     const order = orderId ? await nativePosRepository.get<any>('orders', orderId) : null;
+    if (order && !Number.isFinite(Number(order.paidAmount ?? 0))) throw new Error('رصيد الفاتورة المحصل غير صالح');
     const branchId = payload.branchId ?? customer.branchId;
     const method = payload.paymentMethod === 'card' ? 'card' : 'cash';
     const payment = {
@@ -3358,6 +3360,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
     }
 
     const journalRecords: any[] = [];
+    let originalAccountsForCustomerPayment = new Map<string, any>();
     if (shouldPostLocalAccounting(syncStatus) && payAmount > 0) {
       const cashCode = method === 'card' ? '1020' : '1010';
       const definitions = [
@@ -3367,10 +3370,12 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       const accounts = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
+        if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
       }
+      const originalAccounts = new Map(accounts);
       const entryId = `local-je:payment:${paymentId}:customer-payment-${String(payload.operationId || paymentId)}`;
       if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
         const lines = [
@@ -3425,9 +3430,24 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
     }
 
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) {
-      throw new Error('لم تؤكد SQLite حفظ جميع سجلات تحصيل العميل');
+    const paymentCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    if (order) paymentCompareGuards.push({
+      entity: 'orders', recordId: JSON.stringify(order.id), field: 'paidAmount',
+      expectedValue: String(order.paidAmount ?? 0),
+    });
+    for (const [code, account] of originalAccountsForCustomerPayment) {
+      paymentCompareGuards.push({
+        entity: 'accounts', recordId: JSON.stringify(code), field: 'balance',
+        expectedValue: String(account.balance ?? 0),
+      });
+    }
+    const committed = await applyNativePosRecordChangesIfFieldAbsent(
+      changes, 'customerPayments', 'id', paymentId,
+      { entity: 'customers', recordId: JSON.stringify(customerId), field: 'balance', expectedValue: String(customer.balance ?? 0) },
+      paymentCompareGuards,
+    );
+    if (!committed.skipped && committed.applied !== changes.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات تحصيل العميل؛ أُوقف الترحيل لحماية الأرصدة');
     }
 
     // SQLite committed the customer payment and its balance/accounting effects atomically.
@@ -3485,11 +3505,16 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
     if (await nativePosRepository.get<any>('supplierPayments', paymentId)) return;
     const supplierId = Number(payload.supplierId);
     const supplier = await nativePosRepository.get<any>('suppliers', supplierId);
-    if (!supplier || !Number.isFinite(payAmount) || payAmount <= 0) {
+    if (!supplier || !Number.isFinite(payAmount) || payAmount <= 0 ||
+        !Number.isFinite(Number(supplier.balance ?? 0))) {
       throw new Error('بيانات سداد المورد غير صالحة');
     }
     const purchaseId = payload.purchaseId ? String(payload.purchaseId) : undefined;
     const purchase = purchaseId ? await nativePosRepository.get<any>('purchases', purchaseId) : null;
+    if (purchase && (!Number.isFinite(Number(purchase.paidAmount ?? 0)) ||
+        !Number.isFinite(Number(purchase.totalAmount ?? 0)) || !Number.isFinite(Number(purchase.returnedAmount ?? 0)))) {
+      throw new Error('القيم المالية لفاتورة الشراء غير صالحة قبل تسجيل السداد');
+    }
     const paymentMethod = payload.paymentMethod === 'card' ? 'card' : 'cash';
     const branchId = payload.branchId ?? supplier.branchId;
     const payment = {
@@ -3528,10 +3553,12 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       const accounts = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
+        if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
       }
+      const originalAccountsForSupplierPayment = new Map(accounts);
       const entryId = `local-je:payment:${paymentId}:supplier-payment-${String(payload.operationId || paymentId)}`;
       if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
         const entry = {
@@ -3584,8 +3611,25 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
       changes.push({ action: 'put', entity: 'auditLogs', record: auditRecord, syncState: syncStatus });
     }
 
-    const applied = await nativePosRepository.applyChanges(changes);
-    if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع سجلات سداد المورد');
+    const supplierPaymentCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [];
+    if (purchase) supplierPaymentCompareGuards.push({
+      entity: 'purchases', recordId: JSON.stringify(purchase.id), field: 'paidAmount',
+      expectedValue: String(purchase.paidAmount ?? 0),
+    });
+    for (const [code, account] of originalAccountsForSupplierPayment) {
+      supplierPaymentCompareGuards.push({
+        entity: 'accounts', recordId: JSON.stringify(code), field: 'balance',
+        expectedValue: String(account.balance ?? 0),
+      });
+    }
+    const committed = await applyNativePosRecordChangesIfFieldAbsent(
+      changes, 'supplierPayments', 'id', paymentId,
+      { entity: 'suppliers', recordId: JSON.stringify(supplierId), field: 'balance', expectedValue: String(supplier.balance ?? 0) },
+      supplierPaymentCompareGuards,
+    );
+    if (!committed.skipped && committed.applied !== changes.length) {
+      throw new Error('لم تؤكد SQLite حفظ جميع سجلات سداد المورد؛ أُوقف الترحيل لحماية الأرصدة');
+    }
     // SQLite committed the supplier payment and its balance/accounting effects atomically.
     return;
   }
