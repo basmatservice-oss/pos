@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { isNativeAndroid } from '../native/posLocalDatabase';
 import { nativePosRepository } from '../native/nativePosRepository';
+import { electronPosRepository, isElectronDesktop } from '../native/electronPosRepository';
 
 export let API_BASE = '/api';
 
@@ -34,6 +35,9 @@ const getRuntimeSetting = async (key: string): Promise<{ key: string; value: any
   if (isNativeAndroid()) {
     return (await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
   }
+  if (isElectronDesktop()) {
+    return (await electronPosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
+  }
   const { db } = await import('../db/db');
   return db.settings.where('key').equals(key).first();
 };
@@ -42,6 +46,11 @@ const putRuntimeSetting = async (key: string, value: any, updatedAt: string): Pr
   const record = { key, value, syncStatus: 'synced', updatedAt };
   if (isNativeAndroid()) {
     await nativePosRepository.put('settings', record, 'synced');
+    return;
+  }
+  if (isElectronDesktop()) {
+    const existing = await electronPosRepository.firstWhereEquals<{ id?: unknown } & Record<string, unknown>>('settings', 'key', key);
+    await electronPosRepository.put('settings', { ...existing, id: existing?.id ?? Date.now() * 1000, ...record }, 'synced');
     return;
   }
   const { db } = await import('../db/db');
