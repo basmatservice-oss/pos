@@ -1,5 +1,5 @@
 import { registerPlugin } from '@capacitor/core';
-import { electronPosRepository, isElectronDesktop } from './electronPosRepository';
+import { electronPosRepository, isElectronLocalClient } from './electronPosRepository';
 
 export interface PosLocalRecord {
   entity: string;
@@ -91,7 +91,7 @@ export async function ensureNativePosDatabase(): Promise<boolean> {
 }
 
 export async function enqueueNativePosOperation(operation: PosQueuedOperation): Promise<boolean> {
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const result = await electronPosRepository.saveAndEnqueueOperation({ entity: 'operations', recordId: operation.operationId, record: operation.payload, syncState: 'pending', ...operation });
     return result.queued;
   }
@@ -109,7 +109,7 @@ export async function enqueueNativePosOperation(operation: PosQueuedOperation): 
 export async function listNativePendingPosOperations() {
   const now = Date.now();
   const stagingTimeoutMs = 5 * 60 * 1000;
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const all = (await electronPosRepository.listOperations(false)).operations;
     for (const operation of all as any[]) {
       if (operation.status === 'staging' && now - Number(operation.createdAt || now) >= stagingTimeoutMs) {
@@ -135,7 +135,7 @@ export async function listNativePendingPosOperations() {
 }
 
 export async function applyNativeSnapshotAndReplaceOutbox(changes: PosLocalRecordChange[], operations: PosQueuedOperation[]): Promise<{ applied: number; operationCount: number }> {
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const result = await electronPosRepository.applySnapshotAndReplaceOutbox(changes as any, operations as any);
     return { applied: result.applied, operationCount: result.operationCount };
   }
@@ -173,7 +173,7 @@ export async function replaceNativePendingPosOperations(operations: PosQueuedOpe
 }
 
 export async function listAllNativePosOperations() {
-  if (isElectronDesktop()) return (await electronPosRepository.listOperations(false)).operations;
+  if (isElectronLocalClient()) return (await electronPosRepository.listOperations(false)).operations;
   if (!(await ensureNativePosDatabase())) return [];
   const result = await posLocalDatabase.listAllOperations();
   if (!Array.isArray(result.operations)) throw new Error('SQLite returned an invalid operation list');
@@ -181,19 +181,19 @@ export async function listAllNativePosOperations() {
 }
 
 export async function deleteNativePosOperation(operationId: string): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.deleteOperation(operationId)).deleted) throw new Error('Electron SQLite did not confirm operation deletion'); return; }
+  if (isElectronLocalClient()) { if (!(await electronPosRepository.deleteOperation(operationId)).deleted) throw new Error('Electron SQLite did not confirm operation deletion'); return; }
   throw new Error('Native Android outbox deletion is not enabled; use conflict review and retry instead');
 }
 
 export async function retryNativePosOperation(operationId: string): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.retryOperation(operationId)).updated) throw new Error('Electron SQLite did not confirm operation retry'); return; }
+  if (isElectronLocalClient()) { if (!(await electronPosRepository.retryOperation(operationId)).updated) throw new Error('Electron SQLite did not confirm operation retry'); return; }
   if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
   const result = await posLocalDatabase.retryOperation({ operationId });
   if (result.updated !== true) throw new Error(`SQLite did not confirm retry scheduling: ${operationId}`);
 }
 
 export async function updateNativePendingOperationPayload(operationId: string, payload: Record<string, unknown>): Promise<boolean> {
-  if (isElectronDesktop()) { const result = await electronPosRepository.updateOperationPayload(operationId, payload); return result.updated && result.rows === 1; }
+  if (isElectronLocalClient()) { const result = await electronPosRepository.updateOperationPayload(operationId, payload); return result.updated && result.rows === 1; }
   if (!(await ensureNativePosDatabase())) return false;
   const result = await posLocalDatabase.updatePendingOperationPayload({ operationId, payload });
   return result.updated === true && result.rows === 1;
@@ -203,14 +203,14 @@ export async function activateNativePosOperation(operationId: string): Promise<b
   const current = (await listAllNativePosOperations()).find((operation: any) => operation.operationId === operationId);
   if (current?.status === 'synced' || current?.status === 'pending') return true;
   if (current?.status !== 'staging') return false;
-  if (isElectronDesktop()) return (await electronPosRepository.updateOperation(operationId, 'pending', null)).updated;
+  if (isElectronLocalClient()) return (await electronPosRepository.updateOperation(operationId, 'pending', null)).updated;
   if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
   const result = await posLocalDatabase.activateOperation({ operationId });
   return result.updated === true;
 }
 
 export async function acknowledgeNativePosOperation(operationId: string): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.acknowledgeOperation(operationId)).updated) throw new Error('Electron outbox acknowledgement was not confirmed'); return; }
+  if (isElectronLocalClient()) { if (!(await electronPosRepository.acknowledgeOperation(operationId)).updated) throw new Error('Electron outbox acknowledgement was not confirmed'); return; }
   if (await ensureNativePosDatabase()) {
     const result = await posLocalDatabase.acknowledgeOperation({ operationId });
     if (result.updated !== true) throw new Error(`SQLite outbox acknowledgement was not confirmed: ${operationId}`);
@@ -218,7 +218,7 @@ export async function acknowledgeNativePosOperation(operationId: string): Promis
 }
 
 export async function markNativePosOperationError(operationId: string, message: string, nextRetryAt?: number): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.updateOperation(operationId, 'error', message, nextRetryAt)).updated) throw new Error('Electron outbox error update was not confirmed'); return; }
+  if (isElectronLocalClient()) { if (!(await electronPosRepository.updateOperation(operationId, 'error', message, nextRetryAt)).updated) throw new Error('Electron outbox error update was not confirmed'); return; }
   if (await ensureNativePosDatabase()) {
     const result = await posLocalDatabase.markOperationError({ operationId, message });
     if (result.updated !== true) throw new Error(`SQLite outbox error update was not confirmed: ${operationId}`);
@@ -226,7 +226,7 @@ export async function markNativePosOperationError(operationId: string, message: 
 }
 
 export async function markNativePosOperationConflict(operationId: string, message: string): Promise<void> {
-  if (isElectronDesktop()) { if (!(await electronPosRepository.updateOperation(operationId, 'conflict', message)).updated) throw new Error('Electron outbox conflict update was not confirmed'); return; }
+  if (isElectronLocalClient()) { if (!(await electronPosRepository.updateOperation(operationId, 'conflict', message)).updated) throw new Error('Electron outbox conflict update was not confirmed'); return; }
   if (await ensureNativePosDatabase()) {
     const result = await posLocalDatabase.markOperationConflict({ operationId, message });
     if (result.updated !== true) throw new Error(`SQLite outbox conflict update was not confirmed: ${operationId}`);
@@ -336,7 +336,7 @@ export async function applyNativePosRecordChangesIfAbsent(
   guardRecordId: string,
   compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const result = await electronPosRepository.applyChangesIfAbsent(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), guardEntity, guardRecordId, compareGuards);
     return { applied: result.applied, skipped: result.skipped };
   }
@@ -382,7 +382,7 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
   compare?: { entity: string; recordId: string; field: string; expectedValue: string },
   additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const result = await electronPosRepository.applyChangesIfFieldAbsent(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), entity, field, value, [...(compare ? [compare] : []), ...additionalCompareGuards]);
     return { applied: result.applied, skipped: result.skipped };
   }
@@ -420,7 +420,7 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
 }
 
 export async function applyNativePosRecordChanges(changes: PosLocalRecordChange[]): Promise<number> {
-  if (isElectronDesktop()) return electronPosRepository.applyChanges(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }));
+  if (isElectronLocalClient()) return electronPosRepository.applyChanges(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }));
   if (!(await ensureNativePosDatabase())) return 0;
   if (changes.length === 0) return 0;
   const identities = new Set<string>();
@@ -454,7 +454,7 @@ export async function applyNativePosRecordChangesIfFieldEquals(
   expectedValue: string,
   additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
-  if (isElectronDesktop()) {
+  if (isElectronLocalClient()) {
     const result = await electronPosRepository.applyChangesIfFieldEquals(changes.map(change => change.action === 'delete' ? { action: 'delete' as const, entity: change.entity as any, key: JSON.parse(change.recordId) } : { action: 'put' as const, entity: change.entity as any, record: change.record, syncState: change.syncState }), entity, recordId, field, expectedValue, additionalCompareGuards);
     return { applied: result.applied, skipped: result.skipped };
   }
