@@ -58,15 +58,16 @@ export async function migrateLegacyAndroidQueueToSQLite() {
     if (!id) throw new Error('تعذر ترحيل عملية Android قديمة لا تحتوي على معرّف؛ أُوقفت العملية لحماية الطابور');
     const nativeRecord = await getNativePosRecord('operations', id);
     const existingState = nativeRecord?.syncState ? String(nativeRecord.syncState) : undefined;
-    if (pendingIds.has(id) || existingState === 'synced') {
+    if (existingState === 'synced' || existingState === 'conflict') continue;
+    if (pendingIds.has(id)) {
+      if (operation.status === 'conflict') {
+        await markNativePosOperationConflict(id, String(operation.lastError || 'عملية قديمة متعارضة؛ حُفظت للمراجعة في SQLite'));
+      }
       continue;
     }
-    if (existingState === 'conflict') {
-      continue;
-    }
-    if (!operation.type || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
-      throw new Error('عملية مزامنة قديمة غير صالحة؛ أُوقفت عملية الترحيل لحماية الطابور');
-    }
+    const validType = typeof operation.type === 'string' && operation.type.trim().length > 0;
+    const validPayload = !!operation.payload && typeof operation.payload === 'object' && !Array.isArray(operation.payload);
+    const invalidOperation = !validType || !validPayload;
     const createdAt = operation.createdAt == null ? Date.now() : new Date(operation.createdAt).getTime();
     const schemaVersion = Number(operation.schemaVersion || 1);
     const retryCount = Number(operation.retryCount || 0);
@@ -84,8 +85,8 @@ export async function migrateLegacyAndroidQueueToSQLite() {
       : undefined;
     const queued = await enqueueNativePosOperation({
       operationId: id,
-      type: String(operation.type),
-      payload: operation.payload as Record<string, unknown>,
+      type: validType ? String(operation.type) : 'legacy_invalid_operation',
+      payload: validPayload ? operation.payload as Record<string, unknown> : { _legacyInvalidPayload: operation.payload ?? null },
       deviceId: String(operation.deviceId || ''),
       branchId: operation.branchId == null ? undefined : String(operation.branchId),
       schemaVersion: safeSchemaVersion,
@@ -94,10 +95,12 @@ export async function migrateLegacyAndroidQueueToSQLite() {
       nextRetryAt: safeNextRetryAt,
     });
     if (!queued) throw new Error('تعذر ترحيل عملية Android قديمة إلى طابور SQLite؛ أوقف المزامنة لحماية العملية');
-    if (operation.status === 'conflict' || invalidMetadata) {
+    if (operation.status === 'conflict' || invalidMetadata || invalidOperation) {
       const reason = operation.status === 'conflict'
         ? String(operation.lastError || 'عملية قديمة متعارضة؛ حُفظت للمراجعة في SQLite')
-        : 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
+        : invalidOperation
+          ? 'تعذر ترحيل عملية قديمة تلقائياً: نوع العملية أو محتواها غير صالح؛ حُفظت للمراجعة في SQLite'
+          : 'تعذر ترحيل عملية قديمة تلقائياً: بيانات التوقيت أو إصدار المخطط أو عدد المحاولات غير صالحة؛ حُفظت في SQLite للمراجعة';
       await markNativePosOperationConflict(id, reason);
       continue;
     }
