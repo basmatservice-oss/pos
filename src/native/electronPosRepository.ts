@@ -3,6 +3,17 @@ import type { NativePosEntity, NativePosSyncState } from './nativePosRepository'
 const primaryKeys: Record<NativePosEntity, string> = {
   products:'id',categories:'id',orders:'id',orderItems:'id',returns:'id',returnItems:'id',accounts:'code',shifts:'id',shiftMovements:'id',customers:'id',customerPayments:'id',expenses:'id',suppliers:'id',supplierPayments:'id',employees:'id',settings:'id',purchases:'id',purchaseItems:'id',purchaseReturns:'id',purchaseReturnItems:'id',attendance:'id',loyaltyTransactions:'id',branches:'id',payroll:'id',offers:'id',auditLogs:'id',journalEntries:'id',transactions:'id',stocktakingSessions:'id',stocktakingEntries:'id',inventoryBatches:'id',inventoryAlerts:'id',heldOrders:'id',serviceRecipes:'id',exchangeRateHistory:'id',fiscalPeriods:'id',unitDefinitions:'code',productUnits:'id',inventoryMovements:'id'
 };
+let configuredElectronRole: 'server' | 'client' | null = null;
+
+/** Cache the main-process role before React services start selecting a database. */
+export function setElectronDeviceRole(role: 'server' | 'client'): void {
+  configuredElectronRole = role;
+}
+
+export function isElectronLocalClient(): boolean {
+  return isElectronDesktop() && configuredElectronRole === 'client';
+}
+
 function recordIdFor(entity: NativePosEntity, record: Record<string, unknown>): string {
   const key = record[primaryKeys[entity]];
   if (key === undefined || key === null) throw new Error(`Missing primary key for ${entity}`);
