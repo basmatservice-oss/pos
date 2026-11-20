@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { electronPosRepository, isElectronDesktop } from '../native/electronPosRepository';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /**
- * Reactive entity reads with SQLite as Android and Electron SQLite as their local source of truth.
+ * Reactive entity reads with SQLite as Android's source of truth.
  * Dexie is loaded dynamically only for desktop compatibility.
  */
 export function usePosEntityRecords<T extends Record<string, unknown> = Record<string, unknown>>(
   entity: NativePosEntity,
 ): T[] {
-  const isLocalSqlite = isNativeAndroid() || isElectronDesktop();
-  const repository = isNativeAndroid() ? nativePosRepository : electronPosRepository;
+  const isAndroid = isNativeAndroid();
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
@@ -19,10 +17,10 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
     let unsubscribe: (() => void) | undefined;
 
     const start = async () => {
-      if (isLocalSqlite) {
+      if (isAndroid) {
         const refresh = async () => {
           try {
-            const rows = await repository.getAll<T>(entity);
+            const rows = await nativePosRepository.getAll<T>(entity);
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to read ${entity} from local SQLite:`, error);
@@ -59,7 +57,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
       active = false;
       unsubscribe?.();
     };
-  }, [entity, isLocalSqlite]);
+  }, [entity, isAndroid]);
 
   return records;
 }
