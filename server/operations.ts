@@ -2514,9 +2514,8 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       return tx.update(accounts).set({
         name: existing.isSystem ? existing.name : name,
         type: existing.isSystem ? existing.type : type,
-        parentCode: existing.parentCode ?? clean.parentCode ?? null,
+        parentCode: existing.isSystem ? existing.parentCode : (clean.parentCode ?? existing.parentCode ?? null),
         isSystem: existing.isSystem,
-        isSynced: 0,
         updatedAt: now,
       }).where(eq(accounts.code, code)).returning().get();
     }
