@@ -159,6 +159,8 @@ export async function consumeLocalInventoryFIFO(
     const product = productRow?.record as any;
     if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
     const qtyNeeded = roundQty(params.quantityInBaseUnits);
+  // Match the server accounting engine: negative stock is allowed unless explicitly disabled.
+  const allowNegative = params.allowNegative ?? true;
     if (!Number.isFinite(qtyNeeded) || qtyNeeded < 0) throw new Error('كمية الصرف غير صالحة');
     if (qtyNeeded <= 0) return { totalCost: 0, averageUnitCost: 0, allocations: [] };
     const productStock = Number(product.stockQuantity);
@@ -171,7 +173,7 @@ export async function consumeLocalInventoryFIFO(
     if (existingMovement) throw new Error('حركة استهلاك المخزون مسجلة مسبقًا؛ أُوقف التكرار لمنع خصم الكمية مرتين');
     const previousQty = roundQty(Number(product.stockQuantity || 0));
     const nextQty = roundQty(previousQty - qtyNeeded);
-    if (!params.allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + product.name);
+    if (!allowNegative && nextQty < -1e-6) throw new Error('الكمية المتاحة لا تكفي للمنتج ' + product.name);
     const [batchRows, valuation] = await Promise.all([
       nativePosRepository.getAllWithSyncState('inventoryBatches'),
       nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
@@ -300,7 +302,7 @@ export async function consumeLocalInventoryFIFO(
 
   const previousQty = roundQty(Number(product.stockQuantity || 0));
   const nextQty = roundQty(previousQty - qtyNeeded);
-  if (!params.allowNegative && nextQty < -1e-6) {
+  if (!allowNegative && nextQty < -1e-6) {
     throw new Error(`الكمية المتاحة لا تكفي للمنتج ${product.name}`);
   }
 
