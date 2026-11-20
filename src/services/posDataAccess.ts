@@ -179,9 +179,7 @@ export async function deletePosRecord(
   if (isWindowsServer()) {
     const { apiService } = await import('./apiService');
     if (entity === 'settings') {
-      const matches = await getPosRecordsWhereEquals<any>('settings', 'key', String(key));
-      if (matches[0]) await apiService.delete(`/settings/${encodeURIComponent(String(matches[0].key))}`);
-      return;
+      throw new Error('Windows Server does not expose a setting-delete endpoint; use the supported settings workflow');
     }
     const endpoint = SERVER_DELETE_ENDPOINTS[entity]?.(key);
     if (!endpoint) throw new Error(`No safe Windows Server delete endpoint is registered for ${entity}`);
