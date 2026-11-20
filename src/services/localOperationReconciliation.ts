@@ -491,16 +491,16 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     }
   } else if (type === 'entity_upsert') {
     const table = (db as any)[payload?.table];
-    const serverId = serverResult?.id ?? payload?.record?.id;
+    const serverId = serverResult?.id ?? payload?.record?.id ?? payload?.record?.code ?? payload?.record?.key;
     if (table && serverId !== undefined) {
       if (payload?.record?.id !== undefined && payload.record.id !== serverId) {
         await table.delete(payload.record.id).catch(() => {});
         if (payload?.table === 'products') await db.inventoryBatches.where('productId').equals(Number(payload.record.id)).delete();
       }
       if (payload?.table === 'products') {
-        await db.products.update(Number(serverId), { syncStatus: 'synced' });
+        if (canMark('products', serverId)) await db.products.update(Number(serverId), { syncStatus: 'synced' });
         await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
-      } else {
+      } else if (!pendingRefs.entityRecords.has(String(payload?.table || '') + ':' + String(serverId))) {
         await table.update(serverId, { syncStatus: 'synced' });
       }
     }
