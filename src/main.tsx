@@ -98,27 +98,36 @@ async function initializeLocalRuntime(): Promise<void> {
       const legacyPending = legacyOperations
         .filter((operation: any) => ['pending', 'error', 'conflict', 'syncing'].includes(String(operation.status || 'pending')))
         .map((operation: any, index: number) => {
+          const rawId = operation.id ?? operation.operationId;
+          const validIdentity = typeof rawId === 'string' && rawId.trim().length > 0 &&
+            typeof operation.type === 'string' && operation.type.trim().length > 0;
           const validPayload = operation.payload && typeof operation.payload === 'object' && !Array.isArray(operation.payload);
-          const validIdentity = typeof operation.id === 'string' && operation.id.trim() && typeof operation.type === 'string' && operation.type.trim();
           const createdAt = typeof operation.createdAt === 'number'
             ? operation.createdAt
             : new Date(operation.createdAt || Date.now()).getTime();
           const retryAt = operation.nextRetryAt
             ? (typeof operation.nextRetryAt === 'number' ? operation.nextRetryAt : new Date(operation.nextRetryAt).getTime())
             : null;
+          const retryCount = Number(operation.retryCount || 0);
+          const schemaVersion = Number(operation.schemaVersion || 1);
+          const validMetadata = Number.isInteger(retryCount) && retryCount >= 0 &&
+            Number.isInteger(schemaVersion) && schemaVersion >= 1 &&
+            (retryAt === null || (Number.isFinite(retryAt) && retryAt > 0));
           return {
-            operationId: String(operation.id ?? operation.operationId ?? '').trim() || 'legacy-invalid-' + String(index),
+            operationId: validIdentity ? String(rawId).trim() : 'legacy-invalid-' + String(index),
             type: validIdentity ? String(operation.type) : 'legacy_malformed',
-            payload: validPayload ? operation.payload : { legacyMalformed: true, originalId: operation.id ?? null, originalType: operation.type ?? null },
+            payload: validPayload ? operation.payload : { legacyMalformed: true, originalId: rawId ?? null, originalType: operation.type ?? null },
             createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
-            retryCount: Number(operation.retryCount || 0),
+            retryCount: validMetadata ? retryCount : 0,
             nextRetryAt: retryAt && Number.isFinite(retryAt) ? retryAt : null,
             deviceId: operation.deviceId,
             tenantId: operation.tenantId,
             branchId: operation.branchId,
             actor: operation.actor,
-            schemaVersion: Number(operation.schemaVersion || 1),
-            status: !validIdentity || !validPayload ? 'conflict' : operation.status === 'syncing' ? 'pending' : operation.status,
+            schemaVersion: validMetadata ? schemaVersion : 1,
+            status: !validIdentity || !validPayload || !validMetadata
+              ? 'conflict'
+              : operation.status === 'syncing' ? 'pending' : operation.status,
           };
         });
       const migratedQueue = await electronPosRepository.mergeOperations(legacyPending);
