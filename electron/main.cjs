@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
+const { fileURLToPath } = require('url');
 const localDatabase = require('./local-database.cjs');
 
 const SERVER_PORT = Number(process.env.PORT) || 3000;
@@ -21,7 +22,7 @@ function assertTrustedRenderer(event) {
   try { parsed = new URL(frameUrl); } catch { throw new Error('Untrusted IPC sender URL'); }
   const localHttp = parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1' && parsed.port === String(SERVER_PORT);
   const expectedFile = path.join(app.getAppPath(), 'dist', 'index.html');
-  const localFile = parsed.protocol === 'file:' && path.resolve(decodeURIComponent(parsed.pathname)) === path.resolve(expectedFile);
+  const localFile = parsed.protocol === 'file:' && path.resolve(fileURLToPath(parsed)) === path.resolve(expectedFile);
   if (!localHttp && !localFile) throw new Error('IPC requests are allowed only from the trusted local POS renderer');
 }
 function guardIpc(handler) {
