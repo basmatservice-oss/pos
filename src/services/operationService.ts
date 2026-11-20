@@ -4441,7 +4441,11 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     }
     const productRecord = {
       ...finalRecord,
-      ...(existingProduct ? { stockQuantity: existingProduct.stockQuantity, costPrice: existingProduct.costPrice } : {}),
+      ...(existingProduct ? {
+        stockQuantity: existingProduct.stockQuantity,
+        costPrice: existingProduct.costPrice,
+        costInUSD: existingProduct.costInUSD,
+      } : {}),
       syncStatus,
     };
     const changes: any[] = [];
