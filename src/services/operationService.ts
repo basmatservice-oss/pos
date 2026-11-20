@@ -3327,12 +3327,12 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
     const customerId = Number(payload.customerId);
     const customer = await nativePosRepository.get<any>('customers', customerId);
     if (!customer || !Number.isFinite(payAmount) || payAmount <= 0 ||
-        !Number.isFinite(Number(customer.balance ?? 0))) {
+        customer.balance == null || !Number.isFinite(Number(customer.balance))) {
       throw new Error('بيانات تحصيل العميل غير صالحة');
     }
     const orderId = payload.orderId ? String(payload.orderId) : undefined;
     const order = orderId ? await nativePosRepository.get<any>('orders', orderId) : null;
-    if (order && !Number.isFinite(Number(order.paidAmount ?? 0))) throw new Error('رصيد الفاتورة المحصل غير صالح');
+    if (order && (order.paidAmount == null || !Number.isFinite(Number(order.paidAmount)))) throw new Error('رصيد الفاتورة المحصل غير صالح');
     const branchId = payload.branchId ?? customer.branchId;
     const method = payload.paymentMethod === 'card' ? 'card' : 'cash';
     const payment = {
@@ -3371,7 +3371,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
       const existingAccountBalances = new Map<string, any>();
       for (const definition of definitions) {
         const current = await nativePosRepository.get<any>('accounts', definition.code);
-        if (current && !Number.isFinite(Number(current.balance ?? 0))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
+        if (current && (current.balance == null || !Number.isFinite(Number(current.balance)))) throw new Error('رصيد الحساب ' + definition.code + ' غير صالح');
         if (current) existingAccountBalances.set(definition.code, current);
         accounts.set(definition.code, current || {
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
@@ -3508,13 +3508,14 @@ async function applySupplierPaymentLocally(payload: any, syncStatus: 'synced' | 
     const supplierId = Number(payload.supplierId);
     const supplier = await nativePosRepository.get<any>('suppliers', supplierId);
     if (!supplier || !Number.isFinite(payAmount) || payAmount <= 0 ||
-        !Number.isFinite(Number(supplier.balance ?? 0))) {
+        supplier.balance == null || !Number.isFinite(Number(supplier.balance))) {
       throw new Error('بيانات سداد المورد غير صالحة');
     }
     const purchaseId = payload.purchaseId ? String(payload.purchaseId) : undefined;
     const purchase = purchaseId ? await nativePosRepository.get<any>('purchases', purchaseId) : null;
-    if (purchase && (!Number.isFinite(Number(purchase.paidAmount ?? 0)) ||
-        !Number.isFinite(Number(purchase.totalAmount ?? 0)) || !Number.isFinite(Number(purchase.returnedAmount ?? 0)))) {
+    if (purchase && (purchase.paidAmount == null || purchase.totalAmount == null || purchase.returnedAmount == null ||
+        !Number.isFinite(Number(purchase.paidAmount)) ||
+        !Number.isFinite(Number(purchase.totalAmount)) || !Number.isFinite(Number(purchase.returnedAmount)))) {
       throw new Error('القيم المالية لفاتورة الشراء غير صالحة قبل تسجيل السداد');
     }
     const paymentMethod = payload.paymentMethod === 'card' ? 'card' : 'cash';
