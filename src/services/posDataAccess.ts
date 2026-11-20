@@ -1,4 +1,6 @@
 import { isNativeAndroid } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { nativePosRepository, notifyNativeEntityChanges, type NativePosEntity, type NativePosSyncState } from '../native/nativePosRepository';
 
 type PosRecord = Record<string, unknown>;
@@ -8,7 +10,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
   key: unknown,
 ): Promise<T | undefined> {
-  if (isNativeAndroid()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
   const { db } = await import('../db/db');
   return await db.table(entity).get(key as any) as T | undefined;
 }
@@ -17,7 +19,7 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
 export async function getPosRecords<T extends PosRecord = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
-  if (isNativeAndroid()) return nativePosRepository.getAll<T>(entity);
+  if (isLocalSqlite()) return nativePosRepository.getAll<T>(entity);
   const { db } = await import('../db/db');
   return await db.table(entity).toArray() as T[];
 }
@@ -28,7 +30,7 @@ export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
   field: string,
   value: string | number | boolean,
 ): Promise<T[]> {
-  if (isNativeAndroid()) return nativePosRepository.whereEquals<T>(entity, field, value);
+  if (isLocalSqlite()) return nativePosRepository.whereEquals<T>(entity, field, value);
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).toArray() as T[];
 }
@@ -39,7 +41,7 @@ export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosReco
   field: string,
   value: string | number | boolean,
 ): Promise<T | undefined> {
-  if (isNativeAndroid()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
+  if (isLocalSqlite()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).first() as T | undefined;
 }
@@ -50,7 +52,7 @@ export async function putPosRecord<T extends PosRecord = PosRecord>(
   record: T,
   syncState: NativePosSyncState = 'local',
 ): Promise<void> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     await nativePosRepository.put(entity, record, syncState);
     return;
   }
@@ -63,7 +65,7 @@ export async function deletePosRecord(
   entity: NativePosEntity,
   key: unknown,
 ): Promise<void> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const deleted = await nativePosRepository.delete(entity, key);
     if (!deleted) throw new Error(`Could not delete ${entity} record from SQLite`);
     return;
@@ -93,7 +95,7 @@ export async function putPosSetting(
     updatedAt: now,
   };
 
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     // Keep logical-key deduplication and the replacement in one SQLite transaction.
     const changes = [
       ...matches.slice(1).filter((item) => item.id != null).map((item) => ({
@@ -116,7 +118,7 @@ export async function putPosSetting(
 /** Remove every row for a logical setting key. */
 export async function deletePosSettingsByKey(key: string): Promise<void> {
   const matches = await getPosRecordsWhereEquals<any>('settings', 'key', key);
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const changes = matches.filter((record) => record.id != null).map((record) => ({
       action: 'delete' as const, entity: 'settings' as const, key: record.id,
     }));
