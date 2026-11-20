@@ -7,7 +7,7 @@ const VALID_ENTITIES = new Set(['products','categories','orders','orderItems','r
 const MAX_RECORD_BYTES = 5 * 1024 * 1024;
 
 function initializeLocalDatabase(userDataPath) {
-  if (database) return { ready: true, database: 'pos-local.db', schemaVersion: 2 };
+  if (database) return { ready: true, database: 'pos-local.db', schemaVersion: 3 };
   if (typeof userDataPath !== 'string' || !userDataPath.trim()) {
     throw new Error('A valid Electron user-data directory is required');
   }
@@ -52,13 +52,13 @@ function initializeLocalDatabase(userDataPath) {
         ON pos_outbox(status, created_at);
     `);
     const outboxColumns = new Set(candidate.pragma('table_info(pos_outbox)').map(column => column.name));
-    for (const [name, definition] of [['device_id', 'TEXT'], ['tenant_id', 'TEXT'], ['branch_id', 'TEXT'], ['actor', 'TEXT'], ['schema_version', 'INTEGER NOT NULL DEFAULT 1']]) {
+    for (const [name, definition] of [['device_id', 'TEXT'], ['tenant_id', 'TEXT'], ['branch_id', 'TEXT'], ['actor', 'TEXT'], ['schema_version', 'INTEGER NOT NULL DEFAULT 1'], ['next_retry_at', 'INTEGER']]) {
       if (!outboxColumns.has(name)) candidate.exec('ALTER TABLE pos_outbox ADD COLUMN ' + name + ' ' + definition);
     }
-    candidate.pragma('user_version = 2');
+    candidate.pragma('user_version = 3');
     candidate.prepare("UPDATE pos_outbox SET status='pending' WHERE status='syncing'").run();
     database = candidate;
-    return { ready: true, database: 'pos-local.db', schemaVersion: 2 };
+    return { ready: true, database: 'pos-local.db', schemaVersion: 3 };
   } catch (error) {
     candidate.close();
     throw error;
