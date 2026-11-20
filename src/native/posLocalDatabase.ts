@@ -179,6 +179,9 @@ export async function updateNativePendingOperationPayload(operationId: string, p
 }
 
 export async function activateNativePosOperation(operationId: string): Promise<boolean> {
+  const current = (await listAllNativePosOperations()).find((operation: any) => operation.operationId === operationId);
+  if (current?.status === 'synced' || current?.status === 'pending') return true;
+  if (current?.status !== 'staging') return false;
   if (isElectronDesktop()) return (await electronPosRepository.updateOperation(operationId, 'pending', null)).updated;
   if (!(await ensureNativePosDatabase())) throw new Error('SQLite outbox is unavailable');
   const result = await posLocalDatabase.activateOperation({ operationId });
