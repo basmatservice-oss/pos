@@ -7,7 +7,7 @@ const VALID_ENTITIES = new Set(['products','categories','orders','orderItems','r
 const MAX_RECORD_BYTES = 5 * 1024 * 1024;
 
 function initializeLocalDatabase(userDataPath) {
-  if (database) return { ready: true, database: 'pos-local.db', schemaVersion: 1 };
+  if (database) return { ready: true, database: 'pos-local.db', schemaVersion: 2 };
   if (typeof userDataPath !== 'string' || !userDataPath.trim()) {
     throw new Error('A valid Electron user-data directory is required');
   }
@@ -212,7 +212,7 @@ function retryOperation(operationId) {
 }
 function updateOperationPayload(operationId, payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('payload must be an object');
-  const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending' WHERE operation_id=? AND status IN ('pending','error')").run(JSON.stringify(payload), operationId);
+  const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(JSON.stringify(payload), operationId);
   return { updated: result.changes === 1, rows: result.changes };
 }
 function deleteOperation(operationId) {
@@ -221,7 +221,7 @@ function deleteOperation(operationId) {
   return { deleted: result.changes === 1 };
 }
 function acknowledgeOperation(operationId) {
-  const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL WHERE operation_id=?").run(operationId);
+  const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL, next_retry_at=NULL WHERE operation_id=?").run(operationId);
   return { updated: result.changes === 1 };
 }
 function applySnapshotAndReplaceOutbox(changes, operations) {
