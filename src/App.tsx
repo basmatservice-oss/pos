@@ -56,13 +56,13 @@ function AppContent() {
 
   useEffect(() => {
     if (liveProducts) {
-      useInventoryStore.getState().updateProducts(liveProducts);
+      useInventoryStore.getState().updateProducts(liveProducts as any);
     }
   }, [liveProducts]);
 
   useEffect(() => {
     if (liveCategories) {
-      useInventoryStore.getState().updateCategories(liveCategories);
+      useInventoryStore.getState().updateCategories(liveCategories as any);
     }
   }, [liveCategories]);
 
