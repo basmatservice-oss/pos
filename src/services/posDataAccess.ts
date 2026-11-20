@@ -70,14 +70,19 @@ const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<s
 };
 
 const SERVER_UPDATE_FIELDS: Partial<Record<NativePosEntity, readonly string[]>> = {
-  categories: ['name', 'description', 'color', 'parentId', 'isActive'],
-  products: ['name', 'barcode', 'sku', 'categoryId', 'description', 'unit', 'baseUnitCode', 'itemType', 'salePrice', 'wholesalePrice', 'taxRate', 'minStock', 'maxStock', 'allowFractions', 'isActive', 'image'],
-  customers: ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'creditLimit', 'isActive'],
-  suppliers: ['name', 'phone', 'email', 'address', 'taxNumber', 'notes', 'isActive'],
-  employees: ['name', 'phone', 'email', 'address', 'role', 'permissions', 'password', 'pinCode', 'mustChangePassword', 'isActive'],
-  attendance: ['employeeId', 'date', 'checkIn', 'checkOut', 'status', 'notes'],
+  categories: ['name', 'color', 'icon', 'branchId'],
+  products: ['name', 'barcode', 'categoryId', 'sellingPrice', 'priceInUSD', 'vatRate', 'minStockLevel',
+    'unit', 'baseUnitCode', 'itemType', 'allowFractions', 'unitsJson', 'quantityPrecision',
+    'isActive', 'imageUrl', 'branchId', 'expiryDate', 'batchNumber'],
+  customers: ['name', 'phone', 'email', 'branchId'],
+  suppliers: ['name', 'phone', 'email', 'address'],
+  employees: ['name', 'username', 'role', 'phone', 'salary', 'salaryType', 'branchId',
+    'permissions', 'password', 'pinCode', 'mustChangePassword', 'deviceType', 'joinDate', 'status'],
+  attendance: ['employeeId', 'employeeName', 'date', 'checkIn', 'checkOut', 'totalHours', 'branchId', 'status'],
   branches: ['name', 'address', 'phone', 'email', 'status', 'isActive'],
-  offers: ['name', 'description', 'type', 'value', 'startDate', 'endDate', 'applicableProducts', 'status', 'isActive'],
+  offers: ['name', 'type', 'value', 'isActive', 'applicableProducts', 'minPurchaseAmount',
+    'buyProductId', 'buyQuantity', 'getProductId', 'getQuantity', 'discountPercentage',
+    'discountAmount', 'startDate', 'endDate', 'status', 'branchId'],
 };
 
 const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) => string>> = {
