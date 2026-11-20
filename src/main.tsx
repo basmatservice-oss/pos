@@ -83,7 +83,10 @@ async function initializeLocalRuntime(): Promise<void> {
       await ensureDatabaseReady();
       for (const entity of NATIVE_POS_ENTITIES) {
         const records = await db.table(entity).toArray() as Array<Record<string, unknown>>;
-        await electronPosRepository.putMany(entity, records, 'local');
+        for (const state of ['local', 'pending', 'synced', 'error'] as const) {
+          const matching = records.filter((record) => (['local', 'pending', 'synced', 'error'].includes(String(record.syncStatus)) ? String(record.syncStatus) : 'local') === state);
+          if (matching.length) await electronPosRepository.putMany(entity, matching, state);
+        }
         const stored = await electronPosRepository.getAll(entity);
         if (stored.length !== records.length) {
           throw new Error(`Electron SQLite migration count mismatch for ${entity}: ${records.length} source, ${stored.length} destination`);
