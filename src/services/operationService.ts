@@ -4431,8 +4431,8 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
       const newStock = Number(finalRecord.stockQuantity ?? oldStock);
       const oldCost = Number(existingProduct.costPrice || 0);
       const newCost = Number(finalRecord.costPrice ?? oldCost);
-      if (!Number.isFinite(newStock) || !Number.isFinite(newCost) ||
-          Math.abs(newStock - oldStock) > 0.0001 || Math.abs(newCost - oldCost) > 0.0001) {
+      if (!serverResult && (!Number.isFinite(newStock) || !Number.isFinite(newCost) ||
+          Math.abs(newStock - oldStock) > 0.0001 || Math.abs(newCost - oldCost) > 0.0001)) {
         throw new Error('لا يمكن تعديل كمية المخزون أو تكلفته عبر تعديل بيانات الصنف؛ استخدم عملية شراء أو جرد أو تسوية مخزون معتمدة');
       }
     }
