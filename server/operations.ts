@@ -1598,6 +1598,7 @@ function handlePurchaseReturn(
   if (!origPurchase) {
     throw new OperationError('Original purchase not found', 404);
   }
+  const valuationMethod = getValuationMethod(tx);
 
   const returnId = id || crypto.randomUUID();
   const retNum = returnNumber || `PRET-${Date.now()}`;
@@ -1782,7 +1783,7 @@ function handlePurchaseReturn(
       })
       .where(eq(products.id, prodId))
       .run();
-    recalculateProductWeightedCost(tx, prodId);
+    if (valuationMethod === 'weighted_average') recalculateProductWeightedCost(tx, prodId);
   }
 
   if (savedItems.length === 0) {
