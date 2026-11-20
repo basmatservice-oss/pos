@@ -46,3 +46,55 @@ test('server business operations retain transactional idempotency around sale an
   assert.ok(operations.includes("case 'return':"));
   assert.ok(operations.includes('processedOperations'));
 });
+
+test('product creation posts opening inventory and journal in one transaction without upsert semantics', () => {
+  const productCreate = app.match(/app\.post\('\/api\/products'[\s\S]*?\n  \}\);/)?.[0] || '';
+  assert.ok(productCreate.includes('db.transaction((tx)'));
+  assert.ok(productCreate.includes('tx.insert(inventoryBatches)'));
+  assert.ok(productCreate.includes('recordInventoryMovement(tx'));
+  assert.ok(productCreate.includes('postJournalEntry(tx'));
+  assert.ok(!productCreate.includes('onConflictDoUpdate'));
+});
+
+test('direct endpoints cannot bypass stock, purchase, sale, shift-close or loyalty operations', () => {
+  for (const route of [
+    "app.post('/api/inventoryBatches'",
+    "app.put('/api/inventoryBatches/:id'",
+    "app.post('/api/purchaseItems'",
+    "app.post('/api/loyalty-transactions'",
+    "app.put('/api/orders/:id'",
+    "app.put('/api/shifts/:id'",
+  ]) {
+    const start = app.indexOf(route);
+    assert.notEqual(start, -1, route);
+    const end = app.indexOf('\n  });', start);
+    const handler = app.slice(start, end);
+    assert.ok(handler.includes('res.status(400)'), route);
+  }
+});
+
+test('stocktake entry baselines come from the server and approved sessions cannot be deleted', () => {
+  const entryRoute = app.match(/app\.post\('\/api\/stocktakingEntries'[\s\S]*?\n  \}\);/)?.[0] || '';
+  const deleteRoute = app.match(/app\.delete\('\/api\/stocktakingSessions\/:id'[\s\S]*?\n  \}\);/)?.[0] || '';
+  assert.ok(entryRoute.includes('Number(product[0].stockQuantity || 0)'));
+  assert.ok(entryRoute.includes('session[0].status !== \'open\''));
+  assert.ok(entryRoute.includes('existingEntries.some'));
+  assert.ok(deleteRoute.includes("session.status === 'approved'"));
+  assert.ok(deleteRoute.includes('db.transaction((tx)'));
+});
+
+test('server and local inventory journal paths use the same currency-rounded sale cost basis', () => {
+  const accounting = source('../server/accounting.ts');
+  const operationService = source('../src/services/operationService.ts');
+  assert.ok(accounting.includes('roundMoney(totalCost) / qtyNeeded'));
+  assert.ok(operationService.includes('baseUnitCode: product.baseUnitCode || product.unit || \'piece\''));
+  assert.ok(operationService.includes('baseUnitCode: product.baseUnitCode || product.unit || \'piece\''));
+});
+
+test('server rejects sale and return payloads that the native SQLite operation path rejects', () => {
+  assert.ok(operations.includes('at least one sale item is required'));
+  assert.ok(operations.includes('Invalid sale totals or exchange rate'));
+  assert.ok(operations.includes("!['cash', 'card', 'credit_adjustment'].includes(String(effectiveRefundMethod))"));
+  assert.ok(operations.includes('بيانات كمية أو معامل تحويل الصنف الأصلي غير صالحة'));
+  assert.ok(operations.includes('القيم المالية للصنف الأصلي غير صالحة'));
+});
