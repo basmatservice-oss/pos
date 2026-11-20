@@ -58,7 +58,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
       active = false;
       unsubscribe?.();
     };
-  }, [entity, isAndroid]);
+  }, [entity, isLocalSqlite]);
 
   return records;
 }
