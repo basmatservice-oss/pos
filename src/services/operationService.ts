@@ -163,7 +163,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
   const normalizedOrder = { ...order, totalAmount, taxAmount, netAmount,
     discountAmount: roundMoney(Math.max(0, totalAmount + taxAmount - netAmount)), paidAmount, cashAmount, cardAmount,
     returnedAmount: 0, paymentMethod, status: order.status || 'completed', currency: order.currency || 'ر.س',
-    exchangeRate: Number(order.exchangeRate || 1) };
+    exchangeRate: Number(order.exchangeRate || 1), createdAt: order.createdAt || now, updatedAt: now };
   if (await nativePosRepository.get<any>('orders', order.id)) return;
   const productIds = [...new Set(items.filter((x: any) => Number(x.quantity || 0) > 0).map((x: any) => Number(x.productId)))];
   const products = await nativePosRepository.getMany<any>('products', productIds);
