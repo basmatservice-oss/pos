@@ -200,7 +200,7 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
         });
     const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
       const original = originalAccounts.get(accountCode);
-      if (!original || original.balance === undefined || original.balance === null) {
+      if (!original || original.balance === undefined || original.balance === null || !Number.isFinite(Number(original.balance))) {
         throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف الترحيل لمنع فقدان تحديث متزامن');
       }
       return {
@@ -353,7 +353,7 @@ export async function removeLocalJournalEntriesForReference(referenceId: string)
       }
       const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
         const original = accountMap.get(accountCode)?.record;
-        if (!original || original.balance === undefined || original.balance === null) {
+        if (!original || original.balance === undefined || original.balance === null || !Number.isFinite(Number(original.balance))) {
           throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف حذف القيد');
         }
         return {
@@ -484,7 +484,7 @@ export async function reverseLocalJournalEntriesByReference(referenceId: string,
       }
       const accountBalanceGuards = [...accountChanges.keys()].map((accountCode) => {
         const original = accountRowsByCode.get(accountCode)?.record;
-        if (!original || original.balance === undefined || original.balance === null) {
+        if (!original || original.balance === undefined || original.balance === null || !Number.isFinite(Number(original.balance))) {
           throw new Error('الحساب ' + accountCode + ' لا يحتوي رصيدًا مرجعيًا صالحًا؛ أوقف عكس القيد');
         }
         return {
