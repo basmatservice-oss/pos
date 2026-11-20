@@ -24,6 +24,7 @@ export interface PosQueuedOperation {
   createdAt?: number;
   retryCount?: number;
   nextRetryAt?: number;
+  status?: 'staging' | 'pending' | 'error' | 'conflict';
 }
 
 export interface PosLocalDatabasePlugin {
