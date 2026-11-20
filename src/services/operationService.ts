@@ -15,7 +15,7 @@ import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalA
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals, enqueueNativePosOperation, activateNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict, isNativeAndroid } from '../native/posLocalDatabase';
 import { getNativePosRecordId, nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 
@@ -25,7 +25,7 @@ let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isLocalSqlite() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || (isElectronDesktop() && !isElectronLocalClient()) || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
@@ -70,6 +70,10 @@ async function getLocalRecords<T extends Record<string, any>>(entity: any): Prom
 }
 
 async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
+  if (isElectronDesktop() && !isElectronLocalClient()) {
+    currentDeviceRole = 'server';
+    return currentDeviceRole;
+  }
   try {
     const setting = await getLocalSettingByKey('deviceRole');
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
@@ -4759,7 +4763,7 @@ export async function dispatchOperation(
     if (!payload.actor && localUser?.role) payload.actor = { role: localUser.role, name: localUser.name };
     if (!payload.createdBy && localUser?.name) payload.createdBy = localUser.name;
   } catch {}
-  if (type === 'purchase_update' || type === 'purchase_delete') {
+  if ((type === 'purchase_update' || type === 'purchase_delete') && !(isElectronDesktop() && !isElectronLocalClient())) {
     const purchaseId = String(type === 'purchase_delete' ? payload.id : payload.purchase?.id);
     const [oldPurchase, oldItems] = isLocalSqlite()
       ? await Promise.all([
