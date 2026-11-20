@@ -146,19 +146,44 @@ class PosLocalDatabasePlugin : Plugin() {
         val ifMatchRecordId = call.getString("ifMatchRecordId")?.trim()
         val ifMatchField = call.getString("ifMatchField")?.trim()
         val ifMatchValue = call.getString("ifMatchValue")
+        val ifMatchGuardsArray = call.getArray("ifMatchGuards")
+        data class MatchGuard(val entity: String, val recordId: String, val field: String, val expectedValue: String)
+        val matchGuards = ArrayList<MatchGuard>()
+        if (ifMatchGuardsArray != null) {
+            for (index in 0 until ifMatchGuardsArray.length()) {
+                val item = ifMatchGuardsArray.optJSONObject(index)
+                    ?: run { call.reject("شرط مقارنة SQLite متعدد غير صالح"); return }
+                val entity = item.optString("entity").trim()
+                val recordId = item.optString("recordId").trim()
+                val field = item.optString("field").trim()
+                val expectedValue = item.optString("expectedValue")
+                if (entity.isBlank() || recordId.isBlank() || field.isBlank() || expectedValue.isBlank()) {
+                    call.reject("شرط مقارنة SQLite متعدد غير مكتمل")
+                    return
+                }
+                matchGuards.add(MatchGuard(entity, recordId, field, expectedValue))
+            }
+            if (matchGuards.isEmpty()) {
+                call.reject("قائمة شروط مقارنة SQLite لا يمكن أن تكون فارغة")
+                return
+            }
+        }
         val hasRecordGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentRecordId.isNullOrBlank()
         val hasFieldGuard = !ifAbsentEntity.isNullOrBlank() && !ifAbsentField.isNullOrBlank() && ifAbsentValue != null
         val hasMatchGuard = !ifMatchEntity.isNullOrBlank() && !ifMatchRecordId.isNullOrBlank() &&
             !ifMatchField.isNullOrBlank() && ifMatchValue != null
-        val hasAnyMatchInput = ifMatchEntity != null || ifMatchRecordId != null || ifMatchField != null || ifMatchValue != null
-        if ((ifAbsentRecordId != null && (ifAbsentEntity.isNullOrBlank() || ifAbsentRecordId.isBlank())) ||
+        val hasAnySingleMatchInput = ifMatchEntity != null || ifMatchRecordId != null || ifMatchField != null || ifMatchValue != null
+        val hasAnyMatchInput = hasAnySingleMatchInput || ifMatchGuardsArray != null
+        if ((ifMatchGuardsArray != null && hasAnySingleMatchInput) ||
+            (ifAbsentRecordId != null && (ifAbsentEntity.isNullOrBlank() || ifAbsentRecordId.isBlank())) ||
             ((ifAbsentField == null) != (ifAbsentValue == null)) ||
             (ifAbsentField != null && (ifAbsentField.isBlank() || ifAbsentEntity.isNullOrBlank())) ||
             (hasRecordGuard && ifAbsentField != null) ||
             (ifAbsentEntity != null && ifAbsentEntity.isBlank()) ||
             (ifAbsentEntity != null && !hasRecordGuard && !hasFieldGuard) ||
             (ifAbsentEntity == null && (ifAbsentRecordId != null || ifAbsentField != null || ifAbsentValue != null)) ||
-            (hasAnyMatchInput && !hasMatchGuard)) {
+            (hasAnySingleMatchInput && !hasMatchGuard) ||
+            (ifMatchGuardsArray != null && matchGuards.isEmpty())) {
             call.reject("شرط منع التكرار أو المقارنة الذرية غير مكتمل")
             return
         }
@@ -235,6 +260,27 @@ class PosLocalDatabasePlugin : Plugin() {
                             val record = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { null }
                             if (record == null || record.opt(ifMatchField!!) == null ||
                                 record.opt(ifMatchField!!).toString() != ifMatchValue) skipped = true
+                        }
+                    }
+                }
+                if (!skipped && hasAnyMatchInput) {
+                    val guardsToCheck = if (hasMatchGuard) {
+                        listOf(MatchGuard(ifMatchEntity!!, ifMatchRecordId!!, ifMatchField!!, ifMatchValue!!))
+                    } else matchGuards
+                    for (guard in guardsToCheck) {
+                        if (skipped) break
+                        db.query(
+                            "pos_records", arrayOf("json"),
+                            "entity = ? AND record_id = ?", arrayOf(guard.entity, guard.recordId),
+                            null, null, null, "1"
+                        ).use { cursor ->
+                            if (!cursor.moveToFirst()) {
+                                skipped = true
+                            } else {
+                                val record = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { null }
+                                if (record == null || record.opt(guard.field) == null ||
+                                    record.opt(guard.field).toString() != guard.expectedValue) skipped = true
+                            }
                         }
                     }
                 }
