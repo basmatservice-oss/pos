@@ -1999,10 +1999,8 @@ export function createPosApp() {
       const body = req.body && typeof req.body === 'object' ? req.body : {};
       const sessionId = String(body.sessionId || '');
       const productId = Number(body.productId);
-      const systemQuantity = Number(body.systemQuantity);
       const actualQuantity = Number(body.actualQuantity);
       if (!sessionId || !Number.isSafeInteger(productId) || productId <= 0 ||
-          !Number.isFinite(systemQuantity) || systemQuantity < 0 ||
           !Number.isFinite(actualQuantity) || actualQuantity < 0) {
         return res.status(400).json({ error: 'Invalid stocktake entry data' });
       }
