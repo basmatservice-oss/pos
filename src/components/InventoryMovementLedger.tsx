@@ -10,7 +10,7 @@ async function persistMovementPage(items: any[]): Promise<void> {
   const keys = new Set(items.map((movement) => String(movement.movementKey)));
   const serverIds = new Set(items.map((movement) => String(movement.id)));
   if (isLocalSqlite()) {
-    const existing = await nativePosRepository.getAllWithSyncState<any>('inventoryMovements');
+    const existing = await nativePosRepository.getAllWithSyncState('inventoryMovements');
     const changes: any[] = existing.filter((row) => keys.has(String(row.record.movementKey)) &&
       !serverIds.has(String(row.record.id)) && !['pending', 'error'].includes(String(row.syncState)))
       .map((row) => ({ action: 'delete', entity: 'inventoryMovements', key: row.record.id }));
