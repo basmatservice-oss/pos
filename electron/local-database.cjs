@@ -179,9 +179,20 @@ function enqueueOperation(operation) {
   const status = ['pending', 'error', 'conflict'].includes(operation.status) ? operation.status : 'pending';
   const nextRetryAt = operation.nextRetryAt == null ? null : Number(operation.nextRetryAt);
   if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0 || !Number.isInteger(schemaVersion) || schemaVersion < 1 || (nextRetryAt !== null && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))) throw new Error('Invalid outbox metadata');
+  const serializedPayload = JSON.stringify(operation.payload);
   const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at,device_id,tenant_id,branch_id,actor,schema_version)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, status, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
-  return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, serializedPayload, createdAt, status, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
+  if (result.changes === 1) {
+    return { queued: true, duplicate: false, operationId: operation.operationId };
+  }
+  // An operation ID is an idempotency key, not permission to silently discard
+  // a different payload. Treat exact retries as duplicates and fail closed on
+  // key reuse so a caller cannot believe a different business action was saved.
+  const existing = db().prepare('SELECT type, payload FROM pos_outbox WHERE operation_id=?').get(operation.operationId);
+  if (!existing || existing.type !== operation.type || existing.payload !== serializedPayload) {
+    throw new Error('Operation ID was reused with a different type or payload');
+  }
+  return { queued: false, duplicate: true, operationId: operation.operationId };
 }
 function mergeOperations(operations) {
   if (!Array.isArray(operations) || operations.length > 100000) throw new Error('Invalid legacy operation batch');
