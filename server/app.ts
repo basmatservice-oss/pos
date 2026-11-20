@@ -1079,22 +1079,10 @@ export function createPosApp() {
     });
   });
 
-  app.put('/api/orders/:id', requirePermission('void_items'), async (req, res) => {
-    try {
-      if (req.body?.status === 'void') {
-        return res.status(400).json({
-          error: 'لا يمكن إلغاء الفاتورة مباشرة؛ استخدم عملية order_void لضمان استرجاع المخزون وعكس القيود المحاسبية',
-        });
-      }
-      const [order] = await db
-        .update(orders)
-        .set({ status: req.body.status, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(orders.id, req.params.id))
-        .returning();
-      res.json(order);
-    } catch {
-      res.status(500).json({ error: 'Failed to update order' });
-    }
+  app.put('/api/orders/:id', requirePermission('void_items'), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن تعديل حالة الفاتورة مباشرة؛ استخدم sale أو return أو order_void عبر محرك العمليات الذري',
+    });
   });
 
   app.get('/api/orderItems', async (_req, res) => {
@@ -1160,42 +1148,16 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/inventoryBatches', requirePermission('edit_product'), async (req, res) => {
-    try {
-      const now = new Date().toISOString();
-      const [batch] = await db
-        .insert(inventoryBatches)
-        .values({
-          id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
-          productId: Number(req.body.productId),
-          purchaseId: req.body.purchaseId || null,
-          quantity: Number(req.body.quantity || 0),
-          remainingQuantity: Number(req.body.remainingQuantity ?? req.body.quantity ?? 0),
-          costPrice: Number(req.body.costPrice || 0),
-          purchaseDate: req.body.purchaseDate || now,
-          branchId: req.body.branchId || null,
-          isSynced: 0,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      res.status(201).json(batch);
-    } catch {
-      res.status(500).json({ error: 'Failed to create inventory batch' });
-    }
+  app.post('/api/inventoryBatches', requirePermission('edit_product'), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن إنشاء دفعات المخزون مباشرة؛ يجب ترحيلها عبر عملية شراء أو رصيد افتتاحي أو تسوية مخزون ذرية',
+    });
   });
 
-  app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), async (req, res) => {
-    try {
-      const [batch] = await db
-        .update(inventoryBatches)
-        .set({ ...req.body, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(inventoryBatches.id, String(req.params.id)))
-        .returning();
-      res.json(batch);
-    } catch {
-      res.status(500).json({ error: 'Failed to update inventory batch' });
-    }
+  app.put('/api/inventoryBatches/:id', requirePermission('edit_product'), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن تعديل كمية أو تكلفة دفعة المخزون مباشرة؛ استخدم محرك عمليات المخزون',
+    });
   });
 
   app.get('/api/inventoryAlerts', async (_req, res) => {
@@ -1644,20 +1606,10 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/purchaseItems', requirePermission('add_purchase'), async (req, res) => {
-    try {
-      const [record] = await db
-        .insert(purchaseItems)
-        .values({ ...req.body, isSynced: 0, createdAt: new Date().toISOString() })
-        .onConflictDoUpdate({
-          target: purchaseItems.id,
-          set: { ...req.body, isSynced: 0 },
-        })
-        .returning();
-      res.status(201).json(record);
-    } catch {
-      res.status(500).json({ error: 'Failed to create purchase item' });
-    }
+  app.post('/api/purchaseItems', requirePermission('add_purchase'), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن إنشاء أصناف شراء منفصلة؛ استخدم عملية purchase أو purchase_update لضمان تحديث المخزون والأستاذ معًا',
+    });
   });
 
   // --- Shifts ---
@@ -1693,22 +1645,10 @@ export function createPosApp() {
     }
   });
 
-  app.put('/api/shifts/:id', requireAnyPermission(['manage_shifts', 'view_pos', 'view_mobile_sales']), async (req, res) => {
-    try {
-      const [shift] = await db
-        .update(shifts)
-        .set({
-          ...req.body,
-          endTime: req.body.endTime ? new Date(req.body.endTime).toISOString() : null,
-          isSynced: 0,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(shifts.id, req.params.id))
-        .returning();
-      res.json(shift);
-    } catch {
-      res.status(500).json({ error: 'Failed to update shift' });
-    }
+  app.put('/api/shifts/:id', requireAnyPermission(['manage_shifts', 'view_pos', 'view_mobile_sales']), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن تعديل حالة الوردية أو النقدية مباشرة؛ استخدم shift_close أو shift_movement عبر محرك العمليات',
+    });
   });
 
   app.get('/api/shiftMovements', async (_req, res) => {
@@ -1806,17 +1746,10 @@ export function createPosApp() {
     }
   });
 
-  app.post('/api/loyalty-transactions', requireAnyPermission(['view_pos', 'view_mobile_sales', 'edit_customer']), async (req, res) => {
-    try {
-      const [record] = await db
-        .insert(loyaltyTransactions)
-        .values({ ...req.body, isSynced: 0, createdAt: new Date().toISOString() })
-        .onConflictDoNothing()
-        .returning();
-      res.status(201).json(record || req.body);
-    } catch {
-      res.status(500).json({ error: 'Failed to create loyalty transaction' });
-    }
+  app.post('/api/loyalty-transactions', requireAnyPermission(['view_pos', 'view_mobile_sales', 'edit_customer']), (_req, res) => {
+    return res.status(400).json({
+      error: 'لا يمكن إنشاء حركة نقاط الولاء مباشرة؛ تُرحّل النقاط مع عملية البيع أو الإلغاء الذرية',
+    });
   });
 
   app.get('/api/payroll', async (_req, res) => {
@@ -1972,14 +1905,16 @@ export function createPosApp() {
 
   app.post('/api/stocktakingSessions', requirePermission('manage_stocktaking'), async (req, res) => {
     try {
-      const [session] = await db
-        .insert(stocktakingSessions)
-        .values({ ...req.body, isSynced: 0, createdAt: new Date().toISOString() })
-        .onConflictDoUpdate({
-          target: stocktakingSessions.id,
-          set: { ...req.body, isSynced: 0 },
-        })
-        .returning();
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const id = body.id ? String(body.id) : crypto.randomUUID();
+      const [session] = await db.insert(stocktakingSessions).values({
+        id,
+        status: 'open',
+        createdBy: req.authUser?.name || (typeof body.createdBy === 'string' ? body.createdBy : 'System'),
+        branchId: Number.isSafeInteger(Number(body.branchId)) && Number(body.branchId) > 0 ? Number(body.branchId) : null,
+        isSynced: 0,
+        createdAt: new Date().toISOString(),
+      }).returning();
       res.status(201).json(session);
     } catch {
       res.status(500).json({ error: 'Failed to create stocktaking session' });
@@ -1988,11 +1923,15 @@ export function createPosApp() {
 
   app.put('/api/stocktakingSessions/:id', requirePermission('manage_stocktaking'), async (req, res) => {
     try {
-      const [session] = await db
-        .update(stocktakingSessions)
-        .set({ ...req.body, isSynced: 0 })
+      const data: Record<string, any> = {};
+      if (typeof req.body?.createdBy === 'string') data.createdBy = req.body.createdBy;
+      if (Number.isSafeInteger(Number(req.body?.branchId)) && Number(req.body.branchId) > 0) data.branchId = Number(req.body.branchId);
+      if (!Object.keys(data).length) return res.status(400).json({ error: 'Only stocktake session metadata can be edited directly' });
+      const [session] = await db.update(stocktakingSessions)
+        .set({ ...data, isSynced: 0 })
         .where(eq(stocktakingSessions.id, req.params.id))
         .returning();
+      if (!session) return res.status(404).json({ error: 'Stocktaking session not found' });
       res.json(session);
     } catch {
       res.status(500).json({ error: 'Failed to update stocktaking session' });
@@ -2001,8 +1940,16 @@ export function createPosApp() {
 
   app.delete('/api/stocktakingSessions/:id', requirePermission('manage_stocktaking'), async (req, res) => {
     try {
-      await db.delete(stocktakingSessions).where(eq(stocktakingSessions.id, req.params.id));
-      await db.delete(stocktakingEntries).where(eq(stocktakingEntries.sessionId, req.params.id));
+      const [session] = await db.select().from(stocktakingSessions)
+        .where(eq(stocktakingSessions.id, req.params.id)).limit(1);
+      if (!session) return res.status(404).json({ error: 'Stocktaking session not found' });
+      if (session.status === 'approved') {
+        return res.status(409).json({ error: 'لا يمكن حذف جلسة جرد معتمدة؛ فهي جزء من سجل تسويات المخزون' });
+      }
+      await db.transaction(async (tx) => {
+        await tx.delete(stocktakingEntries).where(eq(stocktakingEntries.sessionId, req.params.id));
+        await tx.delete(stocktakingSessions).where(eq(stocktakingSessions.id, req.params.id));
+      });
       res.json({ message: 'Stocktaking session deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete stocktaking session' });
@@ -2019,19 +1966,34 @@ export function createPosApp() {
 
   app.post('/api/stocktakingEntries', requirePermission('manage_stocktaking'), async (req, res) => {
     try {
-      const [entry] = await db
-        .insert(stocktakingEntries)
-        .values({
-          ...req.body,
-          id: req.body.id ? String(req.body.id) : crypto.randomUUID(),
-          isSynced: 0,
-          scannedAt: new Date().toISOString(),
-        })
-        .onConflictDoUpdate({
-          target: stocktakingEntries.id,
-          set: { ...req.body, isSynced: 0 },
-        })
-        .returning();
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const sessionId = String(body.sessionId || '');
+      const productId = Number(body.productId);
+      const systemQuantity = Number(body.systemQuantity);
+      const actualQuantity = Number(body.actualQuantity);
+      if (!sessionId || !Number.isSafeInteger(productId) || productId <= 0 ||
+          !Number.isFinite(systemQuantity) || systemQuantity < 0 ||
+          !Number.isFinite(actualQuantity) || actualQuantity < 0) {
+        return res.status(400).json({ error: 'Invalid stocktake entry data' });
+      }
+      const [session, product] = await Promise.all([
+        db.select().from(stocktakingSessions).where(eq(stocktakingSessions.id, sessionId)).limit(1),
+        db.select().from(products).where(eq(products.id, productId)).limit(1),
+      ]);
+      if (!session[0] || session[0].status !== 'open') return res.status(409).json({ error: 'Stocktaking session is not open' });
+      if (!product[0]) return res.status(404).json({ error: 'Product not found' });
+      const [entry] = await db.insert(stocktakingEntries).values({
+        id: body.id ? String(body.id) : crypto.randomUUID(),
+        sessionId,
+        productId,
+        productName: product[0].name,
+        barcode: typeof body.barcode === 'string' ? body.barcode : product[0].barcode,
+        systemQuantity,
+        actualQuantity,
+        scannedBy: req.authUser?.name || (typeof body.scannedBy === 'string' ? body.scannedBy : null),
+        isSynced: 0,
+        scannedAt: new Date().toISOString(),
+      }).returning();
       res.status(201).json(entry);
     } catch {
       res.status(500).json({ error: 'Failed to create stocktaking entry' });
