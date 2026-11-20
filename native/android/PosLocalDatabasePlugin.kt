@@ -147,7 +147,7 @@ class PosLocalDatabasePlugin : Plugin() {
         val ifMatchField = call.getString("ifMatchField")?.trim()
         val ifMatchValue = call.getString("ifMatchValue")
         val ifMatchGuardsArray = call.getArray("ifMatchGuards")
-        data class MatchGuard(val entity: String, val recordId: String, val field: String, val expectedValue: String)
+        class MatchGuard(val entity: String, val recordId: String, val field: String, val expectedValue: String)
         val matchGuards = ArrayList<MatchGuard>()
         if (ifMatchGuardsArray != null) {
             for (index in 0 until ifMatchGuardsArray.length()) {
