@@ -112,6 +112,10 @@ export async function listNativePendingPosOperations() {
 }
 
 export async function applyNativeSnapshotAndReplaceOutbox(changes: PosLocalRecordChange[], operations: PosQueuedOperation[]): Promise<{ applied: number; operationCount: number }> {
+  if (isElectronDesktop()) {
+    const result = await electronPosRepository.applySnapshotAndReplaceOutbox(changes as any, operations as any);
+    return { applied: result.applied, operationCount: result.operationCount };
+  }
   if (!(await ensureNativePosDatabase())) throw new Error('SQLite database is unavailable');
   const ids = new Set<string>();
   for (const operation of operations) {
