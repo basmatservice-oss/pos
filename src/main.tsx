@@ -4,7 +4,7 @@ import App from './App.tsx';
 import './index.css';
 import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
-import { electronPosRepository, isElectronDesktop } from './native/electronPosRepository';
+import { electronPosRepository, isElectronDesktop, setElectronDeviceRole } from './native/electronPosRepository';
 import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
 import { putPosSetting } from './services/posDataAccess';
 
@@ -72,6 +72,15 @@ async function initializeLocalRuntime(): Promise<void> {
   }
 
   if (isElectronDesktop()) {
+    const configuredRole = await (window as any).electronAPI.getDeviceRole();
+    if (configuredRole !== 'server' && configuredRole !== 'client') throw new Error('Invalid Windows device role');
+    setElectronDeviceRole(configuredRole);
+    if (configuredRole === 'server') {
+      const { ensureDatabaseReady } = await import('./db/db');
+      await ensureDatabaseReady();
+      await restoreDesktopRuntimeConfig();
+      return;
+    }
     const marker = await electronPosRepository.getMeta('dexie-business-migration-v1');
     if (marker !== 'complete') {
       const { ensureDatabaseReady, db } = await import('./db/db');
