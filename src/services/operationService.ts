@@ -1034,6 +1034,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       throw new Error('تخصيصات دفعات أو تكاليف مرتجع المبيعات غير صالحة');
     }
     let remaining = qtyToRestore, totalCost = 0;
+    const restoredAllocations: Array<{ batchId: string; quantity: number; costPrice: number }> = [];
     for (let i = allocations.length - 1; i >= 0 && remaining > 1e-6; i--) {
       const allocation = allocations[i];
       if (!allocation || Number(allocation.quantity) <= 0) continue;
@@ -1052,12 +1053,14 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         if (putBack <= 1e-6) continue;
         const updated = { ...batch, remainingQuantity: roundQty(current + putBack), updatedAt: effectiveReturnDate, syncStatus };
         batchMap.set(String(updated.id), updated); stage('inventoryBatches', updated);
+        restoredAllocations.push({ batchId: String(updated.id), quantity: putBack, costPrice: allocationCost });
       } else {
         const batchId = generateUUID();
         const created = { id: batchId, productId, purchaseId: null, quantity: putBack, remainingQuantity: putBack,
           costPrice: allocationCost, purchaseDate: effectiveReturnDate, branchId: branchId ?? origOrder.branchId,
           syncStatus, createdAt: effectiveReturnDate, updatedAt: effectiveReturnDate };
         batchMap.set(batchId, created); stage('inventoryBatches', created);
+        restoredAllocations.push({ batchId, quantity: putBack, costPrice: allocationCost });
       }
       totalCost += putBack * allocationCost;
       remaining = roundQty(remaining - putBack);
@@ -1068,19 +1071,21 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
         costPrice: fallbackCost, purchaseDate: effectiveReturnDate, branchId: branchId ?? origOrder.branchId,
         syncStatus, createdAt: effectiveReturnDate, updatedAt: effectiveReturnDate };
       batchMap.set(batchId, created); stage('inventoryBatches', created);
+      restoredAllocations.push({ batchId, quantity: remaining, costPrice: fallbackCost });
       totalCost += remaining * fallbackCost;
     }
     const updatedProduct = { ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + qtyToRestore), updatedAt: effectiveReturnDate, syncStatus };
     productMap.set(Number(productId), updatedProduct); stage('products', updatedProduct);
     const movementKey = 'return:' + String(id) + ':in:' + String(productId) + ':' + suffix;
-    if (!movements.some((x: any) => x.movementKey === movementKey)) {
-      const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
-        sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: Math.round((totalCost / qtyToRestore) * 10000) / 10000, totalCost: roundMoney(totalCost),
-        branchId: branchId ?? origOrder.branchId, operationId, reason: reason || 'مرتجع مبيعات', createdBy,
-        createdAt: effectiveReturnDate, syncStatus };
-      movements.push(movement); stage('inventoryMovements', movement);
+    if (movements.some((x: any) => x.movementKey === movementKey)) {
+      throw new Error('يوجد أثر مخزني سابق لمرتجع المبيعات دون سجل مرتجع مكتمل؛ أوقف الترحيل لمنع إعادة إضافة المخزون');
     }
-    return roundMoney(totalCost);
+    const movement = { id: generateUUID(), movementKey, productId, movementType: 'sale_return', sourceType: 'return',
+      sourceId: String(id), quantityDeltaBase: qtyToRestore, unitCost: Math.round((totalCost / qtyToRestore) * 10000) / 10000, totalCost: roundMoney(totalCost),
+      branchId: branchId ?? origOrder.branchId, operationId, reason: reason || 'مرتجع مبيعات', createdBy,
+      createdAt: effectiveReturnDate, syncStatus };
+    movements.push(movement); stage('inventoryMovements', movement);
+    return { totalCost: roundMoney(totalCost), restoredAllocations };
   };
 
   for (const reqItem of items) {
@@ -1108,6 +1113,7 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     }
     const lineDiscount = roundMoney(Math.max(0, lineSub + lineTax - lineTotal));
     let lineCost = 0;
+    let restoredAllocationsJson = JSON.stringify([]);
     const condition = reqItem.condition === 'damaged' ? 'damaged' : 'resalable';
     totalSub = roundMoney(totalSub + lineSub); totalDiscount = roundMoney(totalDiscount + lineDiscount);
     totalTax = roundMoney(totalTax + lineTax); totalRefund = roundMoney(totalRefund + lineTotal);
@@ -1121,14 +1127,22 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
       try { parsedAlloc = typeof origItem.batchAllocations === 'string' ? JSON.parse(origItem.batchAllocations) : origItem.batchAllocations || []; } catch { parsedAlloc = []; }
       const fallbackCost = factor > 0 ? Number(origItem.costPriceAtTimeOfSale || 0) / factor : Number(origItem.costPriceAtTimeOfSale || 0);
       if (parsedAlloc?.kind === 'recipe' && Array.isArray(parsedAlloc.ingredients)) {
+        const restoredIngredients: any[] = [];
         for (const ingredient of parsedAlloc.ingredients) {
           const ingredientQty = roundQty(Number(ingredient.quantityConsumed || 0) * (qty / Number(origItem.quantity || 1)));
-          if (ingredientQty > 0) lineCost = roundMoney(lineCost + restore(Number(ingredient.ingredientProductId), ingredientQty,
-            Array.isArray(ingredient.allocations) ? ingredient.allocations : [], 0,
-            'rec-' + String(processedItems) + '-' + String(ingredient.ingredientProductId)));
+          if (ingredientQty > 0) {
+            const restored = restore(Number(ingredient.ingredientProductId), ingredientQty,
+              Array.isArray(ingredient.allocations) ? ingredient.allocations : [], 0,
+              'rec-' + String(processedItems) + '-' + String(ingredient.ingredientProductId));
+            lineCost = roundMoney(lineCost + restored.totalCost);
+            restoredIngredients.push({ ingredientProductId: ingredient.ingredientProductId, restoredAllocations: restored.restoredAllocations });
+          }
         }
+        restoredAllocationsJson = JSON.stringify({ kind: 'recipe', ingredients: restoredIngredients });
       } else if (parsedAlloc?.kind !== 'service') {
-        lineCost = restore(Number(origItem.productId), baseQty, Array.isArray(parsedAlloc) ? parsedAlloc : [], fallbackCost, String(processedItems));
+        const restored = restore(Number(origItem.productId), baseQty, Array.isArray(parsedAlloc) ? parsedAlloc : [], fallbackCost, String(processedItems));
+        lineCost = restored.totalCost;
+        restoredAllocationsJson = JSON.stringify(restored.restoredAllocations);
       }
       totalResalableCostReversed = roundMoney(totalResalableCostReversed + lineCost);
     } else if (condition === 'damaged' && itemType !== 'service') {
@@ -1143,7 +1157,8 @@ async function applyReturnLocallyNative(payload: any, syncStatus: 'synced' | 'pe
     totalCostReversed = roundMoney(totalCostReversed + lineCost);
     stage('returnItems', { id: generateUUID(), returnId: id, orderItemId: origItem.id, productId: origItem.productId,
       productName: origItem.productName, quantity: qty, condition, unitPrice: origItem.unitPrice,
-      costPrice: origItem.costPriceAtTimeOfSale || 0, taxAmount: lineTax, total: lineTotal, syncStatus, createdAt: effectiveReturnDate });
+      costPrice: origItem.costPriceAtTimeOfSale || 0, taxAmount: lineTax, total: lineTotal,
+      batchAllocations: restoredAllocationsJson, syncStatus, createdAt: effectiveReturnDate });
     processedItems++;
   }
   if (!processedItems) throw new Error('لا توجد أصناف صالحة للإرجاع');
