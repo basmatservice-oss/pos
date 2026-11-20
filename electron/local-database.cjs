@@ -176,10 +176,11 @@ function enqueueOperation(operation) {
   const createdAt = Number(operation.createdAt || Date.now());
   const retryCount = Number(operation.retryCount || 0);
   const schemaVersion = Number(operation.schemaVersion || 1);
+  const status = ['pending', 'error', 'conflict'].includes(operation.status) ? operation.status : 'pending';
   const nextRetryAt = operation.nextRetryAt == null ? null : Number(operation.nextRetryAt);
   if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isInteger(retryCount) || retryCount < 0 || !Number.isInteger(schemaVersion) || schemaVersion < 1 || (nextRetryAt !== null && (!Number.isFinite(nextRetryAt) || nextRetryAt <= 0))) throw new Error('Invalid outbox metadata');
   const result = db().prepare(`INSERT OR IGNORE INTO pos_outbox(operation_id,type,payload,created_at,status,retry_count,next_retry_at,device_id,tenant_id,branch_id,actor,schema_version)
-    VALUES(?,?,?,?,'pending',?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(operation.operationId, operation.type, JSON.stringify(operation.payload), createdAt, status, retryCount, nextRetryAt, operation.deviceId ?? null, operation.tenantId == null ? null : String(operation.tenantId), operation.branchId == null ? null : String(operation.branchId), operation.actor ?? null, schemaVersion);
   return { queued: result.changes === 1, duplicate: result.changes === 0, operationId: operation.operationId };
 }
 function saveAndEnqueueOperation(operation) {
