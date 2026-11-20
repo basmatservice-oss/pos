@@ -2472,9 +2472,9 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
     const existing = tx.select().from(accounts).where(eq(accounts.code, code)).get();
     if (existing) {
       return tx.update(accounts).set({
-        name,
-        type,
-        parentCode: clean.parentCode ?? existing.parentCode,
+        name: existing.isSystem ? existing.name : name,
+        type: existing.isSystem ? existing.type : type,
+        parentCode: existing.parentCode ?? clean.parentCode ?? null,
         isSystem: existing.isSystem,
         isSynced: 0,
         updatedAt: now,
