@@ -3375,7 +3375,7 @@ async function applyCustomerPaymentLocally(payload: any, syncStatus: 'synced' | 
           ...definition, balance: 0, isSystem: 1, createdAt: now, updatedAt: now,
         });
       }
-      const originalAccounts = new Map(accounts);
+      originalAccountsForCustomerPayment = new Map(accounts);
       const entryId = `local-je:payment:${paymentId}:customer-payment-${String(payload.operationId || paymentId)}`;
       if (!(await nativePosRepository.get<any>('journalEntries', entryId))) {
         const lines = [
