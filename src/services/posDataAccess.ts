@@ -82,6 +82,12 @@ const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) =>
 
 type PosRecord = Record<string, unknown>;
 
+const SERVER_PRIMARY_KEY_FIELDS: Partial<Record<NativePosEntity, string>> = {
+  accounts: 'code',
+  unitDefinitions: 'code',
+  settings: 'key',
+};
+
 async function getWindowsServerRecords<T extends PosRecord>(entity: NativePosEntity): Promise<T[]> {
   // Held orders are transient UI drafts and are intentionally not persisted by the server.
   if (entity === 'heldOrders') return [];
@@ -120,7 +126,8 @@ export async function getPosRecord<T extends PosRecord = PosRecord>(
   if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
   if (isWindowsServer()) {
     const records = await getWindowsServerRecords<T>(entity);
-    return records.find((record) => record.id === key || (entity === 'settings' && record.key === key));
+    const keyField = SERVER_PRIMARY_KEY_FIELDS[entity] || 'id';
+    return records.find((record) => record[keyField] === key || (entity === 'settings' && record.id === key));
   }
   const { db } = await import('../db/db');
   return await db.table(entity).get(key as any) as T | undefined;
