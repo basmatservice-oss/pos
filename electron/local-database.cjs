@@ -249,18 +249,41 @@ function updateOperation(operationId, status, message, nextRetryAt) {
   if (!['pending', 'syncing', 'error', 'conflict', 'synced'].includes(status)) throw new Error('Invalid outbox status');
   const retryAt = nextRetryAt == null ? null : Number(nextRetryAt);
   if (retryAt !== null && (!Number.isFinite(retryAt) || retryAt <= 0)) throw new Error('Invalid next retry timestamp');
-  const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END, next_retry_at=? WHERE operation_id=?')
-    .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, retryAt, operationId);
-  return { updated: result.changes === 1 };
+  const tx = db().transaction(() => {
+    const result = db().prepare('UPDATE pos_outbox SET status=?, last_error=?, retry_count=CASE WHEN ? = \'error\' THEN retry_count+1 ELSE retry_count END, next_retry_at=? WHERE operation_id=?')
+      .run(status, typeof message === 'string' ? message.slice(0, 4000) : null, status, retryAt, operationId);
+    if (result.changes !== 1) return false;
+    const syncState = status === 'synced' ? 'synced' : (status === 'error' || status === 'conflict' ? 'error' : 'pending');
+    db().prepare('UPDATE pos_records SET sync_state=?, updated_at=? WHERE entity=? AND record_id=?')
+      .run(syncState, Date.now(), 'operations', operationId);
+    return true;
+  });
+  return { updated: tx() };
 }
 function retryOperation(operationId) {
-  const result = db().prepare("UPDATE pos_outbox SET status='pending', last_error=NULL, next_retry_at=NULL WHERE operation_id=?").run(operationId);
-  return { updated: result.changes === 1 };
+  const tx = db().transaction(() => {
+    const result = db().prepare("UPDATE pos_outbox SET status='pending', retry_count=0, last_error=NULL, next_retry_at=NULL WHERE operation_id=? AND status IN ('error','conflict')").run(operationId);
+    if (result.changes !== 1) return false;
+    const payload = db().prepare('SELECT payload FROM pos_outbox WHERE operation_id=?').get(operationId);
+    if (!payload) throw new Error('Outbox operation disappeared during retry');
+    db().prepare(`INSERT INTO pos_records(entity,record_id,json,updated_at,sync_state) VALUES(?,?,?,?,?)
+      ON CONFLICT(entity,record_id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at,sync_state=excluded.sync_state`)
+      .run('operations', operationId, payload.payload, Date.now(), 'pending');
+    return true;
+  });
+  return { updated: tx() };
 }
 function updateOperationPayload(operationId, payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('payload must be an object');
-  const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(JSON.stringify(payload), operationId);
-  return { updated: result.changes === 1, rows: result.changes };
+  const serialized = JSON.stringify(payload);
+  const tx = db().transaction(() => {
+    const result = db().prepare("UPDATE pos_outbox SET payload=?, status='pending', next_retry_at=NULL WHERE operation_id=? AND status IN ('pending','error')").run(serialized, operationId);
+    if (result.changes !== 1) return false;
+    db().prepare('UPDATE pos_records SET json=?, updated_at=? WHERE entity=? AND record_id=?')
+      .run(serialized, Date.now(), 'operations', operationId);
+    return true;
+  });
+  return { updated: tx(), rows: 1 };
 }
 function deleteOperation(operationId) {
   if (typeof operationId !== 'string' || !operationId.trim()) throw new Error('operationId is required');
@@ -268,8 +291,7 @@ function deleteOperation(operationId) {
   return { deleted: result.changes === 1 };
 }
 function acknowledgeOperation(operationId) {
-  const result = db().prepare("UPDATE pos_outbox SET status='synced', last_error=NULL, next_retry_at=NULL WHERE operation_id=?").run(operationId);
-  return { updated: result.changes === 1 };
+  return updateOperation(operationId, 'synced', null);
 }
 function applySnapshotAndReplaceOutbox(changes, operations) {
   if (!Array.isArray(operations) || operations.length > 100000) throw new Error('Invalid snapshot outbox');
