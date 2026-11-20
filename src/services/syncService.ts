@@ -371,7 +371,7 @@ export const syncService = {
   },
 
   async pushAll() {
-    if (await this.getDeviceRole() === 'standalone') return;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return;
     const tables: string[] = [
       'categories',
       'products',
@@ -400,7 +400,7 @@ export const syncService = {
   },
 
   async pushRecord(tableName: string, record: any) {
-    if (await this.getDeviceRole() === 'standalone') return false;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return false;
     if (!getAuthToken()) return false;
     const table = isLocalSqlite() ? undefined : (db as any)[tableName];
     if (!table && (!isLocalSqlite() || !NATIVE_POS_ENTITIES.includes(tableName as any))) return false;
@@ -559,7 +559,7 @@ export const syncService = {
   },
 
   async pushTable(tableName: string) {
-    if (await this.getDeviceRole() === 'standalone') return;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return;
     if (isLocalSqlite()) {
       if (!NATIVE_POS_ENTITIES.includes(tableName as any)) return;
     } else if (!(db as any)[tableName]) return;
@@ -585,7 +585,7 @@ export const syncService = {
   },
 
   async pullAll() {
-    if (await this.getDeviceRole() === 'standalone') return;
+    if (isWindowsServer() || await this.getDeviceRole() === 'standalone') return;
     if (!getAuthToken()) return;
     try {
       const reachable = await apiService.checkServerReachability(1200);
