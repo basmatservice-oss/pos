@@ -127,6 +127,56 @@ function createServerDatabase() {
       debit REAL DEFAULT 0, credit REAL DEFAULT 0, description TEXT,
       orderId TEXT, purchaseId TEXT, returnId TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
     );
+    CREATE TABLE Setting (
+      id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, value TEXT NOT NULL,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE FiscalPeriod (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, startDate TEXT NOT NULL, endDate TEXT NOT NULL,
+      status TEXT DEFAULT 'open', closedAt TEXT, closedBy TEXT, notes TEXT,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE ProcessedOperation (
+      operationId TEXT PRIMARY KEY, deviceId TEXT, operationType TEXT NOT NULL,
+      status TEXT DEFAULT 'completed', resultJson TEXT, createdAt TEXT
+    );
+    CREATE TABLE "Order" (
+      id TEXT PRIMARY KEY, receiptNumber TEXT, totalAmount REAL NOT NULL, discountAmount REAL DEFAULT 0,
+      taxAmount REAL DEFAULT 0, netAmount REAL NOT NULL, paidAmount REAL DEFAULT 0,
+      cashAmount REAL DEFAULT 0, cardAmount REAL DEFAULT 0, returnedAmount REAL DEFAULT 0,
+      paymentMethod TEXT NOT NULL, currency TEXT, exchangeRate REAL DEFAULT 1, customerId INTEGER,
+      customerName TEXT, branchId INTEGER, shiftId TEXT, tableNumber TEXT, orderType TEXT,
+      status TEXT NOT NULL, createdBy TEXT, deviceId TEXT, operationId TEXT,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE OrderItem (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, orderId TEXT NOT NULL, productId INTEGER NOT NULL,
+      productName TEXT NOT NULL, quantity REAL NOT NULL, returnedQuantity REAL DEFAULT 0,
+      unit TEXT DEFAULT 'piece', conversionFactor REAL DEFAULT 1, itemType TEXT DEFAULT 'stock',
+      unitPrice REAL NOT NULL, costPriceAtTimeOfSale REAL DEFAULT 0, discountAmount REAL DEFAULT 0,
+      subTotal REAL NOT NULL, taxAmount REAL NOT NULL, total REAL NOT NULL,
+      batchAllocations TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
+    );
+    CREATE TABLE "Return" (
+      id TEXT PRIMARY KEY, returnNumber TEXT NOT NULL, originalOrderId TEXT NOT NULL,
+      originalReceiptNumber TEXT, customerId INTEGER, customerName TEXT, branchId INTEGER, shiftId TEXT,
+      refundMethod TEXT NOT NULL, currency TEXT, exchangeRate REAL DEFAULT 1, subTotal REAL DEFAULT 0,
+      discountAmount REAL DEFAULT 0, taxAmount REAL DEFAULT 0, totalRefund REAL NOT NULL,
+      totalCostReversed REAL DEFAULT 0, reason TEXT, createdBy TEXT, deviceId TEXT, operationId TEXT,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE ReturnItem (
+      id TEXT PRIMARY KEY, returnId TEXT NOT NULL, orderItemId INTEGER, productId INTEGER NOT NULL,
+      productName TEXT NOT NULL, quantity REAL NOT NULL, condition TEXT DEFAULT 'resalable',
+      unitPrice REAL NOT NULL, costPrice REAL DEFAULT 0, taxAmount REAL DEFAULT 0,
+      total REAL NOT NULL, batchAllocations TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
+    );
+    CREATE TABLE AuditLog (
+      id TEXT PRIMARY KEY, date TEXT, type TEXT NOT NULL, userName TEXT NOT NULL,
+      action TEXT NOT NULL, operationName TEXT, productName TEXT, details TEXT,
+      quantity REAL DEFAULT 0, value REAL DEFAULT 0, branchId INTEGER,
+      previousValue TEXT, newValue TEXT, entityId TEXT, entityName TEXT
+    );
   `);
   return { raw, db: drizzle(raw, { schema }) };
 }
@@ -278,5 +328,140 @@ test('server and native SQLite journal engines post matching sale, COGS, return 
       .map((x) => [x.accountId, x.debit, x.credit]).sort((a, b) => a[0].localeCompare(b[0]));
     assert.deepEqual(localLines, serverLines);
   }
+  raw.close();
+});
+
+test('end-to-end server business operations and native SQLite operations match for sale, partial return, FIFO and COGS', async () => {
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.window = { electronAPI: { isElectron: true, posLocalDatabase: bridge }, dispatchEvent() { return true; } };
+  globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+
+  const [{ setElectronDeviceRole }, { dispatchOperation }, { executeBusinessOperation }] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/operationService.ts'),
+    import('../server/operations.ts'),
+  ]);
+  setElectronDeviceRole('client');
+
+  const { db: serverDb, raw } = createServerDatabase();
+  const product = {
+    id: 1, name: 'Parity product', barcode: null, categoryId: null, costPrice: 6,
+    sellingPrice: 23 / 7, stockQuantity: 10, minStockLevel: 0, unit: 'piece',
+    conversionFactor: 1, itemType: 'stock', allowFractions: 0, baseUnitCode: 'piece',
+    quantityPrecision: 0, isActive: 1, vatRate: 0, branchId: 1, isSynced: 0,
+    updatedAt: now, createdAt: now,
+  };
+  const batches = [
+    { id: 'parity-batch-1', productId: 1, purchaseId: 'p-1', quantity: 5, remainingQuantity: 5, costPrice: 5, purchaseDate: '2026-01-01', branchId: 1, isSynced: 0, createdAt: '2026-01-01', updatedAt: now },
+    { id: 'parity-batch-2', productId: 1, purchaseId: 'p-2', quantity: 5, remainingQuantity: 5, costPrice: 7, purchaseDate: '2026-02-01', branchId: 1, isSynced: 0, createdAt: '2026-02-01', updatedAt: now },
+  ];
+  const accountRows = [
+    ['1010', 'Cash', 'asset'], ['1020', 'Card', 'asset'], ['1100', 'Receivables', 'asset'],
+    ['1200', 'Inventory', 'asset'], ['2100', 'Payables', 'liability'], ['2200', 'VAT', 'liability'],
+    ['3100', 'Capital', 'equity'], ['3200', 'Retained earnings', 'equity'],
+    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['4300', 'Discounts', 'revenue'],
+    ['5100', 'COGS', 'expense'], ['5200', 'Expenses', 'expense'], ['5300', 'Payroll', 'expense'],
+    ['5400', 'Inventory adjustment', 'expense'],
+  ].map(([code, name, type]) => ({ code, name, type, balance: 0, isSystem: 1, createdAt: now, updatedAt: now }));
+  const settingRows = [
+    { id: 1, key: 'deviceRole', value: 'client', isSynced: 0, createdAt: now, updatedAt: now },
+    { id: 2, key: 'inventoryValuationMethod', value: 'fifo', isSynced: 0, createdAt: now, updatedAt: now },
+    { id: 3, key: 'offlineStockPolicy', value: 'allow_with_alert', isSynced: 0, createdAt: now, updatedAt: now },
+    { id: 4, key: 'currency', value: 'ر.س', isSynced: 0, createdAt: now, updatedAt: now },
+  ];
+  serverDb.insert(schema.products).values(product).run();
+  serverDb.insert(schema.inventoryBatches).values(batches).run();
+  serverDb.insert(schema.accounts).values(accountRows).run();
+  serverDb.insert(schema.settings).values(settingRows).run();
+  seed('products', product);
+  for (const batch of batches) seed('inventoryBatches', batch);
+  for (const account of accountRows) seed('accounts', account);
+  for (const setting of settingRows) seed('settings', setting);
+
+  const salePayload = {
+    operationId: 'sale-op-parity', deviceId: 'parity-device',
+    order: {
+      id: 'parity-order', receiptNumber: 'INV-PARITY', totalAmount: 20, taxAmount: 3,
+      netAmount: 23, paymentMethod: 'cash', currency: 'ر.س', exchangeRate: 1,
+      branchId: 1, createdBy: 'tester', createdAt: now,
+    },
+    items: [{
+      productId: 1, productName: 'Parity product', quantity: 7, unit: 'piece',
+      conversionFactor: 1, itemType: 'stock', unitPrice: 23 / 7,
+      discountAmount: 0, subTotal: 20, taxAmount: 3, total: 23,
+    }],
+  };
+  const serverSale = executeBusinessOperation(serverDb, 'sale', salePayload, {
+    operationId: salePayload.operationId, deviceId: salePayload.deviceId, userName: 'tester',
+  });
+  await dispatchOperation('sale', salePayload, 1);
+  const serverOrderItem = serverSale.result.items[0];
+  const localOrderItem = [...records.get('orderItems').values()].map((row) => row.record)[0];
+  assert.equal(serverOrderItem.costPriceAtTimeOfSale, localOrderItem.costPriceAtTimeOfSale);
+  assert.equal(serverOrderItem.costPriceAtTimeOfSale, 39 / 7);
+
+  const serverReturnPayload = {
+    id: 'parity-return', returnNumber: 'RET-PARITY', originalOrderId: 'parity-order',
+    items: [{ orderItemId: serverOrderItem.id, productId: 1, quantity: 3, condition: 'resalable' }],
+    refundMethod: 'cash', reason: 'parity fixture', returnDate: now,
+  };
+  const localReturnPayload = {
+    ...serverReturnPayload,
+    items: [{ ...serverReturnPayload.items[0], orderItemId: localOrderItem.id }],
+    operationId: 'return-op-parity', deviceId: 'parity-device',
+  };
+  const serverReturn = executeBusinessOperation(serverDb, 'return', serverReturnPayload, {
+    operationId: 'return-op-parity', deviceId: 'parity-device', userName: 'tester',
+  });
+  await dispatchOperation('return', localReturnPayload, 1);
+
+  const serverProduct = serverDb.select().from(schema.products).get();
+  const localProduct = records.get('products').get(JSON.stringify(1)).record;
+  assert.equal(localProduct.stockQuantity, serverProduct.stockQuantity);
+  assert.equal(localProduct.stockQuantity, 6);
+  assert.equal(serverReturn.result.returnRecord.totalCostReversed, 19);
+  const localReturn = [...records.get('returns').values()].map((row) => row.record)[0];
+  assert.equal(localReturn.totalCostReversed, serverReturn.result.returnRecord.totalCostReversed);
+  assert.equal(localReturn.totalRefund, serverReturn.result.returnRecord.totalRefund);
+
+  const serverOrder = serverDb.select().from(schema.orders).get();
+  const localOrder = records.get('orders').get(JSON.stringify('parity-order')).record;
+  assert.equal(localOrder.status, serverOrder.status);
+  assert.equal(localOrder.status, 'partially_returned');
+  assert.equal(localOrder.returnedAmount, serverOrder.returnedAmount);
+
+  const serverBatches = serverDb.select().from(schema.inventoryBatches).all().sort((a, b) => a.id.localeCompare(b.id));
+  const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(localBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]), serverBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]));
+
+  const serverAccounts = serverDb.select().from(schema.accounts).all().sort((a, b) => a.code.localeCompare(b.code));
+  const localAccounts = [...records.get('accounts').values()].map((row) => row.record).sort((a, b) => a.code.localeCompare(b.code));
+  assert.deepEqual(localAccounts.map((x) => [x.code, x.balance]), serverAccounts.map((x) => [x.code, x.balance]));
+
+  const serverEntries = serverDb.select().from(schema.journalEntries).all();
+  const localEntries = [...records.get('journalEntries').values()].map((row) => row.record);
+  assert.equal(localEntries.length, serverEntries.length);
+  for (const serverHeader of serverEntries) {
+    const localHeader = localEntries.find((x) => x.referenceId === serverHeader.referenceId &&
+      x.referenceType === serverHeader.referenceType && x.description === serverHeader.description);
+    assert.ok(localHeader, 'matching local journal header');
+    assert.equal(localHeader.totalDebit, serverHeader.totalDebit);
+    assert.equal(localHeader.totalCredit, serverHeader.totalCredit);
+    const serverLines = serverDb.select().from(schema.transactions).all()
+      .filter((x) => x.journalEntryId === serverHeader.id)
+      .map((x) => [x.accountId, x.debit, x.credit]).sort((a, b) => a[0].localeCompare(b[0]));
+    const localLines = [...records.get('transactions').values()].map((row) => row.record)
+      .filter((x) => x.journalEntryId === localHeader.id)
+      .map((x) => [x.accountId, x.debit, x.credit]).sort((a, b) => a[0].localeCompare(b[0]));
+    assert.deepEqual(localLines, serverLines);
+  }
+
+  const serverMovements = serverDb.select().from(schema.inventoryMovements).all().sort((a, b) => a.movementKey.localeCompare(b.movementKey));
+  const localMovements = [...records.get('inventoryMovements').values()].map((row) => row.record).sort((a, b) => a.movementKey.localeCompare(b.movementKey));
+  assert.deepEqual(
+    localMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
+    serverMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
+  );
   raw.close();
 });
