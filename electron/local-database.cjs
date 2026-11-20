@@ -107,7 +107,15 @@ function putRecords(records) {
 }
 
 function applyRecordChanges(changes, guards = {}) {
-  if (!Array.isArray(changes)) throw new Error('changes must be an array');
+  if (!Array.isArray(changes) || changes.length > 10000) throw new Error('changes must be an array within the transaction limit');
+  if (!guards || typeof guards !== 'object' || Array.isArray(guards)) throw new Error('Invalid transaction guards');
+  if (guards.ifAbsentEntity && !VALID_ENTITIES.has(guards.ifAbsentEntity)) throw new Error('Unsupported idempotency entity');
+  if (guards.ifAbsentRecordId && (typeof guards.ifAbsentRecordId !== 'string' || guards.ifAbsentRecordId.length > 512)) throw new Error('Invalid idempotency record ID');
+  if (guards.ifAbsentField && (typeof guards.ifAbsentField !== 'string' || !guards.ifAbsentField.trim() || typeof guards.ifAbsentValue !== 'string')) throw new Error('Invalid field idempotency guard');
+  if (guards.ifMatchGuards !== undefined && !Array.isArray(guards.ifMatchGuards)) throw new Error('Invalid compare guard list');
+  for (const guard of guards.ifMatchGuards || []) {
+    if (!guard || !VALID_ENTITIES.has(guard.entity) || typeof guard.recordId !== 'string' || guard.recordId.length > 512 || typeof guard.field !== 'string' || !guard.field.trim() || typeof guard.expectedValue !== 'string' || guard.expectedValue.length > 512) throw new Error('Invalid compare guard');
+  }
   const seen = new Set();
   const parsed = changes.map(change => {
     validateIdentity(change?.entity, change?.recordId);
@@ -117,6 +125,7 @@ function applyRecordChanges(changes, guards = {}) {
     if (change.action !== 'put' && change.action !== 'delete') throw new Error('Invalid record change action');
     if (change.action === 'put' && (!change.record || typeof change.record !== 'object' || Array.isArray(change.record))) throw new Error('put change requires a record object');
     if (change.action === 'put' && Buffer.byteLength(JSON.stringify(change.record), 'utf8') > MAX_RECORD_BYTES) throw new Error('Record exceeds the local SQLite size limit');
+    if (change.action === 'put' && change.syncState !== undefined && !['local','pending','synced','error'].includes(change.syncState)) throw new Error('Invalid record sync state');
     return change;
   });
   const apply = db().transaction(rows => {
