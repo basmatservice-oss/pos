@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronDesktop } from '../native/electronPosRepository';
+import { isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository, type NativePosEntity } from '../native/nativePosRepository';
 
 /**
@@ -10,7 +10,7 @@ import { nativePosRepository, type NativePosEntity } from '../native/nativePosRe
 export function usePosEntityRecords<T extends Record<string, unknown> = Record<string, unknown>>(
   entity: NativePosEntity,
 ): T[] {
-  const isLocalSqlite = isNativeAndroid() || isElectronDesktop();
+  const isLocalSqlite = isNativeAndroid() || isElectronLocalClient();
   const [records, setRecords] = useState<T[]>([]);
 
   useEffect(() => {
