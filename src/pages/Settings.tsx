@@ -411,7 +411,7 @@ const Settings: React.FC = () => {
         throw new Error('ملف النسخة الاحتياطية غير صالح');
       }
 
-      if (isNativeAndroid()) {
+      if (isLocalSqlite()) {
         const pendingBackup = Array.isArray(data._nativePendingOperations) ? data._nativePendingOperations : [];
         const pendingIds = new Set<string>();
         for (const operation of pendingBackup) {
@@ -500,7 +500,7 @@ const Settings: React.FC = () => {
     if (mode === 'none') return;
 
     try {
-      if (isNativeAndroid()) {
+      if (isLocalSqlite()) {
         const changes: any[] = [];
         for (const entity of NATIVE_POS_ENTITIES) {
           if (mode !== 'system' && entity === 'settings') continue;
