@@ -93,7 +93,38 @@ export async function postLocalJournalEntry(input: LocalJournalInput): Promise<s
       totalCredit = money(lines.reduce((sum, line) => sum + line.credit, 0));
     }
     const entryId = 'local-je:' + input.referenceType + ':' + input.referenceId + ':' + input.entryKey;
-    if (await nativePosRepository.get<any>('journalEntries', entryId)) return entryId;
+    const existingEntry = await nativePosRepository.get<any>('journalEntries', entryId);
+    if (existingEntry) {
+      const existingLines = await nativePosRepository.whereEquals<any>('transactions', 'journalEntryId', entryId);
+      const expectedLines = lines.map((line) => ({
+        accountCode: String(line.accountCode),
+        debit: money(line.debit),
+        credit: money(line.credit),
+      }));
+      const actualLines = existingLines.map((line: any) => ({
+        accountCode: String(line.accountId),
+        debit: money(line.debit),
+        credit: money(line.credit),
+      }));
+      const sameLines = expectedLines.length === actualLines.length &&
+        expectedLines.every((expected, index) => {
+          const actual = actualLines.find((line) =>
+            line.accountCode === expected.accountCode &&
+            line.debit === expected.debit &&
+            line.credit === expected.credit,
+          );
+          return Boolean(actual) && actualLines.indexOf(actual) === index;
+        });
+      const sameHeader = existingEntry.status === 'posted' &&
+        String(existingEntry.referenceId) === input.referenceId &&
+        String(existingEntry.referenceType) === input.referenceType &&
+        money(existingEntry.totalDebit) === totalDebit &&
+        money(existingEntry.totalCredit) === totalCredit;
+      if (!sameHeader || !sameLines) {
+        throw new Error('يوجد قيد سابق بالمفتاح نفسه لكن تفاصيله أو مبالغه تختلف عن العملية الحالية؛ أوقف الترحيل للمراجعة');
+      }
+      return entryId;
+    }
     const now = input.date || new Date().toISOString();
     const changes: any[] = [];
     let accountRows = await nativePosRepository.getAllWithSyncState('accounts');
