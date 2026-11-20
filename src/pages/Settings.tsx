@@ -43,6 +43,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import type { ExchangeRateRecord, FiscalPeriod } from '../db/db';
 import { isNativeAndroid, applyNativeSnapshotAndReplaceOutbox } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { NATIVE_POS_ENTITIES, nativePosRepository, getNativePosRecordId } from '../native/nativePosRepository';
 import type { PosLocalRecordChange, PosQueuedOperation } from '../native/posLocalDatabase';
 import { updateApiBase, apiService } from '../services/apiService';
