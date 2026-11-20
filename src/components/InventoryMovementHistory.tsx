@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { isNativeAndroid } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository } from '../native/nativePosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 import { apiService } from '../services/apiService';
@@ -65,7 +65,7 @@ export default function InventoryMovementHistory({ productId, currency }: Props)
             const applied = await nativePosRepository.applyChanges(changes);
             if (applied !== changes.length) throw new Error('SQLite did not confirm the complete movement page');
           }
-        } else {
+        } else if (!isElectronDesktop()) {
           const { db } = await import('../db/db');
           await db.transaction('rw', db.inventoryMovements, async () => {
             const localRows = await db.inventoryMovements.where('movementKey').anyOf(Array.from(keys)).toArray();
