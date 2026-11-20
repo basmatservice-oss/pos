@@ -134,39 +134,39 @@ async function getWindowsServerRecords<T extends PosRecord>(entity: NativePosEnt
 }
 
 /** Read one business record from the active platform's authoritative database. */
-export async function getPosRecord<T extends PosRecord = PosRecord>(
+export async function getPosRecord<T extends object = PosRecord>(
   entity: NativePosEntity,
   key: unknown,
 ): Promise<T | undefined> {
-  if (isLocalSqlite()) return (await nativePosRepository.get<T>(entity, key)) ?? undefined;
+  if (isLocalSqlite()) return (await nativePosRepository.get(entity, key)) as T | undefined;
   if (isWindowsServer()) {
-    const records = await getWindowsServerRecords<T>(entity);
+    const records = await getWindowsServerRecords(entity) as unknown as T[];
     const keyField = SERVER_PRIMARY_KEY_FIELDS[entity] || 'id';
-    return records.find((record) => record[keyField] === key || (entity === 'settings' && record.id === key));
+    return records.find((record) => (record as PosRecord)[keyField] === key || (entity === 'settings' && (record as PosRecord).id === key));
   }
   const { db } = await import('../db/db');
   return await db.table(entity).get(key as any) as T | undefined;
 }
 
 /** Read from SQLite on Android/Windows Client and the authoritative API on Windows Server. */
-export async function getPosRecords<T extends PosRecord = PosRecord>(
+export async function getPosRecords<T extends object = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
-  if (isLocalSqlite()) return nativePosRepository.getAll<T>(entity);
+  if (isLocalSqlite()) return await nativePosRepository.getAll(entity) as unknown as T[];
   if (isWindowsServer()) {
-    return await getWindowsServerRecords<T>(entity);
+    return await getWindowsServerRecords(entity) as unknown as T[];
   }
   const { db } = await import('../db/db');
   return await db.table(entity).toArray() as T[];
 }
 
 /** Equality-filtered reads use the platform's authoritative data source. */
-export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
+export async function getPosRecordsWhereEquals<T extends object = PosRecord>(
   entity: NativePosEntity,
   field: string,
   value: string | number | boolean,
 ): Promise<T[]> {
-  if (isLocalSqlite()) return nativePosRepository.whereEquals<T>(entity, field, value);
+  if (isLocalSqlite()) return await nativePosRepository.whereEquals(entity, field, value) as unknown as T[];
   if (isWindowsServer()) {
     const records = await getPosRecords<T>(entity);
     return records.filter((record) => record[field] === value);
@@ -176,12 +176,12 @@ export async function getPosRecordsWhereEquals<T extends PosRecord = PosRecord>(
 }
 
 /** Return the first equality match using the platform's primary data store. */
-export async function getFirstPosRecordWhereEquals<T extends PosRecord = PosRecord>(
+export async function getFirstPosRecordWhereEquals<T extends object = PosRecord>(
   entity: NativePosEntity,
   field: string,
   value: string | number | boolean,
 ): Promise<T | undefined> {
-  if (isLocalSqlite()) return (await nativePosRepository.firstWhereEquals<T>(entity, field, value)) ?? undefined;
+  if (isLocalSqlite()) return (await nativePosRepository.firstWhereEquals(entity, field, value)) as T | undefined;
   if (isWindowsServer()) return (await getPosRecordsWhereEquals<T>(entity, field, value))[0];
   const { db } = await import('../db/db');
   return await db.table(entity).where(field).equals(value as any).first() as T | undefined;
