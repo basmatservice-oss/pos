@@ -7,7 +7,7 @@ let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
@@ -107,7 +107,7 @@ export async function recordLocalInventoryMovement(input: {
   createdAt: string;
   syncStatus?: 'synced' | 'pending';
 }) {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const existing = await nativePosRepository.firstWhereEquals<any>('inventoryMovements', 'movementKey', input.movementKey);
     if (existing) return;
     const product = await nativePosRepository.get<any>('products', input.productId);
@@ -152,7 +152,7 @@ export async function recordLocalInventoryMovement(input: {
 export async function consumeLocalInventoryFIFO(
   params: ConsumeLocalInventoryParams
 ): Promise<ConsumeLocalInventoryResult> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const productRow = (await nativePosRepository.getAllWithSyncState('products')).find((row) => Number(row.record.id) === params.productId);
     const product = productRow?.record as any;
     if (!product) throw new Error('الصنف غير موجود (ID: ' + params.productId + ')');
@@ -421,7 +421,7 @@ export async function restoreLocalInventoryFIFO(params: {
   createdAt: string;
   syncStatus?: 'synced' | 'pending';
 }): Promise<number> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const qtyToRestore = roundQty(params.quantityInBaseUnits);
     if (!Number.isFinite(qtyToRestore) || qtyToRestore < 0) throw new Error('كمية إعادة المخزون غير صالحة');
     if (qtyToRestore <= 0) return 0;
@@ -672,7 +672,7 @@ export async function restoreLocalInventoryFIFO(params: {
 }
 
 export async function removeLocalInventoryArtifactsForOperation(operationId: string): Promise<void> {
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const [movements, alerts] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryMovements', 'operationId', operationId),
       nativePosRepository.whereEquals<any>('inventoryAlerts', 'operationId', operationId),
