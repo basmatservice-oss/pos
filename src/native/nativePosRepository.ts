@@ -10,7 +10,6 @@ import {
   isNativeAndroid,
   putNativePosRecord,
   putNativePosRecords,
-  updateNativePosRecordSyncState,
   type PosLocalRecord,
   type PosLocalRecordChange,
 } from './posLocalDatabase';
