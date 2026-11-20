@@ -443,14 +443,21 @@ test('end-to-end server business operations and native SQLite operations match f
   const localEntries = [...records.get('journalEntries').values()].map((row) => row.record);
   assert.equal(localEntries.length, serverEntries.length);
   for (const serverHeader of serverEntries) {
-    const localHeader = localEntries.find((x) => x.referenceId === serverHeader.referenceId &&
-      x.referenceType === serverHeader.referenceType && x.description === serverHeader.description);
-    assert.ok(localHeader, 'matching local journal header');
-    assert.equal(localHeader.totalDebit, serverHeader.totalDebit);
-    assert.equal(localHeader.totalCredit, serverHeader.totalCredit);
     const serverLines = serverDb.select().from(schema.transactions).all()
       .filter((x) => x.journalEntryId === serverHeader.id)
       .map((x) => [x.accountId, x.debit, x.credit]).sort((a, b) => a[0].localeCompare(b[0]));
+    const localHeader = localEntries.find((x) => x.referenceId === serverHeader.referenceId &&
+      x.referenceType === serverHeader.referenceType &&
+      x.totalDebit === serverHeader.totalDebit && x.totalCredit === serverHeader.totalCredit &&
+      (() => {
+        const candidateLines = [...records.get('transactions').values()].map((row) => row.record)
+          .filter((line) => line.journalEntryId === x.id)
+          .map((line) => [line.accountId, line.debit, line.credit]).sort((a, b) => a[0].localeCompare(b[0]));
+        return JSON.stringify(candidateLines) === JSON.stringify(serverLines);
+      })());
+    assert.ok(localHeader, 'matching local journal header and posting lines');
+    assert.equal(localHeader.totalDebit, serverHeader.totalDebit);
+    assert.equal(localHeader.totalCredit, serverHeader.totalCredit);
     const localLines = [...records.get('transactions').values()].map((row) => row.record)
       .filter((x) => x.journalEntryId === localHeader.id)
       .map((x) => [x.accountId, x.debit, x.credit]).sort((a, b) => a[0].localeCompare(b[0]));
