@@ -280,6 +280,7 @@ export async function applyNativePosRecordChangesIfAbsent(
   changes: PosLocalRecordChange[],
   guardEntity: string,
   guardRecordId: string,
+  compareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!guardEntity.trim() || !guardRecordId.trim()) throw new Error('SQLite idempotency guard requires an entity and record ID');
@@ -294,8 +295,14 @@ export async function applyNativePosRecordChangesIfAbsent(
       throw new Error('Native SQLite put changes require a record object');
     }
   }
+  if (compareGuards.some((guard) =>
+    !guard.entity.trim() || !guard.recordId.trim() || !guard.field.trim() || !guard.expectedValue
+  )) throw new Error('SQLite multi-record compare guard is incomplete');
   const result = await posLocalDatabase.applyRecordChanges({
-    changes, ifAbsentEntity: guardEntity, ifAbsentRecordId: guardRecordId,
+    changes,
+    ifAbsentEntity: guardEntity,
+    ifAbsentRecordId: guardRecordId,
+    ...(compareGuards.length ? { ifMatchGuards: compareGuards } : {}),
   });
   if (!Number.isInteger(result.count) || result.count !== changes.length ||
       !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length ||
