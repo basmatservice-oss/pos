@@ -65,9 +65,6 @@ const SERVER_UPDATE_ENDPOINTS: Partial<Record<NativePosEntity, (record: Record<s
   attendance: (r) => `/attendance/${encodeURIComponent(String(r.id))}`,
   branches: (r) => `/branches/${encodeURIComponent(String(r.id))}`,
   offers: (r) => `/offers/${encodeURIComponent(String(r.id))}`,
-  purchases: (r) => `/purchases/${encodeURIComponent(String(r.id))}`,
-  inventoryBatches: (r) => `/inventoryBatches/${encodeURIComponent(String(r.id))}`,
-  stocktakingSessions: (r) => `/stocktakingSessions/${encodeURIComponent(String(r.id))}`,
 };
 
 const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) => string>> = {
@@ -81,7 +78,6 @@ const SERVER_DELETE_ENDPOINTS: Partial<Record<NativePosEntity, (key: unknown) =>
   purchases: (key) => `/purchases/${encodeURIComponent(String(key))}`,
   expenses: (key) => `/expenses/${encodeURIComponent(String(key))}`,
   serviceRecipes: (key) => `/serviceRecipes/${encodeURIComponent(String(key))}`,
-  stocktakingSessions: (key) => `/stocktakingSessions/${encodeURIComponent(String(key))}`,
 };
 
 type PosRecord = Record<string, unknown>;
