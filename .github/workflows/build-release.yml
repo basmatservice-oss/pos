@@ -1,7 +1,9 @@
 name: Build Smart POS Android and Windows Packages
 
 on:
-  # Packaging is intentionally manual until the offline business engine is complete.
+  push:
+    branches:
+      - "packaging/capacitor-electron22-win7-android8"
   workflow_dispatch:
 
 permissions:
