@@ -237,7 +237,11 @@ function saveAndEnqueueOperation(operation) {
   return tx();
 }
 function listOperations(pendingOnly = false) {
-  const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingOnly ? "WHERE status IN ('pending','error','syncing')" : ''} ORDER BY created_at, operation_id`).all();
+  const now = Date.now();
+  const pendingFilter = pendingOnly
+    ? "WHERE status IN ('pending','syncing') OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= " + now + "))"
+    : '';
+  const rows = db().prepare(`SELECT * FROM pos_outbox ${pendingFilter} ORDER BY created_at, operation_id`).all();
   return rows.map(row => ({ operationId: row.operation_id, type: row.type, payload: JSON.parse(row.payload), createdAt: row.created_at, status: row.status, retryCount: row.retry_count, nextRetryAt: row.next_retry_at ?? undefined, lastError: row.last_error ?? undefined, deviceId: row.device_id ?? undefined, tenantId: row.tenant_id ?? undefined, branchId: row.branch_id ?? undefined, actor: row.actor ?? undefined, schemaVersion: row.schema_version ?? 1 }));
 }
 function updateOperation(operationId, status, message, nextRetryAt) {
