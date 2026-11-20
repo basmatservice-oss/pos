@@ -322,6 +322,7 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
   field: string,
   value: string,
   compare?: { entity: string; recordId: string; field: string; expectedValue: string },
+  additionalCompareGuards: Array<{ entity: string; recordId: string; field: string; expectedValue: string }> = [],
 ): Promise<{ applied: number; skipped: boolean }> {
   if (!(await ensureNativePosDatabase())) return { applied: 0, skipped: false };
   if (!entity.trim() || !field.trim() || !value) throw new Error('SQLite field idempotency guard requires entity, field and value');
@@ -336,17 +337,13 @@ export async function applyNativePosRecordChangesIfFieldAbsent(
       throw new Error('Native SQLite put changes require a record object');
     }
   }
-  if (compare && (!compare.entity.trim() || !compare.recordId.trim() || !compare.field.trim() || !compare.expectedValue)) {
-    throw new Error('SQLite combined idempotency/compare guard is incomplete');
-  }
+  const compareGuards = [...(compare ? [compare] : []), ...additionalCompareGuards];
+  if (compareGuards.some((guard) =>
+    !guard.entity.trim() || !guard.recordId.trim() || !guard.field.trim() || !guard.expectedValue
+  )) throw new Error('SQLite combined idempotency/compare guard is incomplete');
   const result = await posLocalDatabase.applyRecordChanges({
     changes, ifAbsentEntity: entity, ifAbsentField: field, ifAbsentValue: value,
-    ...(compare ? {
-      ifMatchEntity: compare.entity,
-      ifMatchRecordId: compare.recordId,
-      ifMatchField: compare.field,
-      ifMatchValue: compare.expectedValue,
-    } : {}),
+    ...(compareGuards.length ? { ifMatchGuards: compareGuards } : {}),
   });
   if (!Number.isInteger(result.count) || result.count !== changes.length ||
       !Number.isInteger(result.applied) || result.applied < 0 || result.applied > changes.length ||
