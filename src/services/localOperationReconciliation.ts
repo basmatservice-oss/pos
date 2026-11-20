@@ -2,13 +2,15 @@ import { removeLocalInventoryArtifactsForOperation } from './localInventoryEngin
 import { removeLocalJournalEntriesForReference } from './localAccountingEngine';
 import { mirrorNativePosDatabase } from './nativeDatabaseMirror';
 import { isNativeAndroid, listNativePendingPosOperations, updateNativePendingOperationPayload } from '../native/posLocalDatabase';
+import { isElectronDesktop } from '../native/electronPosRepository';
+const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronDesktop();
 import { nativePosRepository } from '../native/nativePosRepository';
 // Dexie is required only for desktop reconciliation; Android reconciliation is SQLite-only.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
 async function ensureDesktopDatabase(): Promise<void> {
-  if (isNativeAndroid() || desktopDatabaseLoaded) return;
+  if (isLocalSqlite() || desktopDatabaseLoaded) return;
   db = (await import('../db/db')).db;
   desktopDatabaseLoaded = true;
 }
@@ -114,7 +116,7 @@ const localReferenceStores: Record<string, Record<string, string[]>> = {
 async function remapLocalEntityReferences(tableName: string, oldId: string, newId: string) {
   const stores = localReferenceStores[tableName] || {};
   const replacement: any = /^[0-9]+$/.test(newId) ? Number(newId) : newId;
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const changes: Array<{ action: 'put'; entity: any; record: any; syncState: any }> = [];
     for (const [storeName, fields] of Object.entries(stores)) {
       const rows = await nativePosRepository.getAllWithSyncState(storeName as any);
@@ -164,7 +166,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
   const oldKey = String(oldId);
   const newKey = String(newId);
   await remapLocalEntityReferences(tableName, oldKey, newKey);
-  const dexiePending = isNativeAndroid() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  const dexiePending = isLocalSqlite() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   for (const operation of dexiePending) {
     if (operation.id === acknowledgedOperationId) continue;
     let nextPayload = replaceEntityReferences(operation.payload, keys, oldKey, newKey);
@@ -176,7 +178,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
       await db.syncOperations.update(operation.id, { payload: nextPayload });
     }
   }
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     const nativePending = await listNativePendingPosOperations();
     for (const operation of nativePending) {
       if (operation.operationId === acknowledgedOperationId) continue;
@@ -368,7 +370,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
 
-  const pending = isNativeAndroid() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
+  const pending = isLocalSqlite() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>(), entityRecords: new Set<string>() };
   for (const operation of pending) {
     collectPendingReferences(operation.payload, pendingRefs);
@@ -382,7 +384,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       if (entityId !== undefined && tableName === 'inventoryBatches') pendingRefs.batches.add(String(entityId));
     }
   }
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     try {
       const nativePending = await listNativePendingPosOperations();
       // The operation being acknowledged is still in SQLite until all
@@ -407,7 +409,7 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
   }
   const canMark = (kind: 'products' | 'customers' | 'suppliers' | 'orders' | 'purchases', id: any) => !pendingRefs[kind].has(String(id));
 
-  if (isNativeAndroid()) {
+  if (isLocalSqlite()) {
     await reconcileNativeOperationAfterAck(type, payload, operationId, serverResult, pendingRefs);
     return;
   }
