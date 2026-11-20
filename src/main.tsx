@@ -4,10 +4,25 @@ import App from './App.tsx';
 import './index.css';
 import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
+import { electronPosRepository, isElectronDesktop } from './native/electronPosRepository';
+import { NATIVE_POS_ENTITIES } from './native/nativePosRepository';
 
 async function restoreDesktopRuntimeConfig() {
-  const { db } = await import('./db/db');
   const desktopApi = (window as any).electronAPI;
+  if (isElectronDesktop()) {
+    const role = await desktopApi.getDeviceRole();
+    const serverUrl = role === 'client' && desktopApi.getServerUrl ? await desktopApi.getServerUrl() : null;
+    const now = new Date().toISOString();
+    const settings = await electronPosRepository.getAll<any>('settings');
+    const saveSetting = async (key: string, value: unknown) => {
+      const existing = settings.find((item) => item.key === key);
+      await electronPosRepository.put('settings', { ...existing, id: existing?.id ?? Date.now() * 1000 + Math.floor(Math.random() * 1000), key, value, syncStatus: 'synced', updatedAt: now }, 'synced');
+    };
+    if (role === 'server' || role === 'client') await saveSetting('deviceRole', role);
+    if (role === 'client' && serverUrl) await saveSetting('serverUrl', serverUrl);
+    return;
+  }
+  const { db } = await import('./db/db');
   if (!desktopApi?.getDeviceRole) return;
 
   const role = await desktopApi.getDeviceRole();
@@ -61,6 +76,26 @@ async function initializeLocalRuntime(): Promise<void> {
     return;
   }
 
+  if (isElectronDesktop()) {
+    const { ensureDatabaseReady } = await import('./db/db');
+    await ensureDatabaseReady();
+    const marker = await electronPosRepository.getMeta('dexie-business-migration-v1');
+    if (marker !== 'complete') {
+      const { db } = await import('./db/db');
+      for (const entity of NATIVE_POS_ENTITIES) {
+        const records = await db.table(entity).toArray() as Array<Record<string, unknown>>;
+        await electronPosRepository.putMany(entity, records, 'local');
+        const stored = await electronPosRepository.getAll(entity);
+        if (stored.length !== records.length) {
+          throw new Error(`Electron SQLite migration count mismatch for ${entity}: ${records.length} source, ${stored.length} destination`);
+        }
+      }
+      await electronPosRepository.setMeta('dexie-business-migration-v1', 'complete');
+    }
+    await restoreDesktopRuntimeConfig();
+    return;
+  }
+
   const { ensureDatabaseReady } = await import('./db/db');
   await ensureDatabaseReady();
   await restoreDesktopRuntimeConfig();
@@ -69,7 +104,7 @@ async function initializeLocalRuntime(): Promise<void> {
 initializeLocalRuntime()
   .catch((err) => {
     console.error('Failed to initialize local database/runtime config:', err);
-    if (isNativeAndroid()) nativeStartupError = err;
+    if (isNativeAndroid() || isElectronDesktop()) nativeStartupError = err;
   })
   .finally(() => {
     const root = document.getElementById('root')!;
