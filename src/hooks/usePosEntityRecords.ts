@@ -8,7 +8,7 @@ import { nativePosRepository, type NativePosEntity } from '../native/nativePosRe
  * Reactive entity reads with SQLite as the local source of truth on Android and Electron.
  * Dexie is loaded dynamically only for desktop compatibility.
  */
-export function usePosEntityRecords<T extends Record<string, unknown> = Record<string, unknown>>(
+export function usePosEntityRecords<T extends object = Record<string, unknown>>(
   entity: NativePosEntity,
 ): T[] {
   const isLocalSqlite = isNativeAndroid() || isElectronLocalClient();
@@ -23,7 +23,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
       if (isWindowsServer) {
         const refresh = async () => {
           try {
-            const rows = await getPosRecords<T>(entity);
+            const rows = await getPosRecords(entity) as unknown as T[];
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to read ${entity} from Windows Server API:`, error);
@@ -46,7 +46,7 @@ export function usePosEntityRecords<T extends Record<string, unknown> = Record<s
       if (isLocalSqlite) {
         const refresh = async () => {
           try {
-            const rows = await nativePosRepository.getAll<T>(entity);
+            const rows = await nativePosRepository.getAll(entity) as unknown as T[];
             if (active) setRecords(rows);
           } catch (error) {
             console.error(`Failed to read ${entity} from local SQLite:`, error);
