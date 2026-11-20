@@ -19,9 +19,10 @@ import {
 import type { SyncOperation, InventoryAlert } from '../db/db';
 import { getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { isNativeAndroid, listAllNativePosOperations, retryNativePosOperation, deleteNativePosOperation } from '../native/posLocalDatabase';
-import { isElectronLocalClient } from '../native/electronPosRepository';
+import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosRepository';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
+const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useSyncStore } from '../store/syncStore';
@@ -118,6 +119,11 @@ export default function SyncStatus() {
   };
 
   const fetchLocalQueue = async () => {
+    if (isWindowsServer()) {
+      setOperations([]);
+      setLocalItems([]);
+      return;
+    }
     if (isLocalSqlite()) {
       const queued = await listAllNativePosOperations();
       const nativeOperations = queued.map((operation: any) => ({
@@ -202,6 +208,10 @@ export default function SyncStatus() {
   };
 
   const handleRetryOp = async (op: SyncOperation) => {
+    if (isWindowsServer()) {
+      toast.error('Windows Server لا يستخدم طابور مزامنة محليًا');
+      return;
+    }
     if (isLocalSqlite() && await syncService.getDeviceRole() === 'standalone') {
       toast.error('إعادة إرسال العمليات إلى الخادم غير متاحة في وضع التشغيل المستقل');
       return;
@@ -226,7 +236,7 @@ export default function SyncStatus() {
   };
 
   const handleDeleteOp = async (opId: string) => {
-    if (isNativeAndroid()) return;
+    if (isWindowsServer() || isNativeAndroid()) return;
     if (isElectronLocalClient()) {
       await deleteNativePosOperation(opId);
       toast.success('تم حذف السجل من طابور العمليات');
@@ -257,6 +267,7 @@ export default function SyncStatus() {
   };
 
   const handleCancelLocal = async (item: SyncItem) => {
+    if (isWindowsServer()) return;
     try {
       if (isLocalSqlite()) {
         await nativePosRepository.setSyncState(item.table as any, item.id, 'synced');
