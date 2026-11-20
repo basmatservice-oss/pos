@@ -139,9 +139,10 @@ export default function SyncStatus() {
         for (const entity of NATIVE_POS_ENTITIES) {
           const records = await nativePosRepository.getAllWithSyncState<any>(entity);
           for (const row of records) {
-            if (!['pending', 'error'].includes(String(row.syncState))) continue;
             const record = row.record as any;
-            items.push({ id: record.id ?? record.key ?? record.code, table: entity, status: row.syncState, data: record, updatedAt: record.updatedAt || record.createdAt || new Date().toISOString() });
+            const status = String(record.syncStatus || row.syncState);
+            if (!['pending', 'error', 'conflict'].includes(status)) continue;
+            items.push({ id: record.id ?? record.key ?? record.code, table: entity, status, data: record, updatedAt: record.updatedAt || record.createdAt || new Date().toISOString() });
           }
         }
         items.sort((a,b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
