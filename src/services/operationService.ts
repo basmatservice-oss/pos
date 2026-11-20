@@ -2103,7 +2103,14 @@ async function applyPurchaseLocally(
       : await applyNativePosRecordChangesIfAbsent(
           nativeChanges, 'purchases', JSON.stringify(purchase.id),
         );
-    if (!committed.skipped && committed.applied !== finalChanges.length) {
+    if (committed.skipped) {
+      const latestPurchase = await nativePosRepository.get<any>('purchases', String(purchase.id));
+      if (String(latestPurchase?.lastLocalOperationId || '') !== updateOperationId) {
+        throw new Error('تغيرت فاتورة الشراء أو أرصدة المخزون والحسابات أثناء التعديل؛ أعد تحميل البيانات قبل المحاولة');
+      }
+      return;
+    }
+    if (committed.applied !== finalChanges.length) {
       throw new Error('لم تؤكد SQLite حفظ جميع سجلات فاتورة الشراء في معاملة واحدة');
     }
     // The receipt/update guard and all inventory/accounting changes commit together.
@@ -2318,7 +2325,18 @@ async function applyPurchaseLocally(
     for (const item of oldItems) changes.push({ action: 'delete', entity: 'purchaseItems', key: item.id });
     for (const batch of oldBatches) changes.push({ action: 'delete', entity: 'inventoryBatches', key: batch.id });
     changes.push({ action: 'delete', entity: 'purchases', key: purchaseId });
-    const nativeChanges = changes.map((change: any) => change.action === 'delete'
+    const uniqueDeletionChanges = new Map<string, any>();
+    for (const change of changes) {
+      const key = change.action === 'delete'
+        ? change.key
+        : change.entity === 'accounts' ? change.record.code : (change.record.id ?? change.record.key);
+      if (key === undefined || key === null || String(key).trim() === '') {
+        throw new Error('تعذر تحديد مفتاح أحد سجلات حذف فاتورة الشراء');
+      }
+      uniqueDeletionChanges.set(String(change.entity) + ':' + String(key), change);
+    }
+    const finalDeletionChanges = [...uniqueDeletionChanges.values()];
+    const nativeChanges = finalDeletionChanges.map((change: any) => change.action === 'delete'
       ? { action: 'delete' as const, entity: change.entity, recordId: JSON.stringify(change.key) }
       : {
           action: 'put' as const,
@@ -2378,7 +2396,7 @@ async function applyPurchaseLocally(
     if (committed.skipped) {
       throw new Error('تغيرت فاتورة الشراء أثناء الحذف؛ أعد تحميل الفاتورة قبل المحاولة مرة أخرى');
     }
-    if (committed.applied !== changes.length) {
+    if (committed.applied !== nativeChanges.length) {
       throw new Error('لم تؤكد SQLite حذف جميع سجلات فاتورة الشراء');
     }
     // The reversal movement and purchase version are checked atomically with the complete deletion.
