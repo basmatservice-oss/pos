@@ -236,6 +236,7 @@ export default function Layout() {
 
   const navItems = [
     { to: '/', icon: LayoutGrid, label: 'الرئيسية', permissionId: 'view_dashboard' },
+    { to: '/apps', icon: LayoutGrid, label: 'التطبيقات', permissionId: 'view_dashboard' },
     { to: '/pos', icon: ShoppingBag, label: 'نقطة البيع', permissionId: 'view_pos' },
     { to: '/returns', icon: RotateCcw, label: 'المرتجعات', permissionId: 'view_returns' },
     { to: '/inventory', icon: Package, label: 'المخزون', permissionId: 'view_inventory' },
@@ -273,7 +274,7 @@ export default function Layout() {
 
   const isMobileSalesPage = location.pathname === '/mobile-sales';
   const isStandaloneAndroid = isNativeAndroid() && deviceRole !== 'client';
-  const bottomNavItems = filteredNavItems.filter((item) => ['/', '/pos', '/inventory', '/customers', '/settings'].includes(item.to));
+  const bottomNavItems = filteredNavItems.filter((item) => ['/', '/pos', '/apps', '/inventory', '/settings'].includes(item.to));
 
   if (isMobileSalesPage) {
     return (
@@ -356,6 +357,7 @@ export default function Layout() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => navigate('/apps')} aria-label="التطبيقات" className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><LayoutGrid className="h-4 w-4" /></button>
               <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> مستقل
               </span>
