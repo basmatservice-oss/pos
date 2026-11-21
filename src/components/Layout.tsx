@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutGrid, Package, FileText, Settings, LogOut, Clock, Wifi, WifiOff, Users, Wallet, Truck, UserCircle, ShoppingBag, ShoppingCart, UserCheck, DollarSign, Tag, Building2, Smartphone, RotateCcw, Bell, RefreshCw, ShieldAlert, Lock } from 'lucide-react';
-import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, putPosRecord } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, putPosRecord, putPosSetting } from '../services/posDataAccess';
+import { isNativeAndroid } from '../native/posLocalDatabase';
 import { apiService } from '../services/apiService';
 import { syncService } from '../services/syncService';
 import { useAuth, Role } from '../context/AuthContext';
@@ -18,6 +19,7 @@ export default function Layout() {
   const [themeName, setThemeName] = useState('modern');
   const { user, logout, updateCurrentUser, changeLocalCredentials } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [deviceRole, setDeviceRole] = useState<'server' | 'client' | 'standalone'>('server');
   const [oversellAlertCount, setOversellAlertCount] = useState(0);
@@ -33,13 +35,17 @@ export default function Layout() {
     const loadRoleAndInitialSync = async () => {
       try {
         const roleSetting = await getFirstPosRecordWhereEquals<any>('settings', 'key', 'deviceRole');
-        if (roleSetting?.value === 'client' || roleSetting?.value === 'server' || roleSetting?.value === 'standalone') {
-          setDeviceRole(roleSetting.value);
+        const effectiveRole = isNativeAndroid()
+          ? (roleSetting?.value === 'client' ? 'client' : 'standalone')
+          : (roleSetting?.value === 'client' || roleSetting?.value === 'server' || roleSetting?.value === 'standalone' ? roleSetting.value : 'server');
+        setDeviceRole(effectiveRole);
+        if (isNativeAndroid() && roleSetting?.value !== effectiveRole) {
+          await putPosSetting('deviceRole', 'standalone', 'local');
         }
         await loadSettings();
         await checkLowStock();
         // Standalone devices own their local database and must not attempt server sync.
-        if (roleSetting?.value !== 'standalone') {
+        if (effectiveRole !== 'standalone') {
           await syncService.syncAll().catch(() => {});
         }
       } catch (e) {
@@ -169,8 +175,8 @@ export default function Layout() {
       toast.error('كلمة المرور الجديدة يجب أن لا تقل عن 6 أحرف');
       return;
     }
-    if (newPass === '123456') {
-      toast.error('يرجى اختيار كلمة مرور غير الافتراضية 123456');
+    if (newPass === 'admin') {
+      toast.error('يرجى اختيار كلمة مرور جديدة غير الافتراضية admin');
       return;
     }
     if (newPass !== confirmPass) {
@@ -265,7 +271,9 @@ export default function Layout() {
     return hasPermission;
   });
 
-  const isMobileSalesPage = window.location.pathname === '/mobile-sales';
+  const isMobileSalesPage = location.pathname === '/mobile-sales';
+  const isStandaloneAndroid = isNativeAndroid() && deviceRole !== 'client';
+  const bottomNavItems = filteredNavItems.filter((item) => ['/', '/pos', '/inventory', '/customers', '/settings'].includes(item.to));
 
   if (isMobileSalesPage) {
     return (
@@ -278,9 +286,10 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--app-bg)] text-[var(--text-main)] font-sans" dir="rtl">
-      {/* Sidebar */}
-      <aside className="w-24 bg-sidebar border-l border-gray-200 flex flex-col items-center py-6 shadow-sm z-10 overflow-y-auto hide-scrollbar">
+    <div className={isStandaloneAndroid
+      ? "android-standalone-shell flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--app-bg)] text-[var(--text-main)] font-sans"
+      : "flex h-screen bg-[var(--app-bg)] text-[var(--text-main)] font-sans"} dir="rtl">
+      {!isStandaloneAndroid && <aside className="w-24 bg-sidebar border-l border-gray-200 flex flex-col items-center py-6 shadow-sm z-10 overflow-y-auto hide-scrollbar">
         <div className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-xl mb-8 shadow-md overflow-hidden">
           {logo ? <img src={logo} alt="Logo" className="w-full h-full object-cover" /> : 'POS'}
         </div>
@@ -330,12 +339,33 @@ export default function Layout() {
             <span className="text-[10px] font-medium">خروج</span>
           </button>
         </div>
-      </aside>
+      </aside>}
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className={isStandaloneAndroid ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex-1 flex flex-col overflow-hidden"}>
         {/* Top Header */}
-        <header className="h-16 bg-header border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
+        {isStandaloneAndroid ? (
+          <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-slate-200 bg-header px-4 shadow-sm">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-600 text-sm font-black text-white shadow-sm">
+                {logo ? <img src={logo} alt="شعار المنشأة" className="h-full w-full object-cover" /> : 'POS'}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black text-slate-900">نظام الكاشير الذكي</p>
+                <p className="truncate text-[11px] text-slate-500">{user?.name || 'مستخدم'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> مستقل
+              </span>
+              <button onClick={handleLogout} aria-label="تسجيل الخروج" className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          </header>
+        ) : (
+          <header className="h-16 bg-header border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-800">نظام الكاشير الذكي</h1>
             <div className="h-6 w-px bg-gray-300"></div>
@@ -369,7 +399,8 @@ export default function Layout() {
               {user?.name ? user.name.substring(0, 2) : 'م'}
             </div>
           </div>
-        </header>
+          </header>
+        )}
 
         {user?.mustChangePassword && (
           <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0">
@@ -386,9 +417,21 @@ export default function Layout() {
         )}
 
         {/* Page Content */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-y-auto overscroll-contain relative" : "flex-1 overflow-hidden relative"}>
           <Outlet />
         </div>
+        {isStandaloneAndroid && (
+          <nav className="android-bottom-nav grid shrink-0 grid-cols-5 border-t border-slate-200 bg-white/95 px-1 pt-2 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
+            {bottomNavItems.map((item) => (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) =>
+                `flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-bold transition-colors ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500'}`
+              }>
+                <item.icon className="h-5 w-5" />
+                <span className="max-w-full truncate">{item.to === '/settings' ? 'إعدادات' : item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        )}
       </main>
 
       {user?.mustChangePassword && (
@@ -408,7 +451,7 @@ export default function Layout() {
 
             <form onSubmit={handleMandatoryPasswordChange} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الحالية (الافتراضية: 123456)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الحالية (الافتراضية: admin)</label>
                 <input
                   type="password"
                   value={curPass}
