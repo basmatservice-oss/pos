@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { getFirstPosRecordWhereEquals, getPosRecords, putPosRecord } from '../services/posDataAccess';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { API_BASE, setAuthToken, getAuthToken } from '../services/apiService';
+import { isNativeAndroid } from '../native/posLocalDatabase';
 
 export type Role = 'admin' | 'manager' | 'cashier' | 'sales_rep';
 
@@ -147,6 +148,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const changeLocalCredentials = async (currentPassword: string, newPassword: string, newPinCode?: string) => {
+    if (!isNativeAndroid()) throw new Error('تغيير بيانات الدخول محلياً متاح فقط على جهاز Android المستقل');
+    const role = await getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole');
+    if (role?.value === 'client') throw new Error('جهاز العميل يغيّر بيانات الدخول من الخادم');
     if (!user?.id) throw new Error('لا يوجد مستخدم مسجل لتحديث بيانات دخوله');
     if (!currentPassword || !newPassword || newPassword.length < 6 || newPassword === 'admin') {
       throw new Error('يرجى إدخال كلمة المرور الحالية وكلمة مرور جديدة لا تقل عن 6 أحرف ولا تكون كلمة المرور الافتراضية');
@@ -165,20 +169,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
     const pinHash = newPinCode ? bcrypt.hashSync(newPinCode, 10) : verifier?.pinHash;
+    if (!employee) throw new Error('سجل الموظف غير موجود في قاعدة SQLite المحلية؛ لم يتم تغيير بيانات الدخول');
+    await putPosRecord('employees', {
+      ...employee,
+      password: passwordHash,
+      ...(newPinCode ? { pinCode: bcrypt.hashSync(newPinCode, 10) } : {}),
+      mustChangePassword: false,
+      syncStatus: 'local',
+    }, 'local');
+
     const nextVerifiers = verifiers.filter((entry) => entry.user.id !== user.id);
     nextVerifiers.push({ user: { ...user, mustChangePassword: false }, passwordHash, pinHash });
-    // Persist the local verifier before reporting success; do not swallow storage errors.
+    // Store the offline verifier only after the authoritative SQLite row commits.
     localStorage.setItem(OFFLINE_VERIFIERS_KEY, JSON.stringify(nextVerifiers));
-
-    if (employee) {
-      await putPosRecord('employees', {
-        ...employee,
-        password: passwordHash,
-        ...(newPinCode ? { pinCode: bcrypt.hashSync(newPinCode, 10) } : {}),
-        mustChangePassword: false,
-        syncStatus: 'synced',
-      }, 'synced');
-    }
     const updatedUser = { ...user, mustChangePassword: false };
     setUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -199,10 +202,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const loginUrl = `${baseUrl}/login`;
 
-    // Standalone devices authenticate exclusively against their local SQLite/verified credentials.
-    // Remove any JWT retained from a previous server/client configuration.
-    const isStandalone = roleSetting?.value === 'standalone';
-    if (isStandalone) setAuthToken(null);
+    // On Android, only an explicitly configured LAN client uses server auth.
+    // Legacy/missing roles are normalized to standalone and stay on local SQLite.
+    const isStandalone = isNativeAndroid() && roleSetting?.value !== 'client';
+    if (isStandalone) {
+      setAuthToken(null);
+      if (roleSetting?.value !== 'standalone') await putPosSetting('deviceRole', 'standalone', 'local');
+    }
     // Server and LAN-client devices retain online authentication and its server-side rate limits.
     let networkFailed = isStandalone;
     if (!networkFailed) {
