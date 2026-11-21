@@ -288,7 +288,7 @@ export default function Shifts() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
       <div className="mb-6 shrink-0">
         <h2 className="text-2xl font-bold text-slate-900">إدارة الورديات وحركة الصندوق</h2>
         <p className="text-slate-500 text-sm mt-1">
@@ -296,7 +296,7 @@ export default function Shifts() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:mb-8 lg:grid-cols-3">
         {/* Current Shift Status */}
         <div className="lg:col-span-1">
           {currentShift ? (
