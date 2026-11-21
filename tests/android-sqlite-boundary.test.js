@@ -181,3 +181,32 @@ test('Windows SQLite validates every registered business entity after migration 
   assert.ok(desktopStart >= 0 && validationCall > desktopStart && restoreCall > validationCall,
     'Windows client snapshot validation must complete before the UI starts');
 });
+
+test('server-assigned canonical IDs re-key native SQLite records instead of deleting the locally committed entity', async () => {
+  const source = await read('../src/services/localOperationReconciliation.ts');
+  const nativeStart = source.indexOf('async function reconcileNativeOperationAfterAck');
+  const nativeEnd = source.indexOf('export async function reconcileLocalOperationAfterAck', nativeStart);
+  assert.ok(nativeStart >= 0 && nativeEnd > nativeStart);
+  const native = source.slice(nativeStart, nativeEnd);
+  assert.match(native, /const canonicalRecord = hasPending[\s\S]*?serverRecord/);
+  assert.match(native, /queueChange\(\{ action: 'put', entity, record: canonicalRecord/);
+  assert.match(native, /queueChange\(\{ action: 'delete', entity, key: oldId \}\)/);
+  assert.doesNotMatch(native, /queueChange\(\{ action: 'delete', entity: 'inventoryBatches'/);
+
+  const acknowledgement = source.slice(nativeEnd);
+  const remap = acknowledgement.indexOf('await remapPendingEntityReferences(');
+  const pendingSnapshot = acknowledgement.indexOf('const pending =');
+  assert.ok(remap >= 0 && pendingSnapshot > remap,
+    'foreign keys and queued payloads must be remapped before pending-reference checks');
+});
+
+test('browser compatibility reconciliation also writes the canonical record before deleting its temporary ID', async () => {
+  const source = await read('../src/services/localOperationReconciliation.ts');
+  const start = source.lastIndexOf("} else if (type === 'entity_upsert')");
+  const end = source.indexOf('  }\n  await mirrorNativePosDatabase()', start);
+  assert.ok(start >= 0 && end > start);
+  const browser = source.slice(start, end);
+  assert.match(browser, /const canonicalRecord = hasPending/);
+  assert.match(browser, /await table\.put\(canonicalRecord\)/);
+  assert.match(browser, /await table\.delete\(oldId\)/);
+});
