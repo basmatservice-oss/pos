@@ -62,7 +62,7 @@ const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp'
 const isStandaloneAndroid = async () => isNativeAndroid() && await syncService.getDeviceRole() === 'standalone';
 
 const Settings: React.FC = () => {
-  const { updateCurrentUser } = useAuth();
+  const { updateCurrentUser, changeLocalCredentials } = useAuth();
   const [activeTab, setActiveTab] = useState('general');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -574,18 +574,23 @@ const Settings: React.FC = () => {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (await isStandaloneAndroid()) { toast.error('تغيير كلمة المرور يتطلب الاتصال بالخادم'); return; }
+    const standaloneAndroid = await isStandaloneAndroid();
     if (!newPassword && !newPinCode) {
       toast.error('يرجى إدخال كلمة مرور جديدة أو رمز PIN جديد');
       return;
     }
     setIsChangingPass(true);
     try {
-      await apiService.changePassword({
-        currentPassword: currentPassword || undefined,
-        newPassword: newPassword || undefined,
-        newPinCode: newPinCode || undefined,
-      });
+      if (standaloneAndroid) {
+        if (!newPassword) throw new Error('يلزم إدخال كلمة مرور جديدة لتحديث بيانات الدخول محلياً');
+        await changeLocalCredentials(currentPassword, newPassword, newPinCode || undefined);
+      } else {
+        await apiService.changePassword({
+          currentPassword: currentPassword || undefined,
+          newPassword: newPassword || undefined,
+          newPinCode: newPinCode || undefined,
+        });
+      }
       updateCurrentUser({ mustChangePassword: false });
       setCurrentPassword('');
       setNewPassword('');
