@@ -5113,7 +5113,7 @@ export async function dispatchOperation(
       ) {
         throw new Error(err.response?.data?.error || err.message);
       }
-      throw new Error('تعذر الوصول إلى قاعدة بيانات Windows Server؛ لم تُحفظ العملية محليًا ولم تُضف إلى طابور Dexie');
+      throw new Error('تعذر الوصول إلى قاعدة بيانات Windows Server؛ لم تُحفظ العملية ولم تُرسل إلى طابور المزامنة');
     }
   }
 
