@@ -94,3 +94,16 @@ test('native SQLite services do not eagerly load the Dexie compatibility databas
     assert.match(source, /if \(isLocalSqlite\(\)[\s\S]{0,180}(?:return|\)\s*\{)/, file + ' must bypass its Dexie fallback on local SQLite');
   }
 });
+
+test('native Android and Windows bundles hard-disable Dexie and retain it only for browser builds', async () => {
+  const vite = await read('../vite.config.ts');
+  const stub = await read('../src/db/nativeRuntimeStub.ts');
+  const pkg = JSON.parse(await read('../package.json'));
+  assert.match(vite, /POS_NATIVE_SQLITE_BUILD/);
+  assert.match(vite, /nativeRuntimeStub\.ts/);
+  assert.match(stub, /Dexie is disabled in native SQLite builds/);
+  assert.equal(pkg.dependencies.dexie, undefined);
+  assert.equal(pkg.devDependencies.dexie, '^4.3.0');
+  assert.match(pkg.scripts['build:native'], /POS_NATIVE_SQLITE_BUILD=1/);
+  assert.match(pkg.scripts['package:win'], /build:native/);
+});
