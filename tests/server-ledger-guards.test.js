@@ -120,3 +120,10 @@ test('sale and return amounts use immutable order-item price and cost snapshots'
   assert.ok(ret.includes('Number(origItem.costPriceAtTimeOfSale || 0)'));
   assert.ok(ret.includes('origItem.batchAllocations'));
 });
+
+test('purchase valuation rebases linked USD cost anchors at the active SDG exchange rate', () => {
+  const accounting = source('../server/accounting.ts');
+  assert.ok(accounting.includes("const activeRateRow = tx.select({ value: settings.value })"));
+  assert.ok(accounting.includes("update.costInUSD = Number((weightedAvg / activeUsdRate).toFixed(6))"));
+  assert.ok(accounting.includes('rebase a linked USD cost anchor'));
+});
