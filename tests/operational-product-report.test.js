@@ -41,3 +41,19 @@ test('filters product reports to the explicitly selected products', () => {
   assert.deepEqual(rows.map((row) => row.productId), [2]);
   assert.equal(rows[0].profit, 15);
 });
+
+test('never uses the current product cost to invent historical sale profit', () => {
+  const rows = buildOperationalProductReport({
+    startDate, endDate,
+    orders: [{ id: 'sale-old', status: 'completed', createdAt: '2026-11-10T10:00:00.000Z' }],
+    orderItems: [{
+      orderId: 'sale-old', productId: 33, productName: 'صنف قديم',
+      quantity: 2, total: 200, costPriceAtTimeOfSale: undefined,
+    }],
+    products: [{ id: 33, name: 'صنف قديم', costPrice: 999 }],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].netCost, 0);
+  assert.equal(rows[0].profit, null);
+  assert.equal(rows[0].missingCostSnapshot, true);
+});
