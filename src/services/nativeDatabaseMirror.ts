@@ -112,11 +112,16 @@ export async function mirrorNativePosDatabase(): Promise<void> {
         const currentIds = new Set(currentRows.map((row) => row.recordId));
         const missingRows = records.filter((record) => !currentIds.has(record.recordId));
         if (missingRows.length) {
-          await nativePosRepository.putMany(
-            entity as any,
-            missingRows.map((row) => row.record),
-            'local',
-          );
+          for (const syncState of ['local', 'pending', 'synced', 'error'] as const) {
+            const group = missingRows.filter((row) => row.syncState === syncState);
+            if (group.length) {
+              await nativePosRepository.putMany(
+                entity as any,
+                group.map((row) => row.record),
+                syncState,
+              );
+            }
+          }
         }
       });
     } catch (error) {
