@@ -337,22 +337,32 @@ async function reconcileNativeOperationAfterAck(type: string, payload: any, oper
     }
   } else if (type === 'entity_upsert') {
     const entity = String(payload?.table || '');
-    const serverId = serverResult?.id ?? payload?.record?.id ?? payload?.record?.code ?? payload?.record?.key;
-    if (entity && serverId !== undefined) {
+    const serverRecord = serverResult && typeof serverResult === 'object' && !Array.isArray(serverResult)
+      ? serverResult
+      : {};
+    const serverId = serverRecord.id ?? payload?.record?.id ?? serverRecord.code ?? payload?.record?.code ?? serverRecord.key ?? payload?.record?.key;
+    if (entity && serverId !== undefined && serverId !== null) {
       const oldId = payload?.record?.id;
+      const keyField = entity === 'accounts' || entity === 'unitDefinitions' ? 'code' : entity === 'settings' ? 'id' : 'id';
+      const oldRecord = oldId !== undefined ? await get(entity, oldId) : undefined;
+      const existingCanonical = await get(entity, serverId);
+      const hasPending = pendingRefs.entityRecords.has(entity + ':' + String(serverId)) ||
+        (entity === 'products' && pendingRefs.products.has(String(serverId)));
+      // The server may replace a temporary offline ID with its canonical ID.
+      // Re-key the locally committed row instead of deleting it and hoping a
+      // later pull happens to recreate it.
+      const canonicalRecord = hasPending
+        ? { ...serverRecord, ...(existingCanonical || {}), ...(payload?.record || {}), ...(oldRecord || {}),
+            [keyField]: serverId, syncStatus: (oldRecord as any)?.syncStatus || 'pending' }
+        : { ...(payload?.record || {}), ...(oldRecord || {}), ...(existingCanonical || {}), ...serverRecord,
+            [keyField]: serverId, syncStatus: 'synced' };
+      queueChange({ action: 'put', entity, record: canonicalRecord, syncState: hasPending ? 'pending' : 'synced' });
       if (oldId !== undefined && String(oldId) !== String(serverId)) {
         queueChange({ action: 'delete', entity, key: oldId });
-        if (entity === 'products') {
-          for (const batch of await load('inventoryBatches')) if (String(batch.record.productId) === String(oldId)) queueChange({ action: 'delete', entity: 'inventoryBatches', key: batch.record.id });
-        }
       }
       if (entity === 'products') {
-        if (!pendingRefs.products.has(String(serverId))) {
-          await mark('products', (row) => String(row.id) === String(serverId));
-        }
-        await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) && !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
-      } else if (!pendingRefs.entityRecords.has(entity + ':' + String(serverId))) {
-        await mark(entity, (row) => String(row.id ?? row.code ?? row.key) === String(serverId));
+        await mark('inventoryBatches', (row) => String(row.productId) === String(serverId) &&
+          !pendingRefs.batches.has(String(row.id)) && !pendingRefs.products.has(String(row.productId)));
       }
     }
   }
@@ -370,6 +380,13 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
     : String(payload?.order?.id || payload?.purchase?.id || payload?.orderId || payload?.id || payload?.paymentId || payload?.sessionId || operationId);
   await removeLocalJournalEntriesForReference(referenceId);
   await removeLocalInventoryArtifactsForOperation(operationId);
+
+  // Rewrite local foreign keys and other queued operations before computing
+  // the pending-reference protection set for the acknowledged canonical ID.
+  if (type === 'entity_upsert' && payload?.table && payload?.record?.id !== undefined &&
+      serverResult?.id !== undefined && String(payload.record.id) !== String(serverResult.id)) {
+    await remapPendingEntityReferences(String(payload.table), payload.record.id, serverResult.id, operationId);
+  }
 
   const pending = isLocalSqlite() ? [] : await db.syncOperations.where('status').anyOf(['pending', 'error', 'syncing']).toArray();
   const pendingRefs = { products: new Set<string>(), customers: new Set<string>(), suppliers: new Set<string>(), orders: new Set<string>(), purchases: new Set<string>(), batches: new Set<string>(), entityRecords: new Set<string>() };
@@ -493,18 +510,31 @@ export async function reconcileLocalOperationAfterAck(type: string, payload: any
       }
     }
   } else if (type === 'entity_upsert') {
-    const table = (db as any)[payload?.table];
-    const serverId = serverResult?.id ?? payload?.record?.id ?? payload?.record?.code ?? payload?.record?.key;
-    if (table && serverId !== undefined) {
-      if (payload?.record?.id !== undefined && payload.record.id !== serverId) {
-        await table.delete(payload.record.id).catch(() => {});
-        if (payload?.table === 'products') await db.inventoryBatches.where('productId').equals(Number(payload.record.id)).delete();
+    const tableName = String(payload?.table || '');
+    const table = (db as any)[tableName];
+    const serverRecord = serverResult && typeof serverResult === 'object' && !Array.isArray(serverResult)
+      ? serverResult
+      : {};
+    const serverId = serverRecord.id ?? payload?.record?.id ?? serverRecord.code ?? payload?.record?.code ?? serverRecord.key ?? payload?.record?.key;
+    if (table && serverId !== undefined && serverId !== null) {
+      const oldId = payload?.record?.id;
+      const keyPath = typeof table.schema.primKey.keyPath === 'string' ? table.schema.primKey.keyPath : 'id';
+      const oldRecord = oldId !== undefined ? await table.get(oldId) : undefined;
+      const existingCanonical = await table.get(serverId);
+      const hasPending = pendingRefs.entityRecords.has(tableName + ':' + String(serverId)) ||
+        (tableName === 'products' && pendingRefs.products.has(String(serverId)));
+      const canonicalRecord = hasPending
+        ? { ...serverRecord, ...(existingCanonical || {}), ...(payload?.record || {}), ...(oldRecord || {}),
+            [keyPath]: serverId, syncStatus: oldRecord?.syncStatus || 'pending' }
+        : { ...(payload?.record || {}), ...(oldRecord || {}), ...(existingCanonical || {}), ...serverRecord,
+            [keyPath]: serverId, syncStatus: 'synced' };
+      await table.put(canonicalRecord);
+      if (oldId !== undefined && String(oldId) !== String(serverId)) {
+        await table.delete(oldId).catch(() => {});
       }
-      if (payload?.table === 'products') {
-        if (canMark('products', serverId)) await db.products.update(Number(serverId), { syncStatus: 'synced' });
-        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) && !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
-      } else if (!pendingRefs.entityRecords.has(String(payload?.table || '') + ':' + String(serverId))) {
-        await table.update(serverId, { syncStatus: 'synced' });
+      if (tableName === 'products') {
+        await markRowsSynced(db.inventoryBatches, (batch) => Number(batch.productId) === Number(serverId) &&
+          !pendingRefs.batches.has(String(batch.id)) && !pendingRefs.products.has(String(batch.productId)));
       }
     }
   }
