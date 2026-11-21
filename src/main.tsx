@@ -85,6 +85,7 @@ async function ensureStandaloneDefaultAdmin(): Promise<void> {
       await putPosRecord('employees', {
         ...existing,
         password: bcrypt.hashSync('admin', 10),
+        pinCode: null,
         mustChangePassword: true,
         syncStatus: 'local',
         updatedAt: now,
@@ -99,7 +100,6 @@ async function ensureStandaloneDefaultAdmin(): Promise<void> {
     name: 'المدير العام',
     username: 'admin',
     password: bcrypt.hashSync('admin', 10),
-    pinCode: bcrypt.hashSync('1234', 10),
     mustChangePassword: true,
     role: 'admin',
     phone: '',
