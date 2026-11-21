@@ -75,7 +75,7 @@ test('native SQLite keeps a product visible when the server replaces its tempora
     await remapPendingEntityReferences('products', oldId, serverId, 'product-op');
     assert.equal(operations[0].payload.items[0].productId, serverId);
     const pendingRefs = {
-      products: new Set(),
+      products: new Set([String(serverId)]),
       customers: new Set(),
       suppliers: new Set(),
       orders: new Set(),
@@ -98,7 +98,7 @@ test('native SQLite keeps a product visible when the server replaces its tempora
     assert.equal(savedProducts[0].record.id, serverId);
     assert.equal(savedProducts[0].record.name, product.name);
     assert.equal(savedProducts[0].record.barcode, serverProduct.barcode);
-    assert.equal(savedProducts[0].syncState, 'synced');
+    assert.equal(savedProducts[0].syncState, 'pending');
 
     const savedBatches = await bridge.getRecords('inventoryBatches');
     assert.equal(savedBatches.length, 1);
