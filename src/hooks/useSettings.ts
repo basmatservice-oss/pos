@@ -79,8 +79,11 @@ export function useSettings() {
 
   // The configured display currency is the single source of truth for the base currency.
   // Ignore stale legacy baseCurrency rows that could otherwise show a different unit.
-  const hasUsdRate = exchangeRateHistory.some((row) => String(row.currency || '').toUpperCase() === 'USD');
-  if (!hasUsdRate && Number(storeSettings.exchangeRate) === 1) storeSettings.exchangeRate = 0;
+  const latestUsdRate = exchangeRateHistory
+    .filter((row) => String(row.currency || '').toUpperCase() === 'USD' && Number(row.rate) > 0)
+    .sort((left, right) => new Date(right.effectiveFrom || right.createdAt || 0).getTime() - new Date(left.effectiveFrom || left.createdAt || 0).getTime())[0];
+  if (latestUsdRate) storeSettings.exchangeRate = Number(latestUsdRate.rate);
+  else if (Number(storeSettings.exchangeRate) === 1) storeSettings.exchangeRate = 0;
   storeSettings.currency = 'ج.س';
   storeSettings.baseCurrency = 'ج.س';
 
