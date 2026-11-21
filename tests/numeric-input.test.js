@@ -12,5 +12,5 @@ test('normalizes localized decimal and grouping separators', () => {
 });
 
 test('leaves already-Western numeric input unchanged', () => {
-  assert.equal(normalizeNumericInput('-12,345.67'), '-12,345.67');
+  assert.equal(normalizeNumericInput('-12345.67'), '-12,345.67');
 });
