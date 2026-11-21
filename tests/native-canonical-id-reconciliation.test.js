@@ -45,7 +45,7 @@ test('native SQLite keeps a product visible when the server replaces its tempora
       const operation = operations.find((item) => item.operationId === operationId);
       if (!operation) return { updated: false };
       operation.payload = clone(payload);
-      return { updated: true };
+      return { updated: true, rows: 1 };
     },
   };
 
