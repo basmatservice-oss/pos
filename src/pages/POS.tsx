@@ -289,8 +289,8 @@ export default function POS() {
                 aspectRatio: 16 / 9,
                 disableFlip: false,
                 qrbox: (width, height) => ({
-                  width: Math.max(240, Math.floor(width * 0.92)),
-                  height: Math.max(90, Math.min(190, Math.floor(height * 0.34))),
+                  width: Math.max(1, Math.min(width, Math.floor(width * 0.92))),
+                  height: Math.max(1, Math.min(height, Math.max(90, Math.min(190, Math.floor(height * 0.34))))),
                 }),
                 videoConstraints: {
                   facingMode: { ideal: 'environment' },
