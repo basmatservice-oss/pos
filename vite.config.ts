@@ -10,7 +10,7 @@ export default defineConfig(({mode}) => {
     name: 'native-sqlite-database-adapter',
     enforce: 'pre' as const,
     resolveId(source: string) {
-      if (/(?:^|\/)db\/db(?:\.ts)?$/.test(source)) {
+      if (source === 'dexie' || /(?:^|\/)db\/db(?:\.ts)?$/.test(source)) {
         return path.resolve(process.cwd(), 'src/db/nativeRuntimeStub.ts');
       }
       return null;
