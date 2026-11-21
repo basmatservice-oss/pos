@@ -155,9 +155,9 @@ async function initializeLocalRuntime(): Promise<void> {
         throw new Error('Unsupported legacy IndexedDB stores in Windows SQLite migration: ' + unsupportedStores.join(', '));
       }
       for (const entity of NATIVE_POS_ENTITIES) {
-        const records = Array.isArray(legacyStores[entity])
+        const records = (Array.isArray(legacyStores[entity])
           ? legacyStores[entity] as Array<Record<string, unknown>>
-          : [];
+          : []).filter((record) => !(entity === 'settings' && record.key === 'authSecret'));
         const storedBefore = await electronPosRepository.getAll(entity);
         const storedIds = new Set(storedBefore.map((record) => getNativePosRecordId(entity, record)));
         const missing = records.filter((record) => !storedIds.has(getNativePosRecordId(entity, record)));
