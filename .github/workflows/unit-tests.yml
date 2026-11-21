@@ -34,3 +34,5 @@ jobs:
         run: npm run build
       - name: Validate native SQLite frontend without Dexie
         run: npm run build:native
+      - name: Verify native renderer contains no Dexie code
+        run: npm run test:native-bundle
