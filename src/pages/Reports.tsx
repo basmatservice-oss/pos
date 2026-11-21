@@ -51,6 +51,7 @@ import { useAuth } from '../context/AuthContext';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import { formatNumber, formatQty } from '../utils/format';
+import { buildOperationalProductReport } from '../utils/operationalProductReport';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -457,59 +458,17 @@ export default function Reports() {
     customEndDate,
   ]);
 
-  const operationalProductRows = useMemo(() => {
-    const inRange = (value: unknown) => {
-      const date = new Date(String(value || ''));
-      return Number.isFinite(date.getTime()) && date >= stats.startDate && date <= stats.endDate;
-    };
-    const validOrders = new Set(
-      orders.filter((order) => order.status !== 'void' && inRange(order.createdAt)).map((order) => String(order.id))
-    );
-    const validReturns = new Set(
-      returns.filter((record) => inRange(record.createdAt)).map((record) => String(record.id))
-    );
-    const rows = new Map<number, {
-      productId: number; name: string; itemType: string; quantitySold: number;
-      quantityReturned: number; sales: number; returnedSales: number; cost: number; returnedCost: number;
-    }>();
-    for (const item of orderItems) {
-      const productId = Number(item.productId);
-      if (!productId || !validOrders.has(String(item.orderId))) continue;
-      const product = products.find((entry) => Number(entry.id) === productId);
-      const row = rows.get(productId) || {
-        productId, name: item.productName || product?.name || 'صنف غير معروف',
-        itemType: item.itemType || product?.itemType || 'stock',
-        quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0,
-      };
-      const quantity = Math.max(0, Number(item.quantity || 0));
-      const revenue = Number(item.total ?? item.subTotal ?? 0) - Number(item.taxAmount || 0);
-      const unitCost = Number(item.costPriceAtTimeOfSale ?? product?.costPrice ?? 0);
-      row.quantitySold += quantity;
-      row.sales += revenue;
-      row.cost += unitCost * quantity;
-      rows.set(productId, row);
-    }
-    for (const item of returnItems) {
-      const productId = Number(item.productId);
-      if (!productId || !validReturns.has(String(item.returnId))) continue;
-      const row = rows.get(productId);
-      if (!row) continue;
-      const quantity = Math.max(0, Number(item.quantity || 0));
-      row.quantityReturned += quantity;
-      row.returnedSales += Number(item.total || 0) - Number(item.taxAmount || 0);
-      row.returnedCost += Number(item.costPrice || 0) * quantity;
-    }
-    return [...rows.values()]
-      .filter((row) => productReportMode === 'all' || selectedReportProductIds.includes(row.productId))
-      .map((row) => ({
-        ...row,
-        netQuantity: row.quantitySold - row.quantityReturned,
-        netSales: row.sales - row.returnedSales,
-        netCost: Math.max(0, row.cost - row.returnedCost),
-        profit: row.sales - row.returnedSales - Math.max(0, row.cost - row.returnedCost),
-      }))
-      .sort((a, b) => b.netSales - a.netSales);
-  }, [orders, orderItems, returns, returnItems, products, stats.startDate, stats.endDate, productReportMode, selectedReportProductIds]);
+  const operationalProductRows = useMemo(() => buildOperationalProductReport({
+    orders,
+    orderItems,
+    returns,
+    returnItems,
+    products,
+    startDate: stats.startDate,
+    endDate: stats.endDate,
+    mode: productReportMode,
+    selectedProductIds: selectedReportProductIds,
+  }), [orders, orderItems, returns, returnItems, products, stats.startDate, stats.endDate, productReportMode, selectedReportProductIds]);
 
   const productReportTotals = useMemo(() => operationalProductRows.reduce((totals, row) => ({
     quantity: totals.quantity + row.netQuantity,
