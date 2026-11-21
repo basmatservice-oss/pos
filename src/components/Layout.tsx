@@ -38,7 +38,10 @@ export default function Layout() {
         }
         await loadSettings();
         await checkLowStock();
-        await syncService.syncAll().catch(() => {});
+        // Standalone devices own their local database and must not attempt server sync.
+        if (roleSetting?.value !== 'standalone') {
+          await syncService.syncAll().catch(() => {});
+        }
       } catch (e) {
         console.error('Layout init error:', e);
       }
@@ -47,7 +50,7 @@ export default function Layout() {
     loadRoleAndInitialSync();
 
     const handleOnline = () => {
-      syncService.syncAll().catch(() => {});
+      handleSync().catch(() => {});
     };
     window.addEventListener('online', handleOnline);
 
@@ -65,6 +68,8 @@ export default function Layout() {
     if (isSyncing) return;
 
     try {
+      // Read the persisted role to avoid stale React state in interval/online callbacks.
+      if (await syncService.getDeviceRole() === 'standalone') return;
       const synced = await syncService.syncAll();
       if (synced) {
         await loadSettings();
