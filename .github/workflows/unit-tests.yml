@@ -30,5 +30,7 @@ jobs:
         run: python3 tests/purchase_currency_migration_test.py
       - name: TypeScript validation
         run: npm run lint
-      - name: Build frontend
+      - name: Build browser frontend
         run: npm run build
+      - name: Validate native SQLite frontend without Dexie
+        run: npm run build:native
