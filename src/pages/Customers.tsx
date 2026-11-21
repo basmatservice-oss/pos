@@ -485,8 +485,8 @@ export default function Customers() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)]" dir="rtl">
-      <div className="flex flex-wrap justify-between items-center mb-6 shrink-0 gap-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3 sm:mb-6">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">العملاء والديون</h2>
           <p className="text-slate-500 text-sm mt-1">
