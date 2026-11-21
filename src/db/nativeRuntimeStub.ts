@@ -1,5 +1,5 @@
 const unavailable = () => {
-  throw new Error('Dexie is disabled in native SQLite builds. Use the native SQLite repository.');
+  throw new Error('Legacy IndexedDB compatibility storage is disabled in native SQLite builds. Use the native SQLite repository.');
 };
 
 const unavailableProxy = new Proxy(unavailable, {
