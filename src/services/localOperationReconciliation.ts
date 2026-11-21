@@ -6,7 +6,7 @@ import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosR
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { nativePosRepository } from '../native/nativePosRepository';
-// Dexie is required only for desktop reconciliation; Android reconciliation is SQLite-only.
+// Dexie is required only by the browser fallback; Android and Electron reconciliation use SQLite.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
