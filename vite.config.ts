@@ -5,6 +5,7 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const nativeSqliteBuild = process.env.POS_NATIVE_SQLITE_BUILD === '1';
   return {
     plugins: [react(), tailwindcss()],
     base: './',
@@ -12,9 +13,17 @@ export default defineConfig(({mode}) => {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+        ...(nativeSqliteBuild
+          ? [{
+              // Native Android/Electron builds must not ship or execute Dexie.
+              // Browser builds keep the legacy IndexedDB adapter unchanged.
+              find: /(?:^|\\/)db\\/db$/,
+              replacement: path.resolve(__dirname, 'src/db/nativeRuntimeStub.ts'),
+            }]
+          : []),
+      ],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
