@@ -31,3 +31,28 @@ test('business data access routes local Android reads and writes through the nat
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?await nativePosRepository\.put/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.applyChanges/);
 });
+
+
+test('Android legacy business migration never replaces the SQLite source of truth', async () => {
+  const source = await read('../src/services/nativeDatabaseMirror.ts');
+  assert.match(source, /business_snapshot_version/);
+  assert.match(source, /Existing SQLite records always win/);
+  assert.match(source, /currentRows = await nativePosRepository\.getAllWithSyncState/);
+  assert.match(source, /missingRows = records\.filter\(\(record\) => !currentIds\.has\(record\.recordId\)\)/);
+  assert.doesNotMatch(source, /replaceNativePosRecords\(entity, records\)/);
+});
+
+test('Android SQLite schema upgrades inspect columns before adding them', async () => {
+  const source = await read('../native/android/PosLocalDatabasePlugin.kt');
+  assert.match(source, /private fun ensureColumn/);
+  assert.match(source, /PRAGMA table_info/);
+  assert.match(source, /ensureColumn\(db, "pos_outbox", "tenant_id"/);
+  assert.match(source, /ensureColumn\(db, "pos_outbox", "next_retry_at"/);
+});
+
+test('product save confirms visibility from the authoritative catalog before closing the editor', async () => {
+  const source = await read('../src/pages/Inventory.tsx');
+  assert.match(source, /const persistedProducts = await getPosRecords<Product>\('products'\)/);
+  assert.match(source, /if \(!persistedProduct\)/);
+  assert.match(source, /updateProducts\(persistedProducts\)/);
+});
