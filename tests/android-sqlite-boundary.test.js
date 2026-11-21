@@ -78,3 +78,19 @@ test('Android and Windows client data access share SQLite as their only local ru
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?await nativePosRepository\.put/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.applyChanges/);
 });
+
+test('native SQLite services do not eagerly load the Dexie compatibility database', async () => {
+  const files = [
+    '../src/services/operationService.ts',
+    '../src/services/syncService.ts',
+    '../src/services/localAccountingEngine.ts',
+    '../src/services/localInventoryEngine.ts',
+    '../src/services/localOperationReconciliation.ts',
+  ];
+  for (const file of files) {
+    const source = await read(file);
+    assert.doesNotMatch(source, /import\s+\{\s*db\s*\}\s+from\s+['"][^'"]*db\/db/);
+    assert.match(source, /isLocalSqlite\(\)/, file + ' must guard the native SQLite path');
+    assert.match(source, /if \(isLocalSqlite\(\)[\s\S]{0,180}(?:return|\)\s*\{)/, file + ' must bypass its Dexie fallback on local SQLite');
+  }
+});
