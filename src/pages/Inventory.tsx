@@ -888,10 +888,10 @@ export default function Inventory() {
                 <button 
                   onClick={handleUpdatePricesFromExchangeRate}
                   className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm border border-indigo-200"
-                  title={`تحديث الأسعار بناءً على سعر الصرف الحالي (${storeSettings.exchangeRate})`}
+                  title={`مراجعة الأسعار للمنتجات القديمة المرتبطة بالدولار فقط؛ السعر المحلي لبقية المنتجات لا يتغير`}
                 >
                   <RefreshCcw className="w-5 h-5" />
-                  تحديث الأسعار
+                  مراجعة المنتجات المرتبطة بالدولار
                 </button>
               )}
               {hasPermission('add_product') && (
@@ -1813,9 +1813,9 @@ export default function Inventory() {
           <div className="bg-white w-full max-w-4xl max-h-[88vh] rounded-3xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-gray-900">مراجعة تسعير الإحلال حسب سعر الصرف ({storeSettings.exchangeRate})</h3>
+                <h3 className="text-lg font-black text-gray-900">مراجعة تسعير المنتجات القديمة المرتبطة بالدولار ({storeSettings.exchangeRate})</h3>
                 <p className="text-xs text-gray-500 mt-1">
-                  مقترح بهامش ربح مستهدف {storeSettings.targetProfitMargin ?? 25}% — يمكنك تعديل السعر المستهدف أو إلغاء تحديد أي صنف قبل الاعتماد.
+                  هذه المراجعة لا تشمل المنتجات المسعرة مباشرة بعملة النظام. مقترح بهامش ربح مستهدف {storeSettings.targetProfitMargin ?? 25}% — راجع وعدّل الأسعار قبل الاعتماد.
                 </p>
               </div>
               <button onClick={() => setFxReviewItems(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl">
