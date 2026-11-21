@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
-import { getFirstPosRecordWhereEquals, getPosRecords, putPosRecord } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecords, putPosRecord, putPosSetting } from '../services/posDataAccess';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { API_BASE, setAuthToken, getAuthToken } from '../services/apiService';
 import { isNativeAndroid } from '../native/posLocalDatabase';
