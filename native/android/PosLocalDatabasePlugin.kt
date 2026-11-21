@@ -31,7 +31,7 @@ class PosLocalDatabasePlugin : Plugin() {
             result.put("database", "pos-local.db")
             call.resolve(result)
         } catch (error: Exception) {
-            call.reject("تعذر تهيئة قاعدة البيانات المحلية", error)
+            call.reject("تعذر تهيئة قاعدة البيانات المحلية: " + (error.message ?: error.javaClass.simpleName), error)
         }
     }
 
@@ -616,7 +616,7 @@ class PosLocalDatabasePlugin : Plugin() {
             }
             call.resolve(JSObject().put("records", rows))
         } catch (error: Exception) {
-            call.reject("تعذر قراءة السجلات المحلية", error)
+            call.reject("تعذر قراءة السجلات المحلية: " + (error.message ?: error.javaClass.simpleName), error)
         }
     }
 
