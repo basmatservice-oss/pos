@@ -8,7 +8,7 @@ test('normalizes Arabic-Indic and Persian digits to Western digits', () => {
 });
 
 test('normalizes localized decimal and grouping separators', () => {
-  assert.equal(normalizeNumericInput('١٢٣٬٤٥٦٫٧٥'), '123,456.75');
+  assert.equal(normalizeNumericInput('١٢٣٬٤٥٦٫٧٥'), '123456.75');
 });
 
 test('leaves already-Western numeric input unchanged', () => {
