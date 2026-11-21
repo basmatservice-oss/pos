@@ -7,7 +7,7 @@ import { Plus, Search, Edit, Trash2, Package, X, Download, Upload, RefreshCcw, T
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
@@ -302,12 +302,39 @@ export default function Inventory() {
             return;
           }
           await stopScanner();
-          const html5QrCode = new Html5Qrcode("inventory-reader");
+          const html5QrCode = new Html5Qrcode("inventory-reader", {
+            verbose: false,
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8,
+              Html5QrcodeSupportedFormats.UPC_A,
+              Html5QrcodeSupportedFormats.UPC_E,
+              Html5QrcodeSupportedFormats.CODE_128,
+              Html5QrcodeSupportedFormats.CODE_39,
+              Html5QrcodeSupportedFormats.ITF,
+              Html5QrcodeSupportedFormats.CODABAR,
+              Html5QrcodeSupportedFormats.QR_CODE,
+            ],
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          } as any);
           scannerRef.current = html5QrCode;
           
           await html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            {
+              fps: 20,
+              aspectRatio: 16 / 9,
+              disableFlip: false,
+              qrbox: (width, height) => ({
+                width: Math.max(240, Math.floor(width * 0.92)),
+                height: Math.max(90, Math.min(190, Math.floor(height * 0.34))),
+              }),
+              videoConstraints: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+              },
+            } as any,
             (decodedText) => {
               handleBarcodeScanned(decodedText);
             },
@@ -547,6 +574,22 @@ export default function Inventory() {
         savedParentId = res?.result?.id || tempId;
         await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
         toast.success('تمت إضافة المنتج بنجاح');
+      }
+
+      // Refresh the shared in-memory catalog from the authoritative database immediately.
+      if (savedParentId != null) {
+        try {
+          const persistedProduct = await getPosRecord<Product>('products', savedParentId);
+          if (persistedProduct) {
+            const currentProducts = useInventoryStore.getState().products;
+            useInventoryStore.getState().updateProducts([
+              ...currentProducts.filter((item) => Number(item.id) !== Number(persistedProduct.id)),
+              persistedProduct,
+            ]);
+          }
+        } catch (refreshError) {
+          console.warn('Product was saved but the immediate catalog refresh will retry through the data subscription:', refreshError);
+        }
       }
 
       // Persist service recipes if applicable
