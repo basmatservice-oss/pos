@@ -101,7 +101,7 @@ test('native Android and Windows bundles hard-disable Dexie and retain it only f
   const pkg = JSON.parse(await read('../package.json'));
   assert.match(vite, /POS_NATIVE_SQLITE_BUILD/);
   assert.match(vite, /nativeRuntimeStub\.ts/);
-  assert.match(stub, /Dexie is disabled in native SQLite builds/);
+  assert.match(stub, /Legacy IndexedDB compatibility storage is disabled in native SQLite builds/);
   assert.equal(pkg.dependencies.dexie, undefined);
   assert.equal(pkg.devDependencies.dexie, '^4.3.0');
   assert.match(pkg.scripts['build:native'], /POS_NATIVE_SQLITE_BUILD=1/);
