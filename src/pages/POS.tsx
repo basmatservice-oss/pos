@@ -609,12 +609,12 @@ export default function POS() {
   };
 
   return (
-    <div className="flex h-full bg-[var(--app-bg)] relative">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--app-bg)] relative lg:flex-row">
       {/* Products Section */}
-      <div className="flex-1 flex flex-col p-4 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
         {/* Search & Top Actions */}
-        <div className="flex gap-3 mb-4 shrink-0">
-          <form onSubmit={handleBarcodeSubmit} className="flex-1 relative">
+        <div className="mb-3 flex shrink-0 flex-wrap gap-2 sm:mb-4 sm:flex-nowrap">
+          <form onSubmit={handleBarcodeSubmit} className="relative min-w-0 flex-1 basis-full sm:basis-auto">
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-slate-400" />
             </div>
@@ -641,7 +641,7 @@ export default function POS() {
           <button
             type="button"
             onClick={() => setIsHeldListOpen(true)}
-            className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
+            className="flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 sm:px-4 sm:text-sm"
           >
             <PlayCircle className="w-4 h-4 text-amber-600" />
             <span>المعلقة</span>
@@ -691,13 +691,13 @@ export default function POS() {
         </div>
 
         {/* Products Grid */}
-        <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 custom-scrollbar">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5">
             {filteredProducts.map((product) => (
               <button
                 key={product.id}
                 onClick={() => addItem(product, product.unit || 'piece')}
-                className="bg-white border border-slate-200 rounded-2xl p-3.5 flex flex-col items-center text-center hover:border-indigo-500 transition-colors active:scale-98 group"
+                className="flex min-h-36 flex-col items-center rounded-2xl border border-slate-200 bg-white p-2.5 text-center transition-colors hover:border-indigo-500 active:scale-98 group sm:p-3.5"
               >
                 <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center mb-2.5 group-hover:bg-indigo-50 transition-colors relative overflow-hidden">
                   {product.imageUrl ? (
@@ -740,9 +740,9 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="w-[410px] bg-white border-r border-slate-200 flex flex-col z-10">
+      <div className="z-10 flex h-[42dvh] max-h-[48dvh] w-full min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white lg:h-auto lg:max-h-none lg:w-[410px] lg:border-r lg:border-t-0">
         {/* Cart Header */}
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50/70">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50/70 p-3 sm:p-4">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Receipt className="w-5 h-5 text-indigo-600" />
             <span>الفاتورة الحالية</span>
