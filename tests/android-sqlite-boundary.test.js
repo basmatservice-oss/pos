@@ -59,7 +59,8 @@ test('product save confirms visibility from the authoritative catalog before clo
 
 test('Windows client startup migrates legacy IndexedDB directly and never initializes Dexie', async () => {
   const source = await read('../src/main.tsx');
-  const desktopStart = source.indexOf('if (isElectronDesktop()) {');
+  const runtimeStart = source.indexOf('async function initializeLocalRuntime');
+  const desktopStart = source.indexOf('if (isElectronDesktop()) {', runtimeStart);
   const browserStart = source.indexOf('const { ensureDatabaseReady } = await import', desktopStart);
   assert.ok(desktopStart >= 0 && browserStart > desktopStart, 'Electron startup branch must remain explicit');
   const desktopBranch = source.slice(desktopStart, browserStart);
