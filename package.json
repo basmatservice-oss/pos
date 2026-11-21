@@ -20,7 +20,8 @@
     "cap:open": "cap open android",
     "lint": "tsc --noEmit",
     "test:unit": "node --import tsx --test tests/*.test.js",
-    "build:native": "cross-env POS_NATIVE_SQLITE_BUILD=1 vite build"
+    "build:native": "cross-env POS_NATIVE_SQLITE_BUILD=1 vite build",
+    "test:native-bundle": "node tests/native-bundle-check.cjs"
   },
   "dependencies": {
     "@capacitor/android": "7.4.3",
