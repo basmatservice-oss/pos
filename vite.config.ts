@@ -20,7 +20,7 @@ export default defineConfig(({mode}) => {
               // Native Android/Electron builds must not ship or execute Dexie.
               // Browser builds keep the legacy IndexedDB adapter unchanged.
               find: /(?:^|\/)db\/db$/,
-              replacement: path.resolve(__dirname, 'src/db/nativeRuntimeStub.ts'),
+              replacement: new URL('./src/db/nativeRuntimeStub.ts', import.meta.url).pathname,
             }]
           : []),
       ],
