@@ -250,8 +250,8 @@ body.theme-playful {
   min-height: 100dvh;
   padding-bottom: env(safe-area-inset-bottom);
 }
-.android-standalone-content {
-  padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+ .android-standalone-content {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }
 .android-bottom-nav {
@@ -273,4 +273,12 @@ body.theme-playful {
 @media (max-width: 640px) {
   .android-standalone-content table { min-width: 560px; }
   .android-standalone-content .overflow-x-auto { max-width: 100%; }
+}
+
+/* Dedicated launcher surface */
+.apps-hub { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.apps-hub input { font: inherit; }
+.apps-hub a { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 380px) {
+  .apps-hub { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
