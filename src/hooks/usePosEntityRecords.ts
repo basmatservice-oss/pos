@@ -17,14 +17,16 @@ export function usePosEntityRecords<T extends object = Record<string, unknown>>(
 
   useEffect(() => {
     let active = true;
+    let refreshGeneration = 0;
     let unsubscribe: (() => void) | undefined;
 
     const start = async () => {
       if (isWindowsServer) {
         const refresh = async () => {
+          const generation = ++refreshGeneration;
           try {
             const rows = await getPosRecords(entity) as unknown as T[];
-            if (active) setRecords(rows);
+            if (active && generation === refreshGeneration) setRecords(rows);
           } catch (error) {
             console.error(`Failed to read ${entity} from Windows Server API:`, error);
           }
@@ -45,9 +47,10 @@ export function usePosEntityRecords<T extends object = Record<string, unknown>>(
 
       if (isLocalSqlite) {
         const refresh = async () => {
+          const generation = ++refreshGeneration;
           try {
             const rows = await nativePosRepository.getAll(entity) as unknown as T[];
-            if (active) setRecords(rows);
+            if (active && generation === refreshGeneration) setRecords(rows);
           } catch (error) {
             console.error(`Failed to read ${entity} from local SQLite:`, error);
           }
