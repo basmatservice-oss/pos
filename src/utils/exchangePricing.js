@@ -52,3 +52,12 @@ export function repriceLinkedProduct(product, nextRate, precision = 2) {
 export function getFxLinkedProductCount(products = []) {
   return products.filter((product) => Number(product?.priceInUSD || 0) > 0 || Number(product?.costInUSD || 0) > 0).length;
 }
+
+export function buildProductUnitFxAnchors(units = [], linked, exchangeRate) {
+  return units.map((unit) => ({
+    ...unit,
+    priceInUSD: linked && Number(unit?.sellingPrice) > 0
+      ? toForeignPriceAnchor(unit.sellingPrice, exchangeRate)
+      : 0,
+  }));
+}
