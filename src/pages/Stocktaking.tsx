@@ -416,7 +416,7 @@ export default function Stocktaking() {
         </button>
         <div>
           <h2 className="text-xl font-bold">تفاصيل الجلسة #{selectedSession?.id?.slice(0, 8)}</h2>
-          <p className="text-sm text-gray-500">بواسطة {selectedSession?.createdBy} في {new Date(selectedSession?.createdAt || '').toLocaleString('ar-SA')}</p>
+          <p className="text-sm text-gray-500">بواسطة {selectedSession?.createdBy} في {new Date(selectedSession?.createdAt || '').toLocaleString('en-GB')}</p>
         </div>
         {selectedSession?.status === 'open' && (
           <button 
