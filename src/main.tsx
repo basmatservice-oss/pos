@@ -7,6 +7,8 @@ import { isNativeAndroid } from './native/posLocalDatabase';
 import { electronPosRepository, isElectronDesktop, setElectronDeviceRole } from './native/electronPosRepository';
 import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
 import { putPosSetting } from './services/posDataAccess';
+import bcrypt from 'bcryptjs';
+import { getPosRecords, putPosRecord } from './services/posDataAccess';
 
 async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
@@ -45,6 +47,73 @@ async function restoreDesktopRuntimeConfig() {
   }
 }
 
+
+const DEFAULT_ADMIN_PERMISSIONS = [
+  'view_dashboard', 'view_pos', 'apply_discounts', 'void_items',
+  'view_returns', 'process_returns', 'view_inventory', 'add_product',
+  'edit_product', 'delete_product', 'manage_categories', 'view_stocktaking',
+  'manage_stocktaking', 'view_purchases', 'add_purchase', 'edit_purchase',
+  'delete_purchase', 'view_customers', 'add_customer', 'edit_customer',
+  'delete_customer', 'view_suppliers', 'add_supplier', 'edit_supplier',
+  'delete_supplier', 'view_employees', 'add_employee', 'edit_employee',
+  'delete_employee', 'view_attendance', 'manage_attendance', 'view_payroll',
+  'manage_payroll', 'view_offers', 'manage_offers', 'view_branches',
+  'manage_branches', 'view_mobile_sales', 'view_shifts', 'manage_shifts',
+  'view_expenses', 'add_expense', 'edit_expense', 'delete_expense',
+  'view_reports', 'manage_settings',
+];
+
+async function ensureStandaloneDefaultAdmin(): Promise<void> {
+  if (!isNativeAndroid()) return;
+  const settings = await getPosRecords<Record<string, any>>('settings');
+  const deviceRole = settings.find((setting) => setting.key === 'deviceRole')?.value;
+  // LAN clients must authenticate against their configured server; never create
+  // a local administrator that could bypass server authentication while offline.
+  if (deviceRole === 'client') return;
+
+  const employees = await getPosRecords<Record<string, any>>('employees');
+  const existing = employees.find((employee) => String(employee.username || '').trim().toLowerCase() === 'admin');
+  const now = new Date().toISOString();
+  if (existing) {
+    // Upgrade only the untouched legacy bootstrap credential. Never reset a
+    // password that an administrator has already changed.
+    const legacyDefault = Boolean(existing.mustChangePassword) &&
+      typeof existing.password === 'string' &&
+      (existing.password === '123456' || (existing.password.startsWith('$2') && bcrypt.compareSync('123456', existing.password)));
+    if (legacyDefault) {
+      await putPosRecord('employees', {
+        ...existing,
+        password: bcrypt.hashSync('admin', 10),
+        mustChangePassword: true,
+        syncStatus: 'local',
+        updatedAt: now,
+      }, 'local');
+    }
+    return;
+  }
+
+  const nextId = employees.reduce((max, employee) => Math.max(max, Number(employee.id) || 0), 0) + 1;
+  await putPosRecord('employees', {
+    id: nextId,
+    name: 'المدير العام',
+    username: 'admin',
+    password: bcrypt.hashSync('admin', 10),
+    pinCode: bcrypt.hashSync('1234', 10),
+    mustChangePassword: true,
+    role: 'admin',
+    phone: '',
+    salary: 0,
+    salaryType: 'monthly',
+    joinDate: now,
+    status: 'active',
+    deviceType: 'mobile',
+    permissions: DEFAULT_ADMIN_PERMISSIONS,
+    syncStatus: 'local',
+    createdAt: now,
+    updatedAt: now,
+  }, 'local');
+}
+
 let nativeStartupError: unknown = null;
 
 async function initializeLocalRuntime(): Promise<void> {
@@ -67,6 +136,9 @@ async function initializeLocalRuntime(): Promise<void> {
     // for the one-time legacy migration.
     const { migrateLegacyAndroidQueueToSQLite } = await import('./services/syncService');
     await migrateLegacyAndroidQueueToSQLite();
+
+    // Ensure a first-run administrator exists in the standalone Android SQLite store.
+    await ensureStandaloneDefaultAdmin();
 
     // Normal Android startup does not initialize or hydrate Dexie after migration.
     return;
