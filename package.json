@@ -15,11 +15,12 @@
     "clean": "rimraf dist release",
     "start": "tsx server.ts",
     "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --external:vite",
-    "package:win": "npm run build && npm run build:server && electron-builder --win nsis --x64 --publish never",
+    "package:win": "npm run build:native && npm run build:server && electron-builder --win nsis --x64 --publish never",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "lint": "tsc --noEmit",
-    "test:unit": "node --import tsx --test tests/*.test.js"
+    "test:unit": "node --import tsx --test tests/*.test.js",
+    "build:native": "cross-env POS_NATIVE_SQLITE_BUILD=1 vite build"
   },
   "dependencies": {
     "@capacitor/android": "7.4.3",
@@ -35,7 +36,6 @@
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "date-fns": "^4.1.0",
-    "dexie": "^4.3.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
     "express": "^4.22.1",
@@ -80,7 +80,8 @@
     "rimraf": "^6.0.1",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.0.4",
+    "dexie": "^4.3.0"
   },
   "build": {
     "appId": "com.smartpos.studio",
