@@ -925,8 +925,9 @@ const Settings: React.FC = () => {
                           value="ج.س"
                           disabled
                           aria-label="الجنيه السوداني هو العملة الأساسية للنظام"
-                          className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                          className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl outline-none transition-all"
                         />
+                        <p className="text-xs leading-5 text-gray-500">التحويل إلى الجنيه السوداني لا يغير أرقام فواتير البيع والشراء السابقة أو تكاليف دفعات المخزون. يحتفظ النظام بقيمها كما سُجلت وقت العملية؛ أما أسعار المنتجات الحالية فتُدار بالجنيه.</p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-gray-700">نسبة ضريبة القيمة المضافة (%)</label>
