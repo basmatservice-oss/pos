@@ -148,12 +148,12 @@ export async function seedDefaultUsersAndAccounts() {
   await ensureChartOfAccountsAsync(db);
 
   const admins = await db.select().from(employees).where(eq(employees.username, 'admin'));
+  const now = new Date().toISOString();
   if (admins.length === 0) {
-    const now = new Date().toISOString();
     await db.insert(employees).values({
       name: 'المدير العام',
       username: 'admin',
-      password: hashSecret('123456'),
+      password: hashSecret('admin'),
       pinCode: hashSecret('1234'),
       mustChangePassword: 1,
       role: 'admin',
@@ -180,6 +180,16 @@ export async function seedDefaultUsersAndAccounts() {
       createdAt: now,
       updatedAt: now,
     });
+    return;
+  }
+
+  // Upgrade only the untouched bootstrap account from older installations.
+  // Never overwrite credentials after the administrator has changed them.
+  const admin = admins[0];
+  if (admin.mustChangePassword && verifySecret('123456', admin.password)) {
+    await db.update(employees)
+      .set({ password: hashSecret('admin'), mustChangePassword: 1, updatedAt: now, isSynced: 0 })
+      .where(eq(employees.id, admin.id));
   }
 }
 
