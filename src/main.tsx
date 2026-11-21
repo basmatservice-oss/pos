@@ -120,8 +120,8 @@ async function initializeLocalRuntime(): Promise<void> {
     }
 
     // Migrate any pre-SQLite operation queue even on standalone devices.
-    // This function is guarded by a durable SQLite marker and loads Dexie only
-    // for the one-time legacy migration.
+    // This function is guarded by a durable SQLite marker and reads the legacy
+    // IndexedDB queue directly without initializing Dexie.
     const { migrateLegacyAndroidQueueToSQLite } = await import('./services/syncService');
     await migrateLegacyAndroidQueueToSQLite();
 
