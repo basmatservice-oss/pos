@@ -194,11 +194,15 @@ const Settings: React.FC = () => {
           continue;
         }
 
-        if (!existing || existing.value !== stringVal) {
+        if (!existing || String(existing.value ?? '') !== stringVal) {
+          // SQLite requires an explicit primary key for settings. New settings
+          // previously reached entity_upsert without an id and were rejected.
+          const settingId = existing?.id ?? (Date.now() * 1000 + Object.keys(settings).indexOf(key) + 1);
           await dispatchOperation('entity_upsert', {
             table: 'settings',
             record: {
               ...(existing || {}),
+              id: settingId,
               key,
               value: stringVal,
               updatedAt: now,
@@ -632,28 +636,47 @@ const Settings: React.FC = () => {
 
   const handleAddFxRate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (await isStandaloneAndroid()) { toast.error('تسجيل سعر الصرف عبر الخادم غير متاح في وضع التشغيل المستقل'); return; }
     const rateNum = Number(newFxRate);
-    if (!rateNum || rateNum <= 0) {
+    const currencyCode = newFxCurrency.trim().toUpperCase() || 'USD';
+    if (!Number.isFinite(rateNum) || rateNum <= 0) {
       toast.error('يرجى إدخال سعر صرف صحيح أكبر من صفر');
       return;
     }
     try {
-      const saved = await apiService.addExchangeRate({
-        currency: newFxCurrency.trim().toUpperCase() || 'USD',
-        rate: rateNum,
-        source: 'manual',
-        notes: newFxNotes || undefined,
-      });
-      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
-      if ((newFxCurrency.trim().toUpperCase() || 'USD') === 'USD') {
+      const standalone = await isStandaloneAndroid();
+      const effectiveFrom = new Date().toISOString();
+      const saved = standalone
+        ? {
+            id: `local-fx-${Date.now()}`,
+            currency: currencyCode,
+            rate: rateNum,
+            source: 'manual',
+            notes: newFxNotes || undefined,
+            effectiveFrom,
+            createdAt: effectiveFrom,
+          }
+        : await apiService.addExchangeRate({
+            currency: currencyCode,
+            rate: rateNum,
+            source: 'manual',
+            notes: newFxNotes || undefined,
+          });
+
+      await putPosRecord('exchangeRateHistory', {
+        ...saved,
+        syncStatus: 'synced',
+      } as any, 'synced');
+
+      if (currencyCode === 'USD') {
+        // Persist the current USD rate, not just the in-memory form state.
+        await putPosSetting('exchangeRate', rateNum, 'synced');
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
       setNewFxRate('');
       setNewFxNotes('');
-      toast.success('تم تسجيل سعر الصرف وتحديث السجل');
+      toast.success('تم تسجيل سعر الصرف وحفظ السعر الحالي');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'تعذر حفظ سعر الصرف');
+      toast.error(err?.response?.data?.error || err?.message || 'تعذر حفظ سعر الصرف');
     }
   };
 
@@ -841,17 +864,6 @@ const Settings: React.FC = () => {
                           onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
                           className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                         />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700">سعر الصرف (للدولار)</label>
-                        <input 
-                          type="number" 
-                          step="0.01"
-                          value={settings.exchangeRate}
-                          onChange={(e) => setSettings({ ...settings, exchangeRate: Number(e.target.value) })}
-                          className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">يستخدم لحساب تكلفة المنتجات المستوردة</p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-gray-700">نسبة ضريبة القيمة المضافة (%)</label>
