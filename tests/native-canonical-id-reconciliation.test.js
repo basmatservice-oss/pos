@@ -4,6 +4,13 @@ import assert from 'node:assert/strict';
 test('native SQLite keeps a product visible when the server replaces its temporary ID', async () => {
   const previousWindow = globalThis.window;
   const tables = new Map();
+  const operations = [{
+    operationId: 'sale-op',
+    type: 'sale',
+    payload: { items: [{ productId: 1790000000000000 }] },
+    status: 'pending',
+    createdAt: 2,
+  }];
   const table = (entity) => {
     if (!tables.has(entity)) tables.set(entity, new Map());
     return tables.get(entity);
@@ -31,7 +38,15 @@ test('native SQLite keeps a product visible when the server replaces its tempora
       }
       return { applied: changes.length, count: changes.length };
     },
-    listOperations: async () => ({ operations: [] }),
+    listOperations: async (pendingOnly = false) => ({
+      operations: operations.filter((operation) => !pendingOnly || operation.status === 'pending').map(clone),
+    }),
+    updateOperationPayload: async (operationId, payload) => {
+      const operation = operations.find((item) => item.operationId === operationId);
+      if (!operation) return { updated: false };
+      operation.payload = clone(payload);
+      return { updated: true };
+    },
   };
 
   const oldId = 1790000000000000;
@@ -58,6 +73,7 @@ test('native SQLite keeps a product visible when the server replaces its tempora
     } = await import('../src/services/localOperationReconciliation.ts');
 
     await remapPendingEntityReferences('products', oldId, serverId, 'product-op');
+    assert.equal(operations[0].payload.items[0].productId, serverId);
     const pendingRefs = {
       products: new Set(),
       customers: new Set(),
