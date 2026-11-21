@@ -127,18 +127,18 @@ test('native SQLite registry covers every legacy business store and routes the o
   const electron = await read('../electron/local-database.cjs');
   const android = await read('../native/android/PosLocalDatabasePlugin.kt');
 
-  const versions = [...schema.matchAll(/this\\.version\\((\\d+)\\)\\.stores\\(\\{/g)];
+  const versions = [...schema.matchAll(/this\.version\((\d+)\)\.stores\(\{/g)];
   assert.ok(versions.length, 'legacy Dexie schema versions must be discoverable');
   const latest = versions[versions.length - 1];
   const blockStart = latest.index + latest[0].length;
   const blockEnd = schema.indexOf('});', blockStart);
   assert.ok(blockEnd > blockStart, 'latest legacy table registry must be complete');
-  const legacyTables = [...schema.slice(blockStart, blockEnd).matchAll(/^\\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
+  const legacyTables = [...schema.slice(blockStart, blockEnd).matchAll(/^\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
 
-  const registryBlock = repository.match(/const NATIVE_PRIMARY_KEYS = \\{([\\s\\S]*?)\\} as const/);
+  const registryBlock = repository.match(/const NATIVE_PRIMARY_KEYS = \{([\s\S]*?)\} as const/);
   assert.ok(registryBlock, 'native primary-key registry must exist');
-  const nativeTables = [...registryBlock[1].matchAll(/^\\s{2}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
-  const electronSet = electron.match(/const VALID_ENTITIES = new Set\\(\\[([^\\]]+)\\]\\)/);
+  const nativeTables = [...registryBlock[1].matchAll(/^\s{2}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
+  const electronSet = electron.match(/const VALID_ENTITIES = new Set\(\[([^\]]+)\]\)/);
   assert.ok(electronSet, 'Electron SQLite entity allowlist must exist');
   const electronTables = [...electronSet[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
 
@@ -159,11 +159,11 @@ test('product editor blocks duplicate submissions and reports success only after
   const end = source.indexOf('const handleDelete =', start);
   assert.ok(start >= 0 && end > start, 'product submit handler must remain explicit');
   const handler = source.slice(start, end);
-  assert.match(handler, /if \\(isSavingProductRef\\.current\\) return/);
-  assert.match(handler, /isSavingProductRef\\.current = true/);
-  assert.match(handler, /finally \\{[\\s\\S]*?isSavingProductRef\\.current = false/);
+  assert.match(handler, /if \(isSavingProductRef\.current\) return/);
+  assert.match(handler, /isSavingProductRef\.current = true/);
+  assert.match(handler, /finally \{[\s\S]*?isSavingProductRef\.current = false/);
   const readBack = handler.indexOf("getPosRecords<Product>('products')");
   const success = handler.indexOf('toast.success(editingProduct');
   assert.ok(readBack >= 0 && success > readBack, 'success must not appear before authoritative read-back');
-  assert.match(handler, /if \\(!persistedProduct\\)/);
+  assert.match(handler, /if \(!persistedProduct\)/);
 });
