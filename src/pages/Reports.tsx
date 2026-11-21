@@ -54,10 +54,13 @@ import { formatNumber, formatQty } from '../utils/format';
 
 export default function Reports() {
   const { user } = useAuth();
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'financial'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'products' | 'financial'>('overview');
+  const [productReportMode, setProductReportMode] = useState<'all' | 'selected'>('all');
+  const [selectedReportProductIds, setSelectedReportProductIds] = useState<number[]>([]);
   const orders = usePosEntityRecords<any>('orders');
   const orderItems = usePosEntityRecords<any>('orderItems');
   const returns = usePosEntityRecords<any>('returns');
+  const returnItems = usePosEntityRecords<any>('returnItems');
   const inventoryBatches = usePosEntityRecords<any>('inventoryBatches');
   const products = usePosEntityRecords<any>('products');
   const expenses = usePosEntityRecords<any>('expenses');
@@ -454,6 +457,67 @@ export default function Reports() {
     customEndDate,
   ]);
 
+  const operationalProductRows = useMemo(() => {
+    const inRange = (value: unknown) => {
+      const date = new Date(String(value || ''));
+      return Number.isFinite(date.getTime()) && date >= stats.startDate && date <= stats.endDate;
+    };
+    const validOrders = new Set(
+      orders.filter((order) => order.status !== 'void' && inRange(order.createdAt)).map((order) => String(order.id))
+    );
+    const validReturns = new Set(
+      returns.filter((record) => inRange(record.createdAt)).map((record) => String(record.id))
+    );
+    const rows = new Map<number, {
+      productId: number; name: string; itemType: string; quantitySold: number;
+      quantityReturned: number; sales: number; returnedSales: number; cost: number; returnedCost: number;
+    }>();
+    for (const item of orderItems) {
+      const productId = Number(item.productId);
+      if (!productId || !validOrders.has(String(item.orderId))) continue;
+      const product = products.find((entry) => Number(entry.id) === productId);
+      const row = rows.get(productId) || {
+        productId, name: item.productName || product?.name || 'صنف غير معروف',
+        itemType: item.itemType || product?.itemType || 'stock',
+        quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0,
+      };
+      const quantity = Math.max(0, Number(item.quantity || 0));
+      const revenue = Number(item.total ?? item.subTotal ?? 0) - Number(item.taxAmount || 0);
+      const unitCost = Number(item.costPriceAtTimeOfSale ?? product?.costPrice ?? 0);
+      row.quantitySold += quantity;
+      row.sales += revenue;
+      row.cost += unitCost * quantity;
+      rows.set(productId, row);
+    }
+    for (const item of returnItems) {
+      const productId = Number(item.productId);
+      if (!productId || !validReturns.has(String(item.returnId))) continue;
+      const row = rows.get(productId);
+      if (!row) continue;
+      const quantity = Math.max(0, Number(item.quantity || 0));
+      row.quantityReturned += quantity;
+      row.returnedSales += Number(item.total || 0) - Number(item.taxAmount || 0);
+      row.returnedCost += Number(item.costPrice || 0) * quantity;
+    }
+    return [...rows.values()]
+      .filter((row) => productReportMode === 'all' || selectedReportProductIds.includes(row.productId))
+      .map((row) => ({
+        ...row,
+        netQuantity: row.quantitySold - row.quantityReturned,
+        netSales: row.sales - row.returnedSales,
+        netCost: Math.max(0, row.cost - row.returnedCost),
+        profit: row.sales - row.returnedSales - Math.max(0, row.cost - row.returnedCost),
+      }))
+      .sort((a, b) => b.netSales - a.netSales);
+  }, [orders, orderItems, returns, returnItems, products, stats.startDate, stats.endDate, productReportMode, selectedReportProductIds]);
+
+  const productReportTotals = useMemo(() => operationalProductRows.reduce((totals, row) => ({
+    quantity: totals.quantity + row.netQuantity,
+    sales: totals.sales + row.netSales,
+    cost: totals.cost + row.netCost,
+    profit: totals.profit + row.profit,
+  }), { quantity: 0, sales: 0, cost: 0, profit: 0 }), [operationalProductRows]);
+
   const handleExportCSV = () => {
     const headers = ['رقم الفاتورة', 'التاريخ', 'الصافي بدون ضريبة', 'الضريبة', 'الإجمالي شامل الضريبة', 'طريقة الدفع', 'الحالة'];
     const rows = stats.filteredOrders.map((order) => [
@@ -497,6 +561,14 @@ export default function Reports() {
               }`}
             >
               نظرة عامة
+            </button>
+            <button
+              onClick={() => setActiveMainTab('products')}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
+                activeMainTab === 'products' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
+              }`}
+            >
+              تقارير الأصناف والأرباح
             </button>
             <button
               onClick={() => setActiveMainTab('financial')}
@@ -963,6 +1035,88 @@ export default function Reports() {
             </div>
           </div>
         </>
+      )}
+
+      {activeMainTab === 'products' && (
+        <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+          <div>
+            <h3 className="text-lg font-black text-slate-900">تقارير مبيعات الأصناف وأرباحها</h3>
+            <p className="mt-1 text-sm text-slate-500">اختر فترة التقرير، ثم اعرض جميع الأصناف أو حدد صنفًا واحدًا أو مجموعة أصناف.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(['today', 'yesterday', 'thisWeek', 'thisMonth', 'custom'] as const).map((period) => (
+              <button key={period} onClick={() => setDateFilter(period)}
+                className={`rounded-lg px-3 py-2 text-xs font-bold ${dateFilter === period ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                {period === 'today' ? 'اليوم' : period === 'yesterday' ? 'الأمس' : period === 'thisWeek' ? 'هذا الأسبوع' : period === 'thisMonth' ? 'هذا الشهر' : 'فترة مخصصة'}
+              </button>
+            ))}
+          </div>
+          {dateFilter === 'custom' && (
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-2 text-sm">من
+                <input type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} className="rounded-lg border border-slate-300 px-2 py-2" />
+              </label>
+              <label className="flex items-center gap-2 text-sm">إلى
+                <input type="date" value={customEndDate} onChange={(event) => setCustomEndDate(event.target.value)} className="rounded-lg border border-slate-300 px-2 py-2" />
+              </label>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-bold text-slate-700">نطاق التقرير</label>
+            <select value={productReportMode} onChange={(event) => setProductReportMode(event.target.value as 'all' | 'selected')}
+              className="min-w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+              <option value="all">كل الأصناف المباعة</option>
+              <option value="selected">أصناف أختارها</option>
+            </select>
+            {productReportMode === 'selected' && (
+              <button onClick={() => setSelectedReportProductIds([])} className="text-xs font-bold text-indigo-600">مسح الاختيار</button>
+            )}
+          </div>
+          {productReportMode === 'selected' && (
+            <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 p-3">
+              {products.filter((product) => operationalProductRows.some((row) => row.productId === Number(product.id)) ||
+                orderItems.some((item) => Number(item.productId) === Number(product.id))).map((product) => (
+                <label key={product.id} className="flex cursor-pointer items-center gap-2 border-b border-slate-100 py-2 text-sm last:border-0">
+                  <input type="checkbox" checked={selectedReportProductIds.includes(Number(product.id))}
+                    onChange={(event) => setSelectedReportProductIds((current) => event.target.checked
+                      ? [...current, Number(product.id)]
+                      : current.filter((id) => id !== Number(product.id)))} />
+                  <span>{product.name}</span>
+                  <span className="mr-auto text-xs text-slate-400">{product.barcode || ''}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">الكمية الصافية</p><p className="mt-1 text-lg font-black">{formatQty(productReportTotals.quantity, qtyDecimals)}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">صافي المبيعات</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.sales, decimals)} {storeSettings.currency}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">تكلفة الأصناف</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.cost, decimals)} {storeSettings.currency}</p></div>
+            <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">الربح الإجمالي</p><p className="mt-1 text-lg font-black text-emerald-700">{formatNumber(productReportTotals.profit, decimals)} {storeSettings.currency}</p></div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[760px] text-right text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-600">
+                <tr><th className="p-3">الصنف</th><th className="p-3">الكمية المباعة</th><th className="p-3">المرتجع</th><th className="p-3">الصافي</th><th className="p-3">صافي المبيعات</th><th className="p-3">التكلفة</th><th className="p-3">الربح</th></tr>
+              </thead>
+              <tbody>
+                {operationalProductRows.length === 0 ? (
+                  <tr><td colSpan={7} className="p-6 text-center text-slate-500">{productReportMode === 'selected' && selectedReportProductIds.length === 0 ? 'حدد صنفًا واحدًا أو أكثر لعرض التقرير' : 'لا توجد مبيعات لهذه الفترة والاختيارات'}</td></tr>
+                ) : operationalProductRows.map((row) => (
+                  <tr key={row.productId} className="border-t border-slate-100">
+                    <td className="p-3 font-bold">{row.name}<span className="mr-2 text-xs font-normal text-slate-400">{row.itemType === 'service' ? 'خدمة' : ''}</span></td>
+                    <td className="p-3">{formatQty(row.quantitySold, qtyDecimals)}</td>
+                    <td className="p-3">{formatQty(row.quantityReturned, qtyDecimals)}</td>
+                    <td className="p-3 font-bold">{formatQty(row.netQuantity, qtyDecimals)}</td>
+                    <td className="p-3">{formatNumber(row.netSales, decimals)}</td>
+                    <td className="p-3">{formatNumber(row.netCost, decimals)}</td>
+                    <td className={`p-3 font-black ${row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatNumber(row.profit, decimals)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">الأرباح هنا تقدير تشغيلي مبني على تكلفة الصنف المسجلة وقت البيع وتكلفة المرتجعات؛ لا يحل محل القوائم المحاسبية أو دفتر الأستاذ.</p>
+        </section>
       )}
 
       {activeMainTab === 'financial' && (
