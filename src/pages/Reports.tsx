@@ -479,8 +479,8 @@ export default function Reports() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 md:flex-row md:items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Activity className="w-6 h-6 text-indigo-600" />
@@ -489,7 +489,7 @@ export default function Reports() {
           <p className="text-slate-500 text-sm mt-1">
             تحليل صافي الإيرادات (بعد فصل ضريبة القيمة المضافة) والتكاليف والقوائم المالية
           </p>
-          <div className="mt-4 flex bg-slate-200/70 p-1 rounded-xl w-fit border border-slate-200">
+          <div className="mt-3 flex w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-slate-200/70 p-1 sm:mt-4 sm:w-fit">
             <button
               onClick={() => setActiveMainTab('overview')}
               className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
@@ -547,7 +547,7 @@ export default function Reports() {
       {activeMainTab === 'overview' && (
         <>
           {dateFilter === 'custom' && (
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 mb-6 flex flex-wrap items-center gap-4">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:mb-6 sm:gap-4 sm:p-4">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-500">من:</label>
                 <input
@@ -570,7 +570,7 @@ export default function Reports() {
           )}
 
           {/* KPI Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 shrink-0 tabular-nums">
+          <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 tabular-nums sm:grid-cols-2 lg:mb-6 lg:grid-cols-4 lg:gap-4">
             <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
                 <TrendingUp className="w-6 h-6" />
