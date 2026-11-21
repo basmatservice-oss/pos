@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronLeft,
   LayoutDashboard,
+  ShoppingCart,
 } from 'lucide-react';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { Link } from 'react-router-dom';
