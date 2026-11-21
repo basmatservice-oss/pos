@@ -516,10 +516,10 @@ export default function Purchases() {
 
   if (isAddingNew) {
     return (
-      <div className="flex h-full bg-[var(--app-bg)] overflow-hidden" dir="rtl">
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--app-bg)] lg:flex-row" dir="rtl">
         {/* Left Side: Products Selection */}
-        <div className="flex-1 flex flex-col p-6 overflow-hidden">
-          <div className="flex items-center justify-between mb-6 gap-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-6">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
             <div className="flex items-center gap-3">
               <button
                 onClick={resetForm}
@@ -532,7 +532,7 @@ export default function Purchases() {
                 {editingPurchase ? 'تعديل فاتورة مشتريات' : 'فاتورة مشتريات جديدة'}
               </h2>
             </div>
-            <form onSubmit={handleBarcodeSubmit} className="relative w-72">
+            <form onSubmit={handleBarcodeSubmit} className="relative w-full sm:w-72">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input
                 type="text"
@@ -544,8 +544,8 @@ export default function Purchases() {
             </form>
           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3.5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 xl:grid-cols-4">
               {filteredProducts.map((product) => (
                 <button
                   key={product.id}
@@ -572,7 +572,7 @@ export default function Purchases() {
         </div>
 
         {/* Right Side: Cart, Supplier, FX & Landed Costs */}
-        <div className="w-[430px] bg-white border-r border-slate-200 flex flex-col">
+        <div className="flex h-[44dvh] max-h-[50dvh] w-full min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white lg:h-auto lg:max-h-none lg:w-[430px] lg:border-r lg:border-t-0">
           <div className="p-4 border-b border-slate-200 space-y-2.5">
             <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
               <Truck className="w-4 h-4 text-indigo-600" />
