@@ -714,7 +714,7 @@ const MobileSales: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 items-center overflow-hidden" dir={lang === 'en' ? 'ltr' : 'rtl'}>
+    <div className="flex h-[100dvh] flex-col items-center overflow-hidden bg-slate-50" dir={lang === 'en' ? 'ltr' : 'rtl'}>
       <div className="flex flex-col h-full w-full max-w-md bg-white relative overflow-hidden border-x border-slate-200">
         {/* Top Header */}
         <header className="bg-white px-4 py-3.5 border-b border-slate-200 flex items-center justify-between shrink-0">
