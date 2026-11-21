@@ -520,6 +520,9 @@ export default function Inventory() {
     try {
       const now = new Date().toISOString();
       const validUnits = extraUnits.filter((u) => u.name.trim() && Number(u.conversionFactor) > 0);
+      if (formData.itemType === 'service_with_materials' && !recipeRows.some((row) => Number(row.ingredientProductId) > 0 && Number(row.quantity) > 0)) {
+        throw new Error('الخدمة ذات المواد تحتاج إلى إضافة مادة خام واحدة على الأقل قبل الحفظ');
+      }
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
@@ -529,7 +532,7 @@ export default function Inventory() {
         // Local-currency edits detach legacy USD-linked pricing so a later FX review cannot overwrite the user's local price.
         costInUSD: 0,
         priceInUSD: 0,
-        stockQuantity: formData.itemType === 'service' ? 0 : roundQty(Number(formData.stockQuantity) || 0),
+        stockQuantity: formData.itemType === 'service' || formData.itemType === 'service_with_materials' ? 0 : roundQty(Number(formData.stockQuantity) || 0),
         minStockLevel: Number(formData.minStockLevel) || 0,
         vatRate: Number(formData.vatRate) || 0,
         imageUrl: formData.imageUrl,
@@ -1341,7 +1344,7 @@ export default function Inventory() {
                       ))}
                     </select>
                   </div>
-                  {formData.itemType !== 'service' && (
+                  {formData.itemType !== 'service' && formData.itemType !== 'service_with_materials' && (
                     <>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">الكمية المتوفرة</label>
@@ -1537,6 +1540,16 @@ export default function Inventory() {
               </div>
 
               {/* Service / Bundle Recipe Builder */}
+              {formData.itemType === 'service' && (
+                <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs leading-6 text-sky-800">
+                  الخدمة العادية لا تخصم كمية من المخزون. أدخل سعر بيع الخدمة، وتُسجل كمبيعات خدمات. إذا كانت الخدمة تستهلك مواد من المخزون فاختر «خدمة بمواد» وحدد مكوناتها.
+                </div>
+              )}
+              {formData.itemType === 'service_with_materials' && (
+                <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs leading-6 text-amber-800">
+                  هذه الخدمة لا تملك رصيدًا مخزنيًا مستقلًا؛ عند البيع يخصم النظام المواد المحددة في الوصفة حسب الكمية ومعامل الوحدة. يجب إضافة مادة خام واحدة على الأقل.
+                </div>
+              )}
               {(formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') && (
                 <div className="mt-5 pt-5 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-3">
