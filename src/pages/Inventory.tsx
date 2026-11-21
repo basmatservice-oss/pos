@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import type { Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
@@ -576,21 +576,16 @@ export default function Inventory() {
         toast.success('تمت إضافة المنتج بنجاح');
       }
 
-      // Refresh the shared in-memory catalog from the authoritative database immediately.
-      if (savedParentId != null) {
-        try {
-          const persistedProduct = await getPosRecord<Product>('products', savedParentId);
-          if (persistedProduct) {
-            const currentProducts = useInventoryStore.getState().products;
-            useInventoryStore.getState().updateProducts([
-              ...currentProducts.filter((item) => Number(item.id) !== Number(persistedProduct.id)),
-              persistedProduct,
-            ]);
-          }
-        } catch (refreshError) {
-          console.warn('Product was saved but the immediate catalog refresh will retry through the data subscription:', refreshError);
-        }
+      // Re-read the full authoritative catalog after the write. This avoids
+      // stale in-memory lists and primary-key type mismatches hiding a committed product.
+      const persistedProducts = await getPosRecords<Product>('products');
+      const persistedProduct = persistedProducts.find(
+        (item) => String(item.id) === String(savedParentId)
+      );
+      if (!persistedProduct) {
+        throw new Error(`تم إرسال حفظ المنتج لكن لم يظهر في قراءة قاعدة البيانات: ${String(savedParentId)}`);
       }
+      useInventoryStore.getState().updateProducts(persistedProducts);
 
       // Persist service recipes if applicable
       if (savedParentId) {
