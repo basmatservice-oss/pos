@@ -941,7 +941,7 @@ export default function Inventory() {
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">الباركود</th>
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">التكلفة</th>
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">سعر البيع</th>
-                <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">السعر ($)</th>
+                <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">المرجع بالدولار</th>
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">الربح</th>
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">الكمية</th>
                 {storeSettings.businessType === 'pharmacy' && (
