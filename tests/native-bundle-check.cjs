@@ -19,8 +19,9 @@ const matches = [];
 for (const name of files) {
   const source = fs.readFileSync(path.join(assetsDirectory, name), 'utf8');
   const isLegacyDexieChunk = /^db-[\w-]+\.js$/i.test(name);
-  if (isLegacyDexieChunk || dexieSignatures.some((signature) => signature.test(source))) {
-    matches.push(name);
+  const matchedSignatures = dexieSignatures.filter((signature) => signature.test(source)).map((signature) => String(signature));
+  if (isLegacyDexieChunk || matchedSignatures.length) {
+    matches.push(name + (matchedSignatures.length ? ' [' + matchedSignatures.join(', ') + ']' : ''));
   }
 }
 if (matches.length) {
