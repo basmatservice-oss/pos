@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { getFirstPosRecordWhereEquals, getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import type { Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
 import { useInventoryStore } from '../store/useInventoryStore';
