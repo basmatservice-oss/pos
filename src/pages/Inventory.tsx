@@ -1452,7 +1452,6 @@ export default function Inventory() {
                     <Layers className="w-4 h-4 text-indigo-600" />
                     وحدات البيع الإضافية
                   </h4>
-                  <p className="mb-3 text-xs leading-5 text-gray-500">مثال: إذا كانت الوحدة الأساسية «قطعة»، أدخل «كرتونة» ومعامل تحويل 12. عند بيع كرتونة واحدة يخصم النظام 12 قطعة. حدد سعر بيع الكرتونة بشكل مستقل إذا كان مختلفًا عن سعر 12 قطعة.
                   <button
                     type="button"
                     onClick={() =>
@@ -1467,6 +1466,7 @@ export default function Inventory() {
                     إضافة وحدة
                   </button>
                 </div>
+                <p className="mb-3 text-xs leading-5 text-gray-500">مثال: إذا كانت الوحدة الأساسية «قطعة»، أدخل «كرتونة» ومعامل تحويل 12. عند بيع كرتونة واحدة يخصم النظام 12 قطعة. حدد سعر بيع الكرتونة بشكل مستقل إذا كان مختلفًا عن سعر 12 قطعة.</p>
                 {extraUnits.length > 0 && (
                   <div className="space-y-2">
                     {extraUnits.map((u, idx) => (
