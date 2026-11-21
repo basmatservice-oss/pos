@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import {fileURLToPath} from 'node:url';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
@@ -20,7 +21,7 @@ export default defineConfig(({mode}) => {
               // Native Android/Electron builds must not ship or execute Dexie.
               // Browser builds keep the legacy IndexedDB adapter unchanged.
               find: /(?:^|\/)db\/db$/,
-              replacement: new URL('./src/db/nativeRuntimeStub.ts', import.meta.url).pathname,
+              replacement: fileURLToPath(new URL('./src/db/nativeRuntimeStub.ts', import.meta.url)),
             }]
           : []),
       ],
