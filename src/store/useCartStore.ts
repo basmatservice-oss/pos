@@ -5,6 +5,7 @@ import type { Product, ProductUnit } from '../db/db';
 import { calculateVatInclusiveOrder } from '../utils/tax';
 import type { ComputedOrderTaxSummary } from '../utils/tax';
 import { roundQty } from '../utils/format';
+import { getProductUnitOptions } from '../utils/productUnits';
 
 export interface CartItem extends Product {
   cartItemId: string;
@@ -18,59 +19,7 @@ export interface CartItem extends Product {
 }
 
 export function getProductUnits(product: Product): ProductUnit[] {
-  const baseUnitName = product.unit || 'piece';
-  const base: ProductUnit = {
-    name: baseUnitName,
-    barcode: product.barcode,
-    conversionFactor: 1,
-    sellingPrice: Number(product.sellingPrice || 0),
-    costPrice: Number(product.costPrice || 0),
-    allowFractions: Boolean(product.allowFractions),
-  };
-
-  const extra: ProductUnit[] = [];
-  if (product.unitsJson) {
-    try {
-      const parsed = JSON.parse(product.unitsJson);
-      if (Array.isArray(parsed)) {
-        for (const u of parsed) {
-          if (u && u.name && Number(u.conversionFactor) > 0) {
-            extra.push({
-              name: String(u.name),
-              barcode: u.barcode ? String(u.barcode) : undefined,
-              conversionFactor: Number(u.conversionFactor),
-              sellingPrice: Number(u.sellingPrice ?? Number(product.sellingPrice || 0) * Number(u.conversionFactor)),
-              costPrice: u.costPrice !== undefined ? Number(u.costPrice) : undefined,
-              allowFractions: Boolean(u.allowFractions),
-            });
-          }
-        }
-      }
-    } catch {
-      // Ignore malformed JSON
-    }
-  }
-
-  // Legacy box support when unitsJson has no 'box' and conversionFactor > 1
-  if (
-    Number(product.conversionFactor || 1) > 1 &&
-    !extra.some((u) => u.name === 'box')
-  ) {
-    extra.push({
-      name: 'box',
-      conversionFactor: Number(product.conversionFactor),
-      sellingPrice: Number(product.sellingPrice || 0) * Number(product.conversionFactor),
-      costPrice: Number(product.costPrice || 0) * Number(product.conversionFactor),
-      allowFractions: false,
-    });
-  }
-
-  // Ensure base unit ('piece' or product.unit) is available alongside extra units
-  const list = [base, ...extra.filter((u) => u.name !== base.name && u.name !== 'piece')];
-  if (base.name !== 'piece' && !list.some((u) => u.name === 'piece')) {
-    list.unshift({ ...base, name: 'piece' });
-  }
-  return list;
+  return getProductUnitOptions(product) as ProductUnit[];
 }
 
 export function getItemUnitFactor(item: CartItem): number {
