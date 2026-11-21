@@ -2,6 +2,7 @@ import { usePosEntityRecords } from './usePosEntityRecords';
 
 export function useSettings() {
   const settings = usePosEntityRecords<any>('settings');
+  const exchangeRateHistory = usePosEntityRecords<any>('exchangeRateHistory');
 
   const storeSettings = {
     businessName: 'متجري الذكي',
@@ -20,7 +21,7 @@ export function useSettings() {
     fontFamily: 'Inter',
     fontSize: '14px',
     shadowIntensity: 'medium',
-    currency: 'ر.س',
+    currency: 'ج.س',
     taxRate: 15,
     language: 'ar',
     enableNotifications: true,
@@ -46,8 +47,8 @@ export function useSettings() {
     themeName: 'modern' as 'modern' | 'classic' | 'brutalist' | 'glassmorphism' | 'playful',
     businessType: 'multi' as 'supermarket' | 'pharmacy' | 'apparel' | 'restaurant' | 'electronics' | 'hardware' | 'bookstore' | 'multi',
     deviceRole: 'server' as 'server' | 'client',
-    exchangeRate: 1,
-    baseCurrency: 'ر.س',
+    exchangeRate: 0,
+    baseCurrency: 'ج.س',
     currencyDecimals: 2,
     quantityDecimals: 3,
     allowNegativeStock: true,
@@ -78,7 +79,10 @@ export function useSettings() {
 
   // The configured display currency is the single source of truth for the base currency.
   // Ignore stale legacy baseCurrency rows that could otherwise show a different unit.
-  storeSettings.baseCurrency = storeSettings.currency;
+  const hasUsdRate = exchangeRateHistory.some((row) => String(row.currency || '').toUpperCase() === 'USD');
+  if (!hasUsdRate && Number(storeSettings.exchangeRate) === 1) storeSettings.exchangeRate = 0;
+  storeSettings.currency = 'ج.س';
+  storeSettings.baseCurrency = 'ج.س';
 
   return storeSettings;
 }
