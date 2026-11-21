@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getProductUnitOptions, findProductBarcodeMatch } from '../src/utils/productUnits.js';
+import { useCartStore, getItemPrice, getItemUnitFactor } from '../src/store/useCartStore.ts';
 
 test('keeps a non-count base unit distinct and does not invent a piece alias', () => {
   const units = getProductUnitOptions({
@@ -48,4 +49,26 @@ test('resolves a scanned alternate-unit barcode to its parent product and unit',
   assert.equal(match.product.id, 9);
   assert.equal(match.matchedUnit.name, 'carton');
   assert.equal(match.matchedUnit.conversionFactor, 12);
+});
+
+test('adds a scanned carton as a distinct POS line with correct price and stock conversion', () => {
+  const product = {
+    id: 21, barcode: 'PIECE-21', name: 'منتج تجريبي', categoryId: 1,
+    costPrice: 5, sellingPrice: 10, stockQuantity: 120, unit: 'piece',
+    conversionFactor: 1, vatRate: 0, syncStatus: 'synced', updatedAt: '2026-11-21T00:00:00.000Z',
+    unitsJson: JSON.stringify([{ name: 'carton', barcode: 'CARTON-21', conversionFactor: 12, sellingPrice: 110 }]),
+  };
+  useCartStore.getState().clearCart();
+  useCartStore.getState().addItem(product, 'carton');
+  const item = useCartStore.getState().items.find((entry) => entry.id === product.id);
+  assert.ok(item);
+  assert.equal(item.selectedUnit, 'carton');
+  assert.equal(item.cartQuantity, 1);
+  assert.equal(getItemUnitFactor(item), 12);
+  assert.equal(getItemPrice(item), 110);
+  assert.equal(item.costPriceAtTimeOfSale, 5);
+  useCartStore.getState().updateQuantity(item.cartItemId, 2);
+  assert.equal(useCartStore.getState().items[0].cartQuantity, 2);
+  assert.equal(useCartStore.getState().items[0].cartQuantity * getItemUnitFactor(useCartStore.getState().items[0]), 24);
+  useCartStore.getState().clearCart();
 });
