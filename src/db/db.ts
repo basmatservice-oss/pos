@@ -25,6 +25,7 @@ export interface ProductUnit {
   conversionFactor: number;
   sellingPrice: number;
   costPrice?: number;
+  priceInUSD?: number;
   allowFractions?: boolean;
 }
 
