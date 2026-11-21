@@ -36,8 +36,8 @@ export interface Product {
   categoryId: number;
   costPrice: number;
   sellingPrice: number; // VAT-inclusive price
-  costInUSD?: number;
-  priceInUSD?: number;
+  costInUSD?: number; // USD anchor for the current SDG cost; zero means fixed manually in SDG.
+  priceInUSD?: number; // USD anchor for the current SDG selling price; zero means fixed manually in SDG.
   stockQuantity: number;
   minStockLevel?: number;
   unit: string;
