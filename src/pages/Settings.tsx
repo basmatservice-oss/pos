@@ -653,6 +653,7 @@ const Settings: React.FC = () => {
     }
     const effectiveFrom = new Date().toISOString();
     const changedProducts: Array<{ before: any; branchId?: number }> = [];
+    let rateCommitted = false;
     try {
       if (currencyCode === 'USD') {
         const products = await getPosRecords<any>('products');
@@ -690,7 +691,9 @@ const Settings: React.FC = () => {
             notes: newFxNotes || undefined,
           });
 
+      if (!standalone) rateCommitted = true; // The server has committed the approved rate.
       await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
+      rateCommitted = true;
 
       if (currencyCode === 'USD') {
         await putPosSetting('exchangeRate', rateNum, 'synced');
@@ -714,19 +717,23 @@ const Settings: React.FC = () => {
         ? `تم اعتماد السعر وتحديث ${changedProducts.length} منتج مرتبط بالدولار. لم تتغير الفواتير السابقة.`
         : 'تم تسجيل سعر الصرف بنجاح');
     } catch (err: any) {
-      for (const item of changedProducts.reverse()) {
-        try {
-          await dispatchOperation('entity_upsert', {
-            table: 'products',
-            allowProductPriceUpdate: true,
-            record: item.before,
-          }, item.branchId);
-        } catch (rollbackError) {
-          console.error('FX product price rollback failed', rollbackError);
+      if (!rateCommitted) {
+        for (const item of changedProducts.reverse()) {
+          try {
+            await dispatchOperation('entity_upsert', {
+              table: 'products',
+              allowProductPriceUpdate: true,
+              record: item.before,
+            }, item.branchId);
+          } catch (rollbackError) {
+            console.error('FX product price rollback failed', rollbackError);
+          }
         }
       }
       console.error('Exchange-rate approval failed', err);
-      toast.error(err?.response?.data?.error || err?.message || 'تعذر اعتماد سعر الصرف؛ لم يتم تغيير السعر الحالي');
+      toast.error(rateCommitted
+        ? 'تم تسجيل سعر الصرف؛ أعد فتح الإعدادات لتحديث بيانات السعر الحالية'
+        : (err?.response?.data?.error || err?.message || 'تعذر اعتماد سعر الصرف؛ تمت محاولة استعادة الأسعار السابقة'));
     }
   };
 
