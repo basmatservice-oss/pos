@@ -542,7 +542,7 @@ export default function Inventory() {
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber || undefined,
         unit: formData.unit || 'piece',
-        conversionFactor: Number(formData.conversionFactor) || 1,
+        conversionFactor: editingProduct?.conversionFactor || 1,
         itemType: formData.itemType,
         allowFractions: formData.allowFractions,
         unitsJson: validUnits.length > 0 ? JSON.stringify(validUnits) : undefined,
@@ -1375,34 +1375,22 @@ export default function Inventory() {
                     </>
                   )}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">الوحدة الأساسية</label>
-                    <select 
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">وحدة المخزون الأساسية</label>
+                    <select
                       required
                       value={formData.unit}
                       onChange={e => setFormData({...formData, unit: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     >
                       <option value="piece">قطعة / حبة</option>
-                      <option value="box">صندوق / كرتون</option>
+                      {formData.unit === 'box' && <option value="box">صندوق / كرتون (وحدة أساسية قديمة)</option>}
                       <option value="كجم">كيلوجرام (كجم)</option>
                       <option value="جرام">جرام</option>
                       <option value="لتر">لتر</option>
                       <option value="متر">متر</option>
                     </select>
+                    <p className="mt-1 text-xs leading-5 text-gray-500">المخزون يُحفظ بهذه الوحدة. إذا كنت تشتري بالقطعة وتبيع بالكرتونة، اجعل القطعة هي الوحدة الأساسية وأضف الكرتونة كوحدة بيع إضافية.</p>
                   </div>
-                  {formData.unit === 'box' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">عدد القطع في الصندوق</label>
-                      <input 
-                        type="number" 
-                        required
-                        min="1"
-                        value={formData.conversionFactor}
-                        onChange={e => setFormData({...formData, conversionFactor: e.target.value})}
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
-                      />
-                    </div>
-                  )}
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs leading-6 text-indigo-800 sm:col-span-2">
                     أدخل تكلفة وسعر بيع المنتج بعملة النظام الأساسية ({storeSettings.baseCurrency || storeSettings.currency}). لا يلزم إدخال أي سعر بالدولار. تغيير سعر الصرف لا يغيّر سعر البيع المحلي تلقائيًا.
                   </div>
@@ -1460,8 +1448,9 @@ export default function Inventory() {
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                     <Layers className="w-4 h-4 text-indigo-600" />
-                    وحدات القياس والبيع الإضافية (مثال: كرتون / درزن / نصف كيلو)
+                    وحدات البيع الإضافية
                   </h4>
+                  <p className="mb-3 text-xs leading-5 text-gray-500">مثال: إذا كانت الوحدة الأساسية «قطعة»، أدخل «كرتونة» ومعامل تحويل 12. عند بيع كرتونة واحدة يخصم النظام 12 قطعة. حدد سعر بيع الكرتونة بشكل مستقل إذا كان مختلفًا عن سعر 12 قطعة.
                   <button
                     type="button"
                     onClick={() =>
