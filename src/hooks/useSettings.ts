@@ -76,5 +76,9 @@ export function useSettings() {
     if (key === 'currency' && !settings.some(s => s.key === 'baseCurrency')) storeSettings.baseCurrency = value;
   });
 
+  // The configured display currency is the single source of truth for the base currency.
+  // Ignore stale legacy baseCurrency rows that could otherwise show a different unit.
+  storeSettings.baseCurrency = storeSettings.currency;
+
   return storeSettings;
 }
