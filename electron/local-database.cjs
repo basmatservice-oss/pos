@@ -77,17 +77,29 @@ function validateIdentity(entity, recordId) {
   }
 }
 
+function parseStoredRecord(entity, row) {
+  try {
+    const record = JSON.parse(row.json);
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error('Stored JSON must contain a record object');
+    }
+    return { recordId: row.recordId, record, syncState: row.syncState, updatedAt: row.updatedAt };
+  } catch (error) {
+    throw new Error('Corrupt SQLite record in ' + entity + ' (recordId=' + String(row.recordId) + '): ' + String(error?.message || error));
+  }
+}
+
 function getRecords(entity) {
   if (typeof entity !== 'string' || !VALID_ENTITIES.has(entity)) throw new Error('Unsupported entity');
   return db().prepare('SELECT record_id AS recordId, json, sync_state AS syncState, updated_at AS updatedAt FROM pos_records WHERE entity = ? ORDER BY updated_at, record_id')
-    .all(entity).map(row => ({ recordId: row.recordId, record: JSON.parse(row.json), syncState: row.syncState, updatedAt: row.updatedAt }));
+    .all(entity).map(row => parseStoredRecord(entity, row));
 }
 
 function getRecord(entity, recordId) {
   validateIdentity(entity, recordId);
   const row = db().prepare('SELECT record_id AS recordId, json, sync_state AS syncState, updated_at AS updatedAt FROM pos_records WHERE entity = ? AND record_id = ?')
     .get(entity, recordId);
-  return row ? { found: true, item: { recordId: row.recordId, record: JSON.parse(row.json), syncState: row.syncState, updatedAt: row.updatedAt } } : { found: false, item: null };
+  return row ? { found: true, item: parseStoredRecord(entity, row) } : { found: false, item: null };
 }
 
 function putRecords(records) {
