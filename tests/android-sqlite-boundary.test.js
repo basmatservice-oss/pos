@@ -171,9 +171,9 @@ test('product editor blocks duplicate submissions and reports success only after
 test('Windows SQLite validates every registered business entity after migration and on later launches', async () => {
   const source = await read('../src/main.tsx');
   assert.match(source, /async function validateElectronClientSnapshot/);
-  assert.match(source, /for \\(const entity of NATIVE_POS_ENTITIES\\)/);
-  assert.match(source, /electronPosRepository\\.getAllWithSyncState\\(entity\\)/);
-  assert.match(source, /getNativePosRecordId\\(entity, row\\.record\\)/);
+  assert.match(source, /for \(const entity of NATIVE_POS_ENTITIES\)/);
+  assert.match(source, /electronPosRepository\.getAllWithSyncState\(entity\)/);
+  assert.match(source, /getNativePosRecordId\(entity, row\.record\)/);
   assert.match(source, /Windows SQLite identity validation failed/);
   const desktopStart = source.indexOf('if (isElectronDesktop()) {');
   const validationCall = source.indexOf('await validateElectronClientSnapshot()', desktopStart);
