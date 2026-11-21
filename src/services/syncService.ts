@@ -124,9 +124,23 @@ export const syncService = {
       this.cachedRole = 'server';
       return this.cachedRole;
     }
+    if (isNativeAndroid()) {
+      // Android has only two supported roles: LAN client or standalone.
+      // Old installations may still carry the former "server" role; normalize
+      // it once and make SQLite the authoritative role store.
+      const setting = await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole');
+      if (setting?.value === 'client') {
+        this.cachedRole = 'client';
+        return this.cachedRole;
+      }
+      this.cachedRole = 'standalone';
+      if (setting?.value !== 'standalone') {
+        const { putPosSetting } = await import('./posDataAccess');
+        await putPosSetting('deviceRole', 'standalone', 'local');
+      }
+      return this.cachedRole;
+    }
     if (!isLocalSqlite()) await ensureDesktopDatabase();
-    // Read the persisted role each time: onboarding can switch a device to
-    // standalone after the sync service has already been initialized.
     const setting = isLocalSqlite()
       ? await nativePosRepository.firstWhereEquals<{ key: string; value: any }>('settings', 'key', 'deviceRole')
       : await db.settings.where('key').equals('deviceRole').first();
