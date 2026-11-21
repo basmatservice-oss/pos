@@ -708,7 +708,7 @@ const Settings: React.FC = () => {
   );
 
   return (
-    <div className="p-4 lg:p-8 bg-[var(--app-bg)] min-h-screen font-sans" dir="rtl">
+    <div className="min-h-full min-w-0 bg-[var(--app-bg)] p-3 font-sans sm:p-4 lg:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
