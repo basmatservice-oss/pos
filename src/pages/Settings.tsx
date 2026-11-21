@@ -80,7 +80,7 @@ const Settings: React.FC = () => {
   const [newPeriodEnd, setNewPeriodEnd] = useState('');
 
   const fxHistoryRecords = usePosEntityRecords<any>('exchangeRateHistory');
-  const fxHistory = useMemo(() => [...fxHistoryRecords].sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime()), [fxHistoryRecords]);
+  const fxHistory = useMemo(() => [...fxHistoryRecords].sort((a, b) => new Date(b.effectiveFrom || b.date || b.createdAt || 0).getTime() - new Date(a.effectiveFrom || a.date || a.createdAt || 0).getTime()), [fxHistoryRecords]);
   const fiscalPeriodsList = usePosEntityRecords<any>('fiscalPeriods');
 
   const [settings, setSettings] = useState<any>({
@@ -184,7 +184,7 @@ const Settings: React.FC = () => {
       const existingRows = await getPosRecords<any>('settings');
       const existingByKey = new Map(existingRows.map((row) => [row.key, row]));
 
-      for (const [key, value] of Object.entries(settings)) {
+      for (const [key, value] of Object.entries({ ...settings, baseCurrency: settings.currency })) {
         if (key === 'authSecret') continue;
         const stringVal = String(value ?? '');
         const existing = existingByKey.get(key);
@@ -857,11 +857,11 @@ const Settings: React.FC = () => {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700">العملة الرسمية</label>
+                        <label className="text-sm font-bold text-gray-700">عملة النظام الأساسية</label>
                         <input 
                           type="text" 
                           value={settings.currency}
-                          onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
+                          onChange={(e) => setSettings({ ...settings, currency: e.target.value, baseCurrency: e.target.value })}
                           className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                         />
                       </div>
