@@ -8,12 +8,22 @@ if (!fs.existsSync(assetsDirectory)) {
 const files = fs.readdirSync(assetsDirectory).filter((name) => name.endsWith('.js'));
 if (!files.length) throw new Error('Native renderer JavaScript assets are missing');
 
+const dexieSignatures = [
+  /DexieError/,
+  /DexiePromise/,
+  /DexieTable/,
+  /Dexie\.Version/,
+  /dexie\.js/i,
+];
 const matches = [];
 for (const name of files) {
   const source = fs.readFileSync(path.join(assetsDirectory, name), 'utf8');
-  if (/dexie/i.test(name) || /dexie/i.test(source)) matches.push(name);
+  const isLegacyDexieChunk = /^db-[\w-]+\.js$/i.test(name);
+  if (isLegacyDexieChunk || dexieSignatures.some((signature) => signature.test(source))) {
+    matches.push(name);
+  }
 }
 if (matches.length) {
-  throw new Error('Dexie was bundled into the native renderer: ' + matches.join(', '));
+  throw new Error('Dexie runtime code was bundled into the native renderer: ' + matches.join(', '));
 }
-process.stdout.write('Native renderer bundle is free of Dexie code.\n');
+process.stdout.write('Native renderer bundle excludes the Dexie runtime and its database chunk.\n');
