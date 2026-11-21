@@ -20,3 +20,7 @@ export const db: any = new Proxy({}, {
 export async function ensureDatabaseReady(): Promise<void> {
   return unavailable();
 }
+
+export function liveQuery(): never {
+  return unavailable();
+}
