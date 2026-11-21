@@ -2690,8 +2690,14 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       // price edit / FX recalculation. Generic stale snapshots still cannot
       // overwrite the server's inventory valuation.
       if (payload.allowProductPriceUpdate !== true) {
+        // Preserve the complete pricing snapshot during metadata-only sync.
+        // Otherwise a stale client product snapshot could undo a newly approved
+        // exchange-rate recalculation or a manual price edit.
         normalizedClean.costPrice = prevProduct.costPrice;
         normalizedClean.costInUSD = prevProduct.costInUSD;
+        normalizedClean.sellingPrice = prevProduct.sellingPrice;
+        normalizedClean.priceInUSD = prevProduct.priceInUSD;
+        normalizedClean.unitsJson = prevProduct.unitsJson;
       }
     }
   }
