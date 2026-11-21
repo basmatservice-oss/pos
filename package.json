@@ -15,7 +15,7 @@
     "clean": "rimraf dist release",
     "start": "tsx server.ts",
     "build:server": "esbuild server.ts --bundle --platform=node --target=node16 --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --external:vite",
-    "package:win": "npm run build:native && npm run build:server && electron-builder --win nsis --x64 --publish never",
+    "package:win": "npm run build:native && npm run test:native-bundle && npm run build:server && electron-builder --win nsis --x64 --publish never",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "lint": "tsc --noEmit",
