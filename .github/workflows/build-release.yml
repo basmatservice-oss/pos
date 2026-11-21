@@ -42,8 +42,8 @@ jobs:
       - name: Install project dependencies and reconcile lockfile
         run: npm install --no-audit --no-fund
 
-      - name: Build React web assets
-        run: npm run build
+      - name: Build native SQLite renderer without Dexie
+        run: npm run build:native
 
       - name: Add and configure Capacitor Android project
         shell: bash
