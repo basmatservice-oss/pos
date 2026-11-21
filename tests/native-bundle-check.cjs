@@ -19,9 +19,14 @@ const matches = [];
 for (const name of files) {
   const source = fs.readFileSync(path.join(assetsDirectory, name), 'utf8');
   const isLegacyDexieChunk = /^db-[\w-]+\.js$/i.test(name);
-  const matchedSignatures = dexieSignatures.filter((signature) => signature.test(source)).map((signature) => String(signature));
+  const matchedSignatures = dexieSignatures.filter((signature) => signature.test(source));
   if (isLegacyDexieChunk || matchedSignatures.length) {
-    matches.push(name + (matchedSignatures.length ? ' [' + matchedSignatures.join(', ') + ']' : ''));
+    const details = matchedSignatures.map((signature) => {
+      const match = signature.exec(source);
+      const index = match?.index ?? 0;
+      return String(signature) + ': ' + source.slice(Math.max(0, index - 100), index + 180);
+    });
+    matches.push(name + (details.length ? ' [' + details.join(' | ') + ']' : ''));
   }
 }
 if (matches.length) {
