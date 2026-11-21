@@ -6,5 +6,5 @@ export function normalizeNumericInput(value: string): string {
       return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
     })
     .replace(/[٫]/g, '.')
-    .replace(/[٬]/g, ',');
+    .replace(/[٬,]/g, '');
 }
