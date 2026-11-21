@@ -56,3 +56,24 @@ test('product save confirms visibility from the authoritative catalog before clo
   assert.match(source, /if \(!persistedProduct\)/);
   assert.match(source, /updateProducts\(persistedProducts\)/);
 });
+
+test('Windows client startup migrates legacy IndexedDB directly and never initializes Dexie', async () => {
+  const source = await read('../src/main.tsx');
+  const desktopStart = source.indexOf('if (isElectronDesktop()) {');
+  const browserStart = source.indexOf('const { ensureDatabaseReady } = await import', desktopStart);
+  assert.ok(desktopStart >= 0 && browserStart > desktopStart, 'Electron startup branch must remain explicit');
+  const desktopBranch = source.slice(desktopStart, browserStart);
+  assert.match(desktopBranch, /readLegacyIndexedDBStores\(\)/);
+  assert.match(desktopBranch, /electronPosRepository\.putMany/);
+  assert.match(desktopBranch, /missingAfterMigration/);
+  assert.doesNotMatch(desktopBranch, /import\(['"]\.\/db\/db['"]\)|ensureDatabaseReady|db\.table\(/);
+});
+
+test('Android and Windows client data access share SQLite as their only local runtime repository', async () => {
+  const source = await read('../src/services/posDataAccess.ts');
+  assert.match(source, /const isLocalSqlite = \(\): boolean => isNativeAndroid\(\) \|\| isElectronLocalClient\(\)/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) return \(await nativePosRepository\.get/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) return await nativePosRepository\.getAll/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?await nativePosRepository\.put/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.applyChanges/);
+});
