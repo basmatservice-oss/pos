@@ -7,8 +7,8 @@ export const products = sqliteTable('Product', {
   categoryId: integer('categoryId'),
   costPrice: real('costPrice').default(0),
   sellingPrice: real('sellingPrice').default(0),
-  costInUSD: real('costInUSD'),
-  priceInUSD: real('priceInUSD'),
+  costInUSD: real('costInUSD'), // Foreign-currency anchor; costPrice remains SDG.
+  priceInUSD: real('priceInUSD'), // Foreign-currency anchor; sellingPrice remains SDG.
   stockQuantity: real('stockQuantity').default(0),
   minStockLevel: real('minStockLevel').default(5),
   unit: text('unit').default('piece'),
