@@ -192,11 +192,16 @@ export const nativePosRepository = {
     record: Record<string, unknown>,
     syncState: NativePosSyncState = 'local',
   ): Promise<void> {
-    if (isElectronDesktop()) return electronPosRepository.put(entity, record, syncState);
+    if (isElectronDesktop()) {
+      await electronPosRepository.put(entity, record, syncState);
+      notifyNativeEntityChanges([entity]);
+      return;
+    }
     requireLocalSQLite();
     assertEntity(entity);
     const entry: PosLocalRecord = { entity, recordId: recordIdFor(entity, record), record, syncState };
     if (!(await putNativePosRecord(entry))) throw new Error(`SQLite did not confirm saving ${entity}`);
+    notifyNativeEntityChanges([entity]);
   },
 
   async putMany(
@@ -204,20 +209,29 @@ export const nativePosRepository = {
     records: Record<string, unknown>[],
     syncState: NativePosSyncState = 'local',
   ): Promise<void> {
-    if (isElectronDesktop()) return electronPosRepository.putMany(entity, records, syncState);
+    if (isElectronDesktop()) {
+      await electronPosRepository.putMany(entity, records, syncState);
+      if (records.length) notifyNativeEntityChanges([entity]);
+      return;
+    }
     requireLocalSQLite();
     assertEntity(entity);
     const entries = records.map((record) => ({
       entity, recordId: recordIdFor(entity, record), record, syncState,
     }));
     if (!(await putNativePosRecords(entries))) throw new Error(`SQLite did not confirm saving all ${entity} records`);
+    if (records.length) notifyNativeEntityChanges([entity]);
   },
 
   async applyChanges(changes: Array<
     | { action: 'put'; entity: NativePosEntity; record: Record<string, unknown>; syncState?: NativePosSyncState }
     | { action: 'delete'; entity: NativePosEntity; key: unknown }
   >): Promise<number> {
-    if (isElectronDesktop()) return electronPosRepository.applyChanges(changes);
+    if (isElectronDesktop()) {
+      const applied = await electronPosRepository.applyChanges(changes);
+      if (applied > 0) notifyNativeEntityChanges(changes.map((change) => change.entity));
+      return applied;
+    }
     requireLocalSQLite();
     const nativeChanges: PosLocalRecordChange[] = changes.map((change) => {
       assertEntity(change.entity);
@@ -233,22 +247,33 @@ export const nativePosRepository = {
       };
     });
     const applied = await applyNativePosRecordChanges(nativeChanges);
+    if (applied > 0) notifyNativeEntityChanges(nativeChanges.map((change) => change.entity as NativePosEntity));
     return applied;
   },
 
   async delete(entity: NativePosEntity, key: unknown): Promise<boolean> {
-    if (isElectronDesktop()) return electronPosRepository.delete(entity, key);
+    if (isElectronDesktop()) {
+      const deleted = await electronPosRepository.delete(entity, key);
+      if (deleted) notifyNativeEntityChanges([entity]);
+      return deleted;
+    }
     requireLocalSQLite();
     assertEntity(entity);
     const deleted = await deleteNativePosRecord(entity, serializeKey(key));
+    if (deleted) notifyNativeEntityChanges([entity]);
     return deleted;
   },
 
   async deleteMany(entity: NativePosEntity, keys: unknown[]): Promise<number> {
-    if (isElectronDesktop()) return electronPosRepository.deleteMany(entity, keys);
+    if (isElectronDesktop()) {
+      const deleted = await electronPosRepository.deleteMany(entity, keys);
+      if (deleted > 0) notifyNativeEntityChanges([entity]);
+      return deleted;
+    }
     requireLocalSQLite();
     assertEntity(entity);
     const deleted = await deleteNativePosRecords(entity, Array.from(new Set(keys.map(serializeKey))));
+    if (deleted > 0) notifyNativeEntityChanges([entity]);
     return deleted;
   },
 
