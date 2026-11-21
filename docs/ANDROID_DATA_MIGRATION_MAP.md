@@ -61,6 +61,17 @@ All server operation types requiring a matching local implementation or an expli
 - `entity_upsert`
 - `entity_delete`
 
+## Product-unit model audit
+
+The current POS and inventory screens still read and write alternate units through the legacy `products.unitsJson` field, and the cart derives unit choices from `product.unit`, `product.conversionFactor`, and `unitsJson`. The newer `unitDefinitions` and `productUnits` tables are registered in the database/repository but are not yet the active source used by those screens or the cart.
+
+This is a parallel data model, not proof that the same rows are already duplicated in storage. Do not populate both representations independently. Until a data migration and all readers/writers are moved together, keep the legacy fields authoritative and normalize the selectable unit list in one shared helper. A future cutover must:
+1. map each legacy unit name to a stable `unitDefinitions.code` without losing Arabic/custom names;
+2. create one base `productUnits` row with conversion factor 1 and map alternate units with their exact conversion factors, prices and barcodes;
+3. reject cross-dimension conversions and duplicate unit codes per product;
+4. update Inventory, POS, purchase entry, recipes, stock movements, historical COGS and server APIs in one coordinated release;
+5. preserve legacy records until reconciliation proves every product has equivalent structured units.
+
 ## Accounting parity requirements
 
 The Android local engine must preserve the behavior of `server/accounting.ts`, not just persist a business row:
