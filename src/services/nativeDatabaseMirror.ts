@@ -3,6 +3,14 @@ import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, n
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
+function getRecordId(entity: string, row: any): string {
+  try {
+    return getNativePosRecordId(entity, row);
+  } catch {
+    return '';
+  }
+}
+
 export async function readLegacyIndexedDBStores(): Promise<Record<string, any[]>> {
   if (typeof indexedDB === 'undefined') {
     throw new Error('IndexedDB is unavailable; refusing to skip legacy Android data migration');
