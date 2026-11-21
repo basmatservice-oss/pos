@@ -84,8 +84,8 @@ export default function AttendancePage() {
   );
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
-      <div className="flex justify-between items-center mb-8 shrink-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
+      <div className="mb-5 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-8 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <UserCheck className="w-6 h-6 text-indigo-600" />
@@ -95,7 +95,7 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1">
+      <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
         {/* Check-in Section */}
         <div className="lg:col-span-1 flex flex-col gap-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
