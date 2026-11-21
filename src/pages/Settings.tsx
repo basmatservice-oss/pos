@@ -692,23 +692,28 @@ const Settings: React.FC = () => {
           });
 
       if (!standalone) rateCommitted = true; // The server has committed the approved rate.
-      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
+      // Windows Server already owns the record returned by the API; write locally only on client/standalone/browser stores.
+      if (!isWindowsServer()) {
+        await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
+      }
       rateCommitted = true;
 
       if (currencyCode === 'USD') {
         await putPosSetting('exchangeRate', rateNum, 'synced');
-        const settingsRows = await getPosRecords<any>('settings');
-        const existingRateSetting = settingsRows.find((row) => row.key === 'exchangeRate');
-        await dispatchOperation('entity_upsert', {
-          table: 'settings',
-          record: {
-            ...(existingRateSetting || {}),
-            id: existingRateSetting?.id ?? Date.now() * 1000 + 991,
-            key: 'exchangeRate',
-            value: String(rateNum),
-            updatedAt: effectiveFrom,
-          },
-        });
+        if (!isWindowsServer()) {
+          const settingsRows = await getPosRecords<any>('settings');
+          const existingRateSetting = settingsRows.find((row) => row.key === 'exchangeRate');
+          await dispatchOperation('entity_upsert', {
+            table: 'settings',
+            record: {
+              ...(existingRateSetting || {}),
+              id: existingRateSetting?.id ?? Date.now() * 1000 + 991,
+              key: 'exchangeRate',
+              value: String(rateNum),
+              updatedAt: effectiveFrom,
+            },
+          });
+        }
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
       setNewFxRate('');
