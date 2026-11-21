@@ -56,6 +56,7 @@ import { useAuth } from '../context/AuthContext';
 import { formatNumber } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import toast from 'react-hot-toast';
+import { repriceLinkedProduct, getFxLinkedProductCount } from '../utils/exchangePricing';
 
 const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp']);
 
@@ -100,8 +101,8 @@ const Settings: React.FC = () => {
     fontFamily: 'Cairo',
     fontSize: '14px',
     shadowIntensity: 'medium',
-    currency: 'ر.س',
-    baseCurrency: 'ر.س',
+    currency: 'ج.س',
+    baseCurrency: 'ج.س',
     currencyDecimals: 2,
     quantityDecimals: 3,
     taxRate: 15,
@@ -128,7 +129,7 @@ const Settings: React.FC = () => {
     isOnlineMode: false,
     serverUrl: 'http://localhost:3000',
     deviceRole: 'server',
-    exchangeRate: 1,
+    exchangeRate: 0,
     allowNegativeStock: true,
     offlineStockPolicy: 'allow_with_alert',
     inventoryValuationMethod: 'fifo',
@@ -158,6 +159,11 @@ const Settings: React.FC = () => {
           acc[curr.key] = val;
           return acc;
         }, {});
+        const fxRows = await getPosRecords<any>('exchangeRateHistory');
+        const hasUsdRate = fxRows.some((row) => String(row.currency || '').toUpperCase() === 'USD');
+        if (!hasUsdRate && Number(settingsObj.exchangeRate) === 1) settingsObj.exchangeRate = 0;
+        settingsObj.currency = 'ج.س';
+        settingsObj.baseCurrency = 'ج.س';
         setSettings((prev: any) => ({ ...prev, ...settingsObj }));
         
         // Fetch Server IP professionally
@@ -184,7 +190,7 @@ const Settings: React.FC = () => {
       const existingRows = await getPosRecords<any>('settings');
       const existingByKey = new Map(existingRows.map((row) => [row.key, row]));
 
-      for (const [key, value] of Object.entries({ ...settings, baseCurrency: settings.currency })) {
+      for (const [key, value] of Object.entries({ ...settings, currency: 'ج.س', baseCurrency: 'ج.س' })) {
         if (key === 'authSecret') continue;
         const stringVal = String(value ?? '');
         const existing = existingByKey.get(key);
@@ -642,9 +648,28 @@ const Settings: React.FC = () => {
       toast.error('يرجى إدخال سعر صرف صحيح أكبر من صفر');
       return;
     }
+    const effectiveFrom = new Date().toISOString();
+    const changedProducts: Array<{ before: any; branchId?: number }> = [];
     try {
+      if (currencyCode === 'USD') {
+        const products = await getPosRecords<any>('products');
+        const linkedCount = getFxLinkedProductCount(products);
+        for (const product of products) {
+          if (!(Number(product.priceInUSD || 0) > 0 || Number(product.costInUSD || 0) > 0)) continue;
+          const updated = { ...repriceLinkedProduct(product, rateNum, Number(settings.currencyDecimals ?? 2)), updatedAt: effectiveFrom };
+          await dispatchOperation('entity_upsert', {
+            table: 'products',
+            allowProductPriceUpdate: true,
+            record: updated,
+          }, product.branchId);
+          changedProducts.push({ before: product, branchId: product.branchId });
+        }
+        if (changedProducts.length !== linkedCount) {
+          throw new Error('لم تكتمل إعادة تسعير جميع المنتجات المرتبطة بالدولار');
+        }
+      }
+
       const standalone = await isStandaloneAndroid();
-      const effectiveFrom = new Date().toISOString();
       const saved = standalone
         ? {
             id: `local-fx-${Date.now()}`,
@@ -662,21 +687,43 @@ const Settings: React.FC = () => {
             notes: newFxNotes || undefined,
           });
 
-      await putPosRecord('exchangeRateHistory', {
-        ...saved,
-        syncStatus: 'synced',
-      } as any, 'synced');
+      await putPosRecord('exchangeRateHistory', { ...saved, syncStatus: 'synced' } as any, 'synced');
 
       if (currencyCode === 'USD') {
-        // Persist the current USD rate, not just the in-memory form state.
         await putPosSetting('exchangeRate', rateNum, 'synced');
+        const settingsRows = await getPosRecords<any>('settings');
+        const existingRateSetting = settingsRows.find((row) => row.key === 'exchangeRate');
+        await dispatchOperation('entity_upsert', {
+          table: 'settings',
+          record: {
+            ...(existingRateSetting || {}),
+            id: existingRateSetting?.id ?? Date.now() * 1000 + 991,
+            key: 'exchangeRate',
+            value: String(rateNum),
+            updatedAt: effectiveFrom,
+          },
+        });
         setSettings((prev: any) => ({ ...prev, exchangeRate: rateNum }));
       }
       setNewFxRate('');
       setNewFxNotes('');
-      toast.success('تم تسجيل سعر الصرف وحفظ السعر الحالي');
+      toast.success(currencyCode === 'USD'
+        ? `تم اعتماد السعر وتحديث ${changedProducts.length} منتج مرتبط بالدولار. لم تتغير الفواتير السابقة.`
+        : 'تم تسجيل سعر الصرف بنجاح');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || err?.message || 'تعذر حفظ سعر الصرف');
+      for (const item of changedProducts.reverse()) {
+        try {
+          await dispatchOperation('entity_upsert', {
+            table: 'products',
+            allowProductPriceUpdate: true,
+            record: item.before,
+          }, item.branchId);
+        } catch (rollbackError) {
+          console.error('FX product price rollback failed', rollbackError);
+        }
+      }
+      console.error('Exchange-rate approval failed', err);
+      toast.error(err?.response?.data?.error || err?.message || 'تعذر اعتماد سعر الصرف؛ لم يتم تغيير السعر الحالي');
     }
   };
 
@@ -860,8 +907,9 @@ const Settings: React.FC = () => {
                         <label className="text-sm font-bold text-gray-700">عملة النظام الأساسية</label>
                         <input 
                           type="text" 
-                          value={settings.currency}
-                          onChange={(e) => setSettings({ ...settings, currency: e.target.value, baseCurrency: e.target.value })}
+                          value="ج.س"
+                          disabled
+                          aria-label="الجنيه السوداني هو العملة الأساسية للنظام"
                           className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                         />
                       </div>
@@ -992,10 +1040,10 @@ const Settings: React.FC = () => {
                       <div className="flex items-center justify-between flex-wrap gap-3">
                         <div>
                           <h3 className="text-lg font-bold text-gray-900">سجل وتحديث أسعار الصرف</h3>
-                          <p className="text-xs text-gray-500">كل تعديل يوثق بتاريخ السريان ويُستخدم في المشتريات بالعملة الأجنبية.</p>
+                          <p className="text-xs text-gray-500">كل سعر هو قيمة وحدة العملة الأجنبية بالجنيه السوداني. عند اعتماد سعر الدولار يعيد النظام حساب المنتجات المرتبطة به فقط، بينما تبقى الأسعار المثبتة يدويًا والفواتير السابقة كما هي.</p>
                         </div>
                         <span className="px-3 py-1 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700">
-                          السعر الحالي (USD): {formatNumber(settings.exchangeRate || 1, 4, 2)} {settings.currency}
+                          السعر الحالي (USD): {Number(settings.exchangeRate) > 0 ? formatNumber(settings.exchangeRate, 4, 2) : 'غير محدد'} {settings.currency}
                         </span>
                       </div>
 
@@ -1012,7 +1060,7 @@ const Settings: React.FC = () => {
                           step="0.0001"
                           value={newFxRate}
                           onChange={(e) => setNewFxRate(e.target.value)}
-                          placeholder="السعر مقابل العملة الأساسية"
+                          placeholder="كم جنيهًا سودانيًا يساوي 1 دولار؟"
                           className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold"
                         />
                         <input
@@ -1027,7 +1075,7 @@ const Settings: React.FC = () => {
                           className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 flex items-center justify-center gap-1.5"
                         >
                           <Plus className="w-4 h-4" />
-                          اعتماد سعر جديد
+                          اعتماد السعر وتحديث المنتجات
                         </button>
                       </form>
 
