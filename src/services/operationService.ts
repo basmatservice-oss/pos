@@ -19,8 +19,8 @@ import { isElectronDesktop, isElectronLocalClient } from '../native/electronPosR
 
 const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient();
 
-// Dexie is a desktop-only compatibility store. Never load it into Android's
-// operation module; native Android operations use SQLite repositories only.
+// Dexie is a browser-only compatibility store. Android and Electron clients
+// use their SQLite repositories and never load this module at runtime.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
