@@ -160,8 +160,11 @@ const Settings: React.FC = () => {
           return acc;
         }, {});
         const fxRows = await getPosRecords<any>('exchangeRateHistory');
-        const hasUsdRate = fxRows.some((row) => String(row.currency || '').toUpperCase() === 'USD');
-        if (!hasUsdRate && Number(settingsObj.exchangeRate) === 1) settingsObj.exchangeRate = 0;
+        const latestUsdRate = fxRows
+          .filter((row) => String(row.currency || '').toUpperCase() === 'USD' && Number(row.rate) > 0)
+          .sort((left, right) => new Date(right.effectiveFrom || right.createdAt || 0).getTime() - new Date(left.effectiveFrom || left.createdAt || 0).getTime())[0];
+        if (latestUsdRate) settingsObj.exchangeRate = Number(latestUsdRate.rate);
+        else if (Number(settingsObj.exchangeRate) === 1) settingsObj.exchangeRate = 0;
         settingsObj.currency = 'ج.س';
         settingsObj.baseCurrency = 'ج.س';
         setSettings((prev: any) => ({ ...prev, ...settingsObj }));
