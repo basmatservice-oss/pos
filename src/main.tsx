@@ -10,6 +10,28 @@ import { putPosSetting } from './services/posDataAccess';
 import bcrypt from 'bcryptjs';
 import { getPosRecords, putPosRecord } from './services/posDataAccess';
 
+async function validateElectronClientSnapshot() {
+  // Validate every registered business entity on each client startup, including
+  // databases whose migration marker was already completed in an older build.
+  // This catches corrupt JSON, missing primary keys and duplicate identities
+  // before the UI can present an incomplete inventory as a successful load.
+  for (const entity of NATIVE_POS_ENTITIES) {
+    const rows = await electronPosRepository.getAllWithSyncState(entity);
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!row || typeof row.recordId !== 'string' || !row.record ||
+          typeof row.record !== 'object' || Array.isArray(row.record)) {
+        throw new Error(`Windows SQLite returned an invalid record in ${entity}`);
+      }
+      const actualId = getNativePosRecordId(entity, row.record);
+      if (!actualId || actualId !== row.recordId || seen.has(row.recordId)) {
+        throw new Error(`Windows SQLite identity validation failed for ${entity} (recordId=${row.recordId})`);
+      }
+      seen.add(row.recordId);
+    }
+  }
+}
+
 async function restoreDesktopRuntimeConfig() {
   const desktopApi = (window as any).electronAPI;
   if (isElectronDesktop()) {
@@ -218,6 +240,7 @@ async function initializeLocalRuntime(): Promise<void> {
       }
       await electronPosRepository.setMeta('dexie-business-migration-v1', 'complete');
     }
+    await validateElectronClientSnapshot();
     await restoreDesktopRuntimeConfig();
     return;
   }
