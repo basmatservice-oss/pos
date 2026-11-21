@@ -18,6 +18,7 @@ import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import { findProductBarcodeMatch } from '../utils/productUnits';
+import { buildProductPricingAnchors } from '../utils/exchangePricing';
 
 interface FxReviewItem {
   product: Product;
@@ -159,6 +160,8 @@ export default function Inventory() {
   const [extraUnits, setExtraUnits] = useState<ProductUnit[]>([]);
   const [recipeRows, setRecipeRows] = useState<Array<{ id?: string; ingredientProductId: number; ingredientName: string; quantity: string; unit: string }>>([]);
   const [removedRecipeIds, setRemovedRecipeIds] = useState<string[]>([]);
+  const [costFxLinked, setCostFxLinked] = useState(true);
+  const [sellingFxLinked, setSellingFxLinked] = useState(true);
 
   useEffect(() => {
     if (storeSettings.taxRate !== undefined && !editingProduct && !isModalOpen) {
@@ -170,6 +173,8 @@ export default function Inventory() {
     setRemovedRecipeIds([]);
     if (product) {
       setEditingProduct(product);
+      setCostFxLinked(Number(product.costInUSD || 0) > 0);
+      setSellingFxLinked(Number(product.priceInUSD || 0) > 0);
       setFormData({
         barcode: product.barcode,
         name: product.name,
@@ -207,6 +212,8 @@ export default function Inventory() {
       );
     } else {
       setEditingProduct(null);
+      setCostFxLinked(true);
+      setSellingFxLinked(true);
       setFormData({
         barcode: initialBarcode || '',
         name: '',
@@ -526,15 +533,26 @@ export default function Inventory() {
       if (formData.itemType === 'service_with_materials' && !recipeRows.some((row) => Number(row.ingredientProductId) > 0 && Number(row.quantity) > 0)) {
         throw new Error('الخدمة ذات المواد تحتاج إلى إضافة مادة خام واحدة على الأقل قبل الحفظ');
       }
+      const currentFxRate = Number(storeSettings.exchangeRate || 0);
+      const hasLinkedPrice = sellingFxLinked || (costFxLinked && formData.itemType !== 'service' && formData.itemType !== 'service_with_materials');
+      if (hasLinkedPrice && currentFxRate <= 0) {
+        throw new Error('يجب تسجيل سعر صرف الدولار مقابل الجنيه السوداني قبل ربط أسعار المنتجات به، أو أوقف الربط لحفظ سعر ثابت بالجنيه');
+      }
+      const pricingAnchors = buildProductPricingAnchors({
+        costPrice: Number(formData.costPrice) || 0,
+        sellingPrice: Number(formData.sellingPrice) || 0,
+        costLinked: costFxLinked && formData.itemType !== 'service' && formData.itemType !== 'service_with_materials',
+        sellingLinked: sellingFxLinked,
+        exchangeRate: currentFxRate,
+      });
       const productData: any = {
         barcode: formData.barcode,
         name: formData.name,
         categoryId: Number(formData.categoryId),
         costPrice: Number(formData.costPrice) || 0,
         sellingPrice: Number(formData.sellingPrice) || 0,
-        // Local-currency edits detach legacy USD-linked pricing so a later FX review cannot overwrite the user's local price.
-        costInUSD: 0,
-        priceInUSD: 0,
+        // SDG is the entered/display currency; retain the foreign-currency anchors for future approved FX changes.
+        ...pricingAnchors,
         stockQuantity: formData.itemType === 'service' || formData.itemType === 'service_with_materials' ? 0 : roundQty(Number(formData.stockQuantity) || 0),
         minStockLevel: Number(formData.minStockLevel) || 0,
         vatRate: Number(formData.vatRate) || 0,
@@ -556,6 +574,7 @@ export default function Inventory() {
           'entity_upsert',
           {
             table: 'products',
+            allowProductPriceUpdate: true,
             record: {
               ...editingProduct,
               ...productData,
@@ -572,6 +591,7 @@ export default function Inventory() {
           'entity_upsert',
           {
             table: 'products',
+            allowProductPriceUpdate: true,
             record: {
               ...productData,
               id: tempId,
@@ -1406,6 +1426,10 @@ export default function Inventory() {
                         onChange={e => setFormData({...formData, costPrice: e.target.value})}
                         className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                       />
+                      <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                        <input type="checkbox" checked={costFxLinked} onChange={e => setCostFxLinked(e.target.checked)} className="rounded" />
+                        ربط التكلفة بالدولار وتحديثها عند اعتماد سعر صرف جديد
+                      </label>
                     </div>
                   )}
                   <div>
@@ -1417,8 +1441,13 @@ export default function Inventory() {
                       min="0"
                       value={formData.sellingPrice}
                       onChange={e => setFormData({...formData, sellingPrice: e.target.value})}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     />
+                    <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                      <input type="checkbox" checked={sellingFxLinked} onChange={e => setSellingFxLinked(e.target.checked)} className="rounded" />
+                      ربط سعر البيع بالدولار وتحديثه عند اعتماد سعر صرف جديد
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500">السعر المدخل هنا بالجنيه السوداني. يحتفظ النظام بالمقابل بالدولار تلقائيًا عند تفعيل الربط.</p>
                   </div>
                   {storeSettings.businessType === 'pharmacy' && (
                     <>
