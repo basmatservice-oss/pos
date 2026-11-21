@@ -70,29 +70,16 @@ async function ensureStandaloneDefaultAdmin(): Promise<void> {
   // LAN clients must authenticate against their configured server; never create
   // a local administrator that could bypass server authentication while offline.
   if (deviceRole === 'client') return;
-  if (!deviceRole) await putPosSetting('deviceRole', 'standalone', 'local');
+  // Older Android installations may have retained the Windows/server role.
+  // Android without an explicit client role is always a standalone SQLite device.
+  if (deviceRole !== 'standalone') await putPosSetting('deviceRole', 'standalone', 'local');
 
   const employees = await getPosRecords<Record<string, any>>('employees');
   const existing = employees.find((employee) => String(employee.username || '').trim().toLowerCase() === 'admin');
   const now = new Date().toISOString();
-  if (existing) {
-    // Upgrade only the untouched legacy bootstrap credential. Never reset a
-    // password that an administrator has already changed.
-    const legacyDefault = Boolean(existing.mustChangePassword) &&
-      typeof existing.password === 'string' &&
-      (existing.password === '123456' || (existing.password.startsWith('$2') && bcrypt.compareSync('123456', existing.password)));
-    if (legacyDefault) {
-      await putPosRecord('employees', {
-        ...existing,
-        password: bcrypt.hashSync('admin', 10),
-        pinCode: null,
-        mustChangePassword: true,
-        syncStatus: 'local',
-        updatedAt: now,
-      }, 'local');
-    }
-    return;
-  }
+  // Never rewrite an existing administrator credential. In particular, do not
+  // infer or migrate credentials from an undocumented legacy password.
+  if (existing) return;
 
   const nextId = employees.reduce((max, employee) => Math.max(max, Number(employee.id) || 0), 0) + 1;
   await putPosRecord('employees', {
