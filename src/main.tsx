@@ -70,6 +70,7 @@ async function ensureStandaloneDefaultAdmin(): Promise<void> {
   // LAN clients must authenticate against their configured server; never create
   // a local administrator that could bypass server authentication while offline.
   if (deviceRole === 'client') return;
+  if (!deviceRole) await putPosSetting('deviceRole', 'standalone', 'local');
 
   const employees = await getPosRecords<Record<string, any>>('employees');
   const existing = employees.find((employee) => String(employee.username || '').trim().toLowerCase() === 'admin');
