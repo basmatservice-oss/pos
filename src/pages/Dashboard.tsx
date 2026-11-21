@@ -39,28 +39,6 @@ export default function Dashboard() {
   const { user } = useAuth();
   const deviceRoleRecords = usePosRecordsWhereEquals<any>('settings', 'key', 'deviceRole');
   const isAndroidStandalone = isNativeAndroid() && deviceRoleRecords[0]?.value !== 'client';
-  const moduleItems = [
-    { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard, permissionId: 'view_dashboard', tone: 'bg-indigo-50 text-indigo-700' },
-    { to: '/pos', label: 'نقطة البيع', icon: ShoppingBag, permissionId: 'view_pos', tone: 'bg-emerald-50 text-emerald-700' },
-    { to: '/returns', label: 'المرتجعات', icon: RotateCcw, permissionId: 'view_returns', tone: 'bg-rose-50 text-rose-700' },
-    { to: '/inventory', label: 'المخزون', icon: Package, permissionId: 'view_inventory', tone: 'bg-amber-50 text-amber-700' },
-    { to: '/stocktaking', label: 'الجرد', icon: ClipboardCheck, permissionId: 'view_stocktaking', tone: 'bg-cyan-50 text-cyan-700' },
-    { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, permissionId: 'view_purchases', tone: 'bg-orange-50 text-orange-700' },
-    { to: '/customers', label: 'العملاء', icon: Users, permissionId: 'view_customers', tone: 'bg-sky-50 text-sky-700' },
-    { to: '/suppliers', label: 'الموردون', icon: Truck, permissionId: 'view_suppliers', tone: 'bg-violet-50 text-violet-700' },
-    { to: '/employees', label: 'الموظفون', icon: UserCircle, permissionId: 'view_employees', tone: 'bg-fuchsia-50 text-fuchsia-700' },
-    { to: '/attendance', label: 'الحضور', icon: UserCheck, permissionId: 'view_attendance', tone: 'bg-teal-50 text-teal-700' },
-    { to: '/payroll', label: 'الرواتب', icon: DollarSign, permissionId: 'view_payroll', tone: 'bg-lime-50 text-lime-700' },
-    { to: '/offers', label: 'العروض', icon: Tag, permissionId: 'view_offers', tone: 'bg-pink-50 text-pink-700' },
-    { to: '/branches', label: 'الفروع', icon: Building2, permissionId: 'view_branches', tone: 'bg-blue-50 text-blue-700' },
-    { to: '/mobile-sales', label: 'المبيعات الميدانية', icon: Smartphone, permissionId: 'view_mobile_sales', tone: 'bg-purple-50 text-purple-700' },
-    { to: '/shifts', label: 'الورديات', icon: Clock, permissionId: 'view_shifts', tone: 'bg-slate-100 text-slate-700' },
-    { to: '/expenses', label: 'المصروفات', icon: Wallet, permissionId: 'view_expenses', tone: 'bg-red-50 text-red-700' },
-    { to: '/reports', label: 'التقارير', icon: FileText, permissionId: 'view_reports', tone: 'bg-indigo-50 text-indigo-700' },
-    { to: '/sync-status', label: 'حالة المزامنة', icon: RefreshCw, permissionId: 'manage_settings', tone: 'bg-slate-100 text-slate-700' },
-    { to: '/settings', label: 'الإعدادات', icon: Settings, permissionId: 'manage_settings', tone: 'bg-gray-100 text-gray-700' },
-  ].filter((item) => user?.role === 'admin' || user?.permissions?.includes(item.permissionId));
-
   const today = new Date();
   const startOfToday = startOfDay(today).toISOString();
   const endOfToday = endOfDay(today).toISOString();
@@ -164,16 +142,16 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className={`${isAndroidStandalone ? "p-3 sm:p-5" : "p-6"} h-full overflow-y-auto bg-[var(--app-bg)] custom-scrollbar`} dir="rtl">
-      <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+    <div className={`${isAndroidStandalone ? "px-4 pb-6 pt-4 sm:px-6" : "p-6"} h-full overflow-y-auto bg-[#f4f6fb] custom-scrollbar`} dir="rtl">
+      <div className="mb-5 flex items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_3px_14px_rgba(15,23,42,0.035)] sm:mb-6 sm:px-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
             <LayoutDashboard className="w-6 h-6 text-indigo-600" />
             <span>لوحة التحكم</span>
           </h1>
           <p className="text-slate-500 text-sm mt-1 tabular-nums">نظرة عامة على أداء اليوم: {format(today, 'yyyy/MM/dd')}</p>
         </div>
-        <div className={isAndroidStandalone ? "hidden" : "flex flex-wrap gap-2.5"}>
+        <div className={isAndroidStandalone ? "flex shrink-0 items-center gap-2" : "flex flex-wrap gap-2.5"}>
           <Link to="/attendance" className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0">
             <Clock className="w-4 h-4" />
             <span>التحضير</span>
@@ -197,38 +175,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {isAndroidStandalone && (
-        <section className="mb-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-black text-slate-900">أقسام النظام</h2>
-              <p className="mt-0.5 text-[11px] text-slate-500">اختر القسم المطلوب للمتابعة</p>
-            </div>
-            <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold text-slate-500 shadow-sm">{moduleItems.length} قسم</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3">
-            {moduleItems.map((item) => (
-              <Link key={item.to} to={item.to} className="flex min-h-[94px] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white px-2 py-3 text-center shadow-sm transition active:scale-[0.98]">
-                <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${item.tone}`}>
-                  <item.icon className="h-5 w-5" />
-                </span>
-                <span className="text-[11px] font-extrabold leading-tight text-slate-700">{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Main Stats Grid */}
-      <div className={`grid ${isAndroidStandalone ? "grid-cols-2 gap-2.5" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"} mb-6`}>
+      <div className={`mb-5 grid ${isAndroidStandalone ? "grid-cols-2 gap-3" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"} sm:mb-6`}>
         {quickStats.map((stat, idx) => (
-          <div key={idx} className={`bg-white ${isAndroidStandalone ? "p-3 gap-2.5" : "p-5 gap-4"} rounded-2xl border border-slate-200 flex items-center`}>
-            <div className={`p-3 rounded-xl border ${stat.bg} ${stat.color} shrink-0`}>
+          <div key={idx} className={`flex min-w-0 items-center rounded-[18px] border border-slate-200/90 bg-white ${isAndroidStandalone ? "gap-2.5 p-3.5" : "gap-4 p-5"} shadow-[0_2px_10px_rgba(15,23,42,0.025)]`}>
+            <div className={`${isAndroidStandalone ? "rounded-xl p-2.5" : "rounded-xl p-3"} border ${stat.bg} ${stat.color} shrink-0`}>
               <stat.icon className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 font-bold">{stat.label}</p>
-              <p className={`${isAndroidStandalone ? "text-base" : "text-xl"} font-black text-slate-900 mt-0.5 tabular-nums break-words`}>
+              <p className="text-[10px] font-bold leading-4 text-slate-500 sm:text-xs">{stat.label}</p>
+              <p className={`${isAndroidStandalone ? "text-sm sm:text-base" : "text-xl"} mt-1 break-words font-black leading-tight text-slate-900 tabular-nums`}>
                 {typeof stat.value === 'number' && stat.label !== 'عدد الطلبات' && stat.label !== 'نقاط الولاء'
                   ? `${stat.value.toFixed(2)} ${storeSettings.currency}`
                   : stat.value}
@@ -238,14 +194,14 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div className="mb-5 grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5 sm:mb-6">
         {/* Sales by Payment Method */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200">
+        <div className="min-w-0 rounded-[20px] border border-slate-200/90 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.025)] sm:p-6 lg:col-span-2">
           <h3 className="text-base font-bold text-slate-900 mb-5 flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-indigo-600" />
             <span>توزيع تحصيلات اليوم (شامل الضريبة)</span>
           </h3>
-          <div className="h-64">
+          <div className={isAndroidStandalone ? "h-52 sm:h-60" : "h-64"}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={[
@@ -345,7 +301,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Orders Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div className="overflow-hidden rounded-[20px] border border-slate-200/90 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.025)]">
         <div className="p-5 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-slate-900 flex items-center gap-2">
             <Clock className="w-5 h-5 text-indigo-500" />
