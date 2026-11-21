@@ -125,5 +125,5 @@ test('purchase valuation rebases linked USD cost anchors at the active SDG excha
   const accounting = source('../server/accounting.ts');
   assert.ok(accounting.includes("const activeRateRow = tx.select({ value: settings.value })"));
   assert.ok(accounting.includes("update.costInUSD = Number((weightedAvg / activeUsdRate).toFixed(6))"));
-  assert.ok(accounting.includes('rebase a linked USD cost anchor'));
+  assert.ok(accounting.includes('Rebase a linked USD cost anchor'));
 });
