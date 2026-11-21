@@ -393,6 +393,10 @@ function handleSale(
         .where(eq(serviceRecipes.parentProductId, Number(prod.id)))
         .all();
 
+      if (itemType === 'service_with_materials' && recipes.length === 0) {
+        throw new OperationError(`الخدمة "${prod.name}" تحتاج إلى وصفة مواد خام قبل بيعها`, 400);
+      }
+
       if (recipes.length > 0) {
         let recipeTotalCost = 0;
         const ingredientAllocations: Array<{
