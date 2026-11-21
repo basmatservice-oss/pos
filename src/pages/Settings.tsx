@@ -1058,7 +1058,7 @@ const Settings: React.FC = () => {
                           <p className="text-xs text-gray-500">كل سعر هو قيمة وحدة العملة الأجنبية بالجنيه السوداني. عند اعتماد سعر الدولار يعيد النظام حساب المنتجات المرتبطة به فقط، بينما تبقى الأسعار المثبتة يدويًا والفواتير السابقة كما هي.</p>
                         </div>
                         <span className="px-3 py-1 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700">
-                          السعر الحالي (USD): {Number(settings.exchangeRate) > 0 ? formatNumber(settings.exchangeRate, 4, 2) : 'غير محدد'} {settings.currency}
+                          1 USD = {Number(settings.exchangeRate) > 0 ? formatNumber(settings.exchangeRate, 4, 2) : 'غير محدد'} {settings.currency}
                         </span>
                       </div>
 
