@@ -597,7 +597,7 @@ const Settings: React.FC = () => {
       setNewPinCode('');
       toast.success('تم تحديث بيانات الدخول بأمان');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'تعذر تغيير كلمة المرور');
+      toast.error(err?.response?.data?.error || err?.message || 'تعذر تغيير كلمة المرور');
     } finally {
       setIsChangingPass(false);
     }
