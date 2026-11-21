@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import localDatabase from '../electron/local-database.cjs';
 
 test('Electron SQLite commits a product and its opening inventory atomically and keeps them after reopen', async () => {
@@ -87,4 +88,24 @@ test('Electron SQLite accepts every entity exposed by the shared native reposito
   const nativeEntities = [...primaryKeyBlock[1].matchAll(/^\s*([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]).sort();
   const electronEntities = [...allowedBlock[1].matchAll(/['"]([A-Za-z][A-Za-z0-9]*)['"]/g)].map((match) => match[1]).sort();
   assert.deepEqual(electronEntities, nativeEntities);
+});
+
+test('Electron SQLite identifies the exact entity and record when stored JSON is corrupt', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'smart-pos-sqlite-corrupt-'));
+  try {
+    localDatabase.initializeLocalDatabase(directory);
+    localDatabase.putRecords([{ entity: 'products', recordId: '503', record: { id: 503, name: 'corruption test' } }]);
+    localDatabase.closeLocalDatabase();
+
+    const raw = new Database(path.join(directory, 'pos-local.db'));
+    raw.prepare('UPDATE pos_records SET json = ? WHERE entity = ? AND record_id = ?')
+      .run('{broken-json', 'products', '503');
+    raw.close();
+
+    localDatabase.initializeLocalDatabase(directory);
+    assert.throws(() => localDatabase.getRecords('products'), /Corrupt SQLite record in products \(recordId=503\)/);
+  } finally {
+    localDatabase.closeLocalDatabase();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
