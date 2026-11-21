@@ -253,6 +253,7 @@ body.theme-playful {
 }
 .android-standalone-content {
   min-height: 0;
+  background: var(--app-bg);
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
