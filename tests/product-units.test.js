@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getProductUnitOptions } from '../src/utils/productUnits.js';
+import { getProductUnitOptions, findProductBarcodeMatch } from '../src/utils/productUnits.js';
 
 test('keeps a non-count base unit distinct and does not invent a piece alias', () => {
   const units = getProductUnitOptions({
@@ -36,4 +36,16 @@ test('ignores invalid alternate units without losing the base unit', () => {
     ]),
   });
   assert.deepEqual(units.map((unit) => unit.name), ['liter']);
+});
+
+test('resolves a scanned alternate-unit barcode to its parent product and unit', () => {
+  const product = {
+    id: 9, barcode: 'BASE-9', unit: 'piece', sellingPrice: 10, costPrice: 5,
+    unitsJson: JSON.stringify([{ name: 'carton', barcode: 'CARTON-9', conversionFactor: 12, sellingPrice: 110 }]),
+  };
+  assert.deepEqual(findProductBarcodeMatch([product], 'BASE-9'), { product });
+  const match = findProductBarcodeMatch([product], 'CARTON-9');
+  assert.equal(match.product.id, 9);
+  assert.equal(match.matchedUnit.name, 'carton');
+  assert.equal(match.matchedUnit.conversionFactor, 12);
 });
