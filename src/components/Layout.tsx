@@ -420,7 +420,7 @@ export default function Layout() {
         )}
 
         {/* Page Content */}
-        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-hidden relative" : "flex-1 overflow-hidden relative"}>
+        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto relative" : "flex-1 overflow-hidden relative"}>
           <Outlet />
         </div>
         {isStandaloneAndroid && (
