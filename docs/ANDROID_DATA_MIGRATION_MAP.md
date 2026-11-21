@@ -1,17 +1,18 @@
 # Android Local Data and Business-Operation Migration Map
 
-Source inspected on the packaging branch:
-- Browser persistence: `src/db/db.ts`, Dexie schema version 23.
-- Server transaction dispatcher: `server/operations.ts`.
-- Server accounting primitives: `server/accounting.ts`.
-- Client replication/outbox: `src/services/syncService.ts`.
-- HTTP boundary: `src/services/apiService.ts`.
+## Current runtime boundary
 
-## Current browser schema inventory (Dexie v23)
+- Android normal startup validates and reads its business snapshot from native SQLite. It does not initialize or hydrate Dexie after the one-time import.
+- Windows Server uses its authoritative SQLite/Drizzle database through the local API.
+- Windows Electron Client and Android local modes use the native SQLite repository and durable SQLite outbox.
+- Dexie remains in the dependency graph for legacy IndexedDB migration and non-Electron/browser compatibility. It is not safe to remove until those migration and compatibility paths have an explicit retirement policy.
+- `src/services/nativeDatabaseMirror.ts` is now restricted to importing a legacy IndexedDB snapshot once and validating the resulting SQLite snapshot. The obsolete per-write Dexie-to-SQLite mirror hooks have been removed.
 
-The Android local persistence migration must cover every store below; a partial migration must not be described as full POS support.
+## Current native repository coverage
 
-| Domain | Stores |
+The native repository registry covers the following persisted entities:
+
+| Domain | Entities |
 |---|---|
 | Catalog | products, categories, unitDefinitions, productUnits, serviceRecipes |
 | Sales | orders, orderItems, returns, returnItems, heldOrders, loyaltyTransactions |
@@ -20,11 +21,26 @@ The Android local persistence migration must cover every store below; a partial 
 | Finance | accounts, journalEntries, transactions, expenses, customerPayments, fiscalPeriods, exchangeRateHistory |
 | Workforce | employees, attendance, payroll, shifts, shiftMovements |
 | Administration | settings, branches, offers, auditLogs |
-| Replication | syncOperations |
+| Replication | durable operations in the native SQLite outbox |
+
+Repository coverage is not by itself proof that every page mutation is correctly routed through it. UI writes must continue to use `posDataAccess` or the operation dispatcher; stock, balances, accounting and source-document changes must not bypass business operations.
+
+## Business operation coverage and proof still required
+
+The native operation dispatcher contains local SQLite paths for sales, sales returns and voids, purchase creation/update/deletion, purchase returns, expenses, customer and supplier payments, payroll, shift operations, stocktake approval, and entity synchronization. Each path still requires operation-specific parity evidence against the Windows server implementation.
+
+Current accounting parity tests exercise sale/partial-return valuation, FIFO and weighted-average costing, and journal/COGS reversal behavior. The following evidence remains required before declaring the migration complete:
+
+1. Purchase creation, purchase update and purchase deletion parity, including landed costs, supplier balances, batch replacement and journal reversal.
+2. Purchase-return parity, including returned quantity limits, batch depletion, supplier credit/cash effects and accounting reversals.
+3. End-to-end parity for expenses, customer/supplier payments, payroll, shifts and stocktake.
+4. Restart/crash tests around staged outbox operations, acknowledgement, retry, conflict and idempotent replay.
+5. Full route audit proving that no Android page or service writes business records directly to Dexie or IndexedDB after startup.
+6. Existing Android IndexedDB and Windows Electron legacy migration verification, including preserved keys and pending operations.
 
 ## Transaction dispatcher inventory
 
-All server operation types that need a local equivalent or an explicit unsupported/conflict policy:
+All server operation types requiring a matching local implementation or an explicit unsupported/conflict policy:
 
 - `sale`
 - `return`
@@ -47,21 +63,23 @@ All server operation types that need a local equivalent or an explicit unsupport
 
 ## Accounting parity requirements
 
-The Android local engine must preserve the behavior of `server/accounting.ts`, not just persist a sale row:
+The Android local engine must preserve the behavior of `server/accounting.ts`, not just persist a business row:
+
 - double-entry journal lines and balanced debit/credit totals;
 - system chart of accounts and account balances;
 - FIFO batch allocation and restoration;
 - weighted-average cost recalculation when configured;
 - inventory movement history and stock alerts;
 - return/void reversal behavior and closed-period protections;
-- atomic transaction boundaries with the business record and outbox.
+- atomic transaction boundaries with the business record and durable outbox;
+- operation-ID idempotency across retries and process restarts.
 
-## Data identity and migration rules
+## Identity and migration rules
 
-The existing Dexie schema contains many numeric auto-increment keys alongside string IDs. Those values cannot safely be treated as globally unique across independent devices. The migration must add stable UUID identities for replicated records, preserve legacy keys for compatibility, and define foreign-key mapping per table.
+The existing Dexie schema contains numeric auto-increment keys alongside string IDs. Those values cannot safely be treated as globally unique across independent devices. Preserve legacy keys, use stable operation/device identities for replication, and validate every foreign-key remapping.
 
-The native SQLite generic-record store is an initial durable persistence substrate. It does not yet replace the Dexie stores, nor does it yet implement the above business transactions. Keep the current Android mode on the existing client path until the local repository and transaction engine are fully connected.
+Do not remove Dexie from dependencies or delete the legacy import code until all supported legacy installation paths have been migrated or deliberately retired, and the browser compatibility path has been removed or replaced.
 
-## Deferred validation
+## Release gate
 
-Per the agreed delivery sequence, functional test campaigns are deferred until implementation and generation of all three deliverables are complete. The build workflow may still compile/package the native sources to expose build blockers; that is packaging feedback, not a completed functional test campaign.
+A successful TypeScript check or package build is necessary but does not prove accounting parity or functional correctness. Do not declare Android standalone, Windows client, or Dexie retirement complete until the operation parity, migration, synchronization, UI route and restart/crash test campaigns above have passed.
