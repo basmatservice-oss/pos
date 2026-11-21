@@ -173,7 +173,7 @@ export default function Dashboard() {
           </h1>
           <p className="text-slate-500 text-sm mt-1 tabular-nums">نظرة عامة على أداء اليوم: {format(today, 'yyyy/MM/dd')}</p>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className={isAndroidStandalone ? "hidden" : "flex flex-wrap gap-2.5"}>
           <Link to="/attendance" className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0">
             <Clock className="w-4 h-4" />
             <span>التحضير</span>
