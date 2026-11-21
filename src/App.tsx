@@ -34,6 +34,7 @@ import { useSettings } from './hooks/useSettings';
 import { useInventoryStore } from './store/useInventoryStore';
 import { getFirstPosRecordWhereEquals, putPosSetting } from './services/posDataAccess';
 import { usePosEntityRecords } from './hooks/usePosEntityRecords';
+import { normalizeNumericInput } from './utils/normalizeNumericInput';
 
 async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
   return (await getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
@@ -67,42 +68,68 @@ function AppContent() {
     }
   }, [liveCategories]);
 
-  // --- Professional Global HID Scanner Listener ---
+  // Global HID scanners are handled only when focus is outside editable controls.
+  // This avoids stealing keystrokes from forms and prevents duplicate POS submissions.
   useEffect(() => {
     let buffer = '';
-    let lastKeyTime = Date.now();
-
+    let lastKeyTime = 0;
     const handleKeyDown = (e: KeyboardEvent) => {
-      const now = Date.now();
-      
-      // If time between keys is > 50ms, it's probably a human typing, reset
-      if (now - lastKeyTime > 50) {
+      const target = e.target;
+      if (target instanceof HTMLElement && (
+        target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)
+      )) {
         buffer = '';
+        lastKeyTime = 0;
+        return;
       }
-      
+      const now = Date.now();
+      if (now - lastKeyTime > 120) buffer = '';
       lastKeyTime = now;
-
-      // Ignore single modifier keys
       if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
-
       if (e.key === 'Enter') {
-        if (buffer.length > 2) {
-          // It's a barcode!
-          const product = useInventoryStore.getState().getProductByBarcode(buffer);
-          if (product) {
-            // Trigger a custom event that POS.tsx can listen to
-            window.dispatchEvent(new CustomEvent('barcode-scanned', { detail: buffer }));
-            // toast.success(`تم العثور على: ${product.name}`);
-          }
-          buffer = '';
+        if (buffer.length >= 3 && useInventoryStore.getState().getMatchByBarcode(buffer)) {
+          window.dispatchEvent(new CustomEvent('barcode-scanned', { detail: buffer }));
         }
+        buffer = '';
       } else if (e.key.length === 1) {
         buffer += e.key;
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Force a Western numeric keyboard on Android and normalize digits pasted or typed
+  // into text-based numeric controls before React consumes the input event.
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && (
+        target.type === 'number' || target.inputMode === 'numeric' || target.inputMode === 'decimal'
+      )) {
+        target.lang = 'en-US';
+        target.dir = 'ltr';
+        if (target.type === 'number' && !target.inputMode) target.inputMode = 'decimal';
+      }
+    };
+    const onInput = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      if (!(target instanceof HTMLInputElement) || !['number', 'text', 'tel'].includes(target.type)) return;
+      if (target instanceof HTMLInputElement && target.type === 'text' &&
+          target.inputMode !== 'numeric' && target.inputMode !== 'decimal') return;
+      const normalized = normalizeNumericInput(target.value);
+      if (normalized === target.value) return;
+      const prototype = target instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(target, normalized);
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('input', onInput, true);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('input', onInput, true);
+    };
   }, []);
 
   useEffect(() => {
