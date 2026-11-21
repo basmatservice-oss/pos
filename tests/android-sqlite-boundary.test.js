@@ -120,3 +120,50 @@ test('product upsert on Android and Windows client commits through SQLite before
   assert.match(handler, /if \(applied !== changes\.length\) throw new Error\('لم تؤكد SQLite حفظ جميع سجلات الصنف'\)/);
   assert.match(handler, /if \(isLocalSqlite\(\)\) \{[\s\S]*?existingProduct = await nativePosRepository\.get<any>\('products'/);
 });
+
+test('native SQLite registry covers every legacy business store and routes the old operation table to the outbox', async () => {
+  const schema = await read('../src/db/db.ts');
+  const repository = await read('../src/native/nativePosRepository.ts');
+  const electron = await read('../electron/local-database.cjs');
+  const android = await read('../native/android/PosLocalDatabasePlugin.kt');
+
+  const versions = [...schema.matchAll(/this\\.version\\((\\d+)\\)\\.stores\\(\\{/g)];
+  assert.ok(versions.length, 'legacy Dexie schema versions must be discoverable');
+  const latest = versions[versions.length - 1];
+  const blockStart = latest.index + latest[0].length;
+  const blockEnd = schema.indexOf('});', blockStart);
+  assert.ok(blockEnd > blockStart, 'latest legacy table registry must be complete');
+  const legacyTables = [...schema.slice(blockStart, blockEnd).matchAll(/^\\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
+
+  const registryBlock = repository.match(/const NATIVE_PRIMARY_KEYS = \\{([\\s\\S]*?)\\} as const/);
+  assert.ok(registryBlock, 'native primary-key registry must exist');
+  const nativeTables = [...registryBlock[1].matchAll(/^\\s{2}([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]);
+  const electronSet = electron.match(/const VALID_ENTITIES = new Set\\(\\[([^\\]]+)\\]\\)/);
+  assert.ok(electronSet, 'Electron SQLite entity allowlist must exist');
+  const electronTables = [...electronSet[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
+
+  for (const table of legacyTables.filter(name => name !== 'syncOperations')) {
+    assert.ok(nativeTables.includes(table), 'native SQLite registry is missing legacy store ' + table);
+  }
+  for (const table of nativeTables) {
+    assert.ok(electronTables.includes(table), 'Electron SQLite allowlist is missing native entity ' + table);
+  }
+  assert.ok(!nativeTables.includes('syncOperations'), 'operation queue must not be duplicated as a business table');
+  assert.match(electron, /CREATE TABLE IF NOT EXISTS pos_outbox/);
+  assert.match(android, /CREATE TABLE IF NOT EXISTS pos_outbox/);
+});
+
+test('product editor blocks duplicate submissions and reports success only after SQLite read-back', async () => {
+  const source = await read('../src/pages/Inventory.tsx');
+  const start = source.indexOf('const handleSubmit = async (e: React.FormEvent)');
+  const end = source.indexOf('const handleDelete =', start);
+  assert.ok(start >= 0 && end > start, 'product submit handler must remain explicit');
+  const handler = source.slice(start, end);
+  assert.match(handler, /if \\(isSavingProductRef\\.current\\) return/);
+  assert.match(handler, /isSavingProductRef\\.current = true/);
+  assert.match(handler, /finally \\{[\\s\\S]*?isSavingProductRef\\.current = false/);
+  const readBack = handler.indexOf("getPosRecords<Product>('products')");
+  const success = handler.indexOf('toast.success(editingProduct');
+  assert.ok(readBack >= 0 && success > readBack, 'success must not appear before authoritative read-back');
+  assert.match(handler, /if \\(!persistedProduct\\)/);
+});
