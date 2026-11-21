@@ -76,6 +76,16 @@ async function getDeviceRole(): Promise<'server' | 'client' | 'standalone'> {
   }
   try {
     const setting = await getLocalSettingByKey('deviceRole');
+    if (isNativeAndroid()) {
+      // Android's server role is a legacy configuration, not a supported
+      // runtime mode. Only an explicit client role may use server APIs.
+      currentDeviceRole = setting?.value === 'client' ? 'client' : 'standalone';
+      if (setting?.value !== currentDeviceRole) {
+        const { putPosSetting } = await import('./posDataAccess');
+        await putPosSetting('deviceRole', currentDeviceRole, 'local');
+      }
+      return currentDeviceRole;
+    }
     currentDeviceRole = setting?.value === 'standalone' ? 'standalone' : setting?.value === 'client' ? 'client' : 'server';
     return currentDeviceRole;
   } catch (error) {
