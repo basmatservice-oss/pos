@@ -1,4 +1,4 @@
-import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, replaceNativePosRecords } from '../native/posLocalDatabase';
+import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase } from '../native/posLocalDatabase';
 import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, nativePosRepository } from '../native/nativePosRepository';
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
@@ -66,6 +66,15 @@ function enqueueNativeMirrorWrite(write: () => Promise<void>): Promise<void> {
 
 export async function mirrorNativePosDatabase(): Promise<void> {
   if (!isNativeAndroid() || !(await ensureNativePosDatabase())) return;
+
+  // A completed migration is immutable. Never import a stale IndexedDB snapshot
+  // over the SQLite source of truth on a subsequent application launch.
+  const existingMarker = await posLocalDatabase.getMeta({ key: 'business_snapshot_version' });
+  if (existingMarker.value === '1') {
+    await restoreNativePosDatabase();
+    return;
+  }
+
   const legacyStores = await readLegacyIndexedDBStores();
   const unsupportedStores = Object.keys(legacyStores).filter((name) =>
     name !== 'syncOperations' && !MIRRORED_TABLES.includes(name as any) &&
@@ -96,8 +105,19 @@ export async function mirrorNativePosDatabase(): Promise<void> {
         recordIds.add(record.recordId);
       }
       await enqueueNativeMirrorWrite(async () => {
-        const saved = await replaceNativePosRecords(entity, records);
-        if (!saved) throw new Error('SQLite snapshot write was not confirmed');
+        // Merge legacy rows only when the primary key is absent in SQLite.
+        // Existing SQLite records always win: a stale IndexedDB copy must never
+        // roll back products, settings, stock or transactions created after migration.
+        const currentRows = await nativePosRepository.getAllWithSyncState(entity as any);
+        const currentIds = new Set(currentRows.map((row) => row.recordId));
+        const missingRows = records.filter((record) => !currentIds.has(record.recordId));
+        if (missingRows.length) {
+          await nativePosRepository.putMany(
+            entity as any,
+            missingRows.map((row) => row.record),
+            'local',
+          );
+        }
       });
     } catch (error) {
       failedEntities.push(entity);
