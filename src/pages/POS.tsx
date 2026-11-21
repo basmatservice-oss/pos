@@ -32,6 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
 import { dispatchOperation } from '../services/operationService';
@@ -258,6 +259,12 @@ export default function POS() {
     if (isScannerOpen) {
       const startScanner = async () => {
         try {
+          const cameraGranted = await ensureAndroidCameraPermission();
+          if (!cameraGranted) {
+            toast.error('يجب السماح للتطبيق باستخدام الكاميرا لتشغيل ماسح الباركود');
+            if (isMounted) setIsScannerOpen(false);
+            return;
+          }
           const devices = await Html5Qrcode.getCameras();
           if (devices && devices.length > 0) {
             scannerRef.current = new Html5Qrcode('reader');
