@@ -7,6 +7,7 @@ import { apiService } from './services/apiService';
 import Layout from './components/Layout';
 import POS from './pages/POS';
 import Dashboard from './pages/Dashboard';
+import Apps from './pages/Apps';
 import Inventory from './pages/Inventory';
 import Purchases from './pages/Purchases';
 import Attendance from './pages/Attendance';
@@ -305,6 +306,7 @@ function AppContent() {
       {settings.enableNotifications && <Toaster position="top-center" reverseOrder={false} />}
       <Routes>
         <Route path="/" element={<Layout />}>
+          <Route path="apps" element={<ProtectedRoute permissionId="view_dashboard"><Apps /></ProtectedRoute>} />
           <Route index element={
             isMobileUser ? <Navigate to="/mobile-sales" replace /> : 
             <ProtectedRoute permissionId="view_dashboard">
