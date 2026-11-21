@@ -1,3 +1,4 @@
+import { getImmutableSaleLineCostTotal } from './salesCostSnapshot.js';
 /** Build a product-level operational sales report from completed orders and returns. */
 export function buildOperationalProductReport({
   orders = [], orderItems = [], returns = [], returnItems = [], products = [],
@@ -25,12 +26,14 @@ export function buildOperationalProductReport({
     const row = rows.get(productId) || {
       productId, name: item.productName || product?.name || 'صنف غير معروف',
       itemType: item.itemType || product?.itemType || 'stock',
-      quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0,
+      quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0, missingCostSnapshot: false,
     };
     const quantity = Math.max(0, Number(item.quantity || 0));
     row.quantitySold += quantity;
     row.sales += Number(item.total ?? item.subTotal ?? 0) - Number(item.taxAmount || 0);
-    row.cost += Number(item.costPriceAtTimeOfSale ?? product?.costPrice ?? 0) * quantity;
+    const immutableCost = getImmutableSaleLineCostTotal(item);
+    if (immutableCost === null) row.missingCostSnapshot = true;
+    else row.cost += immutableCost;
     rows.set(productId, row);
   }
 
@@ -55,7 +58,7 @@ export function buildOperationalProductReport({
         netQuantity: row.quantitySold - row.quantityReturned,
         netSales,
         netCost,
-        profit: netSales - netCost,
+        profit: row.missingCostSnapshot ? null : netSales - netCost,
       };
     })
     .sort((a, b) => b.netSales - a.netSales);
