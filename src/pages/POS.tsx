@@ -31,7 +31,7 @@ import { useInventoryStore } from '../store/useInventoryStore';
 import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -267,10 +267,37 @@ export default function POS() {
           }
           const devices = await Html5Qrcode.getCameras();
           if (devices && devices.length > 0) {
-            scannerRef.current = new Html5Qrcode('reader');
+            scannerRef.current = new Html5Qrcode('reader', {
+              verbose: false,
+              formatsToSupport: [
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.ITF,
+                Html5QrcodeSupportedFormats.CODABAR,
+                Html5QrcodeSupportedFormats.QR_CODE,
+              ],
+              experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+            } as any);
             await scannerRef.current.start(
               { facingMode: 'environment' },
-              { fps: 10, qrbox: { width: 250, height: 250 } },
+              {
+                fps: 20,
+                aspectRatio: 16 / 9,
+                disableFlip: false,
+                qrbox: (width, height) => ({
+                  width: Math.max(240, Math.floor(width * 0.92)),
+                  height: Math.max(90, Math.min(190, Math.floor(height * 0.34))),
+                }),
+                videoConstraints: {
+                  facingMode: { ideal: 'environment' },
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 },
+                },
+              } as any,
               (decodedText) => {
                 const now = Date.now();
                 if (lastScannedRef.current.code !== decodedText || now - lastScannedRef.current.time > 2000) {
@@ -279,6 +306,7 @@ export default function POS() {
                   if (match) {
                     addItem(match.product, match.matchedUnit?.name);
                     toast.success(`تم العثور على: ${match.product.name}${match.matchedUnit ? ` (${match.matchedUnit.name})` : ''}`);
+                    setIsScannerOpen(false);
                   } else {
                     toast.error('المنتج غير موجود');
                   }
