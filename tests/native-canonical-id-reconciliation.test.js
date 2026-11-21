@@ -47,7 +47,7 @@ test('native SQLite keeps a product visible when the server replaces its tempora
     updatedAt: 1,
   });
 
-  globalThis.window = { electronAPI: { isElectron: true, posLocalDatabase: bridge } };
+  globalThis.window = { dispatchEvent: () => true, electronAPI: { isElectron: true, posLocalDatabase: bridge } };
 
   try {
     const { setElectronDeviceRole } = await import('../src/native/electronPosRepository.ts');
