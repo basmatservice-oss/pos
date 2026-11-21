@@ -596,9 +596,19 @@ class PosLocalDatabasePlugin : Plugin() {
                 "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
             ).use { cursor ->
                 while (cursor.moveToNext()) {
+                    val recordId = cursor.getString(0)
+                    val json = cursor.getString(1)
+                    val record = try {
+                        JSONObject(json)
+                    } catch (parseError: Exception) {
+                        throw IllegalStateException(
+                            "سجل JSON تالف في جدول $entity، المعرّف: $recordId",
+                            parseError
+                        )
+                    }
                     val item = JSObject()
-                    item.put("recordId", cursor.getString(0))
-                    item.put("record", JSONObject(cursor.getString(1)))
+                    item.put("recordId", recordId)
+                    item.put("record", record)
                     item.put("syncState", cursor.getString(2))
                     item.put("updatedAt", cursor.getLong(3))
                     rows.put(item)
@@ -1167,22 +1177,46 @@ class PosLocalDatabasePlugin : Plugin() {
 }
 
 private class PosDatabaseHelper(context: android.content.Context) :
-    SQLiteOpenHelper(context, "pos-local.db", null, 3) {
+    SQLiteOpenHelper(context, "pos-local.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE pos_records (entity TEXT NOT NULL, record_id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, sync_state TEXT NOT NULL DEFAULT 'local', PRIMARY KEY(entity, record_id))")
-        db.execSQL("CREATE INDEX idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
-        db.execSQL("CREATE TABLE pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '', schema_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_retry_at INTEGER)")
-        db.execSQL("CREATE INDEX idx_pos_outbox_status_created ON pos_outbox(status, created_at)")
-        db.execSQL("CREATE TABLE pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pos_records (entity TEXT NOT NULL, record_id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, sync_state TEXT NOT NULL DEFAULT 'local', PRIMARY KEY(entity, record_id))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pos_outbox (operation_id TEXT PRIMARY KEY NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL DEFAULT '', branch_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '', schema_version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_retry_at INTEGER)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created ON pos_outbox(status, created_at)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
+
+    private fun ensureColumn(db: SQLiteDatabase, table: String, column: String, declaration: String) {
+        val exists = db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            var found = false
+            while (cursor.moveToNext()) {
+                if (nameIndex >= 0 && cursor.getString(nameIndex) == column) {
+                    found = true
+                    break
+                }
+            }
+            found
+        }
+        if (!exists) db.execSQL("ALTER TABLE $table ADD COLUMN $column $declaration")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Additive, idempotent upgrades. Some pre-release Android builds created
+        // the newer columns while retaining an older user_version; inspect the
+        // real schema instead of failing with "duplicate column name".
         if (oldVersion < 2) {
-            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+            ensureColumn(db, "pos_outbox", "tenant_id", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "pos_outbox", "actor", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "pos_outbox", "schema_version", "INTEGER NOT NULL DEFAULT 1")
         }
         if (oldVersion < 3) {
-            db.execSQL("ALTER TABLE pos_outbox ADD COLUMN next_retry_at INTEGER")
+            ensureColumn(db, "pos_outbox", "next_retry_at", "INTEGER")
+        }
+        if (oldVersion < 4) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_pos_records_entity_updated ON pos_records(entity, updated_at)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created ON pos_outbox(status, created_at)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS pos_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         }
     }
 }
