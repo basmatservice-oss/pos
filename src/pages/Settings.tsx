@@ -1048,7 +1048,7 @@ const Settings: React.FC = () => {
                                 <tr key={fx.id}>
                                   <td className="p-3 font-bold">{fx.currency}</td>
                                   <td className="p-3 font-mono font-bold text-indigo-700">{formatNumber(fx.rate, 4, 2)}</td>
-                                  <td className="p-3 text-gray-500">{new Date(fx.effectiveFrom).toLocaleString('ar-SA')}</td>
+                                  <td className="p-3 text-gray-500">{new Date(fx.effectiveFrom).toLocaleString('en-GB')}</td>
                                   <td className="p-3 text-gray-600">{fx.createdBy || '-'}</td>
                                   <td className="p-3 text-gray-500">{fx.notes || '-'}</td>
                                 </tr>
