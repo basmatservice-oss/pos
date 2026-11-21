@@ -2,7 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { mirrorNativePosDatabase, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
+import { mirrorNativePosDatabase, readLegacyIndexedDBStores, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
 import { electronPosRepository, isElectronDesktop, setElectronDeviceRole } from './native/electronPosRepository';
 import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
@@ -144,22 +144,39 @@ async function initializeLocalRuntime(): Promise<void> {
     }
     const marker = await electronPosRepository.getMeta('dexie-business-migration-v1');
     if (marker !== 'complete') {
-      const { ensureDatabaseReady, db } = await import('./db/db');
-      await ensureDatabaseReady();
+      // Import the old IndexedDB stores through the browser API directly. The
+      // Electron client must not instantiate Dexie even during first-run migration.
+      const legacyStores = await readLegacyIndexedDBStores();
+      const unsupportedStores = Object.keys(legacyStores).filter((name) =>
+        name !== 'syncOperations' && !NATIVE_POS_ENTITIES.includes(name as any) &&
+        Array.isArray(legacyStores[name]) && legacyStores[name].length > 0
+      );
+      if (unsupportedStores.length) {
+        throw new Error('Unsupported legacy IndexedDB stores in Windows SQLite migration: ' + unsupportedStores.join(', '));
+      }
       for (const entity of NATIVE_POS_ENTITIES) {
-        const records = await db.table(entity).toArray() as Array<Record<string, unknown>>;
+        const records = Array.isArray(legacyStores[entity])
+          ? legacyStores[entity] as Array<Record<string, unknown>>
+          : [];
+        const storedBefore = await electronPosRepository.getAll(entity);
+        const storedIds = new Set(storedBefore.map((record) => getNativePosRecordId(entity, record)));
+        const missing = records.filter((record) => !storedIds.has(getNativePosRecordId(entity, record)));
         for (const state of ['local', 'pending', 'synced', 'error'] as const) {
-          const matching = records.filter((record) => (['local', 'pending', 'synced', 'error'].includes(String(record.syncStatus)) ? String(record.syncStatus) : 'local') === state);
+          const matching = missing.filter((record) =>
+            (['local', 'pending', 'synced', 'error'].includes(String(record.syncStatus))
+              ? String(record.syncStatus)
+              : 'local') === state
+          );
           if (matching.length) await electronPosRepository.putMany(entity, matching, state);
         }
         const stored = await electronPosRepository.getAll(entity);
-        const expectedById = new Map(records.map((record) => [getNativePosRecordId(entity, record), JSON.stringify(record)]));
-        const storedById = new Map(stored.map((record) => [getNativePosRecordId(entity, record), JSON.stringify(record)]));
-        if (storedById.size !== expectedById.size || [...expectedById].some(([id, json]) => storedById.get(id) !== json)) {
-          throw new Error(`Electron SQLite migration content verification failed for ${entity}: ${records.length} source, ${stored.length} destination`);
+        const storedById = new Map(stored.map((record) => [getNativePosRecordId(entity, record), record]));
+        const missingAfterMigration = records.filter((record) => !storedById.has(getNativePosRecordId(entity, record)));
+        if (missingAfterMigration.length) {
+          throw new Error(`Electron SQLite migration verification failed for ${entity}: ${missingAfterMigration.length} legacy records are missing`);
         }
       }
-      const legacyOperations = await db.syncOperations.toArray();
+      const legacyOperations = Array.isArray(legacyStores.syncOperations) ? legacyStores.syncOperations : [];
       const legacyPending = legacyOperations
         .filter((operation: any) => ['pending', 'error', 'conflict', 'syncing'].includes(String(operation.status || 'pending')))
         .map((operation: any, index: number) => {
