@@ -75,3 +75,16 @@ test('Electron SQLite rejects duplicate identities in one product transaction wi
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('Electron SQLite accepts every entity exposed by the shared native repository', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const nativeSource = await readFile(new URL('../src/native/nativePosRepository.ts', import.meta.url), 'utf8');
+  const electronSource = await readFile(new URL('../electron/local-database.cjs', import.meta.url), 'utf8');
+  const primaryKeyBlock = nativeSource.match(/const NATIVE_PRIMARY_KEYS = \{([\s\S]*?)\} as const/);
+  const allowedBlock = electronSource.match(/VALID_ENTITIES = new Set\(\[([\s\S]*?)\]\)/);
+  assert.ok(primaryKeyBlock, 'native primary-key registry must exist');
+  assert.ok(allowedBlock, 'Electron SQLite entity allowlist must exist');
+  const nativeEntities = [...primaryKeyBlock[1].matchAll(/^\s*([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]).sort();
+  const electronEntities = [...allowedBlock[1].matchAll(/['"]([A-Za-z][A-Za-z0-9]*)['"]/g)].map((match) => match[1]).sort();
+  assert.deepEqual(electronEntities, nativeEntities);
+});
