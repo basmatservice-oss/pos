@@ -8,6 +8,7 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
@@ -294,6 +295,12 @@ export default function Inventory() {
         if (!element) return;
 
         try {
+          const cameraGranted = await ensureAndroidCameraPermission();
+          if (!cameraGranted) {
+            toast.error('يجب السماح للتطبيق باستخدام الكاميرا لتشغيل ماسح الباركود');
+            if (isMounted) setIsScannerModalOpen(false);
+            return;
+          }
           await stopScanner();
           const html5QrCode = new Html5Qrcode("inventory-reader");
           scannerRef.current = html5QrCode;
