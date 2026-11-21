@@ -49,6 +49,7 @@ export default function Inventory() {
   const mainSearchInputRef = useRef<HTMLInputElement>(null);
   const deviceInputRef = useRef<HTMLInputElement>(null);
   const lastScannedTimeRef = useRef<Record<string, number>>({});
+  const isSavingProductRef = useRef(false);
 
   // Category Form State
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -513,6 +514,8 @@ export default function Inventory() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingProductRef.current) return;
+    isSavingProductRef.current = true;
 
     try {
       const now = new Date().toISOString();
@@ -556,7 +559,6 @@ export default function Inventory() {
         );
         savedParentId = res?.result?.id || editingProduct.id;
         await logAction(user?.name || 'Unknown', 'تحديث منتج', 'product', `تم تحديث المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name).catch((auditError) => console.warn('Product saved; audit log will be retried separately:', auditError));
-        toast.success('تم تحديث المنتج بنجاح');
       } else {
         const tempId = makeTempNumericId();
         const res = await dispatchOperation(
@@ -573,7 +575,6 @@ export default function Inventory() {
         );
         savedParentId = res?.result?.id || tempId;
         await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name).catch((auditError) => console.warn('Product saved; audit log will be retried separately:', auditError));
-        toast.success('تمت إضافة المنتج بنجاح');
       }
 
       // Re-read the full authoritative catalog after the write. This avoids
@@ -616,10 +617,13 @@ export default function Inventory() {
         }
       }
 
+      toast.success(editingProduct ? 'تم تحديث المنتج بنجاح' : 'تمت إضافة المنتج بنجاح');
       handleCloseModal();
     } catch (error) {
-      console.error(error);
-      toast.error('حدث خطأ أثناء حفظ المنتج');
+      console.error('Product save failed:', error);
+      toast.error(error instanceof Error ? error.message : 'حدث خطأ أثناء حفظ المنتج');
+    } finally {
+      isSavingProductRef.current = false;
     }
   };
 
