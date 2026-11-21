@@ -44,7 +44,6 @@ import { toast } from 'react-hot-toast';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
-import { useInventoryStore } from '../store/useInventoryStore';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
 import { useAuth } from '../context/AuthContext';
@@ -864,7 +863,7 @@ export default function Reports() {
                     <td className="px-6 py-4 font-black text-base" colSpan={2}>
                       صافي الربح المحاسبي النهائي (Net Profit)
                     </td>
-                    <td className="px-6 py-4 font-black text-lg text-left">{formatNumber(stats.netProfit, decimals)}</td>
+                    <td className="px-6 py-4 font-black text-lg text-left">{stats.netProfit === null ? 'غير مكتمل' : formatNumber(stats.netProfit, decimals)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1056,7 +1055,7 @@ export default function Reports() {
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">الكمية الصافية</p><p className="mt-1 text-lg font-black">{formatQty(productReportTotals.quantity, qtyDecimals)}</p></div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">صافي المبيعات</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.sales, decimals)} {storeSettings.currency}</p></div>
-            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">تكلفة الأصناف</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.cost, decimals)} {storeSettings.currency}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">تكلفة الأصناف</p><p className="mt-1 text-lg font-black">{productReportTotals.missingCostSnapshots > 0 ? 'غير مكتملة' : formatNumber(productReportTotals.cost, decimals)} {productReportTotals.missingCostSnapshots > 0 ? '' : storeSettings.currency}</p></div>
             <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">الربح الإجمالي</p><p className="mt-1 text-lg font-black text-emerald-700">{productReportTotals.missingCostSnapshots > 0 ? 'غير مكتمل' : formatNumber(productReportTotals.profit, decimals)} {productReportTotals.missingCostSnapshots > 0 ? '' : storeSettings.currency}</p></div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200">
