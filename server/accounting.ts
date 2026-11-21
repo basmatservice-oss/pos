@@ -8,6 +8,7 @@ import {
   inventoryAlerts,
   inventoryMovements,
   products,
+  settings,
 } from '../drizzle/schema.js';
 
 export class AccountingError extends Error {
@@ -681,8 +682,22 @@ export function recalculateProductWeightedCost(tx: any, productId: number) {
 
   if (totalQty > 0) {
     const weightedAvg = Math.round((totalValue / totalQty) * 100) / 100;
+    const product = tx.select({ costInUSD: products.costInUSD }).from(products).where(eq(products.id, productId)).get();
+    const activeRateRow = tx.select({ value: settings.value }).from(settings).where(eq(settings.key, 'exchangeRate')).get();
+    const activeUsdRate = Number(activeRateRow?.value || 0);
+    const update: Record<string, unknown> = {
+      costPrice: weightedAvg,
+      updatedAt: new Date().toISOString(),
+      isSynced: 0,
+    };
+    // Purchases and purchase returns may change the weighted cost independently
+    // of FX. Rebase a linked USD cost anchor at the current rate so a later FX
+    // approval scales the new landed cost, not an obsolete pre-purchase cost.
+    if (Number(product?.costInUSD || 0) > 0 && Number.isFinite(activeUsdRate) && activeUsdRate > 0) {
+      update.costInUSD = Number((weightedAvg / activeUsdRate).toFixed(6));
+    }
     tx.update(products)
-      .set({ costPrice: weightedAvg, updatedAt: new Date().toISOString(), isSynced: 0 })
+      .set(update)
       .where(eq(products.id, productId))
       .run();
     return weightedAvg;
