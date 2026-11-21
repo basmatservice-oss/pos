@@ -100,8 +100,8 @@ export default function Expenses() {
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)]" dir="rtl">
-      <div className="flex justify-between items-center mb-6 shrink-0 gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center sm:gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">المصروفات</h2>
           <p className="text-slate-500 text-sm mt-1">إدارة وتسجيل المصروفات التشغيلية</p>
@@ -115,7 +115,7 @@ export default function Expenses() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6 shrink-0">
+      <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-6 lg:grid-cols-3 lg:gap-5">
         <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600">
             <Wallet className="w-6 h-6" />
