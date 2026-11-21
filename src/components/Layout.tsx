@@ -419,13 +419,13 @@ export default function Layout() {
         )}
 
         {/* Page Content */}
-        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-y-auto overscroll-contain relative" : "flex-1 overflow-hidden relative"}>
+        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-hidden relative" : "flex-1 overflow-hidden relative"}>
           <Outlet />
         </div>
         {isStandaloneAndroid && (
           <nav className="android-bottom-nav grid shrink-0 grid-cols-5 border-t border-slate-200 bg-white/95 px-1 pt-2 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
             {bottomNavItems.map((item) => (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) =>
+              <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) =>
                 `flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-bold transition-colors ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500'}`
               }>
                 <item.icon className="h-5 w-5" />
