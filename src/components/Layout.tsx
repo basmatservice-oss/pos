@@ -259,6 +259,7 @@ export default function Layout() {
 
   const filteredNavItems = navItems.filter(item => {
     if (!user) return false;
+    if (item.to === '/apps') return true;
     
     // Hide sync status on server only when there are no unresolved oversell/sync alerts
     if (item.to === '/sync-status' && deviceRole === 'server' && oversellAlertCount === 0) return false;
