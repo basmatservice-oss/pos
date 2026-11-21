@@ -306,7 +306,7 @@ function AppContent() {
       {settings.enableNotifications && <Toaster position="top-center" reverseOrder={false} />}
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route path="apps" element={<ProtectedRoute permissionId="view_dashboard"><Apps /></ProtectedRoute>} />
+          <Route path="apps" element={<Apps />} />
           <Route index element={
             isMobileUser ? <Navigate to="/mobile-sales" replace /> : 
             <ProtectedRoute permissionId="view_dashboard">
