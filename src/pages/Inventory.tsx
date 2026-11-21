@@ -1394,18 +1394,20 @@ export default function Inventory() {
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs leading-6 text-indigo-800 sm:col-span-2">
                     أدخل تكلفة وسعر بيع المنتج بعملة النظام الأساسية ({storeSettings.baseCurrency || storeSettings.currency}). لا يلزم إدخال أي سعر بالدولار. تغيير سعر الصرف لا يغيّر سعر البيع المحلي تلقائيًا.
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">التكلفة ({storeSettings.currency})</label>
-                    <input 
-                      type="number" 
-                      required
-                      step="0.01"
-                      min="0"
-                      value={formData.costPrice}
-                      onChange={e => setFormData({...formData, costPrice: e.target.value})}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" 
-                    />
-                  </div>
+                  {formData.itemType !== 'service' && formData.itemType !== 'service_with_materials' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">تكلفة الوحدة الأساسية ({storeSettings.currency})</label>
+                      <input
+                        type="number"
+                        required
+                        step="0.01"
+                        min="0"
+                        value={formData.costPrice}
+                        onChange={e => setFormData({...formData, costPrice: e.target.value})}
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">سعر البيع ({storeSettings.currency})</label>
                     <input 
@@ -1534,12 +1536,12 @@ export default function Inventory() {
               {/* Service / Bundle Recipe Builder */}
               {formData.itemType === 'service' && (
                 <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs leading-6 text-sky-800">
-                  الخدمة العادية لا تخصم كمية من المخزون. أدخل سعر بيع الخدمة، وتُسجل كمبيعات خدمات. إذا كانت الخدمة تستهلك مواد من المخزون فاختر «خدمة بمواد» وحدد مكوناتها.
+                  الخدمة العادية لا تخصم كمية من المخزون. أدخل سعر البيع فقط؛ وإذا كانت لها تكاليف تشغيل مثل أجور الفنيين فسجلها في المصروفات. إذا كانت تستهلك مواد مخزنية فاختر «خدمة بمواد».
                 </div>
               )}
               {formData.itemType === 'service_with_materials' && (
                 <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs leading-6 text-amber-800">
-                  هذه الخدمة لا تملك رصيدًا مخزنيًا مستقلًا؛ عند البيع يخصم النظام المواد المحددة في الوصفة حسب الكمية ومعامل الوحدة. يجب إضافة مادة خام واحدة على الأقل.
+                  هذه الخدمة لا تملك رصيدًا مخزنيًا مستقلًا؛ عند البيع يخصم النظام المواد المحددة في الوصفة ويحسب تكلفتها من دفعات FIFO. يجب إضافة مادة خام واحدة على الأقل.
                 </div>
               )}
               {(formData.itemType === 'service_with_materials' || formData.itemType === 'bundle') && (
