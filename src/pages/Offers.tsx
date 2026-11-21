@@ -150,7 +150,7 @@ const Offers: React.FC = () => {
   });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto" dir="rtl">
+    <div className="mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">العروض والترقيات</h1>
@@ -165,7 +165,7 @@ const Offers: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-8 lg:grid-cols-4 lg:gap-4">
         <div className="md:col-span-3 relative">
           <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input 
