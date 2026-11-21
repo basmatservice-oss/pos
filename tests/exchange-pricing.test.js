@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   toForeignPriceAnchor, fromForeignPriceAnchor, buildProductPricingAnchors,
-  repriceLinkedProduct, getFxLinkedProductCount,
+  repriceLinkedProduct, getFxLinkedProductCount, buildProductUnitFxAnchors,
 } from '../src/utils/exchangePricing.js';
 
 test('stores a foreign-currency anchor from an SDG-entered price', () => {
@@ -41,4 +41,24 @@ test('manual local prices stay fixed when the exchange rate changes', () => {
 test('rejects missing or invalid exchange rates when creating a linked price', () => {
   assert.throws(() => toForeignPriceAnchor(100, 0), /سعر صرف صحيح/);
   assert.equal(fromForeignPriceAnchor(25, 800), 20000);
+});
+
+test('links alternate sellable-unit prices to the same approved exchange rate', () => {
+  const units = buildProductUnitFxAnchors([
+    { name: 'carton', sellingPrice: 120000, conversionFactor: 12 },
+    { name: 'half-carton', sellingPrice: 65000, conversionFactor: 6 },
+  ], true, 600);
+  assert.equal(units[0].priceInUSD, 200);
+  assert.equal(units[1].priceInUSD, 108.333333);
+  const fixed = buildProductUnitFxAnchors([{ name: 'carton', sellingPrice: 120000 }], false, 600);
+  assert.equal(fixed[0].priceInUSD, 0);
+});
+
+test('repricing a current product cannot mutate a previously issued sale snapshot', () => {
+  const oldSaleLine = { productId: 3, unitPrice: 100000, costPriceAtTimeOfSale: 70000, total: 100000 };
+  const currentProduct = { id: 3, sellingPrice: 100000, costPrice: 70000, priceInUSD: 200, costInUSD: 140 };
+  const repriced = repriceLinkedProduct(currentProduct, 750);
+  assert.equal(repriced.sellingPrice, 150000);
+  assert.equal(repriced.costPrice, 105000);
+  assert.deepEqual(oldSaleLine, { productId: 3, unitPrice: 100000, costPriceAtTimeOfSale: 70000, total: 100000 });
 });
