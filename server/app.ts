@@ -182,14 +182,7 @@ export async function seedDefaultUsersAndAccounts() {
     return;
   }
 
-  // Upgrade only the untouched bootstrap account from older installations.
-  // Never overwrite credentials after the administrator has changed them.
-  const admin = admins[0];
-  if (admin.mustChangePassword && verifySecret('123456', admin.password)) {
-    await db.update(employees)
-      .set({ password: hashSecret('admin'), pinCode: null, mustChangePassword: 1, updatedAt: now, isSynced: 0 })
-      .where(eq(employees.id, admin.id));
-  }
+  // Existing administrator credentials are never rewritten during startup.
 }
 
 export async function createSafeBackup(): Promise<{ filename: string; path: string }> {
