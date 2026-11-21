@@ -5,6 +5,7 @@ import com.getcapacitor.BridgeActivity
 class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         registerPlugin(PosLocalDatabasePlugin::class.java)
+        registerPlugin(PosCameraPermissionPlugin::class.java)
         super.onCreate(savedInstanceState)
     }
 }
