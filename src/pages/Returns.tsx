@@ -234,7 +234,7 @@ export default function Returns() {
             <div>
               <h2 className="text-lg font-bold text-slate-900">تفاصيل الفاتورة {order.receiptNumber}</h2>
               <p className="text-xs text-slate-500 mt-1">
-                التاريخ: {new Date(order.createdAt).toLocaleString('ar-SA')} | العميل: {order.customerName || 'عميل نقدي'}
+                التاريخ: {new Date(order.createdAt).toLocaleString('en-GB')} | العميل: {order.customerName || 'عميل نقدي'}
               </p>
             </div>
             <div className="text-left tabular-nums">
