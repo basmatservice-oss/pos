@@ -510,6 +510,12 @@ export function createPosApp() {
   app.post('/api/auth/change-password', async (req: AuthenticatedRequest, res) => {
     try {
       const { currentPassword, newPassword, newPinCode } = req.body || {};
+      if (newPassword !== undefined && (typeof newPassword !== 'string' || newPassword.length < 6 || newPassword === 'admin')) {
+        return res.status(400).json({ error: 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف وألا تكون كلمة المرور الافتراضية' });
+      }
+      if (newPinCode !== undefined && (typeof newPinCode !== 'string' || !/^\\d{4,}$/.test(newPinCode) || newPinCode === '1234')) {
+        return res.status(400).json({ error: 'رمز PIN يجب أن يتكون من أربعة أرقام على الأقل وألا يكون الرمز الافتراضي' });
+      }
       const [emp] = await db
         .select()
         .from(employees)
