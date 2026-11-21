@@ -316,8 +316,8 @@ export default function Reports() {
     const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
     const totalCost = Math.max(0, grossCost - returnedCost);
 
-    const grossProfit = totalRevenueExclVat - totalCost;
-    const netProfit = missingCostSnapshotCount > 0 ? null : grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
+    const grossProfit = missingCostSnapshotCount > 0 ? null : totalRevenueExclVat - totalCost;
+    const netProfit = grossProfit === null ? null : grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
 
     // Last 7 days chart excluding voided orders & separating VAT
     const chartData = Array.from({ length: 7 }).map((_, i) => {
@@ -838,7 +838,7 @@ export default function Reports() {
                     <td className="px-6 py-3.5 font-black text-emerald-900" colSpan={2}>
                       مجمل الربح (Gross Profit)
                     </td>
-                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{formatNumber(stats.grossProfit, decimals)}</td>
+                    <td className="px-6 py-3.5 font-black text-emerald-900 text-left">{stats.grossProfit === null ? 'غير مكتمل' : formatNumber(stats.grossProfit, decimals)}</td>
                   </tr>
                   <tr>
                     <td className="px-6 py-3 text-slate-600 pr-10">المصروفات التشغيلية</td>
