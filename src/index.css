@@ -247,16 +247,20 @@ body.theme-playful {
 
 /* Native Android standalone: compact touch-first shell and safe-area navigation. */
 .android-standalone-shell {
-  min-height: 100dvh;
-  padding-bottom: env(safe-area-inset-bottom);
+  height: 100dvh;
+  min-height: 0;
+  padding-bottom: 0;
 }
- .android-standalone-content {
-  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+.android-standalone-content {
+  min-height: 0;
+  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 .android-bottom-nav {
-  min-height: calc(4.1rem + env(safe-area-inset-bottom));
-  padding-bottom: calc(0.35rem + env(safe-area-inset-bottom));
+  min-height: calc(4.25rem + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: 0.45rem;
+  flex: 0 0 auto;
 }
 .android-standalone-shell button,
 .android-standalone-shell a,
