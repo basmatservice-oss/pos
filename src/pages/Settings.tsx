@@ -59,7 +59,7 @@ import toast from 'react-hot-toast';
 
 const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp']);
 
-const isStandaloneAndroid = async () => isNativeAndroid() && await syncService.getDeviceRole() === 'standalone';
+const isStandaloneAndroid = async () => isNativeAndroid() && await syncService.getDeviceRole() !== 'client';
 
 const Settings: React.FC = () => {
   const { updateCurrentUser, changeLocalCredentials } = useAuth();
