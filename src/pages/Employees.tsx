@@ -187,8 +187,8 @@ export default function Employees() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)]" dir="rtl">
-      <div className="flex justify-between items-center mb-6 shrink-0 gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center sm:gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">الموظفون</h2>
           <p className="text-slate-500 text-sm mt-1">إدارة فريق العمل والصلاحيات ونظام الرواتب</p>
@@ -202,7 +202,7 @@ export default function Employees() {
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-200 flex gap-4 bg-slate-50/60 shrink-0">
           <div className="relative flex-1 max-w-md">
