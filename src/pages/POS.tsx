@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
-import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecordsWhereEquals, putPosRecord } from '../services/posDataAccess';
+import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, getPosRecordsWhereEquals, putPosRecord } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { generateUUID } from '../utils/uuid';
 import {
@@ -39,6 +39,7 @@ import { dispatchOperation } from '../services/operationService';
 import { roundMoney } from '../utils/tax';
 import { formatMoney, formatNumber, formatQty, roundQty } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
+import { findProductBarcodeMatch } from '../utils/productUnits';
 
 export default function POS() {
   const { user } = useAuth();
@@ -356,9 +357,10 @@ export default function POS() {
         setSearchQuery('');
       }
     } else {
-      const dbProduct = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
-      if (dbProduct) {
-        addItem(dbProduct);
+      const dbProducts = await getPosRecords<any>('products');
+      const dbMatch = findProductBarcodeMatch(dbProducts, barcode);
+      if (dbMatch) {
+        addItem(dbMatch.product, dbMatch.matchedUnit?.name);
         if (searchInputRef.current) {
           searchInputRef.current.value = '';
           setSearchQuery('');
