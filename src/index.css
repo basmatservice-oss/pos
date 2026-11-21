@@ -287,3 +287,18 @@ body.theme-playful {
 @media (max-width: 380px) {
   .apps-hub { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
+
+
+/* Numeric entry is always Western (0-9), left-to-right, and easy to edit on phones. */
+input[type="number"],
+input[inputmode="numeric"],
+input[inputmode="decimal"] {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: plaintext;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+input[type="number"] { -webkit-appearance: textfield; appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { opacity: 0.65; }
