@@ -154,7 +154,6 @@ export async function seedDefaultUsersAndAccounts() {
       name: 'المدير العام',
       username: 'admin',
       password: hashSecret('admin'),
-      pinCode: hashSecret('1234'),
       mustChangePassword: 1,
       role: 'admin',
       phone: '0000000000',
@@ -188,7 +187,7 @@ export async function seedDefaultUsersAndAccounts() {
   const admin = admins[0];
   if (admin.mustChangePassword && verifySecret('123456', admin.password)) {
     await db.update(employees)
-      .set({ password: hashSecret('admin'), mustChangePassword: 1, updatedAt: now, isSynced: 0 })
+      .set({ password: hashSecret('admin'), pinCode: null, mustChangePassword: 1, updatedAt: now, isSynced: 0 })
       .where(eq(employees.id, admin.id));
   }
 }
