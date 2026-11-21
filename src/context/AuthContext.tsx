@@ -151,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentPassword || !newPassword || newPassword.length < 6 || newPassword === 'admin') {
       throw new Error('يرجى إدخال كلمة المرور الحالية وكلمة مرور جديدة لا تقل عن 6 أحرف ولا تكون كلمة المرور الافتراضية');
     }
-    if (newPinCode && (!/^\\d{4,}$/.test(newPinCode) || newPinCode === '1234')) {
+    if (newPinCode && (!/^\d{4,}$/.test(newPinCode) || newPinCode === '1234')) {
       throw new Error('رمز PIN يجب أن يتكون من أربعة أرقام على الأقل وألا يكون الرمز الافتراضي');
     }
     const verifiers = loadOfflineVerifiers();
