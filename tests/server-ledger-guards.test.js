@@ -105,6 +105,9 @@ test('product cost updates require an explicit price-maintenance operation flag'
   assert.ok(productGuard.includes('payload.allowProductPriceUpdate !== true'));
   assert.ok(productGuard.includes('normalizedClean.costPrice = prevProduct.costPrice'));
   assert.ok(productGuard.includes('normalizedClean.costInUSD = prevProduct.costInUSD'));
+  assert.ok(productGuard.includes('normalizedClean.sellingPrice = prevProduct.sellingPrice'));
+  assert.ok(productGuard.includes('normalizedClean.priceInUSD = prevProduct.priceInUSD'));
+  assert.ok(productGuard.includes('normalizedClean.unitsJson = prevProduct.unitsJson'));
 });
 
 test('sale and return amounts use immutable order-item price and cost snapshots', () => {
