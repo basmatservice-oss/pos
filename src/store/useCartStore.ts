@@ -92,7 +92,7 @@ export const useCartStore = create<CartState>()(
       taxRate: 15,
 
       addItem: (product, unit, initialQuantity = 1) => {
-        const targetUnit = unit || 'piece';
+        const targetUnit = unit || product.unit || 'piece';
         const units = getProductUnits(product);
         const unitMeta = units.find((u) => u.name === targetUnit);
         const qtyToAdd = roundQty(Math.max(0.001, initialQuantity));
