@@ -196,8 +196,8 @@ export default function Returns() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
-      <div className="flex justify-between items-center mb-6 shrink-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">مرتجعات المبيعات</h1>
           <p className="text-slate-500 text-sm mt-1">
@@ -206,8 +206,8 @@ export default function Returns() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 mb-6 shrink-0">
-        <form onSubmit={searchOrder} className="flex gap-3 max-w-2xl">
+      <div className="mb-4 shrink-0 rounded-2xl border border-slate-200 bg-white p-3 sm:mb-6 sm:p-5">
+        <form onSubmit={searchOrder} className="flex w-full max-w-2xl flex-col gap-2.5 sm:flex-row sm:gap-3">
           <div className="relative flex-1">
             <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
@@ -245,8 +245,8 @@ export default function Returns() {
             </div>
           </div>
 
-          <div className="overflow-x-auto p-5">
-            <table className="w-full text-right">
+          <div className="overflow-x-auto p-3 sm:p-5">
+            <table className="w-full min-w-[680px] text-right sm:min-w-0">
               <thead>
                 <tr className="text-slate-500 text-xs font-bold border-b border-slate-200">
                   <th className="pb-3">المنتج</th>
