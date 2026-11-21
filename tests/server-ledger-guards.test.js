@@ -98,3 +98,22 @@ test('server rejects sale and return payloads that the native SQLite operation p
   assert.ok(operations.includes('بيانات كمية أو معامل تحويل الصنف الأصلي غير صالحة'));
   assert.ok(operations.includes('القيم المالية للصنف الأصلي غير صالحة'));
 });
+
+test('product cost updates require an explicit price-maintenance operation flag', () => {
+  const productGuard = operations.match(/if \(tableName === 'products' && normalizedClean\.id[\s\S]*?\n  \}/)?.[0] || '';
+  assert.ok(productGuard.includes('normalizedClean.stockQuantity = prevProduct.stockQuantity'));
+  assert.ok(productGuard.includes('payload.allowProductPriceUpdate !== true'));
+  assert.ok(productGuard.includes('normalizedClean.costPrice = prevProduct.costPrice'));
+  assert.ok(productGuard.includes('normalizedClean.costInUSD = prevProduct.costInUSD'));
+});
+
+test('sale and return amounts use immutable order-item price and cost snapshots', () => {
+  const sale = operations.match(/function handleSale\([\s\S]*?\n\}/)?.[0] || '';
+  const ret = operations.match(/function handleReturn\([\s\S]*?\n\}/)?.[0] || '';
+  assert.ok(sale.includes('unitPrice: Number(item.unitPrice || 0)'));
+  assert.ok(sale.includes('costPriceAtTimeOfSale: unitCostForSale'));
+  assert.ok(ret.includes('Number(origItem.subTotal)'));
+  assert.ok(ret.includes('Number(origItem.total)'));
+  assert.ok(ret.includes('Number(origItem.costPriceAtTimeOfSale || 0)'));
+  assert.ok(ret.includes('origItem.batchAllocations'));
+});
