@@ -20,15 +20,6 @@ import { ItemCardModal } from '../components/ItemCardModal';
 import { findProductBarcodeMatch } from '../utils/productUnits';
 import { buildProductPricingAnchors } from '../utils/exchangePricing';
 
-interface FxReviewItem {
-  product: Product;
-  selected: boolean;
-  newCost: number;
-  currentPrice: number;
-  suggestedPrice: number;
-  targetPrice: number;
-}
-
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -37,8 +28,6 @@ export default function Inventory() {
   const [itemCardProduct, setItemCardProduct] = useState<Product | null>(null);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
-  const [fxReviewItems, setFxReviewItems] = useState<FxReviewItem[] | null>(null);
-  const [isApplyingFx, setIsApplyingFx] = useState(false);
   const { user } = useAuth();
   
   const hasPermission = (permission: string) => {
@@ -675,81 +664,6 @@ export default function Inventory() {
     });
   };
 
-  const handleUpdatePricesFromExchangeRate = () => {
-    const rate = Number(storeSettings.exchangeRate || 0);
-    if (!rate || rate <= 0) {
-      toast.error('يرجى تعيين سعر صرف صحيح في الإعدادات أولاً');
-      return;
-    }
-
-    const productsToUpdate = allProducts.filter(p => p.priceInUSD || p.costInUSD);
-    if (productsToUpdate.length === 0) {
-      toast('لا توجد منتجات مسعرة بالدولار لتحديثها', { icon: 'ℹ️' });
-      return;
-    }
-
-    const marginRatio = Math.min(0.9, Math.max(0, Number(storeSettings.targetProfitMargin ?? 25) / 100));
-    const reviewList: FxReviewItem[] = productsToUpdate.map((p) => {
-      const newCost = p.costInUSD
-        ? roundAmount(Number(p.costInUSD) * rate, storeSettings.currencyDecimals)
-        : Number(p.costPrice || 0);
-      const suggested = p.priceInUSD
-        ? roundAmount(Number(p.priceInUSD) * rate, storeSettings.currencyDecimals)
-        : roundAmount(marginRatio < 1 ? newCost / (1 - marginRatio) : newCost * 1.25, storeSettings.currencyDecimals);
-      return {
-        product: p,
-        selected: true,
-        newCost,
-        currentPrice: Number(p.sellingPrice || 0),
-        suggestedPrice: suggested,
-        targetPrice: suggested,
-      };
-    });
-
-    setFxReviewItems(reviewList);
-  };
-
-  const handleApplyFxReview = async () => {
-    if (!fxReviewItems) return;
-    const selected = fxReviewItems.filter((item) => item.selected);
-    if (selected.length === 0) {
-      setFxReviewItems(null);
-      return;
-    }
-    setIsApplyingFx(true);
-    try {
-      const now = new Date().toISOString();
-      for (const item of selected) {
-        const updatedProduct: any = {
-          ...item.product,
-          costPrice: item.newCost,
-          sellingPrice: Number(item.targetPrice) || item.suggestedPrice,
-          updatedAt: now,
-        };
-        await dispatchOperation(
-          'entity_upsert',
-          { table: 'products', record: updatedProduct },
-          user?.branchId
-        );
-      }
-      await logAction(
-        user?.name || 'Unknown',
-        'تحديث أسعار الصرف',
-        'product',
-        `تم اعتماد وتحديث أسعار ${selected.length} منتج حسب سعر الصرف ${storeSettings.exchangeRate}`,
-        0,
-        0
-      );
-      toast.success(`تم تحديث أسعار ${selected.length} منتج بنجاح`);
-      setFxReviewItems(null);
-    } catch (error) {
-      console.error(error);
-      toast.error('حدث خطأ أثناء تحديث الأسعار');
-    } finally {
-      setIsApplyingFx(false);
-    }
-  };
-
   const handleExportCSV = () => {
     const headers = ['الباركود', 'اسم المنتج', 'التكلفة', 'سعر البيع', 'الكمية', 'نسبة الضريبة'];
     const csvContent = [
@@ -904,16 +818,6 @@ export default function Inventory() {
                 <Download className="w-5 h-5" />
                 تصدير CSV
               </button>
-              {hasPermission('edit_product') && (
-                <button 
-                  onClick={handleUpdatePricesFromExchangeRate}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm border border-indigo-200"
-                  title={`مراجعة الأسعار للمنتجات القديمة المرتبطة بالدولار فقط؛ السعر المحلي لبقية المنتجات لا يتغير`}
-                >
-                  <RefreshCcw className="w-5 h-5" />
-                  مراجعة المنتجات المرتبطة بالدولار
-                </button>
-              )}
               {hasPermission('add_product') && (
                 <>
                   <button 
@@ -1821,91 +1725,6 @@ export default function Inventory() {
                 className="px-8 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-colors shadow-sm"
               >
                 إلغاء العملية
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk FX Price Review Modal */}
-      {fxReviewItems && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl">
-          <div className="bg-white w-full max-w-4xl max-h-[88vh] rounded-3xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-gray-900">مراجعة تسعير المنتجات القديمة المرتبطة بالدولار ({storeSettings.exchangeRate})</h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  هذه المراجعة لا تشمل المنتجات المسعرة مباشرة بعملة النظام. مقترح بهامش ربح مستهدف {storeSettings.targetProfitMargin ?? 25}% — راجع وعدّل الأسعار قبل الاعتماد.
-                </p>
-              </div>
-              <button onClick={() => setFxReviewItems(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6">
-              <table className="w-full text-xs text-right">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="p-3">تطبيق</th>
-                    <th className="p-3">الصنف</th>
-                    <th className="p-3">التكلفة الجديدة</th>
-                    <th className="p-3">سعر البيع الحالي</th>
-                    <th className="p-3">السعر المقترح</th>
-                    <th className="p-3">السعر المعتمد</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {fxReviewItems.map((row, idx) => (
-                    <tr key={row.product.id}>
-                      <td className="p-3">
-                        <input
-                          type="checkbox"
-                          checked={row.selected}
-                          onChange={(e) => {
-                            const next = [...fxReviewItems];
-                            next[idx] = { ...row, selected: e.target.checked };
-                            setFxReviewItems(next);
-                          }}
-                          className="w-4 h-4 accent-indigo-600"
-                        />
-                      </td>
-                      <td className="p-3 font-bold text-gray-900">{row.product.name}</td>
-                      <td className="p-3 tabular-nums font-bold">{formatMoney(row.newCost, storeSettings.currency, storeSettings.currencyDecimals)}</td>
-                      <td className="p-3 tabular-nums text-gray-500">{formatMoney(row.currentPrice, storeSettings.currency, storeSettings.currencyDecimals)}</td>
-                      <td className="p-3 tabular-nums font-bold text-emerald-700">{formatMoney(row.suggestedPrice, storeSettings.currency, storeSettings.currencyDecimals)}</td>
-                      <td className="p-3">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={row.targetPrice}
-                          onChange={(e) => {
-                            const next = [...fxReviewItems];
-                            next[idx] = { ...row, targetPrice: Number(e.target.value) };
-                            setFxReviewItems(next);
-                          }}
-                          className="w-28 px-2.5 py-1.5 border border-indigo-200 rounded-lg font-bold text-indigo-700"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="p-5 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setFxReviewItems(null)}
-                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-sm"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={isApplyingFx}
-                onClick={handleApplyFxReview}
-                className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isApplyingFx ? 'جاري التحديث...' : `اعتماد تحديث ${fxReviewItems.filter((i) => i.selected).length} صنف`}
               </button>
             </div>
           </div>
