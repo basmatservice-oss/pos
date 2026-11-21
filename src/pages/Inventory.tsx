@@ -18,7 +18,7 @@ import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import { findProductBarcodeMatch } from '../utils/productUnits';
-import { buildProductPricingAnchors } from '../utils/exchangePricing';
+import { buildProductPricingAnchors, buildProductUnitFxAnchors } from '../utils/exchangePricing';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -552,7 +552,7 @@ export default function Inventory() {
         conversionFactor: editingProduct?.conversionFactor || 1,
         itemType: formData.itemType,
         allowFractions: formData.allowFractions,
-        unitsJson: validUnits.length > 0 ? JSON.stringify(validUnits) : undefined,
+        unitsJson: validUnits.length > 0 ? JSON.stringify(buildProductUnitFxAnchors(validUnits, sellingFxLinked, currentFxRate)) : undefined,
         branchId: editingProduct?.branchId ?? user?.branchId,
         updatedAt: now,
       };
@@ -1332,7 +1332,7 @@ export default function Inventory() {
                       />
                       <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
                         <input type="checkbox" checked={costFxLinked} onChange={e => setCostFxLinked(e.target.checked)} className="rounded" />
-                        ربط التكلفة بالدولار وتحديثها عند اعتماد سعر صرف جديد
+                        ربط التكلفة بالدولار؛ ألغِ التحديد لتثبيتها بالجنيه
                       </label>
                     </div>
                   )}
@@ -1349,7 +1349,7 @@ export default function Inventory() {
                     />
                     <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
                       <input type="checkbox" checked={sellingFxLinked} onChange={e => setSellingFxLinked(e.target.checked)} className="rounded" />
-                      ربط سعر البيع بالدولار وتحديثه عند اعتماد سعر صرف جديد
+                      ربط سعر البيع بالدولار؛ ألغِ التحديد لتثبيته بالجنيه
                     </label>
                     <p className="mt-1 text-xs text-gray-500">السعر المدخل هنا بالجنيه السوداني. يحتفظ النظام بالمقابل بالدولار تلقائيًا عند تفعيل الربط.</p>
                   </div>
