@@ -296,8 +296,9 @@ function AppContent() {
     );
   }
 
-  // Smart redirection based on role/device
-  const isMobileUser = user.deviceType === 'mobile' || user.role === 'sales_rep';
+  // Standalone Android is a full POS workstation, not the restricted mobile-client UI.
+  // Keep the compact mobile-sales experience only for devices operating as server clients.
+  const isMobileUser = deviceRole !== 'standalone' && (user.deviceType === 'mobile' || user.role === 'sales_rep');
 
   return (
     <BrowserRouter>
