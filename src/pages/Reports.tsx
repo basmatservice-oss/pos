@@ -52,6 +52,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import { formatNumber, formatQty } from '../utils/format';
 import { buildOperationalProductReport } from '../utils/operationalProductReport';
+import { getImmutableSaleLineCostTotal } from '../utils/salesCostSnapshot';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -200,7 +201,6 @@ export default function Reports() {
   };
 
   const stats = useMemo(() => {
-    const { idMap: productIdMap } = useInventoryStore.getState();
     const today = new Date();
     let startDate = startOfDay(today);
     let endDate = endOfDay(today);
@@ -307,19 +307,18 @@ export default function Reports() {
     const filteredOrderItems = orderItems.filter((item) => filteredOrderIds.has(item.orderId));
 
     let grossCost = 0;
+    let missingCostSnapshotCount = 0;
     filteredOrderItems.forEach((item) => {
-      const unitCost =
-        item.costPriceAtTimeOfSale !== undefined && item.costPriceAtTimeOfSale !== null
-          ? Number(item.costPriceAtTimeOfSale)
-          : Number(productIdMap.get(item.productId)?.costPrice || 0);
-      grossCost += unitCost * Number(item.quantity || 0);
+      const lineCost = getImmutableSaleLineCostTotal(item);
+      if (lineCost === null) missingCostSnapshotCount += 1;
+      else grossCost += lineCost;
     });
 
     const returnedCost = filteredReturns.reduce((sum, r) => sum + Number(r.totalCostReversed || 0), 0);
     const totalCost = Math.max(0, grossCost - returnedCost);
 
     const grossProfit = totalRevenueExclVat - totalCost;
-    const netProfit = grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
+    const netProfit = missingCostSnapshotCount > 0 ? null : grossProfit - totalExpenses - totalPayrolls - stocktakeAdjustments;
 
     // Last 7 days chart excluding voided orders & separating VAT
     const chartData = Array.from({ length: 7 }).map((_, i) => {
@@ -416,6 +415,7 @@ export default function Reports() {
       totalPayrolls,
       stocktakeAdjustments,
       totalCost,
+      missingCostSnapshotCount,
       totalPurchases,
       totalPointsEarned,
       totalPointsRedeemed,
@@ -474,8 +474,9 @@ export default function Reports() {
     quantity: totals.quantity + row.netQuantity,
     sales: totals.sales + row.netSales,
     cost: totals.cost + row.netCost,
-    profit: totals.profit + row.profit,
-  }), { quantity: 0, sales: 0, cost: 0, profit: 0 }), [operationalProductRows]);
+    profit: totals.profit + (row.profit ?? 0),
+    missingCostSnapshots: totals.missingCostSnapshots + (row.missingCostSnapshot ? 1 : 0),
+  }), { quantity: 0, sales: 0, cost: 0, profit: 0, missingCostSnapshots: 0 }), [operationalProductRows]);
 
   const handleExportCSV = () => {
     const headers = ['رقم الفاتورة', 'التاريخ', 'الصافي بدون ضريبة', 'الضريبة', 'الإجمالي شامل الضريبة', 'طريقة الدفع', 'الحالة'];
@@ -614,7 +615,7 @@ export default function Reports() {
                 </h3>
                 <div className="flex items-center gap-1 mt-1 text-emerald-600">
                   <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span className="text-xs font-bold">صافي الربح: {formatNumber(stats.netProfit, decimals)}</span>
+                  <span className="text-xs font-bold">صافي الربح: {stats.netProfit === null ? 'غير مكتمل' : formatNumber(stats.netProfit, decimals)}</span>
                 </div>
               </div>
             </div>
@@ -665,6 +666,12 @@ export default function Reports() {
               </div>
             </div>
           </div>
+
+          {stats.missingCostSnapshotCount > 0 && (
+            <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800">
+              لا يمكن عرض صافي الربح بدقة: توجد {stats.missingCostSnapshotCount} بنود بيع قديمة بلا تكلفة محفوظة وقت البيع أو تخصيص دفعات صالح. لم يستخدم النظام تكلفة المنتج الحالية بدلًا منها حتى لا يغيّر أرباح الفترات السابقة.
+            </p>
+          )}
 
           {/* Payment Distribution Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 shrink-0 tabular-nums">
@@ -1050,7 +1057,7 @@ export default function Reports() {
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">الكمية الصافية</p><p className="mt-1 text-lg font-black">{formatQty(productReportTotals.quantity, qtyDecimals)}</p></div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">صافي المبيعات</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.sales, decimals)} {storeSettings.currency}</p></div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">تكلفة الأصناف</p><p className="mt-1 text-lg font-black">{formatNumber(productReportTotals.cost, decimals)} {storeSettings.currency}</p></div>
-            <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">الربح الإجمالي</p><p className="mt-1 text-lg font-black text-emerald-700">{formatNumber(productReportTotals.profit, decimals)} {storeSettings.currency}</p></div>
+            <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">الربح الإجمالي</p><p className="mt-1 text-lg font-black text-emerald-700">{productReportTotals.missingCostSnapshots > 0 ? 'غير مكتمل' : formatNumber(productReportTotals.profit, decimals)} {productReportTotals.missingCostSnapshots > 0 ? '' : storeSettings.currency}</p></div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full min-w-[760px] text-right text-sm">
@@ -1067,13 +1074,16 @@ export default function Reports() {
                     <td className="p-3">{formatQty(row.quantityReturned, qtyDecimals)}</td>
                     <td className="p-3 font-bold">{formatQty(row.netQuantity, qtyDecimals)}</td>
                     <td className="p-3">{formatNumber(row.netSales, decimals)}</td>
-                    <td className="p-3">{formatNumber(row.netCost, decimals)}</td>
-                    <td className={`p-3 font-black ${row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatNumber(row.profit, decimals)}</td>
+                    <td className="p-3">{row.missingCostSnapshot ? 'غير مكتملة' : formatNumber(row.netCost, decimals)}</td>
+                    <td className={`p-3 font-black ${row.profit !== null && row.profit >= 0 ? 'text-emerald-700' : row.profit === null ? 'text-amber-700' : 'text-rose-700'}`}>{row.profit === null ? 'غير مكتمل' : formatNumber(row.profit, decimals)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {productReportTotals.missingCostSnapshots > 0 && (
+            <p className="text-xs leading-6 text-amber-700">هناك {productReportTotals.missingCostSnapshots} أصناف لا تتوفر لبعض مبيعاتها تكلفة تاريخية موثقة؛ لذلك لم نحسب ربحها بدل استخدام التكلفة الحالية.</p>
+          )}
           <p className="text-xs leading-6 text-slate-500">الربح هنا قبل المصروفات العامة. تكلفة المنتجات المخزنية تُؤخذ من تكلفة البيع الفعلية، وتكلفة «الخدمة بمواد» من دفعات المواد المستهلكة. الخدمة العادية لا تخصم مخزونًا؛ لذلك تُسجل أجور التشغيل والعمالة في المصروفات ولا تُوزع على كل خدمة تلقائيًا. هذا التقرير تشغيلي ولا يحل محل القوائم المحاسبية أو دفتر الأستاذ.</p>
         </section>
       )}
