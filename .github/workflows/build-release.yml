@@ -101,6 +101,7 @@ jobs:
           mkdir -p android/app/src/main/java/com/smartpos/studio
           find android/app/src/main/java -name 'MainActivity.java' -delete
           cp native/android/PosLocalDatabasePlugin.kt android/app/src/main/java/com/smartpos/studio/
+          cp native/android/PosCameraPermissionPlugin.kt android/app/src/main/java/com/smartpos/studio/
           cp native/android/MainActivity.kt android/app/src/main/java/com/smartpos/studio/
           npx cap sync android
 
