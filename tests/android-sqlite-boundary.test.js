@@ -167,3 +167,17 @@ test('product editor blocks duplicate submissions and reports success only after
   assert.ok(readBack >= 0 && success > readBack, 'success must not appear before authoritative read-back');
   assert.match(handler, /if \(!persistedProduct\)/);
 });
+
+test('Windows SQLite validates every registered business entity after migration and on later launches', async () => {
+  const source = await read('../src/main.tsx');
+  assert.match(source, /async function validateElectronClientSnapshot/);
+  assert.match(source, /for \\(const entity of NATIVE_POS_ENTITIES\\)/);
+  assert.match(source, /electronPosRepository\\.getAllWithSyncState\\(entity\\)/);
+  assert.match(source, /getNativePosRecordId\\(entity, row\\.record\\)/);
+  assert.match(source, /Windows SQLite identity validation failed/);
+  const desktopStart = source.indexOf('if (isElectronDesktop()) {');
+  const validationCall = source.indexOf('await validateElectronClientSnapshot()', desktopStart);
+  const restoreCall = source.indexOf('await restoreDesktopRuntimeConfig()', validationCall);
+  assert.ok(desktopStart >= 0 && validationCall > desktopStart && restoreCall > validationCall,
+    'Windows client snapshot validation must complete before the UI starts');
+});
