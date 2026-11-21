@@ -2686,8 +2686,13 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       // valuation are controlled by inventory business operations and must not
       // be overwritten by a stale offline snapshot.
       normalizedClean.stockQuantity = prevProduct.stockQuantity;
-      normalizedClean.costPrice = prevProduct.costPrice;
-      normalizedClean.costInUSD = prevProduct.costInUSD;
+      // Explicit price maintenance is allowed only for an approved product
+      // price edit / FX recalculation. Generic stale snapshots still cannot
+      // overwrite the server's inventory valuation.
+      if (payload.allowProductPriceUpdate !== true) {
+        normalizedClean.costPrice = prevProduct.costPrice;
+        normalizedClean.costInUSD = prevProduct.costInUSD;
+      }
     }
   }
   if (tableName === 'customers') {
