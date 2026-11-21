@@ -216,12 +216,12 @@ function AppContent() {
         const isMobileApp = !!(window as any).Capacitor || !!(window as any).cordova;
 
         if (isMobileApp) {
-          // Preserve a standalone role selected during mobile onboarding.
-          // Existing installs without a saved role remain clients.
-          const mobileRole = roleSetting?.value === 'standalone' ? 'standalone' : 'client';
+          // Android supports standalone SQLite mode or an explicitly configured LAN client.
+          // Legacy/missing "server" roles on Android are normalized to standalone.
+          const mobileRole = roleSetting?.value === 'client' ? 'client' : 'standalone';
           setDeviceRole(mobileRole as DeviceRole);
-          if (!roleSetting) {
-            await writeAppSetting('deviceRole', mobileRole);
+          if (roleSetting?.value !== mobileRole) {
+            await putPosSetting('deviceRole', mobileRole, 'local');
           }
           if (typeSetting && typeSetting.value) {
             setBusinessType(typeSetting.value as BusinessType);
