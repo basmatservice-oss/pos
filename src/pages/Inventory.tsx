@@ -326,8 +326,8 @@ export default function Inventory() {
               aspectRatio: 16 / 9,
               disableFlip: false,
               qrbox: (width, height) => ({
-                width: Math.max(240, Math.floor(width * 0.92)),
-                height: Math.max(90, Math.min(190, Math.floor(height * 0.34))),
+                width: Math.max(1, Math.min(width, Math.floor(width * 0.92))),
+                height: Math.max(1, Math.min(height, Math.max(90, Math.min(190, Math.floor(height * 0.34))))),
               }),
               videoConstraints: {
                 facingMode: { ideal: 'environment' },
@@ -555,7 +555,7 @@ export default function Inventory() {
           user?.branchId
         );
         savedParentId = res?.result?.id || editingProduct.id;
-        await logAction(user?.name || 'Unknown', 'تحديث منتج', 'product', `تم تحديث المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
+        await logAction(user?.name || 'Unknown', 'تحديث منتج', 'product', `تم تحديث المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name).catch((auditError) => console.warn('Product saved; audit log will be retried separately:', auditError));
         toast.success('تم تحديث المنتج بنجاح');
       } else {
         const tempId = makeTempNumericId();
@@ -572,7 +572,7 @@ export default function Inventory() {
           user?.branchId
         );
         savedParentId = res?.result?.id || tempId;
-        await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name);
+        await logAction(user?.name || 'Unknown', 'إضافة منتج', 'product', `تمت إضافة المنتج: ${formData.name}`, 0, Number(formData.sellingPrice), formData.name).catch((auditError) => console.warn('Product saved; audit log will be retried separately:', auditError));
         toast.success('تمت إضافة المنتج بنجاح');
       }
 
