@@ -45,6 +45,9 @@ jobs:
       - name: Build native SQLite renderer without Dexie
         run: npm run build:native
 
+      - name: Verify Android renderer excludes Dexie
+        run: npm run test:native-bundle
+
       - name: Add and configure Capacitor Android project
         shell: bash
         run: |
