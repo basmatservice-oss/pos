@@ -62,3 +62,12 @@ test('repricing a current product cannot mutate a previously issued sale snapsho
   assert.equal(repriced.costPrice, 105000);
   assert.deepEqual(oldSaleLine, { productId: 3, unitPrice: 100000, costPriceAtTimeOfSale: 70000, total: 100000 });
 });
+
+test('historical COGS uses saved snapshots or complete FIFO allocations only', async () => {
+  const { getImmutableSaleLineCostTotal } = await import('../src/utils/salesCostSnapshot.js');
+  assert.equal(getImmutableSaleLineCostTotal({ quantity: 2, conversionFactor: 1, batchAllocations: '[]' }), null);
+  assert.equal(getImmutableSaleLineCostTotal({ quantity: 2, conversionFactor: 1, batchAllocations: JSON.stringify([{ quantity: 1, costPrice: 5 }]) }), null);
+  assert.equal(getImmutableSaleLineCostTotal({ quantity: 2, conversionFactor: 1, batchAllocations: JSON.stringify([{ quantity: 2, costPrice: 5 }]) }), 10);
+  assert.equal(getImmutableSaleLineCostTotal({ quantity: 2, itemType: 'service', batchAllocations: JSON.stringify({ kind: 'service' }) }), 0);
+  assert.equal(getImmutableSaleLineCostTotal({ quantity: 2, costPriceAtTimeOfSale: 7 }), 14);
+});
