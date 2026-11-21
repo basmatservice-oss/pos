@@ -12,19 +12,6 @@ import {
   Clock,
   ChevronLeft,
   LayoutDashboard,
-  ShoppingCart,
-  RotateCcw,
-  ClipboardCheck,
-  Truck,
-  UserCircle,
-  UserCheck,
-  DollarSign,
-  Tag,
-  Building2,
-  Smartphone,
-  Settings,
-  RefreshCw,
-  FileText,
 } from 'lucide-react';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -178,13 +165,13 @@ export default function Dashboard() {
       {/* Main Stats Grid */}
       <div className={`mb-5 grid ${isAndroidStandalone ? "grid-cols-2 gap-3" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"} sm:mb-6`}>
         {quickStats.map((stat, idx) => (
-          <div key={idx} className={`flex min-w-0 items-center rounded-[18px] border border-slate-200/90 bg-white ${isAndroidStandalone ? "gap-2.5 p-3.5" : "gap-4 p-5"} shadow-[0_2px_10px_rgba(15,23,42,0.025)]`}>
-            <div className={`${isAndroidStandalone ? "rounded-xl p-2.5" : "rounded-xl p-3"} border ${stat.bg} ${stat.color} shrink-0`}>
+          <div key={idx} className={`flex min-w-0 items-center rounded-[18px] border ${isAndroidStandalone && idx === 0 ? "col-span-2 border-indigo-700 bg-gradient-to-l from-[#243b70] to-[#4267b2] p-4 text-white shadow-[0_10px_24px_rgba(37,69,135,0.18)]" : `border-slate-200/90 bg-white ${isAndroidStandalone ? "gap-2.5 p-3.5" : "gap-4 p-5"} shadow-[0_2px_10px_rgba(15,23,42,0.025)]`}`}>
+            <div className={`${isAndroidStandalone ? "rounded-xl p-2.5" : "rounded-xl p-3"} shrink-0 ${isAndroidStandalone && idx === 0 ? "border border-white/15 bg-white/10 text-white" : `border ${stat.bg} ${stat.color}`}`}>
               <stat.icon className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold leading-4 text-slate-500 sm:text-xs">{stat.label}</p>
-              <p className={`${isAndroidStandalone ? "text-sm sm:text-base" : "text-xl"} mt-1 break-words font-black leading-tight text-slate-900 tabular-nums`}>
+              <p className={`text-[10px] font-bold leading-4 sm:text-xs ${isAndroidStandalone && idx === 0 ? "text-indigo-100" : "text-slate-500"}`}>{stat.label}</p>
+              <p className={`${isAndroidStandalone ? (idx === 0 ? "text-2xl sm:text-3xl" : "text-sm sm:text-base") : "text-xl"} mt-1 break-words font-black leading-tight ${isAndroidStandalone && idx === 0 ? "text-white" : "text-slate-900"} tabular-nums`}>
                 {typeof stat.value === 'number' && stat.label !== 'عدد الطلبات' && stat.label !== 'نقاط الولاء'
                   ? `${stat.value.toFixed(2)} ${storeSettings.currency}`
                   : stat.value}
