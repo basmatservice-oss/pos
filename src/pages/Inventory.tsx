@@ -809,13 +809,13 @@ export default function Inventory() {
   const lowStockCount = products.filter(p => (p.itemType || 'stock') === 'stock' && p.stockQuantity <= (p.minStockLevel || 5)).length;
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)]">
-      <div className="flex justify-between items-center mb-6 shrink-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">إدارة المخزون</h2>
           <p className="text-gray-500 text-sm mt-1">إدارة المنتجات، التصنيفات، والأسعار</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2">
           {activeTab === 'products' ? (
             <>
               <label className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm cursor-pointer">
@@ -881,7 +881,7 @@ export default function Inventory() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b border-gray-200 pb-2">
+      <div className="mb-4 flex shrink-0 gap-2 overflow-x-auto border-b border-gray-200 pb-2 sm:mb-6">
         <button
           onClick={() => setActiveTab('products')}
           className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center gap-2 ${
@@ -908,7 +908,7 @@ export default function Inventory() {
 
       {activeTab === 'products' && (
         <>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
+        <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-6 lg:grid-cols-3 lg:gap-4">
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
           <p className="text-gray-500 text-sm mb-1">إجمالي قيمة المخزون (تكلفة)</p>
           <p className="text-xl font-bold text-gray-900 tabular-nums">{formatMoney(totalCostValue, storeSettings.currency, storeSettings.currencyDecimals)}</p>
@@ -923,7 +923,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-h-[24rem] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         {/* Toolbar */}
         <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row gap-4 shrink-0 bg-gray-50/50">
           <form onSubmit={handleSearchSubmit} className="relative flex-1 max-w-md">
@@ -960,8 +960,8 @@ export default function Inventory() {
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-right">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
+          <table className="min-w-[760px] divide-y divide-gray-200 text-right sm:min-w-full">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th scope="col" className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">المنتج</th>
