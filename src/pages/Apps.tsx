@@ -65,6 +65,7 @@ export default function Apps() {
     ),
   })).filter(group => group.items.length > 0), [user, query]);
   const count = visibleGroups.reduce((sum, group) => sum + group.items.length, 0);
+  const canUsePos = user?.role === 'admin' || user?.permissions?.includes('view_pos');
 
   return (
     <div className="apps-hub h-full overflow-y-auto bg-[#f4f6fb] px-4 pb-6 pt-4 sm:px-6" dir="rtl">
@@ -91,13 +92,13 @@ export default function Apps() {
           </div>
         </section>
 
-        <Link to="/pos" className="group mb-6 flex min-h-[94px] items-center justify-between gap-4 rounded-[22px] border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white p-4 shadow-[0_6px_20px_rgba(16,185,129,0.07)] transition hover:border-emerald-300 sm:p-5">
+        {canUsePos && <Link to="/pos" className="group mb-6 flex min-h-[94px] items-center justify-between gap-4 rounded-[22px] border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white p-4 shadow-[0_6px_20px_rgba(16,185,129,0.07)] transition hover:border-emerald-300 sm:p-5">
           <div className="flex min-w-0 items-center gap-3.5">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><ShoppingBag className="h-7 w-7" /></span>
             <span className="min-w-0"><span className="block text-base font-black text-slate-900">بدء عملية بيع</span><span className="mt-1 block text-xs text-slate-500">انتقل مباشرة إلى شاشة الكاشير</span></span>
           </div>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 transition group-hover:-translate-x-1"><ArrowLeft className="h-5 w-5" /></span>
-        </Link>
+        </Link>}
 
         {visibleGroups.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center">
