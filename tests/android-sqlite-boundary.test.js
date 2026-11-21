@@ -107,3 +107,14 @@ test('native Android and Windows bundles hard-disable Dexie and retain it only f
   assert.match(pkg.scripts['build:native'], /POS_NATIVE_SQLITE_BUILD=1/);
   assert.match(pkg.scripts['package:win'], /build:native/);
 });
+
+test('product upsert on Android and Windows client commits through SQLite before returning', async () => {
+  const source = await read('../src/services/operationService.ts');
+  const start = source.indexOf('async function applyEntityLocally');
+  const end = source.indexOf('async function validateLocalOperationFiscalPeriod', start);
+  assert.ok(start >= 0 && end > start, 'local entity operation handler must remain explicit');
+  const handler = source.slice(start, end);
+  assert.match(handler, /if \(isLocalSqlite\(\)\)[\s\S]*?nativePosRepository\.applyChanges\(changes\)/);
+  assert.match(handler, /if \(applied !== changes\.length\) throw new Error\('لم تؤكد SQLite حفظ جميع سجلات الصنف'\)/);
+  assert.match(handler, /if \(isLocalSqlite\(\)\) \{[\s\S]*?existingProduct = await nativePosRepository\.get<any>\('products'/);
+});
