@@ -17,6 +17,7 @@ import { formatMoney, formatQty, roundQty, roundAmount } from '../utils/format';
 import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
+import { findProductBarcodeMatch } from '../utils/productUnits';
 
 interface FxReviewItem {
   product: Product;
@@ -253,9 +254,10 @@ export default function Inventory() {
       handleOpenModal(existingProduct);
     } else {
       // Fallback to DB
-      const dbProd = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
-      if (dbProd) {
-        handleOpenModal(dbProd);
+      const dbProducts = await getPosRecords<Product>('products');
+      const dbMatch = findProductBarcodeMatch(dbProducts, barcode);
+      if (dbMatch) {
+        handleOpenModal(dbMatch.product);
       } else {
         toast.success('منتج جديد، يرجى إكمال البيانات');
         handleOpenModal(undefined, barcode);
@@ -382,9 +384,10 @@ export default function Inventory() {
     if (!barcode) return;
     
     // Check if what was entered/scanned is an exact barcode match - optimized lookup
-    const existingProduct = await getFirstPosRecordWhereEquals<any>('products', 'barcode', barcode);
-    if (existingProduct) {
-      handleOpenModal(existingProduct);
+    const dbProducts = await getPosRecords<Product>('products');
+    const barcodeMatch = findProductBarcodeMatch(dbProducts, barcode);
+    if (barcodeMatch) {
+      handleOpenModal(barcodeMatch.product);
       if (mainSearchInputRef.current) {
         mainSearchInputRef.current.value = '';
         setSearchQuery('');
