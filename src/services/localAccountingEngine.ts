@@ -5,7 +5,7 @@ const isLocalSqlite = (): boolean => isNativeAndroid() || isElectronLocalClient(
 const isWindowsServer = (): boolean => isElectronDesktop() && !isElectronLocalClient();
 import { getNativePosRecordId, nativePosRepository } from '../native/nativePosRepository';
 import { applyNativePosRecordChangesIfAbsent, applyNativePosRecordChangesIfFieldAbsent, applyNativePosRecordChangesIfFieldEquals } from '../native/posLocalDatabase';
-// Dexie is loaded on demand for desktop accounting; Android accounting commits to SQLite only.
+// Dexie is loaded on demand only by the browser fallback; native clients commit to SQLite.
 let db = {} as typeof import('../db/db').db;
 let desktopDatabaseLoaded = false;
 
