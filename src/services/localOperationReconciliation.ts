@@ -196,7 +196,7 @@ export async function remapPendingEntityReferences(tableName: string, oldId: any
   }
 }
 
-async function reconcileNativeOperationAfterAck(type: string, payload: any, operationId: string, serverResult: any, pendingRefs: Record<string, Set<string>>) {
+export async function reconcileNativeOperationAfterAck(type: string, payload: any, operationId: string, serverResult: any, pendingRefs: Record<string, Set<string>>) {
   const loaded = new Map<string, Array<{ record: Record<string, any>; recordId: string; syncState: any }>>();
   const changes = new Map<string, any>();
   const queueChange = (change: any) => {
