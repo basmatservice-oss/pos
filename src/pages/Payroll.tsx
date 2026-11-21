@@ -202,7 +202,7 @@ const Payroll: React.FC = () => {
     .reduce((sum, a) => sum + Number(a.totalHours || 0), 0);
 
   return (
-    <div className="p-6 space-y-6 bg-[var(--app-bg)] min-h-full overflow-y-auto custom-scrollbar" dir="rtl">
+    <div className="min-h-full min-w-0 space-y-4 overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:space-y-6 sm:p-6" dir="rtl">
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">إدارة الرواتب</h1>
