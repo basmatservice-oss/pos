@@ -171,6 +171,35 @@ function createServerDatabase() {
       unitPrice REAL NOT NULL, costPrice REAL DEFAULT 0, taxAmount REAL DEFAULT 0,
       total REAL NOT NULL, batchAllocations TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
     );
+    CREATE TABLE Supplier (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT,
+      balance REAL DEFAULT 0, isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE Purchase (
+      id TEXT PRIMARY KEY, supplierId INTEGER, supplierName TEXT, totalAmount REAL NOT NULL,
+      paymentStatus TEXT DEFAULT 'unpaid', paymentMethod TEXT DEFAULT 'cash', paidAmount REAL DEFAULT 0,
+      returnedAmount REAL DEFAULT 0, currency TEXT, exchangeRate REAL DEFAULT 1,
+      shippingCost REAL DEFAULT 0, customsCost REAL DEFAULT 0, otherCosts REAL DEFAULT 0,
+      date TEXT NOT NULL, branchId INTEGER, deviceId TEXT, operationId TEXT,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE PurchaseItem (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, purchaseId TEXT NOT NULL, productId INTEGER NOT NULL,
+      productName TEXT NOT NULL, quantity REAL NOT NULL, unit TEXT DEFAULT 'piece',
+      conversionFactor REAL DEFAULT 1, costPrice REAL NOT NULL, landedCostPerBaseUnit REAL,
+      total REAL NOT NULL, expiryDate TEXT, batchNumber TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
+    );
+    CREATE TABLE PurchaseReturn (
+      id TEXT PRIMARY KEY, returnNumber TEXT NOT NULL, originalPurchaseId TEXT NOT NULL,
+      supplierId INTEGER, supplierName TEXT, branchId INTEGER, shiftId TEXT,
+      refundMethod TEXT NOT NULL, totalReturn REAL NOT NULL, reason TEXT, createdBy TEXT,
+      deviceId TEXT, operationId TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE PurchaseReturnItem (
+      id TEXT PRIMARY KEY, purchaseReturnId TEXT NOT NULL, productId INTEGER NOT NULL,
+      productName TEXT NOT NULL, quantity REAL NOT NULL, costPrice REAL NOT NULL,
+      total REAL NOT NULL, batchId TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT
+    );
     CREATE TABLE AuditLog (
       id TEXT PRIMARY KEY, date TEXT, type TEXT NOT NULL, userName TEXT NOT NULL,
       action TEXT NOT NULL, operationName TEXT, productName TEXT, details TEXT,
@@ -568,5 +597,72 @@ test('end-to-end server business operations and native SQLite operations match f
     localMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
     serverMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
   );
+  raw.close();
+});
+
+
+test('server purchase returns reject duplicate lines that collectively exceed available legacy stock', async () => {
+  const { db: serverDb, raw } = createServerDatabase();
+  const product = {
+    id: 91, name: 'Legacy unbatched purchase item', barcode: null, categoryId: null,
+    costPrice: 10, sellingPrice: 15, stockQuantity: 10, minStockLevel: 0, unit: 'piece',
+    conversionFactor: 1, itemType: 'stock', allowFractions: 0, baseUnitCode: 'piece',
+    quantityPrecision: 0, isActive: 1, vatRate: 0, branchId: 1, isSynced: 0,
+    updatedAt: now, createdAt: now,
+  };
+  serverDb.insert(schema.products).values(product).run();
+  serverDb.insert(schema.suppliers).values({
+    id: 91, name: 'Purchase return supplier', balance: 200, updatedAt: now,
+  }).run();
+  serverDb.insert(schema.purchases).values({
+    id: 'legacy-purchase-91', supplierId: 91, supplierName: 'Purchase return supplier',
+    totalAmount: 200, paidAmount: 0, returnedAmount: 0, date: now, updatedAt: now,
+  }).run();
+  serverDb.insert(schema.purchaseItems).values({
+    purchaseId: 'legacy-purchase-91', productId: 91, productName: product.name,
+    quantity: 20, unit: 'piece', conversionFactor: 1, costPrice: 10,
+    landedCostPerBaseUnit: 10, total: 200, createdAt: now,
+  }).run();
+  serverDb.insert(schema.settings).values({
+    id: 91, key: 'inventoryValuationMethod', value: 'fifo', isSynced: 0, createdAt: now, updatedAt: now,
+  }).run();
+  serverDb.insert(schema.accounts).values([
+    { code: '1010', name: 'Cash', type: 'asset', balance: 0, updatedAt: now },
+    { code: '1020', name: 'Card', type: 'asset', balance: 0, updatedAt: now },
+    { code: '1200', name: 'Inventory', type: 'asset', balance: 200, updatedAt: now },
+    { code: '2100', name: 'Payables', type: 'liability', balance: 200, updatedAt: now },
+  ]).run();
+
+  const duplicatePayload = {
+    id: 'duplicate-purchase-return-91', returnNumber: 'PR-91-DUP',
+    originalPurchaseId: 'legacy-purchase-91', refundMethod: 'credit_adjustment',
+    items: [
+      { productId: 91, productName: product.name, quantity: 6, costPrice: 10 },
+      { productId: 91, productName: product.name, quantity: 6, costPrice: 10 },
+    ],
+  };
+  assert.throws(() => executeBusinessOperation(serverDb, 'purchase_return', duplicatePayload, {
+    operationId: 'purchase-return-op-duplicate-91', deviceId: 'test-device', userName: 'tester',
+  }), /المخزون المتاح لا يكفي/);
+  assert.equal(serverDb.select().from(schema.products).get().stockQuantity, 10);
+  assert.equal(serverDb.select().from(schema.purchases).get().returnedAmount, 0);
+  assert.equal(serverDb.select().from(schema.purchaseReturns).all().length, 0);
+  assert.equal(serverDb.select().from(schema.purchaseReturnItems).all().length, 0);
+
+  const validResult = executeBusinessOperation(serverDb, 'purchase_return', {
+    id: 'valid-purchase-return-91', returnNumber: 'PR-91-OK',
+    originalPurchaseId: 'legacy-purchase-91', refundMethod: 'credit_adjustment',
+    items: [{ productId: 91, productName: product.name, quantity: 10, costPrice: 10 }],
+  }, {
+    operationId: 'purchase-return-op-valid-91', deviceId: 'test-device', userName: 'tester',
+  });
+  assert.equal(validResult.result.purchaseReturn.totalReturn, 100);
+  assert.equal(serverDb.select().from(schema.products).get().stockQuantity, 0);
+  assert.equal(serverDb.select().from(schema.purchases).get().returnedAmount, 100);
+  assert.equal(serverDb.select().from(schema.suppliers).get().balance, 100);
+  const posted = serverDb.select().from(schema.journalEntries).all()
+    .filter((entry) => entry.referenceType === 'purchase_return');
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].totalDebit, posted[0].totalCredit);
   raw.close();
 });
