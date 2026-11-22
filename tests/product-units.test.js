@@ -261,3 +261,14 @@ test('sync pulls normalized unit definitions and product units into native and l
   assert.match(repository, /unitDefinitions: 'code'/);
   assert.match(repository, /productUnits: 'id'/);
 });
+
+
+test('Dexie pull reconciliation uses code keys for normalized unit definitions and preserves pending rows', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/services/syncService.ts', import.meta.url), 'utf8');
+  const dexiePull = source.slice(source.indexOf('const existingAll = await cacheTable.toArray()'));
+  assert.match(dexiePull, /r\.id \?\? r\.key \?\? r\.code/);
+  assert.match(dexiePull, /d\.id \?\? d\.key \?\? d\.code/);
+  assert.match(dexiePull, /item\.id \?\? item\.key \?\? item\.code/);
+  assert.match(dexiePull, /cacheTable\.bulkDelete\(staleIds\)/);
+});
