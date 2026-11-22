@@ -98,13 +98,16 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
   assert.equal(result.inventoryAging.rows[0].name, 'Stock Item');
   assert.equal(result.inventoryAging.rows[0].cogs, 33);
-  assert.equal(result.inventoryAging.rows[0].turnoverRatio, 0.66);
+  assert.ok(Math.abs(result.inventoryAging.rows[0].turnoverRatio - (33 / 66.5)) < 1e-12);
   assert.equal(result.inventoryAging.rows[0].status, 'نشط');
   assert.equal(result.inventoryAging.rows.find((row) => row.productId === 2).status, 'لم يباع');
   assert.equal(result.inventoryAging.rows.find((row) => row.productId === 3).status, 'راكد');
   assert.equal(result.inventoryTurnover.staleProducts, 1);
   assert.equal(result.inventoryTurnover.cogs, 33);
-  assert.equal(result.inventoryTurnover.ratio, 0.66);
+  assert.equal(result.inventoryTurnover.beginningValue, 83);
+  assert.equal(result.inventoryTurnover.averageValue, 66.5);
+  assert.equal(result.inventoryTurnover.endingValue, 50);
+  assert.ok(Math.abs(result.inventoryTurnover.ratio - (33 / 66.5)) < 1e-12);
   assert.equal(result.shifts.variance, -10);
   assert.equal(result.shifts.rows[0].deposits, 10);
   assert.equal(result.shifts.rows[0].withdrawals, 5);
