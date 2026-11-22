@@ -603,9 +603,15 @@ test('end-to-end server business operations and native SQLite operations match f
   // server database and native SQLite repository used by the sale/return test.
   const purchasedProduct = { ...product, id: 2, name: 'Purchased parity product', costPrice: 10, sellingPrice: 15, stockQuantity: 0 };
   const supplier = { id: 92, name: 'Parity supplier', balance: 0, isSynced: 0, createdAt: now, updatedAt: now };
-  serverDb.insert(schema.products).values(purchasedProduct).run();
+  const productUpsertPayload = { table: 'products', allowProductPriceUpdate: true, record: purchasedProduct };
+  const serverProduct = executeBusinessOperation(serverDb, 'entity_upsert', productUpsertPayload, {
+    operationId: 'product-create-op-parity-2', deviceId: 'parity-device', userName: 'tester',
+  });
+  await dispatchOperation('entity_upsert', productUpsertPayload, 1);
+  assert.equal(serverProduct.result.id, 2);
+  assert.equal(records.get('products').get(JSON.stringify(2)).record.name, purchasedProduct.name);
+
   serverDb.insert(schema.suppliers).values(supplier).run();
-  seed('products', purchasedProduct);
   seed('suppliers', supplier);
 
   const purchasePayload = {
