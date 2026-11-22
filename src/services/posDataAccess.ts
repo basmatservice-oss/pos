@@ -152,12 +152,57 @@ export async function getPosRecord<T extends object = PosRecord>(
 export async function getPosRecords<T extends object = PosRecord>(
   entity: NativePosEntity,
 ): Promise<T[]> {
-  if (isLocalSqlite()) return await nativePosRepository.getAll(entity) as unknown as T[];
-  if (isWindowsServer()) {
-    return await getWindowsServerRecords(entity) as unknown as T[];
+  let records: T[];
+  if (isLocalSqlite()) {
+    records = await nativePosRepository.getAll(entity) as unknown as T[];
+  } else if (isWindowsServer()) {
+    records = await getWindowsServerRecords(entity) as unknown as T[];
+  } else {
+    const { db } = await import('../db/db');
+    records = await db.table(entity).toArray() as T[];
   }
-  const { db } = await import('../db/db');
-  return await db.table(entity).toArray() as T[];
+
+  // ProductUnit + UnitDefinition are the normalized catalog. Project them into
+  // the legacy Product.unitsJson shape at the data boundary so existing POS,
+  // barcode, purchase and return screens share one canonical source without
+  // rewriting historical OrderItem/ReturnItem snapshots.
+  if (entity === 'products' && records.length) {
+    try {
+      const [unitRows, definitions] = await Promise.all([
+        getPosRecords<Record<string, any>>('productUnits'),
+        getPosRecords<Record<string, any>>('unitDefinitions'),
+      ]);
+      if (unitRows.length) {
+        const namesByCode = new Map(definitions.map((definition) => [String(definition.code), String(definition.name || '')]));
+        const rowsByProduct = new Map<string, Record<string, any>[]>();
+        for (const row of unitRows) {
+          const key = String(row.productId);
+          const list = rowsByProduct.get(key) || [];
+          list.push(row);
+          rowsByProduct.set(key, list);
+        }
+        records = records.map((record) => {
+          const product = record as Record<string, any>;
+          const normalized = rowsByProduct.get(String(product.id));
+          if (!normalized) return record; // legacy-only product: retain unitsJson fallback
+          const extras = normalized.filter((unit) => !Boolean(unit.isBaseUnit)).map((unit) => ({
+            name: namesByCode.get(String(unit.unitCode)) || String(unit.unitCode),
+            barcode: unit.barcode || undefined,
+            conversionFactor: Number(unit.conversionToBase),
+            sellingPrice: unit.sellingPrice == null ? undefined : Number(unit.sellingPrice),
+            costPrice: unit.costPrice == null ? undefined : Number(unit.costPrice),
+            priceInUSD: Number(unit.priceInUSD || 0),
+            allowFractions: Boolean(unit.allowFractions),
+          }));
+          return { ...product, unitsJson: JSON.stringify(extras) } as T;
+        });
+      }
+    } catch (error) {
+      // A partially synchronized catalog must not make all product reads fail.
+      console.warn('Normalized product-unit catalog unavailable; using legacy product unit metadata:', error);
+    }
+  }
+  return records;
 }
 
 /** Equality-filtered reads use the platform's authoritative data source. */
