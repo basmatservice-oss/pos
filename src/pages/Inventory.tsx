@@ -149,8 +149,8 @@ export default function Inventory() {
   const [extraUnits, setExtraUnits] = useState<ProductUnit[]>([]);
   const [recipeRows, setRecipeRows] = useState<Array<{ id?: string; ingredientProductId: number; ingredientName: string; quantity: string; unit: string }>>([]);
   const [removedRecipeIds, setRemovedRecipeIds] = useState<string[]>([]);
-  const [costFxLinked, setCostFxLinked] = useState(true);
-  const [sellingFxLinked, setSellingFxLinked] = useState(true);
+  const [costFxLinked, setCostFxLinked] = useState(false);
+  const [sellingFxLinked, setSellingFxLinked] = useState(false);
 
   useEffect(() => {
     if (storeSettings.taxRate !== undefined && !editingProduct && !isModalOpen) {
@@ -201,8 +201,9 @@ export default function Inventory() {
       );
     } else {
       setEditingProduct(null);
-      setCostFxLinked(true);
-      setSellingFxLinked(true);
+      // New products are priced in SDG by default; foreign-currency linkage is opt-in.
+      setCostFxLinked(false);
+      setSellingFxLinked(false);
       setFormData({
         barcode: initialBarcode || '',
         name: '',
