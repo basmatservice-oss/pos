@@ -1,5 +1,5 @@
-import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase } from '../native/posLocalDatabase';
-import { getNativePosRecordId, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, nativePosRepository } from '../native/nativePosRepository';
+import { ensureNativePosDatabase, isNativeAndroid, posLocalDatabase, validateNativePosRecords } from '../native/posLocalDatabase';
+import { getNativePosRecordId, getNativePosPrimaryKeyField, NATIVE_POS_ENTITIES, notifyNativeEntityChanges, nativePosRepository } from '../native/nativePosRepository';
 
 const MIRRORED_TABLES = NATIVE_POS_ENTITIES;
 
@@ -149,19 +149,9 @@ export async function restoreNativePosDatabase(): Promise<boolean> {
 
   // Validate the complete native snapshot without creating a Dexie instance.
   for (const entity of MIRRORED_TABLES) {
-    const rows = await nativePosRepository.getAllWithSyncState(entity);
-    const seen = new Set<string>();
-    for (const row of rows) {
-      if (!row || typeof row.recordId !== 'string' || !row.record ||
-          typeof row.record !== 'object' || Array.isArray(row.record)) {
-        throw new Error(`SQLite returned an invalid Android snapshot row in ${entity}`);
-      }
-      const resolvedId = getRecordId(entity, row.record);
-      if (!resolvedId || resolvedId !== row.recordId || seen.has(row.recordId)) {
-        throw new Error(`SQLite Android snapshot identity validation failed for ${entity}`);
-      }
-      seen.add(row.recordId);
-    }
+    // Validate each JSON record natively in bounded per-record memory and return
+    // only primary-key metadata. Never hydrate every business row into WebView.
+    await validateNativePosRecords(entity, getNativePosPrimaryKeyField(entity));
   }
 
   // SQLite is the Android source of truth. Do not hydrate a second Dexie copy.
