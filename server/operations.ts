@@ -47,6 +47,7 @@ import {
   BatchAllocation,
 } from './accounting.js';
 import { hashSecret, sanitizeEmployee } from './auth.js';
+import { resolveProductUnitFactor } from '../src/utils/productUnits.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -304,26 +305,8 @@ export function executeBusinessOperation(
   });
 }
 
-function resolveProductUnitFactor(product: any, item: any): number {
-  if (Number(item.conversionFactor) > 0 && item.unit && item.unit !== 'piece') {
-    return Number(item.conversionFactor);
-  }
-  const unitName = String(item.unit || item.selectedUnit || 'piece');
-  if (product?.unitsJson) {
-    try {
-      const units = JSON.parse(product.unitsJson);
-      if (Array.isArray(units)) {
-        const matched = units.find((u: any) => u?.name === unitName);
-        if (matched && Number(matched.conversionFactor) > 0) {
-          return Number(matched.conversionFactor);
-        }
-      }
-    } catch {}
-  }
-  if (unitName === 'box') {
-    return Number(item.conversionFactor || product?.conversionFactor || 1);
-  }
-  return Number(item.conversionFactor || 1) || 1;
+function resolveProductUnitFactorForSale(product: any, item: any): number {
+  return resolveProductUnitFactor(product, item);
 }
 
 function handleSale(
@@ -376,7 +359,7 @@ function handleSale(
       throw new OperationError(`الصنف غير موجود (ID: ${item.productId})`, 404);
     }
 
-    const factor = resolveProductUnitFactor(prod, item);
+    const factor = resolveProductUnitFactorForSale(prod, item);
     const baseQty = roundQty(qty * factor);
     const itemType = String(item.itemType || prod.itemType || 'stock');
 
