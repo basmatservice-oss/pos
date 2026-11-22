@@ -97,6 +97,15 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       ['حركة المخزون', 'عدد الحركات', 'وارد', 'صادر', 'الصافي'],
       ...report.inventory.map((row) => [row.type, row.count, row.quantityIn, row.quantityOut, row.netQuantity]),
       [],
+      ['مخزون حسب الصنف', 'الكمية', 'القيمة', 'تكلفة الصادر', 'معدل الدوران', 'عمر المخزون بالأيام', 'آخر حركة بالأيام', 'الحالة'],
+      ...report.inventoryAging.rows.map((row) => [row.name, row.quantity, row.value, row.cogs, row.turnoverRatio ?? '', row.stockAgeDays, row.lastMovementDays ?? '', row.status]),
+      [],
+      ['تفاصيل الذمم المدينة', 'العميل', 'تاريخ الفاتورة', 'العمر بالأيام', 'المتبقي'],
+      ...report.receivablesAging.rows.map((row) => [row.customer, row.date, row.days, row.outstanding]),
+      [],
+      ['تفاصيل الذمم الدائنة', 'المورد', 'تاريخ الفاتورة', 'العمر بالأيام', 'المتبقي'],
+      ...report.payablesAging.rows.map((row) => [row.supplier, row.date, row.days, row.outstanding]),
+      [],
       ['أعمار المخزون', 'قيمة المخزون'],
       ...Object.entries(report.inventoryAging.buckets),
       [],
@@ -125,7 +134,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     ];
     const csv = '\uFEFF' + rows.map((row) => row.map((value) => {
       const text = String(value ?? '');
-      return '"' + text.replace(/"/g, '""') + '"';
+      const safeText = typeof value === 'string' && /^[=+@\\-\\t\\r]/.test(text) ? "'" + text : text;
+      return '"' + safeText.replace(/"/g, '""') + '"';
     }).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
