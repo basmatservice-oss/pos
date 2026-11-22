@@ -59,7 +59,7 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { id: 'very-old', createdAt: '2026-08-01T10:00:00.000Z', netAmount: 100, paidAmount: 0, customerName: 'Old Customer' },
     ],
     returns: [{ id: 'ret', originalOrderId: 'old-sale', shiftId: 'sh1', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
-    purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20 }],
+    purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20, extraCostsPaymentMethod: 'supplier', shippingCost: 20 }],
     products: [{ id: 1, name: 'Stock Item' }],
     inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }, { id: 'b2', productId: 2, remainingQuantity: 2, costPrice: 0, purchaseDate: '2026-11-01' }, { id: 'b3', productId: 3, remainingQuantity: 2, costPrice: 0, purchaseDate: '2026-08-01' }],
     inventoryMovements: [
@@ -88,8 +88,8 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.receivablesAging.total, 170);
   assert.equal(result.receivablesAging.buckets['31-60 يوم'], 70);
   assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
-  assert.equal(result.payablesAging.total, 180);
-  assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 180);
+  assert.equal(result.payablesAging.total, 200);
+  assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 200);
   assert.equal(result.inventoryAging.totalValue, 50);
   assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
