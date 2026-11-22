@@ -238,3 +238,17 @@ test('new product images are resized and compressed before being embedded in SQL
   assert.match(inventory, /compressProductImage\(file\)/);
   assert.doesNotMatch(inventory, /reader\.readAsDataURL\(file\)/);
 });
+
+
+test('Android startup validates SQLite snapshot integrity without loading all JSON records into WebView', async () => {
+  const mirror = await read('../src/services/nativeDatabaseMirror.ts');
+  const plugin = await read('../native/android/PosLocalDatabasePlugin.kt');
+  const bridge = await read('../src/native/posLocalDatabase.ts');
+  assert.match(mirror, /validateNativePosRecords\(entity, getNativePosPrimaryKeyField\(entity\)\)/);
+  assert.doesNotMatch(mirror.slice(mirror.indexOf('export async function restoreNativePosDatabase')), /getAllWithSyncState\(entity\)/);
+  assert.match(plugin, /fun validateRecords\(call: PluginCall\)/);
+  assert.match(plugin, /readRecordJson\(database, entity, recordId\)/);
+  assert.match(plugin, /record\.opt\(primaryKeyField\)/);
+  assert.match(bridge, /validateRecords\(options: \{ entity: string; primaryKeyField: string \}\)/);
+  assert.match(bridge, /JSON\.stringify\(row\.primaryKey\) !== row\.recordId/);
+});
