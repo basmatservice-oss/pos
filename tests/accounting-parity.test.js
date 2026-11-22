@@ -283,135 +283,6 @@ test('production SQLite FIFO and native SQLite FIFO produce identical sale and r
     serverMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
   );
 
-  // Full purchase -> sale -> sale return -> purchase return parity on the same
-  // server database and native SQLite repository used by the sale/return test.
-  const purchasedProduct = { ...product, id: 2, name: 'Purchased parity product', costPrice: 10, sellingPrice: 15, stockQuantity: 0 };
-  const supplier = { id: 92, name: 'Parity supplier', balance: 0, isSynced: 0, createdAt: now, updatedAt: now };
-  serverDb.insert(schema.products).values(purchasedProduct).run();
-  serverDb.insert(schema.suppliers).values(supplier).run();
-  seed('products', purchasedProduct);
-  seed('suppliers', supplier);
-
-  const purchasePayload = {
-    operationId: 'purchase-op-parity-2', deviceId: 'parity-device',
-    purchase: {
-      id: 'parity-purchase-2', supplierId: 92, supplierName: supplier.name,
-      totalAmount: 100, paidAmount: 0, paymentMethod: 'cash', currency: 'ر.س',
-      exchangeRate: 1, date: now, branchId: 1,
-    },
-    items: [{
-      productId: 2, productName: purchasedProduct.name, quantity: 10, unit: 'piece',
-      conversionFactor: 1, costPrice: 10,
-    }],
-  };
-  const serverPurchase = executeBusinessOperation(serverDb, 'purchase', purchasePayload, {
-    operationId: purchasePayload.operationId, deviceId: purchasePayload.deviceId, userName: 'tester',
-  });
-  await dispatchOperation('purchase', purchasePayload, 1);
-  assert.equal(serverPurchase.result.items[0].landedCostPerBaseUnit, 10);
-  assert.equal(records.get('products').get(JSON.stringify(2)).record.stockQuantity, 10);
-
-  const purchaseSalePayload = {
-    operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
-    order: {
-      id: 'parity-purchase-sale-2', receiptNumber: 'INV-PURCHASE-PARITY',
-      totalAmount: 60, taxAmount: 0, netAmount: 60, paidAmount: 60, cashAmount: 60,
-      paymentMethod: 'cash', currency: 'ر.س', exchangeRate: 1, branchId: 1,
-      createdBy: 'tester', createdAt: now,
-    },
-    items: [{
-      productId: 2, productName: purchasedProduct.name, quantity: 4, unit: 'piece',
-      conversionFactor: 1, itemType: 'stock', unitPrice: 15,
-      discountAmount: 0, subTotal: 60, taxAmount: 0, total: 60,
-    }],
-  };
-  const serverPurchaseSale = executeBusinessOperation(serverDb, 'sale', purchaseSalePayload, {
-    operationId: purchaseSalePayload.operationId, deviceId: purchaseSalePayload.deviceId, userName: 'tester',
-  });
-  await dispatchOperation('sale', purchaseSalePayload, 1);
-  const localPurchaseSaleItem = [...records.get('orderItems').values()].map((row) => row.record)
-    .find((row) => String(row.orderId) === 'parity-purchase-sale-2');
-  assert.equal(serverPurchaseSale.result.items[0].costPriceAtTimeOfSale, 10);
-  assert.equal(localPurchaseSaleItem.costPriceAtTimeOfSale, 10);
-
-  const purchaseSaleReturnPayload = {
-    id: 'parity-purchase-sale-return-2', returnNumber: 'RET-PURCHASE-PARITY',
-    originalOrderId: 'parity-purchase-sale-2',
-    items: [{ orderItemId: serverPurchaseSale.result.items[0].id, productId: 2, quantity: 2, condition: 'resalable' }],
-    refundMethod: 'cash', reason: 'purchase parity sale return', returnDate: now,
-  };
-  const localPurchaseSaleReturnPayload = {
-    ...purchaseSaleReturnPayload,
-    items: [{ ...purchaseSaleReturnPayload.items[0], orderItemId: localPurchaseSaleItem.id }],
-    operationId: 'purchase-sale-return-op-parity-2', deviceId: 'parity-device',
-  };
-  executeBusinessOperation(serverDb, 'return', purchaseSaleReturnPayload, {
-    operationId: 'purchase-sale-return-op-parity-2', deviceId: 'parity-device', userName: 'tester',
-  });
-  await dispatchOperation('return', localPurchaseSaleReturnPayload, 1);
-
-  const purchaseReturnPayload = {
-    id: 'parity-purchase-return-2', returnNumber: 'PR-PARITY',
-    originalPurchaseId: 'parity-purchase-2', refundMethod: 'credit_adjustment',
-    items: [{ productId: 2, productName: purchasedProduct.name, quantity: 3 }],
-    reason: 'purchase parity return',
-  };
-  const serverPurchaseReturn = executeBusinessOperation(serverDb, 'purchase_return', purchaseReturnPayload, {
-    operationId: 'purchase-return-op-parity-2', deviceId: 'parity-device', userName: 'tester',
-  });
-  await dispatchOperation('purchase_return', {
-    ...purchaseReturnPayload, operationId: 'purchase-return-op-parity-2', deviceId: 'parity-device',
-  }, 1);
-
-  const serverPurchasedProduct = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
-  const localPurchasedProduct = records.get('products').get(JSON.stringify(2)).record;
-  assert.equal(serverPurchasedProduct.stockQuantity, 5);
-  assert.equal(localPurchasedProduct.stockQuantity, serverPurchasedProduct.stockQuantity);
-  const serverPurchaseRecord = serverDb.select().from(schema.purchases).get();
-  const localPurchaseRecord = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
-  assert.equal(serverPurchaseRecord.returnedAmount, 30);
-  assert.equal(localPurchaseRecord.returnedAmount, serverPurchaseRecord.returnedAmount);
-  const serverSupplier = serverDb.select().from(schema.suppliers).get();
-  const localSupplier = records.get('suppliers').get(JSON.stringify(92)).record;
-  assert.equal(serverSupplier.balance, 70);
-  assert.equal(localSupplier.balance, serverSupplier.balance);
-  const serverPurchaseBatch = serverDb.select().from(schema.inventoryBatches).all().find((row) => row.purchaseId === 'parity-purchase-2');
-  const localPurchaseBatch = [...records.get('inventoryBatches').values()].map((row) => row.record)
-    .find((row) => row.purchaseId === 'parity-purchase-2');
-  assert.equal(serverPurchaseBatch.remainingQuantity, 5);
-  assert.equal(localPurchaseBatch.remainingQuantity, serverPurchaseBatch.remainingQuantity);
-  assert.equal(serverPurchaseReturn.result.purchaseReturn.totalReturn, 30);
-
-  const { buildOperationalReports } = await import('../src/utils/operationalReports.js');
-  const reportStart = new Date('2025-01-01T00:00:00.000Z');
-  const reportEnd = new Date('2027-01-01T00:00:00.000Z');
-  const serverReport = buildOperationalReports({
-    startDate: reportStart, endDate: reportEnd,
-    orders: serverDb.select().from(schema.orders).all(),
-    returns: serverDb.select().from(schema.returns).all(),
-    purchases: serverDb.select().from(schema.purchases).all(),
-    purchaseItems: serverDb.select().from(schema.purchaseItems).all(),
-    purchaseReturns: serverDb.select().from(schema.purchaseReturns).all(),
-    purchaseReturnItems: serverDb.select().from(schema.purchaseReturnItems).all(),
-    inventoryMovements: serverDb.select().from(schema.inventoryMovements).all(),
-    inventoryBatches: serverDb.select().from(schema.inventoryBatches).all(),
-    products: serverDb.select().from(schema.products).all(),
-  });
-  const localRows = (entity) => [...records.get(entity).values()].map((row) => row.record);
-  const localReport = buildOperationalReports({
-    startDate: reportStart, endDate: reportEnd,
-    orders: localRows('orders'), returns: localRows('returns'),
-    purchases: localRows('purchases'), purchaseItems: localRows('purchaseItems'),
-    purchaseReturns: localRows('purchaseReturns'), purchaseReturnItems: localRows('purchaseReturnItems'),
-    inventoryMovements: localRows('inventoryMovements'), inventoryBatches: localRows('inventoryBatches'),
-    products: localRows('products'),
-  });
-  assert.equal(localReport.sales.gross, serverReport.sales.gross);
-  assert.equal(localReport.sales.returns, serverReport.sales.returns);
-  assert.equal(localReport.purchases.gross - localReport.purchases.returns, serverReport.purchases.gross - serverReport.purchases.returns);
-  assert.equal(localReport.purchaseProducts[0].netQuantity, serverReport.purchaseProducts[0].netQuantity);
-  assert.equal(localReport.purchaseProducts[0].netTotal, serverReport.purchaseProducts[0].netTotal);
-  assert.equal(localReport.inventoryAging.totalValue, serverReport.inventoryAging.totalValue);
   raw.close();
 });
 
@@ -728,6 +599,135 @@ test('end-to-end server business operations and native SQLite operations match f
     localMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
     serverMovements.map((x) => [x.movementKey, x.quantityDeltaBase, x.baseUnitCode, x.unitCost, x.totalCost]),
   );
+  // Full purchase -> sale -> sale return -> purchase return parity on the same
+  // server database and native SQLite repository used by the sale/return test.
+  const purchasedProduct = { ...product, id: 2, name: 'Purchased parity product', costPrice: 10, sellingPrice: 15, stockQuantity: 0 };
+  const supplier = { id: 92, name: 'Parity supplier', balance: 0, isSynced: 0, createdAt: now, updatedAt: now };
+  serverDb.insert(schema.products).values(purchasedProduct).run();
+  serverDb.insert(schema.suppliers).values(supplier).run();
+  seed('products', purchasedProduct);
+  seed('suppliers', supplier);
+
+  const purchasePayload = {
+    operationId: 'purchase-op-parity-2', deviceId: 'parity-device',
+    purchase: {
+      id: 'parity-purchase-2', supplierId: 92, supplierName: supplier.name,
+      totalAmount: 100, paidAmount: 0, paymentMethod: 'cash', currency: 'ر.س',
+      exchangeRate: 1, date: now, branchId: 1,
+    },
+    items: [{
+      productId: 2, productName: purchasedProduct.name, quantity: 10, unit: 'piece',
+      conversionFactor: 1, costPrice: 10,
+    }],
+  };
+  const serverPurchase = executeBusinessOperation(serverDb, 'purchase', purchasePayload, {
+    operationId: purchasePayload.operationId, deviceId: purchasePayload.deviceId, userName: 'tester',
+  });
+  await dispatchOperation('purchase', purchasePayload, 1);
+  assert.equal(serverPurchase.result.items[0].landedCostPerBaseUnit, 10);
+  assert.equal(records.get('products').get(JSON.stringify(2)).record.stockQuantity, 10);
+
+  const purchaseSalePayload = {
+    operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
+    order: {
+      id: 'parity-purchase-sale-2', receiptNumber: 'INV-PURCHASE-PARITY',
+      totalAmount: 60, taxAmount: 0, netAmount: 60, paidAmount: 60, cashAmount: 60,
+      paymentMethod: 'cash', currency: 'ر.س', exchangeRate: 1, branchId: 1,
+      createdBy: 'tester', createdAt: now,
+    },
+    items: [{
+      productId: 2, productName: purchasedProduct.name, quantity: 4, unit: 'piece',
+      conversionFactor: 1, itemType: 'stock', unitPrice: 15,
+      discountAmount: 0, subTotal: 60, taxAmount: 0, total: 60,
+    }],
+  };
+  const serverPurchaseSale = executeBusinessOperation(serverDb, 'sale', purchaseSalePayload, {
+    operationId: purchaseSalePayload.operationId, deviceId: purchaseSalePayload.deviceId, userName: 'tester',
+  });
+  await dispatchOperation('sale', purchaseSalePayload, 1);
+  const localPurchaseSaleItem = [...records.get('orderItems').values()].map((row) => row.record)
+    .find((row) => String(row.orderId) === 'parity-purchase-sale-2');
+  assert.equal(serverPurchaseSale.result.items[0].costPriceAtTimeOfSale, 10);
+  assert.equal(localPurchaseSaleItem.costPriceAtTimeOfSale, 10);
+
+  const purchaseSaleReturnPayload = {
+    id: 'parity-purchase-sale-return-2', returnNumber: 'RET-PURCHASE-PARITY',
+    originalOrderId: 'parity-purchase-sale-2',
+    items: [{ orderItemId: serverPurchaseSale.result.items[0].id, productId: 2, quantity: 2, condition: 'resalable' }],
+    refundMethod: 'cash', reason: 'purchase parity sale return', returnDate: now,
+  };
+  const localPurchaseSaleReturnPayload = {
+    ...purchaseSaleReturnPayload,
+    items: [{ ...purchaseSaleReturnPayload.items[0], orderItemId: localPurchaseSaleItem.id }],
+    operationId: 'purchase-sale-return-op-parity-2', deviceId: 'parity-device',
+  };
+  executeBusinessOperation(serverDb, 'return', purchaseSaleReturnPayload, {
+    operationId: 'purchase-sale-return-op-parity-2', deviceId: 'parity-device', userName: 'tester',
+  });
+  await dispatchOperation('return', localPurchaseSaleReturnPayload, 1);
+
+  const purchaseReturnPayload = {
+    id: 'parity-purchase-return-2', returnNumber: 'PR-PARITY',
+    originalPurchaseId: 'parity-purchase-2', refundMethod: 'credit_adjustment',
+    items: [{ productId: 2, productName: purchasedProduct.name, quantity: 3 }],
+    reason: 'purchase parity return',
+  };
+  const serverPurchaseReturn = executeBusinessOperation(serverDb, 'purchase_return', purchaseReturnPayload, {
+    operationId: 'purchase-return-op-parity-2', deviceId: 'parity-device', userName: 'tester',
+  });
+  await dispatchOperation('purchase_return', {
+    ...purchaseReturnPayload, operationId: 'purchase-return-op-parity-2', deviceId: 'parity-device',
+  }, 1);
+
+  const serverPurchasedProduct = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
+  const localPurchasedProduct = records.get('products').get(JSON.stringify(2)).record;
+  assert.equal(serverPurchasedProduct.stockQuantity, 5);
+  assert.equal(localPurchasedProduct.stockQuantity, serverPurchasedProduct.stockQuantity);
+  const serverPurchaseRecord = serverDb.select().from(schema.purchases).get();
+  const localPurchaseRecord = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
+  assert.equal(serverPurchaseRecord.returnedAmount, 30);
+  assert.equal(localPurchaseRecord.returnedAmount, serverPurchaseRecord.returnedAmount);
+  const serverSupplier = serverDb.select().from(schema.suppliers).get();
+  const localSupplier = records.get('suppliers').get(JSON.stringify(92)).record;
+  assert.equal(serverSupplier.balance, 70);
+  assert.equal(localSupplier.balance, serverSupplier.balance);
+  const serverPurchaseBatch = serverDb.select().from(schema.inventoryBatches).all().find((row) => row.purchaseId === 'parity-purchase-2');
+  const localPurchaseBatch = [...records.get('inventoryBatches').values()].map((row) => row.record)
+    .find((row) => row.purchaseId === 'parity-purchase-2');
+  assert.equal(serverPurchaseBatch.remainingQuantity, 5);
+  assert.equal(localPurchaseBatch.remainingQuantity, serverPurchaseBatch.remainingQuantity);
+  assert.equal(serverPurchaseReturn.result.purchaseReturn.totalReturn, 30);
+
+  const { buildOperationalReports } = await import('../src/utils/operationalReports.js');
+  const reportStart = new Date('2025-01-01T00:00:00.000Z');
+  const reportEnd = new Date('2027-01-01T00:00:00.000Z');
+  const serverReport = buildOperationalReports({
+    startDate: reportStart, endDate: reportEnd,
+    orders: serverDb.select().from(schema.orders).all(),
+    returns: serverDb.select().from(schema.returns).all(),
+    purchases: serverDb.select().from(schema.purchases).all(),
+    purchaseItems: serverDb.select().from(schema.purchaseItems).all(),
+    purchaseReturns: serverDb.select().from(schema.purchaseReturns).all(),
+    purchaseReturnItems: serverDb.select().from(schema.purchaseReturnItems).all(),
+    inventoryMovements: serverDb.select().from(schema.inventoryMovements).all(),
+    inventoryBatches: serverDb.select().from(schema.inventoryBatches).all(),
+    products: serverDb.select().from(schema.products).all(),
+  });
+  const localRows = (entity) => [...records.get(entity).values()].map((row) => row.record);
+  const localReport = buildOperationalReports({
+    startDate: reportStart, endDate: reportEnd,
+    orders: localRows('orders'), returns: localRows('returns'),
+    purchases: localRows('purchases'), purchaseItems: localRows('purchaseItems'),
+    purchaseReturns: localRows('purchaseReturns'), purchaseReturnItems: localRows('purchaseReturnItems'),
+    inventoryMovements: localRows('inventoryMovements'), inventoryBatches: localRows('inventoryBatches'),
+    products: localRows('products'),
+  });
+  assert.equal(localReport.sales.gross, serverReport.sales.gross);
+  assert.equal(localReport.sales.returns, serverReport.sales.returns);
+  assert.equal(localReport.purchases.gross - localReport.purchases.returns, serverReport.purchases.gross - serverReport.purchases.returns);
+  assert.equal(localReport.purchaseProducts[0].netQuantity, serverReport.purchaseProducts[0].netQuantity);
+  assert.equal(localReport.purchaseProducts[0].netTotal, serverReport.purchaseProducts[0].netTotal);
+  assert.equal(localReport.inventoryAging.totalValue, serverReport.inventoryAging.totalValue);
   raw.close();
 });
 
