@@ -558,7 +558,7 @@ export default function Inventory() {
         conversionFactor: editingProduct?.conversionFactor || 1,
         itemType: formData.itemType,
         allowFractions: formData.allowFractions,
-        unitsJson: validUnits.length > 0 ? JSON.stringify(buildProductUnitFxAnchors(validUnits, sellingFxLinked, currentFxRate)) : undefined,
+        unitsJson: JSON.stringify(buildProductUnitFxAnchors(validUnits, sellingFxLinked, currentFxRate)),
         branchId: editingProduct?.branchId ?? user?.branchId,
         updatedAt: now,
       };
