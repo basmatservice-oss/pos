@@ -47,3 +47,55 @@ test('operational reports exclude invalid dates and do not mutate source records
   assert.equal(result.payments.cashNet, 0);
   assert.equal(orders[0].netAmount, 99);
 });
+
+
+test('advanced operational reports calculate stock age, approximate turnover, debt aging, shifts, banks and taxes', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    orders: [{ id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }],
+    agingOrders: [
+      { id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, customerName: 'Older Customer' },
+      { id: 'very-old', createdAt: '2026-08-01T10:00:00.000Z', netAmount: 100, paidAmount: 0, customerName: 'Old Customer' },
+    ],
+    returns: [{ id: 'ret', originalOrderId: 'old-sale', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
+    purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20 }],
+    inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 1, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }],
+    inventoryMovements: [
+      { productId: 1, movementType: 'sale', quantityDeltaBase: -4, totalCost: 40, createdAt: '2026-11-10' },
+      { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
+    ],
+    shifts: [{ id: 'sh1', startTime: '2026-11-10', endTime: '2026-11-10T20:00:00Z', status: 'closed', openingCash: 50, expectedCash: 100, actualCash: 90 }],
+    shiftMovements: [
+      { shiftId: 'sh1', type: 'deposit', amount: 10 },
+      { shiftId: 'sh1', type: 'withdrawal', amount: 5 },
+    ],
+    accounts: [{ code: '101-bank', name: 'Bank Account', balance: 500 }],
+    transactions: [
+      { accountId: '101-bank', type: 'debit', amount: 100, createdAt: '2026-11-10' },
+      { accountId: '101-bank', type: 'credit', amount: 30, createdAt: '2026-11-11' },
+    ],
+    attendance: [
+      { date: '2026-11-10', status: 'present', totalHours: 8 },
+      { date: '2026-11-11', status: 'late', totalHours: 6 },
+    ],
+  });
+  assert.equal(result.receivablesAging.total, 170);
+  assert.equal(result.receivablesAging.buckets['31-60 يوم'], 70);
+  assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
+  assert.equal(result.payablesAging.total, 180);
+  assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 180);
+  assert.equal(result.inventoryAging.totalValue, 50);
+  assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
+  assert.equal(result.inventoryAging.rows[0].expiring, 5);
+  assert.equal(result.inventoryTurnover.cogs, 35);
+  assert.equal(result.inventoryTurnover.ratio, 0.7);
+  assert.equal(result.shifts.variance, -10);
+  assert.equal(result.shifts.rows[0].deposits, 10);
+  assert.equal(result.shifts.rows[0].withdrawals, 5);
+  assert.equal(result.banks[0].debit, 100);
+  assert.equal(result.banks[0].credit, 30);
+  assert.equal(result.taxes.netOutputTax, 18);
+  assert.equal(result.attendance.records, 2);
+  assert.equal(result.attendance.hours, 14);
+});
