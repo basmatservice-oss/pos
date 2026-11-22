@@ -243,3 +243,18 @@ test('server product REST create, update and delete keep normalized units transa
   assert.match(source, /purchaseUnits\.length === 1 \? purchaseUnits\[0\] : 'متعدد الوحدات'/);
   assert.match(source, /batchId: productBatches\.length === 1/);
 });\n
+
+test('sync pulls normalized unit definitions and product units into native and legacy stores', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const [api, sync, repository] = await Promise.all([
+    readFile(new URL('../src/services/apiService.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/services/syncService.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/native/nativePosRepository.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(api, /async getUnitDefinitions\(\)[\s\S]*?\/unitDefinitions/);
+  assert.match(api, /async getProductUnits\(\)[\s\S]*?\/productUnits/);
+  assert.match(sync, /entity: 'unitDefinitions', api: \(\) => apiService\.getUnitDefinitions\(\), authoritativeReplaceSynced: true/);
+  assert.match(sync, /entity: 'productUnits', api: \(\) => apiService\.getProductUnits\(\), authoritativeReplaceSynced: true/);
+  assert.match(repository, /unitDefinitions: 'code'/);
+  assert.match(repository, /productUnits: 'id'/);
+});
