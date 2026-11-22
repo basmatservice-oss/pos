@@ -16,19 +16,9 @@ async function validateElectronClientSnapshot() {
   // This catches corrupt JSON, missing primary keys and duplicate identities
   // before the UI can present an incomplete inventory as a successful load.
   for (const entity of NATIVE_POS_ENTITIES) {
-    const rows = await electronPosRepository.getAllWithSyncState(entity);
-    const seen = new Set<string>();
-    for (const row of rows) {
-      if (!row || typeof row.recordId !== 'string' || !row.record ||
-          typeof row.record !== 'object' || Array.isArray(row.record)) {
-        throw new Error(`Windows SQLite returned an invalid record in ${entity}`);
-      }
-      const actualId = getNativePosRecordId(entity, row.record);
-      if (!actualId || actualId !== row.recordId || seen.has(row.recordId)) {
-        throw new Error(`Windows SQLite identity validation failed for ${entity} (recordId=${row.recordId})`);
-      }
-      seen.add(row.recordId);
-    }
+    // The Electron main process parses and validates one row at a time. Only
+    // primary-key strings cross IPC; renderer memory is independent of catalog size.
+    await electronPosRepository.validateSnapshot(entity, getNativePosPrimaryKeyField(entity));
   }
 }
 
