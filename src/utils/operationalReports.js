@@ -22,7 +22,7 @@ export function buildOperationalReports({
   startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
   expenses = [], payrolls = [], employees = [], customers = [], suppliers = [], attendance = [],
   customerPayments = [], supplierPayments = [], inventoryMovements = [], inventoryBatches = [],
-  shifts = [], shiftMovements = [], accounts = [], transactions = [], agingOrders = orders, products = [],
+  shifts = [], shiftMovements = [], accounts = [], transactions = [], agingOrders = orders, agingReturns = returns, products = [],
 }) {
   const start = startDate instanceof Date ? startDate : new Date(startDate);
   const end = endDate instanceof Date ? endDate : new Date(endDate);
@@ -183,7 +183,7 @@ export function buildOperationalReports({
     target.set(String(payment.purchaseId), (target.get(String(payment.purchaseId)) || 0) + amount(payment.amount));
   }
   const futureSalesReturns = new Map();
-  for (const record of returns) {
+  for (const record of agingReturns) {
     if (!record.originalOrderId || new Date(record.createdAt || end).getTime() <= asOf) continue;
     const key = String(record.originalOrderId);
     futureSalesReturns.set(key, (futureSalesReturns.get(key) || 0) + amount(record.totalRefund));
