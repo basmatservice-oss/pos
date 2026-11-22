@@ -26,6 +26,12 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const customerPayments = usePosEntityRecords<any>('customerPayments');
   const supplierPayments = usePosEntityRecords<any>('supplierPayments');
   const inventoryMovements = usePosEntityRecords<any>('inventoryMovements');
+  const inventoryBatches = usePosEntityRecords<any>('inventoryBatches');
+  const shifts = usePosEntityRecords<any>('shifts');
+  const shiftMovements = usePosEntityRecords<any>('shiftMovements');
+  const accounts = usePosEntityRecords<any>('accounts');
+  const transactions = usePosEntityRecords<any>('transactions');
+  const attendance = usePosEntityRecords<any>('attendance');
 
   const branchMatches = (row: any) => branchFilter === 'all' || String(row.branchId ?? '') === branchFilter;
   const filteredOrders = useMemo(() => orders.filter((row) => branchMatches(row) &&
@@ -51,8 +57,12 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     customerPayments: customerPayments.filter((row) => branchMatches(row) && (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter)),
     supplierPayments: supplierPayments.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
     inventoryMovements: inventoryMovements.filter(branchMatches),
+    inventoryBatches: inventoryBatches.filter(branchMatches),
+    shifts: shifts.filter(branchMatches),
+    shiftMovements: shiftMovements.filter(branchMatches),
+    accounts, transactions, attendance: attendance.filter(branchMatches),
   }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseItems, purchaseReturns, purchaseReturnItems,
-    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter, supplierFilter, customerFilter]);
+    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, inventoryBatches, shifts, shiftMovements, accounts, transactions, attendance, branchFilter, supplierFilter, customerFilter]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
@@ -83,6 +93,21 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       [],
       ['حركة المخزون', 'عدد الحركات', 'وارد', 'صادر', 'الصافي'],
       ...report.inventory.map((row) => [row.type, row.count, row.quantityIn, row.quantityOut, row.netQuantity]),
+      [],
+      ['أعمار المخزون', 'قيمة المخزون'],
+      ...Object.entries(report.inventoryAging.buckets),
+      [],
+      ['أعمار الديون المدينة', 'القيمة'],
+      ...Object.entries(report.receivablesAging.buckets),
+      [],
+      ['أعمار الديون الدائنة', 'القيمة'],
+      ...Object.entries(report.payablesAging.buckets),
+      [],
+      ['الورديات', 'البداية', 'النهاية', 'النقد المتوقع', 'النقد الفعلي', 'فرق الصندوق'],
+      ...report.shifts.rows.map((row) => [row.id, row.startTime, row.endTime || '', row.expectedCash, row.actualCash ?? '', row.variance ?? '']),
+      [],
+      ['الحسابات البنكية', 'الرصيد', 'مدين', 'دائن'],
+      ...report.banks.map((row) => [row.name, row.balance, row.debit, row.credit]),
     ];
     const csv = '\uFEFF' + rows.map((row) => row.map((value) => {
       const text = String(value ?? '');
@@ -172,6 +197,44 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الأصناف الأكثر شراءً بعد خصم المرتجعات</h4>
           <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">المشتراة</th><th className="p-2">المرتجعة</th><th className="p-2">الصافي</th><th className="p-2">صافي القيمة</th></tr></thead><tbody>{report.purchaseProducts.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{formatQty(row.returnedQuantity, quantityDecimals)}</td><td className="p-2 font-bold">{formatQty(row.netQuantity, quantityDecimals)}</td><td className="p-2">{money(row.netTotal)}</td></tr>)}{!report.purchaseProducts.length && empty(5)}</tbody></table></div>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">دوران المخزون والأصناف الراكدة</h4>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">تكلفة البضاعة الخارجة بعد المرتجعات</span><p className="font-black">{money(report.inventoryTurnover.cogs)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">قيمة المخزون المتبقي</span><p className="font-black">{money(report.inventoryTurnover.endingValue)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">معدل دوران تقريبي للفترة</span><p className="font-black">{report.inventoryTurnover.ratio == null ? '—' : report.inventoryTurnover.ratio.toFixed(2) + ' مرة'}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">أصناف راكدة (60 يومًا دون حركة)</span><p className="font-black">{report.inventoryTurnover.staleProducts}</p></div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">المعدل تقريبي لأنه يقارن تكلفة الصادر خلال الفترة بقيمة المخزون المتبقي في نهايتها، وليس بمتوسط رصيد أول وآخر الفترة.</p>
+          <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">القيمة</th><th className="p-2">عمر المخزون</th><th className="p-2">آخر حركة</th><th className="p-2">الحالة</th></tr></thead><tbody>{report.inventoryAging.rows.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.productId}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{money(row.value)}</td><td className="p-2">{row.stockAgeDays} يوم</td><td className="p-2">{row.lastMovementDays == null ? 'لا توجد حركة مسجلة' : row.lastMovementDays + ' يوم'}</td><td className="p-2">{row.status}</td></tr>)}{!report.inventoryAging.rows.length && empty(6)}</tbody></table></div>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">{Object.entries(report.inventoryAging.buckets).map(([key, value]) => <span key={key}>{key}: {money(value)}</span>)}</div>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">أعمار ديون العملاء والموردين</h4>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div><h5 className="mb-2 text-sm font-bold">الذمم المدينة: {money(report.receivablesAging.total)}</h5>{Object.entries(report.receivablesAging.buckets).map(([key, value]) => <div key={key} className="flex justify-between border-b py-1 text-xs"><span>{key}</span><strong>{money(value)}</strong></div>)}</div>
+            <div><h5 className="mb-2 text-sm font-bold">الذمم الدائنة: {money(report.payablesAging.total)}</h5>{Object.entries(report.payablesAging.buckets).map(([key, value]) => <div key={key} className="flex justify-between border-b py-1 text-xs"><span>{key}</span><strong>{money(value)}</strong></div>)}</div>
+          </div>
+          <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الطرف</th><th className="p-2">التاريخ</th><th className="p-2">العمر</th><th className="p-2">المتبقي</th></tr></thead><tbody>{report.receivablesAging.rows.slice(0, 15).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.customer}</td><td className="p-2">{String(row.date || '').slice(0, 10)}</td><td className="p-2">{row.days} يوم</td><td className="p-2">{money(row.outstanding)}</td></tr>)}{!report.receivablesAging.rows.length && empty(4)}</tbody></table></div>
+          <div className="mt-2 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">المورد</th><th className="p-2">التاريخ</th><th className="p-2">العمر</th><th className="p-2">المتبقي</th></tr></thead><tbody>{report.payablesAging.rows.slice(0, 15).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.supplier}</td><td className="p-2">{String(row.date || '').slice(0, 10)}</td><td className="p-2">{row.days} يوم</td><td className="p-2">{money(row.outstanding)}</td></tr>)}{!report.payablesAging.rows.length && empty(4)}</tbody></table></div>
+          <p className="mt-2 text-xs text-slate-500">تقدير الأعمار مبني على تاريخ الفاتورة والمبالغ المدفوعة/المرتجعة المرتبطة بها، ولا يستبدل كشف الحساب التفصيلي.</p>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">الورديات وتسوية الصندوق</h4>
+          <div className="mb-2 grid grid-cols-3 gap-2 text-xs"><div>الورديات: <strong>{report.shifts.count}</strong></div><div>المفتوحة: <strong>{report.shifts.open}</strong></div><div>المغلقة: <strong>{report.shifts.closed}</strong></div></div>
+          <p className="mb-2 text-sm">إجمالي فرق الصندوق: <strong>{money(report.shifts.variance)}</strong></p>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الوردية</th><th className="p-2">البداية</th><th className="p-2">المتوقع</th><th className="p-2">الفعلي</th><th className="p-2">الفرق</th></tr></thead><tbody>{report.shifts.rows.map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.id}</td><td className="p-2">{String(row.startTime).slice(0, 16)}</td><td className="p-2">{money(row.expectedCash)}</td><td className="p-2">{row.actualCash == null ? 'لم تغلق' : money(row.actualCash)}</td><td className="p-2">{row.variance == null ? '—' : money(row.variance)}</td></tr>)}{!report.shifts.rows.length && empty(5)}</tbody></table></div>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">الحسابات البنكية والضرائب</h4>
+          <p className="mb-2 text-sm">ضريبة المخرجات: {money(report.taxes.outputTax)} | ضريبة المرتجعات: {money(report.taxes.returnedTax)} | الصافي: <strong>{money(report.taxes.netOutputTax)}</strong></p>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الحساب البنكي</th><th className="p-2">الرصيد</th><th className="p-2">مدين</th><th className="p-2">دائن</th></tr></thead><tbody>{report.banks.map((row) => <tr key={row.code} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{money(row.balance)}</td><td className="p-2">{money(row.debit)}</td><td className="p-2">{money(row.credit)}</td></tr>)}{!report.banks.length && empty(4)}</tbody></table></div>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">الحضور والرواتب</h4>
+          <div className="grid grid-cols-2 gap-2 text-sm"><div>سجلات الحضور: <strong>{report.attendance.records}</strong></div><div>ساعات العمل: <strong>{formatQty(report.attendance.hours, quantityDecimals)}</strong></div><div>حاضر: <strong>{report.attendance.present}</strong></div><div>غائب: <strong>{report.attendance.absent}</strong></div><div>متأخر: <strong>{report.attendance.late}</strong></div></div>
+          <div className="mt-3 space-y-1">{report.employeePayroll.map((row) => <div key={row.name} className="flex justify-between border-b py-1 text-sm"><span>{row.name}</span><strong>{money(row.total)}</strong></div>)}</div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">حركة المخزون بالوحدة الأساسية</h4>
