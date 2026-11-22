@@ -55,11 +55,12 @@ test('advanced operational reports calculate stock age, approximate turnover, de
     endDate: '2026-11-30T23:59:59.999Z',
     orders: [{ id: 'old-sale', createdAt: '2026-11-10T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }, { id: 'cash-sale', createdAt: '2026-11-10T11:00:00.000Z', shiftId: 'sh1', netAmount: 50, paidAmount: 50, cashAmount: 50, paymentMethod: 'cash' }],
     agingOrders: [
-      { id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, customerName: 'Older Customer' },
+      { id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 40, returnedAmount: 20, customerName: 'Older Customer' },
       { id: 'very-old', createdAt: '2026-08-01T10:00:00.000Z', netAmount: 100, paidAmount: 0, customerName: 'Old Customer' },
     ],
-    returns: [{ id: 'ret', originalOrderId: 'old-sale', shiftId: 'sh1', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
+    returns: [{ id: 'ret', originalOrderId: 'old-sale', shiftId: 'sh1', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }, { id: 'future-ret', originalOrderId: 'old-sale', createdAt: '2026-12-10', totalRefund: 10 }],
     purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20, extraCostsPaymentMethod: 'supplier', shippingCost: 20 }],
+    purchaseReturns: [{ id: 'future-pr', originalPurchaseId: 'old-purchase', createdAt: '2026-12-10', totalReturn: 10 }],
     products: [{ id: 1, name: 'Stock Item' }],
     inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }, { id: 'b2', productId: 2, remainingQuantity: 2, costPrice: 0, purchaseDate: '2026-11-01' }, { id: 'b3', productId: 3, remainingQuantity: 2, costPrice: 0, createdAt: '2026-08-01' }],
     inventoryMovements: [
@@ -67,8 +68,8 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
       { productId: 1, movementType: 'sale_void', quantityDeltaBase: 1, totalCost: 2, createdAt: '2026-11-13' },
     ],
-    customerPayments: [{ customerId: 7, shiftId: 'sh1', paymentMethod: 'cash', amount: 20, createdAt: '2026-11-10' }],
-    supplierPayments: [{ supplierId: 9, shiftId: 'sh1', paymentMethod: 'cash', amount: 5, createdAt: '2026-11-10' }],
+    customerPayments: [{ customerId: 7, shiftId: 'sh1', paymentMethod: 'cash', amount: 20, createdAt: '2026-11-10' }, { orderId: 'old-sale', customerId: 7, amount: 10, createdAt: '2026-12-05' }],
+    supplierPayments: [{ supplierId: 9, shiftId: 'sh1', paymentMethod: 'cash', amount: 5, createdAt: '2026-11-10' }, { purchaseId: 'old-purchase', supplierId: 9, amount: 10, createdAt: '2026-12-05' }],
     expenses: [{ shiftId: 'sh1', paymentMethod: 'cash', amount: 8, date: '2026-11-10' }],
     shifts: [{ id: 'sh1', startTime: '2026-11-10', endTime: '2026-11-10T20:00:00Z', status: 'closed', openingCash: 50, expectedCash: 100, actualCash: 90 }],
     shiftMovements: [
@@ -87,11 +88,11 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { date: '2026-11-11', status: 'late', totalHours: 6 },
     ],
   });
-  assert.equal(result.receivablesAging.total, 170);
-  assert.equal(result.receivablesAging.buckets['31-60 يوم'], 70);
+  assert.equal(result.receivablesAging.total, 160);
+  assert.equal(result.receivablesAging.buckets['31-60 يوم'], 60);
   assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
-  assert.equal(result.payablesAging.total, 200);
-  assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 200);
+  assert.equal(result.payablesAging.total, 220);
+  assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 220);
   assert.equal(result.inventoryAging.totalValue, 50);
   assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
