@@ -47,7 +47,7 @@ class PosLocalDatabasePlugin : Plugin() {
             }
             if (chunk.isEmpty()) throw IllegalStateException("Incomplete JSON payload for $entity/$recordId at $offset")
             result.append(chunk)
-            offset += chunk.length
+            offset += chunk.codePointCount(0, chunk.length)
         }
         return result.toString()
     }
