@@ -60,10 +60,11 @@ test('advanced operational reports calculate stock age, approximate turnover, de
     ],
     returns: [{ id: 'ret', originalOrderId: 'old-sale', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
     purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20 }],
-    inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 1, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }],
+    inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }],
     inventoryMovements: [
       { productId: 1, movementType: 'sale', quantityDeltaBase: -4, totalCost: 40, createdAt: '2026-11-10' },
       { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
+      { productId: 1, movementType: 'sale_void', quantityDeltaBase: 1, totalCost: 2, createdAt: '2026-11-13' },
     ],
     shifts: [{ id: 'sh1', startTime: '2026-11-10', endTime: '2026-11-10T20:00:00Z', status: 'closed', openingCash: 50, expectedCash: 100, actualCash: 90 }],
     shiftMovements: [
@@ -88,8 +89,8 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.inventoryAging.totalValue, 50);
   assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
-  assert.equal(result.inventoryTurnover.cogs, 35);
-  assert.equal(result.inventoryTurnover.ratio, 0.7);
+  assert.equal(result.inventoryTurnover.cogs, 33);
+  assert.equal(result.inventoryTurnover.ratio, 0.66);
   assert.equal(result.shifts.variance, -10);
   assert.equal(result.shifts.rows[0].deposits, 10);
   assert.equal(result.shifts.rows[0].withdrawals, 5);
