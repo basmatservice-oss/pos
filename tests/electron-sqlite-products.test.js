@@ -109,3 +109,23 @@ test('Electron SQLite identifies the exact entity and record when stored JSON is
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+
+test('Electron SQLite validates snapshot identities without returning full business records', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'smart-pos-snapshot-validation-'));
+  try {
+    localDatabase.initializeLocalDatabase(directory);
+    localDatabase.applyRecordChanges([
+      { action: 'put', entity: 'products', recordId: '501', record: { id: 501, name: 'Valid' }, syncState: 'synced' },
+    ]);
+    assert.deepEqual(localDatabase.validateRecords('products', 'id'), { recordIds: ['501'] });
+
+    localDatabase.applyRecordChanges([
+      { action: 'put', entity: 'products', recordId: '502', record: { id: 501, name: 'Mismatched key' }, syncState: 'synced' },
+    ]);
+    assert.throws(() => localDatabase.validateRecords('products', 'id'), /identity validation failed/);
+  } finally {
+    localDatabase.closeLocalDatabase();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
