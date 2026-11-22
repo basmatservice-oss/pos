@@ -22,7 +22,7 @@ export function buildOperationalReports({
   startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
   expenses = [], payrolls = [], employees = [], customers = [], suppliers = [], attendance = [],
   customerPayments = [], supplierPayments = [], inventoryMovements = [], inventoryBatches = [],
-  shifts = [], shiftMovements = [], accounts = [], transactions = [],
+  shifts = [], shiftMovements = [], accounts = [], transactions = [], agingOrders = orders,
 }) {
   const start = startDate instanceof Date ? startDate : new Date(startDate);
   const end = endDate instanceof Date ? endDate : new Date(endDate);
@@ -159,7 +159,7 @@ export function buildOperationalReports({
   }
 
   const asOf = end.getTime();
-  const ageDays = (date) => Math.max(0, Math.floor((asOf - new Date(date || end).getTime()) / 86400000));
+  const ageDays = (date) => { const time = new Date(date || end).getTime(); return Number.isFinite(time) ? Math.max(0, Math.floor((asOf - time) / 86400000)) : 0; };
   const bucketForAge = (days) => days <= 0 ? 'غير مستحق' : days <= 30 ? '1-30 يوم' : days <= 60 ? '31-60 يوم' : days <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
   const ageBuckets = () => ({ 'غير مستحق': 0, '1-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 });
   const customerAge = ageBuckets();
@@ -169,9 +169,9 @@ export function buildOperationalReports({
   const linkedSupplierPayments = new Map();
   for (const payment of supplierPayments) if (payment.purchaseId) linkedSupplierPayments.set(String(payment.purchaseId), (linkedSupplierPayments.get(String(payment.purchaseId)) || 0) + amount(payment.amount));
   const receivableRows = [];
-  for (const order of orders.filter((row) => row.status !== 'void' && new Date(row.createdAt || '').getTime() <= asOf)) {
+  for (const order of agingOrders.filter((row) => row.status !== 'void' && new Date(row.createdAt || '').getTime() <= asOf)) {
     const paid = Math.max(amount(order.paidAmount), linkedCustomerPayments.get(String(order.id)) || 0);
-    const outstanding = Math.max(0, amount(order.netAmount) - paid);
+    const outstanding = Math.max(0, amount(order.netAmount) - paid - amount(order.returnedAmount));
     if (!outstanding) continue;
     const days = ageDays(order.createdAt);
     customerAge[bucketForAge(days)] += outstanding;
