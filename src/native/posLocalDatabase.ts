@@ -41,6 +41,7 @@ export interface PosLocalDatabasePlugin {
   }>;
   getRecordsByField(options: { entity: string; field: string; valueJson: string; limit?: number }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecords(options: { entity: string }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
+  validateRecords(options: { entity: string; primaryKeyField: string }): Promise<{ records: Array<{ recordId: string; primaryKey: string | number }> }>;
   getRecordsByIds(options: { entity: string; recordIds: string[] }): Promise<{ records: Array<{ recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number }> }>;
   getRecord(options: { entity: string; recordId: string }): Promise<{ found: boolean; item?: { recordId: string; record: Record<string, unknown>; syncState: string; updatedAt: number } | null }>;
   updateRecordSyncState(options: { entity: string; recordId: string; syncState: 'local' | 'pending' | 'synced' | 'error' }): Promise<{ updated: boolean; rows: number }>;
@@ -280,6 +281,23 @@ export async function getNativePosRecordsByField(entity: string, field: string, 
   const result = await posLocalDatabase.getRecordsByField({ entity, field, valueJson, limit });
   if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid field lookup result');
   return result.records.filter((item) => item.record && typeof item.record === 'object');
+}
+
+export async function validateNativePosRecords(entity: string, primaryKeyField: string): Promise<string[]> {
+  if (!(await ensureNativePosDatabase())) return [];
+  if (!entity.trim() || !primaryKeyField.trim()) throw new Error('SQLite snapshot validation requires an entity and primary key field');
+  const result = await posLocalDatabase.validateRecords({ entity, primaryKeyField });
+  if (!Array.isArray(result.records)) throw new Error('SQLite returned an invalid snapshot validation result');
+  const seen = new Set<string>();
+  for (const row of result.records) {
+    if (!row || typeof row.recordId !== 'string' || !row.recordId ||
+        row.primaryKey === undefined || row.primaryKey === null ||
+        JSON.stringify(row.primaryKey) !== row.recordId || seen.has(row.recordId)) {
+      throw new Error(`SQLite snapshot identity validation failed for ${entity}`);
+    }
+    seen.add(row.recordId);
+  }
+  return [...seen];
 }
 
 export async function getAllNativePosRecords(entity: string) {
