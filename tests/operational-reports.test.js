@@ -53,12 +53,12 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   const result = buildOperationalReports({
     startDate: '2026-11-01T00:00:00.000Z',
     endDate: '2026-11-30T23:59:59.999Z',
-    orders: [{ id: 'old-sale', createdAt: '2026-11-10T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }],
+    orders: [{ id: 'old-sale', createdAt: '2026-11-10T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }, { id: 'cash-sale', createdAt: '2026-11-10T11:00:00.000Z', shiftId: 'sh1', netAmount: 50, paidAmount: 50, cashAmount: 50, paymentMethod: 'cash' }],
     agingOrders: [
       { id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, customerName: 'Older Customer' },
       { id: 'very-old', createdAt: '2026-08-01T10:00:00.000Z', netAmount: 100, paidAmount: 0, customerName: 'Old Customer' },
     ],
-    returns: [{ id: 'ret', originalOrderId: 'old-sale', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
+    returns: [{ id: 'ret', originalOrderId: 'old-sale', shiftId: 'sh1', createdAt: '2026-11-10', totalRefund: 10, taxAmount: 2, refundMethod: 'cash' }],
     purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20 }],
     inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }],
     inventoryMovements: [
@@ -66,6 +66,9 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
       { productId: 1, movementType: 'sale_void', quantityDeltaBase: 1, totalCost: 2, createdAt: '2026-11-13' },
     ],
+    customerPayments: [{ customerId: 7, shiftId: 'sh1', paymentMethod: 'cash', amount: 20, createdAt: '2026-11-10' }],
+    supplierPayments: [{ supplierId: 9, shiftId: 'sh1', paymentMethod: 'cash', amount: 5, createdAt: '2026-11-10' }],
+    expenses: [{ shiftId: 'sh1', paymentMethod: 'cash', amount: 8, date: '2026-11-10' }],
     shifts: [{ id: 'sh1', startTime: '2026-11-10', endTime: '2026-11-10T20:00:00Z', status: 'closed', openingCash: 50, expectedCash: 100, actualCash: 90 }],
     shiftMovements: [
       { shiftId: 'sh1', type: 'deposit', amount: 10 },
@@ -94,6 +97,12 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.shifts.variance, -10);
   assert.equal(result.shifts.rows[0].deposits, 10);
   assert.equal(result.shifts.rows[0].withdrawals, 5);
+  assert.equal(result.shifts.rows[0].cashSales, 50);
+  assert.equal(result.shifts.rows[0].cashCollections, 20);
+  assert.equal(result.shifts.rows[0].cashSupplierPayments, 5);
+  assert.equal(result.shifts.rows[0].cashExpenses, 8);
+  assert.equal(result.shifts.rows[0].cashRefunds, 10);
+  assert.equal(result.shifts.rows[0].calculatedCash, 102);
   assert.equal(result.banks[0].debit, 100);
   assert.equal(result.banks[0].credit, 30);
   assert.equal(result.taxes.netOutputTax, 18);
