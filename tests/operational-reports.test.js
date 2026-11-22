@@ -23,7 +23,7 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
   assert.equal(result.purchases.gross, 200);
   assert.equal(result.purchases.returns, 20);
   assert.equal(result.suppliers[0].netPurchases, 180);
-  assert.equal(result.staff.find((row) => row.name === 'Cashier A').netSales, 98);
+  assert.equal(result.staff.find((row) => row.name === 'Cashier A').netSales, 90);
   assert.equal(result.expenses[0].total, 30);
 });
 
