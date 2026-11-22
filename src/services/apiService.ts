@@ -234,6 +234,12 @@ export const apiService = {
   async getProducts() {
     return requestWithRetry(() => axios.get(`${API_BASE}/products`).then((r) => r.data));
   },
+  async getUnitDefinitions() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/unitDefinitions`).then((r) => r.data));
+  },
+  async getProductUnits() {
+    return requestWithRetry(() => axios.get(`${API_BASE}/productUnits`).then((r) => r.data));
+  },
   async createProduct(product: any) {
     return requestWithRetry(() => axios.post(`${API_BASE}/products`, product).then((r) => r.data));
   },
