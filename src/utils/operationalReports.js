@@ -281,13 +281,16 @@ export function buildOperationalReports({
       cashExpenses, cashPurchaseRefunds, calculatedCash,
       variance: shift.actualCash == null ? null : amount(shift.actualCash) - amount(shift.expectedCash) };
   });
+  const accountActivity = (account) => {
+    const rows = transactions.filter((tx) => String(tx.accountId) === String(account.code) && inRange(tx.createdAt, start, end));
+    return { code: account.code, name: account.name, balance: amount(account.balance),
+      debit: rows.reduce((sum, tx) => sum + amount(tx.debit || (tx.type === 'debit' ? tx.amount : 0)), 0),
+      credit: rows.reduce((sum, tx) => sum + amount(tx.credit || (tx.type === 'credit' ? tx.amount : 0)), 0) };
+  };
+  const cashRows = accounts.filter((account) => String(account.code) === '1010' ||
+    /cash|صندوق|نقد/i.test(String(account.name || ''))).map(accountActivity);
   const bankRows = accounts.filter((account) => /bank|بنك|مصرف/i.test(String(account.name || '') + ' ' + String(account.code || '')))
-    .map((account) => {
-      const rows = transactions.filter((tx) => String(tx.accountId) === String(account.code) && inRange(tx.createdAt, start, end));
-      return { code: account.code, name: account.name, balance: amount(account.balance),
-        debit: rows.reduce((sum, tx) => sum + amount(tx.debit || (tx.type === 'debit' ? tx.amount : 0)), 0),
-        credit: rows.reduce((sum, tx) => sum + amount(tx.credit || (tx.type === 'credit' ? tx.amount : 0)), 0) };
-    });
+    .map(accountActivity);
   const outputTax = sales.reduce((sum, row) => sum + amount(row.taxAmount), 0);
   const returnedTax = salesReturns.reduce((sum, row) => sum + amount(row.taxAmount), 0);
   const attendanceRows = attendance.filter((row) => inRange(row.date || row.checkIn, start, end));
@@ -321,6 +324,7 @@ export function buildOperationalReports({
     shifts: { count: shiftRows.length, closed: shiftRows.filter((row) => row.actualCash !== null).length,
       open: shiftRows.filter((row) => row.actualCash === null).length,
       variance: shiftRows.reduce((sum, row) => sum + (row.variance ?? 0), 0), rows: shiftRows },
+    cashAccounts: cashRows,
     banks: bankRows,
     taxes: { outputTax, returnedTax, netOutputTax: outputTax - returnedTax },
     attendance: attendanceSummary,
