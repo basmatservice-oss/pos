@@ -19,6 +19,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import { findProductBarcodeMatch } from '../utils/productUnits';
 import { buildProductPricingAnchors, buildProductUnitFxAnchors } from '../utils/exchangePricing';
+import { compressProductImage } from '../utils/productImage';
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -501,14 +502,18 @@ export default function Inventory() {
     });
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, imageUrl: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    try {
+      const imageUrl = await compressProductImage(file);
+      setFormData((current) => ({ ...current, imageUrl }));
+    } catch (error) {
+      console.error('Product image processing failed:', error);
+      toast.error(error instanceof Error ? error.message : 'تعذر تجهيز صورة المنتج');
+    } finally {
+      // Allow selecting the same file again after a failed or completed attempt.
+      e.target.value = '';
     }
   };
 
