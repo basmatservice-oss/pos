@@ -48,11 +48,11 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     expenses: expenses.filter(branchMatches),
     payrolls: payrolls.filter(branchMatches),
     employees, customers, suppliers,
-    customerPayments: customerPayments.filter(branchMatches),
-    supplierPayments: supplierPayments.filter(branchMatches),
+    customerPayments: customerPayments.filter((row) => branchMatches(row) && (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter)),
+    supplierPayments: supplierPayments.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
     inventoryMovements: inventoryMovements.filter(branchMatches),
   }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseItems, purchaseReturns, purchaseReturnItems,
-    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter, supplierFilter]);
+    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter, supplierFilter, customerFilter]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
