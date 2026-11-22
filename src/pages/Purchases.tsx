@@ -421,22 +421,29 @@ export default function Purchases() {
 
     const mapped = items.map((item) => {
       const productBatches = batches.filter((batch) => Number(batch.productId) === Number(item.productId));
+      const conversionFactor = Number(item.conversionFactor || 1);
+      const safeFactor = Number.isFinite(conversionFactor) && conversionFactor > 0 ? conversionFactor : 1;
+      const baseUnit = products.find((product) => Number(product.id) === Number(item.productId))?.unit || 'piece';
       const remainingByBatch = productBatches.map((batch) => ({
         batch,
         remaining: Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0)),
       })).filter((entry) => Number.isFinite(entry.remaining) && entry.remaining > 0);
+      // Batch quantities and purchase-return quantities are always expressed in
+      // base units, not the package unit used on the supplier invoice.
       const remainingBatchQty = productBatches.length
         ? remainingByBatch.reduce((sum, entry) => sum + entry.remaining, 0)
-        : Number(item.quantity || 0);
+        : Number(item.quantity || 0) * safeFactor;
       const remainingValue = remainingByBatch.reduce((sum, entry) =>
-        sum + entry.remaining * Number(entry.batch.costPrice ?? item.costPrice ?? 0), 0);
+        sum + entry.remaining * Number(entry.batch.costPrice ?? item.costPrice / safeFactor ?? 0), 0);
       const costPrice = remainingBatchQty > 0 && productBatches.length
         ? remainingValue / remainingBatchQty
-        : Number(item.costPrice || 0);
+        : Number(item.costPrice || 0) / safeFactor;
       return {
         productId: item.productId,
         productName: item.productName,
-        purchasedQty: item.quantity,
+        purchasedQty: Number(item.quantity || 0) * safeFactor,
+        baseUnit,
+        purchaseUnit: item.unit || baseUnit,
         remainingBatchQty,
         costPrice,
         returnQty: 0,
@@ -1059,17 +1066,17 @@ export default function Purchases() {
                   <thead className="bg-slate-50 text-slate-500 text-xs">
                     <tr>
                       <th className="px-3 py-2.5">المنتج</th>
-                      <th className="px-3 py-2.5 text-center">المشترى</th>
-                      <th className="px-3 py-2.5 text-center">المتاح بالدفعة</th>
+                      <th className="px-3 py-2.5 text-center">المشترى ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
+                      <th className="px-3 py-2.5 text-center">المتاح ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
                       <th className="px-3 py-2.5 text-center">التكلفة</th>
-                      <th className="px-3 py-2.5 text-center">كمية الإرجاع</th>
+                      <th className="px-3 py-2.5 text-center">كمية الإرجاع ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 tabular-nums">
                     {returnItemsState.map((item, idx) => (
                       <tr key={item.productId}>
                         <td className="px-3 py-2.5 font-medium text-slate-900">{item.productName}</td>
-                        <td className="px-3 py-2.5 text-center text-slate-600">{formatQty(item.purchasedQty, qtyDecimals)}</td>
+                        <td className="px-3 py-2.5 text-center text-slate-600">{formatQty(item.purchasedQty, qtyDecimals)} <span className="text-[10px] text-slate-400">({item.purchaseUnit})</span></td>
                         <td className="px-3 py-2.5 text-center font-bold text-indigo-600">
                           {formatQty(item.remainingBatchQty, qtyDecimals)}
                         </td>
