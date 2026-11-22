@@ -625,6 +625,8 @@ test('end-to-end server business operations and native SQLite operations match f
   });
   await dispatchOperation('purchase', purchasePayload, 1);
   assert.equal(serverPurchase.result.items[0].landedCostPerBaseUnit, 10);
+  const localCreatedPurchase = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
+  assert.ok(localCreatedPurchase.updatedAt, 'local purchase must persist an update version for later guarded returns');
   assert.equal(records.get('products').get(JSON.stringify(2)).record.stockQuantity, 10);
 
   const purchaseSalePayload = {
