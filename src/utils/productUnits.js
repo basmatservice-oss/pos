@@ -98,11 +98,11 @@ export function resolveProductUnitFactor(product = {}, item = {}) {
     }
   }
 
-  const suppliedFactor = Number(item.conversionFactor);
-  if (Number.isFinite(suppliedFactor) && suppliedFactor > 0) return suppliedFactor;
   if (unitName.toLocaleLowerCase() === 'box') {
     const legacyFactor = Number(product.conversionFactor);
     if (Number.isFinite(legacyFactor) && legacyFactor > 0) return legacyFactor;
   }
+  const suppliedFactor = Number(item.conversionFactor);
+  if (Number.isFinite(suppliedFactor) && suppliedFactor > 0) return suppliedFactor;
   return 1;
 }
