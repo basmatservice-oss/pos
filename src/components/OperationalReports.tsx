@@ -109,6 +109,17 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       [],
       ['الحسابات البنكية', 'الرصيد', 'مدين', 'دائن'],
       ...report.banks.map((row) => [row.name, row.balance, row.debit, row.credit]),
+      [],
+      ['الضرائب', 'القيمة'],
+      ['ضريبة المخرجات', report.taxes.outputTax], ['ضريبة مرتجعات المبيعات', report.taxes.returnedTax],
+      ['صافي ضريبة المخرجات', report.taxes.netOutputTax],
+      [],
+      ['الحضور', 'القيمة'],
+      ['عدد سجلات الحضور', report.attendance.records], ['الحاضر', report.attendance.present],
+      ['الغائب', report.attendance.absent], ['المتأخر', report.attendance.late], ['ساعات العمل', report.attendance.hours],
+      [],
+      ['رواتب الموظفين', 'القيمة'],
+      ...report.employeePayroll.map((row) => [row.name, row.total]),
     ];
     const csv = '\uFEFF' + rows.map((row) => row.map((value) => {
       const text = String(value ?? '');
@@ -239,7 +250,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الحسابات البنكية والضرائب</h4>
-          <p className="mb-2 text-sm">ضريبة المخرجات: {money(report.taxes.outputTax)} | ضريبة المرتجعات: {money(report.taxes.returnedTax)} | صافي ضريبة المخرجات: <strong>{money(report.taxes.netOutputTax)}</strong></p>
+          <p className="mb-2 text-sm">ضريبة المخرجات: {money(report.taxes.outputTax)} | ضريبة مرتجعات المبيعات: {money(report.taxes.returnedTax)} | صافي ضريبة المخرجات: <strong>{money(report.taxes.netOutputTax)}</strong></p><p className="mb-2 text-xs text-slate-500">هذا الجزء يعرض ضريبة المبيعات فقط؛ بيانات الشراء الحالية لا تتضمن حقل ضريبة مدخلات مستقلًا، لذلك لا يمثل صافي الضريبة المستحقة بعد خصم ضريبة المشتريات.</p>
           <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الحساب البنكي</th><th className="p-2">الرصيد</th><th className="p-2">مدين</th><th className="p-2">دائن</th></tr></thead><tbody>{report.banks.map((row) => <tr key={row.code} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{money(row.balance)}</td><td className="p-2">{money(row.debit)}</td><td className="p-2">{money(row.credit)}</td></tr>)}{!report.banks.length && empty(4)}</tbody></table></div>
         </div>
         <div className={section}>
