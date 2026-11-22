@@ -44,6 +44,7 @@ import { toast } from 'react-hot-toast';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { useSettings } from '../hooks/useSettings';
 import FinancialReport from '../components/FinancialReport';
+import OperationalReports from '../components/OperationalReports';
 import { dispatchOperation } from '../services/operationService';
 import { generateUUID } from '../utils/uuid';
 import { useAuth } from '../context/AuthContext';
@@ -55,7 +56,7 @@ import { getImmutableSaleLineCostTotal } from '../utils/salesCostSnapshot';
 
 export default function Reports() {
   const { user } = useAuth();
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'products' | 'financial'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'products' | 'operations' | 'financial'>('overview');
   const [productReportMode, setProductReportMode] = useState<'all' | 'selected'>('all');
   const [selectedReportProductIds, setSelectedReportProductIds] = useState<number[]>([]);
   const orders = usePosEntityRecords<any>('orders');
@@ -528,6 +529,12 @@ export default function Reports() {
               }`}
             >
               تقارير الأصناف والأرباح
+            </button>
+            <button
+              onClick={() => setActiveMainTab('operations')}
+              className={\x60px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap \x24{activeMainTab === 'operations' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'}\x60}
+            >
+              التقارير التشغيلية
             </button>
             <button
               onClick={() => setActiveMainTab('financial')}
@@ -1085,6 +1092,10 @@ export default function Reports() {
           )}
           <p className="text-xs leading-6 text-slate-500">الربح هنا قبل المصروفات العامة. تكلفة المنتجات المخزنية تُؤخذ من تكلفة البيع الفعلية، وتكلفة «الخدمة بمواد» من دفعات المواد المستهلكة. الخدمة العادية لا تخصم مخزونًا؛ لذلك تُسجل أجور التشغيل والعمالة في المصروفات ولا تُوزع على كل خدمة تلقائيًا. هذا التقرير تشغيلي ولا يحل محل القوائم المحاسبية أو دفتر الأستاذ.</p>
         </section>
+      )}
+
+      {activeMainTab === 'operations' && (
+        <OperationalReports startDate={stats.startDate} endDate={stats.endDate} currency={storeSettings.currency} decimals={decimals} quantityDecimals={qtyDecimals} />
       )}
 
       {activeMainTab === 'financial' && (
