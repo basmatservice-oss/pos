@@ -75,10 +75,12 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { shiftId: 'sh1', type: 'deposit', amount: 10 },
       { shiftId: 'sh1', type: 'withdrawal', amount: 5 },
     ],
-    accounts: [{ code: '101-bank', name: 'Bank Account', balance: 500 }],
+    accounts: [{ code: '101-bank', name: 'Bank Account', balance: 500 }, { code: '1010', name: 'Cash Box', balance: 150 }],
     transactions: [
       { accountId: '101-bank', type: 'debit', amount: 100, createdAt: '2026-11-10' },
       { accountId: '101-bank', type: 'credit', amount: 30, createdAt: '2026-11-11' },
+      { accountId: '1010', type: 'debit', amount: 80, createdAt: '2026-11-10' },
+      { accountId: '1010', type: 'credit', amount: 20, createdAt: '2026-11-11' },
     ],
     attendance: [
       { date: '2026-11-10', status: 'present', totalHours: 8 },
@@ -113,6 +115,9 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.shifts.rows[0].calculatedCash, 102);
   assert.equal(result.banks[0].debit, 100);
   assert.equal(result.banks[0].credit, 30);
+  assert.equal(result.cashAccounts[0].balance, 150);
+  assert.equal(result.cashAccounts[0].debit, 80);
+  assert.equal(result.cashAccounts[0].credit, 20);
   assert.equal(result.taxes.netOutputTax, 18);
   assert.equal(result.attendance.records, 2);
   assert.equal(result.attendance.hours, 14);
