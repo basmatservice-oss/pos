@@ -1897,7 +1897,9 @@ async function applyPurchaseLocally(
     }
     const purchaseDoc = {
       ...purchase, totalAmount: goodsTotal, returnedAmount: purchase.returnedAmount || 0,
-      ...(isPurchaseUpdate ? { lastLocalOperationId: updateOperationId, updatedAt: now } : {}),
+      ...(isPurchaseUpdate ? { lastLocalOperationId: updateOperationId } : {}),
+      createdAt: purchase.createdAt || (isPurchaseUpdate ? oldPurchase.createdAt : now),
+      updatedAt: now,
       syncStatus,
     };
     changes.push({ action: 'put', entity: 'purchases', record: purchaseDoc, syncState: syncStatus });
