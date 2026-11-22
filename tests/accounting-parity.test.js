@@ -99,6 +99,17 @@ function createServerDatabase() {
       purchaseDate TEXT NOT NULL, expiryDate TEXT, batchNumber TEXT, branchId INTEGER,
       isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
     );
+    CREATE TABLE UnitDefinition (
+      code TEXT PRIMARY KEY, name TEXT NOT NULL, symbol TEXT, dimension TEXT NOT NULL,
+      decimalPlaces INTEGER DEFAULT 0, isFractional INTEGER DEFAULT 0, isSystem INTEGER DEFAULT 0,
+      isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE ProductUnit (
+      id TEXT PRIMARY KEY, productId INTEGER NOT NULL, unitCode TEXT NOT NULL,
+      conversionToBase REAL NOT NULL, isBaseUnit INTEGER DEFAULT 0, sellingPrice REAL,
+      costPrice REAL, priceInUSD REAL DEFAULT 0, allowFractions INTEGER DEFAULT 0,
+      barcode TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
+    );
     CREATE TABLE InventoryMovement (
       id TEXT PRIMARY KEY, movementKey TEXT UNIQUE NOT NULL, productId INTEGER NOT NULL,
       movementType TEXT NOT NULL, sourceType TEXT NOT NULL, sourceId TEXT NOT NULL,
