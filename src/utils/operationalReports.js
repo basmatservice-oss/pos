@@ -43,7 +43,9 @@ export function buildOperationalReports({
       quantity: 0, returnedQuantity: 0, total: 0, returnedTotal: 0,
     };
     row.quantity += quantity;
-    row.total += amount(item.total ?? item.originalTotal);
+    row.total += amount(item.landedCostPerBaseUnit) > 0
+      ? amount(item.landedCostPerBaseUnit) * quantity
+      : amount(item.total ?? item.originalTotal);
     purchaseProductGroups.set(key, row);
   }
   for (const item of purchaseReturnItems) {
