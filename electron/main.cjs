@@ -186,6 +186,7 @@ ipcMain.handle('pos-db:initialize', guardIpc(() => {
   return localDatabase.initializeLocalDatabase(app.getPath('userData'));
 }));
 ipcMain.handle('pos-db:get-records', guardIpc((entity) => localDatabase.getRecords(entity)));
+ipcMain.handle('pos-db:validate-records', guardIpc((entity, primaryKeyField) => localDatabase.validateRecords(entity, primaryKeyField)));
 ipcMain.handle('pos-db:get-record', guardIpc((entity, recordId) => localDatabase.getRecord(entity, recordId)));
 ipcMain.handle('pos-db:put-records', guardIpc((records) => localDatabase.putRecords(records)));
 ipcMain.handle('pos-db:apply-record-changes', guardIpc((changes, guards) => localDatabase.applyRecordChanges(changes, guards)));
