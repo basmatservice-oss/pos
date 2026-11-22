@@ -192,7 +192,8 @@ function createServerDatabase() {
     CREATE TABLE PurchaseReturn (
       id TEXT PRIMARY KEY, returnNumber TEXT NOT NULL, originalPurchaseId TEXT NOT NULL,
       supplierId INTEGER, supplierName TEXT, branchId INTEGER, shiftId TEXT,
-      refundMethod TEXT NOT NULL, totalReturn REAL NOT NULL, reason TEXT, createdBy TEXT,
+      refundMethod TEXT NOT NULL, currency TEXT, exchangeRate REAL DEFAULT 1,
+      totalReturn REAL NOT NULL, reason TEXT, createdBy TEXT,
       deviceId TEXT, operationId TEXT, isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
     );
     CREATE TABLE PurchaseReturnItem (
