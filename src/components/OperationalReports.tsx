@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { buildOperationalReports } from '../utils/operationalReports.js';
 import { formatNumber, formatQty } from '../utils/format';
@@ -6,6 +6,10 @@ import { formatNumber, formatQty } from '../utils/format';
 type Props = { startDate: Date; endDate: Date; currency: string; decimals: number; quantityDecimals: number };
 
 export default function OperationalReports({ startDate, endDate, currency, decimals, quantityDecimals }: Props) {
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [cashierFilter, setCashierFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const branches = usePosEntityRecords<any>('branches');
   const orders = usePosEntityRecords<any>('orders');
   const returns = usePosEntityRecords<any>('returns');
   const purchases = usePosEntityRecords<any>('purchases');
@@ -19,11 +23,30 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const supplierPayments = usePosEntityRecords<any>('supplierPayments');
   const inventoryMovements = usePosEntityRecords<any>('inventoryMovements');
 
+  const branchMatches = (row: any) => branchFilter === 'all' || String(row.branchId ?? '') === branchFilter;
+  const filteredOrders = useMemo(() => orders.filter((row) => branchMatches(row) &&
+    (cashierFilter === 'all' || String(row.createdBy || 'غير محدد') === cashierFilter) &&
+    (paymentFilter === 'all' || row.paymentMethod === paymentFilter ||
+      (row.paymentMethod === 'mixed' && (paymentFilter === 'cash' ? Number(row.cashAmount || 0) > 0 : paymentFilter === 'card' ? Number(row.cardAmount || 0) > 0 : false)))),
+    [orders, branchFilter, cashierFilter, paymentFilter]);
+  const filteredOrderIds = useMemo(() => new Set(filteredOrders.map((row) => String(row.id))), [filteredOrders]);
   const report = useMemo(() => buildOperationalReports({
-    startDate, endDate, orders, returns, purchases, purchaseReturns, expenses, payrolls,
-    employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements,
-  }), [startDate, endDate, orders, returns, purchases, purchaseReturns, expenses, payrolls,
-    employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements]);
+    startDate, endDate,
+    orders: filteredOrders,
+    returns: returns.filter((row) => {
+      const original = orders.find((order) => String(order.id) === String(row.originalOrderId));
+      return original && filteredOrderIds.has(String(original.id)) && branchMatches(row);
+    }),
+    purchases: purchases.filter(branchMatches),
+    purchaseReturns: purchaseReturns.filter(branchMatches),
+    expenses: expenses.filter(branchMatches),
+    payrolls: payrolls.filter(branchMatches),
+    employees, customers, suppliers,
+    customerPayments: customerPayments.filter(branchMatches),
+    supplierPayments: supplierPayments.filter(branchMatches),
+    inventoryMovements: inventoryMovements.filter(branchMatches),
+  }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseReturns,
+    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
@@ -35,6 +58,25 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       <div>
         <h3 className="text-lg font-black text-slate-900">التقارير التشغيلية والإدارية</h3>
         <p className="mt-1 text-sm text-slate-500">المشتريات والتحصيلات ووسائل الدفع وأداء الموظفين والعملاء والموردين والمصروفات وحركة المخزون.</p>
+      </div>
+      <div className="flex flex-wrap gap-2 rounded-xl bg-slate-50 p-3">
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">الفرع
+          <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
+            <option value="all">كل الفروع</option>
+            {branches.map((branch) => <option key={branch.id} value={String(branch.id)}>{branch.name}</option>)}
+          </select>
+        </label>
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">الكاشير / منفذ الفاتورة
+          <select value={cashierFilter} onChange={(event) => setCashierFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
+            <option value="all">كل الموظفين</option>
+            {Array.from(new Set(orders.map((row) => String(row.createdBy || 'غير محدد')))).sort().map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">وسيلة الدفع
+          <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
+            <option value="all">كل الوسائل</option><option value="cash">نقدي</option><option value="card">بطاقة</option><option value="credit">آجل</option>
+          </select>
+        </label>
       </div>
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">فواتير المبيعات</p><p className="mt-1 text-xl font-black">{report.sales.count}</p><p className="text-xs text-slate-500">{money(report.sales.netExTax)} بدون الضريبة</p></div>
