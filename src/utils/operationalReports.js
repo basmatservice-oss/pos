@@ -20,8 +20,9 @@ const groupBy = (rows, keyOf, makeRow) => {
 /** Build operational reports from persisted business documents without recalculating historical costs. */
 export function buildOperationalReports({
   startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
-  expenses = [], payrolls = [], employees = [], customers = [], suppliers = [],
-  customerPayments = [], supplierPayments = [], inventoryMovements = [],
+  expenses = [], payrolls = [], employees = [], customers = [], suppliers = [], attendance = [],
+  customerPayments = [], supplierPayments = [], inventoryMovements = [], inventoryBatches = [],
+  shifts = [], shiftMovements = [], accounts = [], transactions = [],
 }) {
   const start = startDate instanceof Date ? startDate : new Date(startDate);
   const end = endDate instanceof Date ? endDate : new Date(endDate);
@@ -157,6 +158,104 @@ export function buildOperationalReports({
     movementGroups.set(key, row);
   }
 
+  const asOf = end.getTime();
+  const ageDays = (date) => Math.max(0, Math.floor((asOf - new Date(date || end).getTime()) / 86400000));
+  const bucketForAge = (days) => days <= 0 ? 'غير مستحق' : days <= 30 ? '1-30 يوم' : days <= 60 ? '31-60 يوم' : days <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
+  const ageBuckets = () => ({ 'غير مستحق': 0, '1-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 });
+  const customerAge = ageBuckets();
+  const supplierAge = ageBuckets();
+  const linkedCustomerPayments = new Map();
+  for (const payment of customerPayments) if (payment.orderId) linkedCustomerPayments.set(String(payment.orderId), (linkedCustomerPayments.get(String(payment.orderId)) || 0) + amount(payment.amount));
+  const linkedSupplierPayments = new Map();
+  for (const payment of supplierPayments) if (payment.purchaseId) linkedSupplierPayments.set(String(payment.purchaseId), (linkedSupplierPayments.get(String(payment.purchaseId)) || 0) + amount(payment.amount));
+  const receivableRows = [];
+  for (const order of orders.filter((row) => row.status !== 'void' && new Date(row.createdAt || '').getTime() <= asOf)) {
+    const paid = Math.max(amount(order.paidAmount), linkedCustomerPayments.get(String(order.id)) || 0);
+    const outstanding = Math.max(0, amount(order.netAmount) - paid);
+    if (!outstanding) continue;
+    const days = ageDays(order.createdAt);
+    customerAge[bucketForAge(days)] += outstanding;
+    receivableRows.push({ id: order.id, customer: order.customerName || 'عميل نقدي', date: order.createdAt, days, outstanding });
+  }
+  const payableRows = [];
+  for (const purchase of purchases.filter((row) => new Date(row.date || row.createdAt || '').getTime() <= asOf)) {
+    const paid = Math.max(amount(purchase.paidAmount), linkedSupplierPayments.get(String(purchase.id)) || 0);
+    const outstanding = Math.max(0, amount(purchase.totalAmount) - paid - amount(purchase.returnedAmount));
+    if (!outstanding) continue;
+    const days = ageDays(purchase.date || purchase.createdAt);
+    supplierAge[bucketForAge(days)] += outstanding;
+    payableRows.push({ id: purchase.id, supplier: purchase.supplierName || 'مورد', date: purchase.date || purchase.createdAt, days, outstanding });
+  }
+  const batchGroups = new Map();
+  const staleDays = 60;
+  for (const batch of inventoryBatches) {
+    const remaining = Math.max(0, amount(batch.remainingQuantity));
+    if (!remaining) continue;
+    const key = String(batch.productId);
+    const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, oldestDate: batch.purchaseDate, batches: 0, expiring: 0, expired: 0 };
+    const cost = amount(batch.costPrice) * amount(batch.exchangeRate || 1);
+    row.quantity += remaining;
+    row.value += remaining * cost;
+    row.batches += 1;
+    if (new Date(batch.purchaseDate || end).getTime() < new Date(row.oldestDate || end).getTime()) row.oldestDate = batch.purchaseDate;
+    if (batch.expiryDate) {
+      const expiry = new Date(batch.expiryDate).getTime();
+      if (Number.isFinite(expiry) && expiry < asOf) row.expired += remaining;
+      else if (Number.isFinite(expiry) && expiry <= asOf + 30 * 86400000) row.expiring += remaining;
+    }
+    batchGroups.set(key, row);
+  }
+  const lastMovementByProduct = new Map();
+  for (const movement of inventoryMovements) {
+    const key = String(movement.productId);
+    const time = new Date(movement.createdAt || '').getTime();
+    if (!Number.isFinite(time) || time > asOf) continue;
+    if (time > (lastMovementByProduct.get(key)?.time ?? -Infinity)) lastMovementByProduct.set(key, { time, date: movement.createdAt });
+  }
+  const inventoryAgeRows = [...batchGroups.values()].map((row) => {
+    const last = lastMovementByProduct.get(String(row.productId));
+    const lastMovementDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
+    const stockAgeDays = ageDays(row.oldestDate);
+    return { ...row, stockAgeDays, lastMovementDate: last?.date || null, lastMovementDays,
+      status: lastMovementDays === null || lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
+  }).sort((a, b) => b.value - a.value);
+  const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 };
+  for (const row of inventoryAgeRows) {
+    const key = row.stockAgeDays <= 30 ? '0-30 يوم' : row.stockAgeDays <= 60 ? '31-60 يوم' : row.stockAgeDays <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
+    ageInventory[key] += row.value;
+  }
+  const cogsOut = movements.filter((row) => row.movementType === 'sale').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
+  const cogsReturned = movements.filter((row) => row.movementType === 'sale_return').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
+  const netCogs = Math.max(0, cogsOut - cogsReturned);
+  const endingInventoryValue = inventoryAgeRows.reduce((sum, row) => sum + row.value, 0);
+  const inventoryTurnover = endingInventoryValue > 0 ? netCogs / endingInventoryValue : null;
+  const periodShifts = shifts.filter((row) => inRange(row.startTime, start, end));
+  const shiftIds = new Set(periodShifts.map((row) => String(row.id)));
+  const shiftRows = periodShifts.map((shift) => {
+    const related = shiftMovements.filter((row) => String(row.shiftId) === String(shift.id));
+    const deposits = related.filter((row) => row.type === 'deposit').reduce((sum, row) => sum + amount(row.amount), 0);
+    const withdrawals = related.filter((row) => row.type === 'withdrawal').reduce((sum, row) => sum + amount(row.amount), 0);
+    return { id: shift.id, startTime: shift.startTime, endTime: shift.endTime, status: shift.status,
+      openingCash: amount(shift.openingCash), expectedCash: amount(shift.expectedCash),
+      actualCash: shift.actualCash == null ? null : amount(shift.actualCash), deposits, withdrawals,
+      variance: shift.actualCash == null ? null : amount(shift.actualCash) - amount(shift.expectedCash) };
+  });
+  const bankRows = accounts.filter((account) => /bank|بنك|مصرف/i.test(String(account.name || '') + ' ' + String(account.code || '')))
+    .map((account) => {
+      const rows = transactions.filter((tx) => String(tx.accountId) === String(account.code) && inRange(tx.createdAt, start, end));
+      return { code: account.code, name: account.name, balance: amount(account.balance),
+        debit: rows.reduce((sum, tx) => sum + amount(tx.debit || (tx.type === 'debit' ? tx.amount : 0)), 0),
+        credit: rows.reduce((sum, tx) => sum + amount(tx.credit || (tx.type === 'credit' ? tx.amount : 0)), 0) };
+    });
+  const outputTax = sales.reduce((sum, row) => sum + amount(row.taxAmount), 0);
+  const returnedTax = salesReturns.reduce((sum, row) => sum + amount(row.taxAmount), 0);
+  const attendanceRows = attendance.filter((row) => inRange(row.date || row.checkIn, start, end));
+  const attendanceSummary = { records: attendanceRows.length,
+    present: attendanceRows.filter((row) => /present|حاضر/i.test(String(row.status || ''))).length,
+    absent: attendanceRows.filter((row) => /absent|غائب/i.test(String(row.status || ''))).length,
+    late: attendanceRows.filter((row) => /late|متأخر/i.test(String(row.status || ''))).length,
+    hours: attendanceRows.reduce((sum, row) => sum + amount(row.totalHours), 0) };
+
   return {
     sales: { count: sales.length, gross: sales.reduce((sum, row) => sum + amount(row.netAmount), 0),
       netExTax: sales.reduce((sum, row) => sum + amount(row.netAmount) - amount(row.taxAmount), 0),
@@ -174,6 +273,16 @@ export function buildOperationalReports({
     customerCollections: periodCustomerPayments.reduce((sum, row) => sum + amount(row.amount), 0),
     supplierPayments: periodSupplierPayments.reduce((sum, row) => sum + amount(row.amount), 0),
     inventory: [...movementGroups.values()].sort((a, b) => b.count - a.count),
+    receivablesAging: { total: Object.values(customerAge).reduce((sum, value) => sum + value, 0), buckets: customerAge, rows: receivableRows.sort((a, b) => b.days - a.days) },
+    payablesAging: { total: Object.values(supplierAge).reduce((sum, value) => sum + value, 0), buckets: supplierAge, rows: payableRows.sort((a, b) => b.days - a.days) },
+    inventoryAging: { totalValue: endingInventoryValue, buckets: ageInventory, rows: inventoryAgeRows },
+    inventoryTurnover: { cogs: netCogs, endingValue: endingInventoryValue, ratio: inventoryTurnover, staleProducts: inventoryAgeRows.filter((row) => row.status === 'راكد').length },
+    shifts: { count: shiftRows.length, closed: shiftRows.filter((row) => row.actualCash !== null).length,
+      open: shiftRows.filter((row) => row.actualCash === null).length,
+      variance: shiftRows.reduce((sum, row) => sum + (row.variance ?? 0), 0), rows: shiftRows },
+    banks: bankRows,
+    taxes: { outputTax, returnedTax, netOutputTax: outputTax - returnedTax },
+    attendance: attendanceSummary,
     employeePayroll: employees.map((employee) => ({ name: employee.name,
       total: periodPayroll.filter((row) => String(row.employeeId) === String(employee.id))
         .reduce((sum, row) => sum + amount(row.netSalary), 0) }))
