@@ -324,6 +324,7 @@ function resolveProductUnitFactorForSale(tx: any, product: any, item: any): numb
       const factor = Number(matched.conversionToBase);
       if (Number.isFinite(factor) && factor > 0) return factor;
     }
+    throw new OperationError(`وحدة البيع "${item.unit || item.selectedUnit}" غير معرفة للصنف ${product.name}`, 400);
   }
   return resolveProductUnitFactor(product, item);
 }
@@ -1298,7 +1299,9 @@ function handlePurchaseCreate(
   const normalizedItems = items
     .map((item: any) => {
       const qty = roundQty(Number(item.quantity || 0));
-      const factor = Number(item.conversionFactor || 1) > 0 ? Number(item.conversionFactor || 1) : 1;
+      const purchaseProduct = tx.select().from(products).where(eq(products.id, Number(item.productId))).get();
+      if (!purchaseProduct) throw new OperationError(`الصنف غير موجود في فاتورة الشراء (ID: ${item.productId})`, 404);
+      const factor = resolveProductUnitFactorForSale(tx, purchaseProduct, item);
       const rawUnitCost = Number(item.costPrice || 0);
       const baseUnitPricePerPurchaseUnit = item.pricesInForeignCurrency
         ? rawUnitCost * fxRate
