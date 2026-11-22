@@ -601,39 +601,68 @@ test('end-to-end server business operations and native SQLite operations match f
 });
 
 
-test('server purchase returns reject duplicate lines that collectively exceed available legacy stock', async () => {
+test('server purchase, sale and purchase return remain balanced and reject duplicate legacy-stock over-return lines', async () => {
   const { executeBusinessOperation } = await import('../server/operations.ts');
   const { db: serverDb, raw } = createServerDatabase();
   const product = {
-    id: 91, name: 'Legacy unbatched purchase item', barcode: null, categoryId: null,
-    costPrice: 10, sellingPrice: 15, stockQuantity: 10, minStockLevel: 0, unit: 'piece',
+    id: 91, name: 'Purchase-sale-return test item', barcode: null, categoryId: null,
+    costPrice: 10, sellingPrice: 15, stockQuantity: 0, minStockLevel: 0, unit: 'piece',
     conversionFactor: 1, itemType: 'stock', allowFractions: 0, baseUnitCode: 'piece',
     quantityPrecision: 0, isActive: 1, vatRate: 0, branchId: 1, isSynced: 0,
     updatedAt: now, createdAt: now,
   };
   serverDb.insert(schema.products).values(product).run();
   serverDb.insert(schema.suppliers).values({
-    id: 91, name: 'Purchase return supplier', balance: 200, updatedAt: now,
-  }).run();
-  serverDb.insert(schema.purchases).values({
-    id: 'legacy-purchase-91', supplierId: 91, supplierName: 'Purchase return supplier',
-    totalAmount: 200, paidAmount: 0, returnedAmount: 0, date: now, updatedAt: now,
-  }).run();
-  serverDb.insert(schema.purchaseItems).values({
-    purchaseId: 'legacy-purchase-91', productId: 91, productName: product.name,
-    quantity: 20, unit: 'piece', conversionFactor: 1, costPrice: 10,
-    landedCostPerBaseUnit: 10, total: 200, createdAt: now,
+    id: 91, name: 'Purchase return supplier', balance: 0, updatedAt: now,
   }).run();
   serverDb.insert(schema.settings).values({
     id: 91, key: 'inventoryValuationMethod', value: 'fifo', isSynced: 0, createdAt: now, updatedAt: now,
   }).run();
-  serverDb.insert(schema.accounts).values([
-    { code: '1010', name: 'Cash', type: 'asset', balance: 0, updatedAt: now },
-    { code: '1020', name: 'Card', type: 'asset', balance: 0, updatedAt: now },
-    { code: '1200', name: 'Inventory', type: 'asset', balance: 200, updatedAt: now },
-    { code: '2100', name: 'Payables', type: 'liability', balance: 200, updatedAt: now },
-  ]).run();
+  const accountRows = [
+    ['1010', 'Cash', 'asset'], ['1020', 'Card', 'asset'], ['1100', 'Receivables', 'asset'],
+    ['1200', 'Inventory', 'asset'], ['2100', 'Payables', 'liability'], ['2200', 'VAT', 'liability'],
+    ['3100', 'Capital', 'equity'], ['3200', 'Retained earnings', 'equity'],
+    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['4300', 'Discounts', 'revenue'],
+    ['5100', 'COGS', 'expense'], ['5200', 'Expenses', 'expense'], ['5300', 'Payroll', 'expense'],
+    ['5400', 'Inventory adjustment', 'expense'],
+  ].map(([code, name, type]) => ({ code, name, type, balance: 0, isSystem: 1, createdAt: now, updatedAt: now }));
+  serverDb.insert(schema.accounts).values(accountRows).run();
 
+  const purchaseResult = executeBusinessOperation(serverDb, 'purchase', {
+    purchase: {
+      id: 'legacy-purchase-91', supplierId: 91, supplierName: 'Purchase return supplier',
+      totalAmount: 200, paidAmount: 0, paymentMethod: 'cash', currency: 'SDG',
+      exchangeRate: 1, date: now, branchId: 1,
+    },
+    items: [{
+      productId: 91, productName: product.name, quantity: 20, unit: 'piece',
+      conversionFactor: 1, costPrice: 10,
+    }],
+  }, { operationId: 'purchase-op-91', deviceId: 'test-device', userName: 'tester' });
+  assert.equal(purchaseResult.result.purchase.id, 'legacy-purchase-91');
+  assert.equal(purchaseResult.result.items[0].landedCostPerBaseUnit, 10);
+  assert.equal(serverDb.select().from(schema.products).get().stockQuantity, 20);
+  assert.equal(serverDb.select().from(schema.suppliers).get().balance, 200);
+
+  const saleResult = executeBusinessOperation(serverDb, 'sale', {
+    order: {
+      id: 'sale-after-purchase-91', receiptNumber: 'SALE-91', totalAmount: 150,
+      taxAmount: 0, netAmount: 150, paidAmount: 150, cashAmount: 150,
+      paymentMethod: 'cash', currency: 'SDG', exchangeRate: 1, branchId: 1,
+      createdBy: 'tester', createdAt: now,
+    },
+    items: [{
+      productId: 91, productName: product.name, quantity: 10, unit: 'piece',
+      conversionFactor: 1, itemType: 'stock', unitPrice: 15,
+      discountAmount: 0, subTotal: 150, taxAmount: 0, total: 150,
+    }],
+  }, { operationId: 'sale-after-purchase-op-91', deviceId: 'test-device', userName: 'tester' });
+  assert.equal(saleResult.result.items[0].costPriceAtTimeOfSale, 10);
+  assert.equal(serverDb.select().from(schema.products).get().stockQuantity, 10);
+
+  // Simulate an older installation with valid remaining stock but no batch layers.
+  // This exercises the fallback path where repeated lines must share one stock reservation.
+  raw.exec('DELETE FROM InventoryBatch');
   const duplicatePayload = {
     id: 'duplicate-purchase-return-91', returnNumber: 'PR-91-DUP',
     originalPurchaseId: 'legacy-purchase-91', refundMethod: 'credit_adjustment',
@@ -661,9 +690,13 @@ test('server purchase returns reject duplicate lines that collectively exceed av
   assert.equal(serverDb.select().from(schema.products).get().stockQuantity, 0);
   assert.equal(serverDb.select().from(schema.purchases).get().returnedAmount, 100);
   assert.equal(serverDb.select().from(schema.suppliers).get().balance, 100);
-  const posted = serverDb.select().from(schema.journalEntries).all()
-    .filter((entry) => entry.referenceType === 'purchase_return');
-  assert.equal(posted.length, 1);
-  assert.equal(posted[0].totalDebit, posted[0].totalCredit);
+  const purchaseReturnEntry = serverDb.select().from(schema.journalEntries).all()
+    .find((entry) => entry.referenceType === 'purchase_return');
+  assert.ok(purchaseReturnEntry);
+  assert.equal(purchaseReturnEntry.totalDebit, purchaseReturnEntry.totalCredit);
+  const movementTypes = serverDb.select().from(schema.inventoryMovements).all().map((row) => row.movementType);
+  assert.ok(movementTypes.includes('purchase_receipt'));
+  assert.ok(movementTypes.includes('sale'));
+  assert.ok(movementTypes.includes('purchase_return'));
   raw.close();
 });
