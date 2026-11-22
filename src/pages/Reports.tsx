@@ -532,7 +532,9 @@ export default function Reports() {
             </button>
             <button
               onClick={() => setActiveMainTab('operations')}
-              className={\x60px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap \x24{activeMainTab === 'operations' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'}\x60}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
+                activeMainTab === 'operations' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:bg-slate-200/50'
+              }`}
             >
               التقارير التشغيلية
             </button>
