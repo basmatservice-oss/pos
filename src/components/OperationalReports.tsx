@@ -97,8 +97,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       ['حركة المخزون', 'عدد الحركات', 'وارد', 'صادر', 'الصافي'],
       ...report.inventory.map((row) => [row.type, row.count, row.quantityIn, row.quantityOut, row.netQuantity]),
       [],
-      ['مخزون حسب الصنف', 'الكمية', 'القيمة', 'تكلفة الصادر', 'معدل الدوران', 'عمر المخزون بالأيام', 'آخر حركة بالأيام', 'الحالة'],
-      ...report.inventoryAging.rows.map((row) => [row.name, row.quantity, row.value, row.cogs, row.turnoverRatio ?? '', row.stockAgeDays, row.lastMovementDays ?? '', row.status]),
+      ['مخزون حسب الصنف', 'الكمية', 'القيمة', 'تكلفة الصادر', 'معدل الدوران', 'عمر المخزون بالأيام', 'آخر بيع بالأيام', 'الحالة'],
+      ...report.inventoryAging.rows.map((row) => [row.name, row.quantity, row.value, row.cogs, row.turnoverRatio ?? '', row.stockAgeDays, row.lastSaleDays ?? '', row.status]),
       [],
       ['تفاصيل الذمم المدينة', 'العميل', 'تاريخ الفاتورة', 'العمر بالأيام', 'المتبقي'],
       ...report.receivablesAging.rows.map((row) => [row.customer, row.date, row.days, row.outstanding]),
@@ -231,7 +231,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
             <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">أصناف راكدة (60 يومًا دون حركة)</span><p className="font-black">{report.inventoryTurnover.staleProducts}</p></div>
           </div>
           <p className="mt-2 text-xs text-slate-500">المعدل تقريبي لأنه يقارن تكلفة الصادر خلال الفترة بقيمة المخزون المتبقي في نهايتها، وليس بمتوسط رصيد أول وآخر الفترة.</p>
-          <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">القيمة</th><th className="p-2">تكلفة الصادر</th><th className="p-2">الدوران</th><th className="p-2">عمر المخزون</th><th className="p-2">آخر حركة</th><th className="p-2">الحالة</th></tr></thead><tbody>{report.inventoryAging.rows.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{money(row.value)}</td><td className="p-2">{money(row.cogs)}</td><td className="p-2">{row.turnoverRatio == null ? '—' : row.turnoverRatio.toFixed(2) + ' مرة'}</td><td className="p-2">{row.stockAgeDays} يوم</td><td className="p-2">{row.lastMovementDays == null ? 'لا توجد حركة مسجلة' : row.lastMovementDays + ' يوم'}</td><td className="p-2">{row.status}</td></tr>)}{!report.inventoryAging.rows.length && empty(8)}</tbody></table></div>
+          <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">القيمة</th><th className="p-2">تكلفة الصادر</th><th className="p-2">الدوران</th><th className="p-2">عمر المخزون</th><th className="p-2">آخر حركة</th><th className="p-2">الحالة</th></tr></thead><tbody>{report.inventoryAging.rows.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{money(row.value)}</td><td className="p-2">{money(row.cogs)}</td><td className="p-2">{row.turnoverRatio == null ? '—' : row.turnoverRatio.toFixed(2) + ' مرة'}</td><td className="p-2">{row.stockAgeDays} يوم</td><td className="p-2">{row.lastSaleDays == null ? 'لم يسجل بيع' : row.lastSaleDays + ' يوم'}</td><td className="p-2">{row.status}</td></tr>)}{!report.inventoryAging.rows.length && empty(8)}</tbody></table></div>
           <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">{Object.entries(report.inventoryAging.buckets).map(([key, value]) => <span key={key}>{key}: {money(value)}</span>)}</div>
         </div>
         <div className={section}>
