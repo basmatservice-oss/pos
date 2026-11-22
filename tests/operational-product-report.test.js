@@ -71,9 +71,9 @@ test('includes returns in the selected period even when the original sale was ea
   assert.equal(rows.length, 1);
   assert.equal(rows[0].quantitySold, 0);
   assert.equal(rows[0].quantityReturned, 2);
-  assert.equal(rows[0].netSales, 200);
+  assert.equal(rows[0].netSales, -200);
   assert.equal(rows[0].netCost, -140);
-  assert.equal(rows[0].profit, 60);
+  assert.equal(rows[0].profit, -60);
 });
 
 test('does not reverse cost for damaged returned goods', () => {
@@ -85,7 +85,7 @@ test('does not reverse cost for damaged returned goods', () => {
       quantity: 1, total: 115, taxAmount: 15, costPrice: 60, condition: 'damaged',
     }],
   });
-  assert.equal(rows[0].netSales, 100);
+  assert.equal(rows[0].netSales, -100);
   assert.equal(rows[0].netCost, 0);
-  assert.equal(rows[0].profit, 100);
+  assert.equal(rows[0].profit, -100);
 });
