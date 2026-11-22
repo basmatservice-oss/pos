@@ -15,7 +15,9 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const orders = usePosEntityRecords<any>('orders');
   const returns = usePosEntityRecords<any>('returns');
   const purchases = usePosEntityRecords<any>('purchases');
+  const purchaseItems = usePosEntityRecords<any>('purchaseItems');
   const purchaseReturns = usePosEntityRecords<any>('purchaseReturns');
+  const purchaseReturnItems = usePosEntityRecords<any>('purchaseReturnItems');
   const expenses = usePosEntityRecords<any>('expenses');
   const payrolls = usePosEntityRecords<any>('payroll');
   const employees = usePosEntityRecords<any>('employees');
@@ -35,6 +37,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const report = useMemo(() => buildOperationalReports({
     startDate, endDate,
     orders: filteredOrders,
+    purchaseItems,
+    purchaseReturnItems,
     returns: returns.filter((row) => {
       const original = orders.find((order) => String(order.id) === String(row.originalOrderId));
       return original && filteredOrderIds.has(String(original.id));
@@ -47,7 +51,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     customerPayments: customerPayments.filter(branchMatches),
     supplierPayments: supplierPayments.filter(branchMatches),
     inventoryMovements: inventoryMovements.filter(branchMatches),
-  }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseReturns,
+  }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseItems, purchaseReturns, purchaseReturnItems,
     expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter, supplierFilter]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
@@ -73,6 +77,9 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       [],
       ['الموردون', 'عدد الفواتير', 'صافي المشتريات', 'المدفوع'],
       ...report.suppliers.map((row) => [row.name, row.invoices, row.netPurchases, row.paid]),
+      [],
+      ['الأصناف المشتراة', 'الكمية الصافية بالوحدة الأساسية', 'صافي قيمة الشراء'],
+      ...report.purchaseProducts.map((row) => [row.name, row.netQuantity, row.netTotal]),
       [],
       ['حركة المخزون', 'عدد الحركات', 'وارد', 'صادر', 'الصافي'],
       ...report.inventory.map((row) => [row.type, row.count, row.quantityIn, row.quantityOut, row.netQuantity]),
@@ -161,6 +168,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الموردون والمشتريات</h4>
           <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">المورد</th><th className="p-2">الفواتير</th><th className="p-2">صافي المشتريات</th><th className="p-2">المدفوع</th></tr></thead><tbody>{report.suppliers.slice(0, 30).map((row) => <tr key={row.id || row.name} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{row.invoices}</td><td className="p-2">{money(row.netPurchases)}</td><td className="p-2">{money(row.paid)}</td></tr>)}{!report.suppliers.length && empty(4)}</tbody></table></div>
+        </div>
+        <div className={section}>
+          <h4 className="mb-3 font-bold text-slate-800">الأصناف الأكثر شراءً بعد خصم المرتجعات</h4>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">المشتراة</th><th className="p-2">المرتجعة</th><th className="p-2">الصافي</th><th className="p-2">صافي القيمة</th></tr></thead><tbody>{report.purchaseProducts.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{formatQty(row.returnedQuantity, quantityDecimals)}</td><td className="p-2 font-bold">{formatQty(row.netQuantity, quantityDecimals)}</td><td className="p-2">{money(row.netTotal)}</td></tr>)}{!report.purchaseProducts.length && empty(5)}</tbody></table></div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">حركة المخزون بالوحدة الأساسية</h4>
