@@ -36,6 +36,8 @@ import {
   serviceRecipes,
   exchangeRateHistory,
   fiscalPeriods,
+  unitDefinitions,
+  productUnits,
 } from '../drizzle/schema.js';
 import {
   postJournalEntry,
@@ -48,6 +50,7 @@ import {
 } from './accounting.js';
 import { hashSecret, sanitizeEmployee } from './auth.js';
 import { resolveProductUnitFactor } from '../src/utils/productUnits.js';
+import { buildCanonicalProductUnits } from '../src/utils/productUnitCatalog.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -305,8 +308,43 @@ export function executeBusinessOperation(
   });
 }
 
-function resolveProductUnitFactorForSale(product: any, item: any): number {
+function resolveProductUnitFactorForSale(tx: any, product: any, item: any): number {
+  const requestedName = String(item.unit || item.selectedUnit || product.unit || 'piece').trim().toLocaleLowerCase();
+  const baseName = String(product.unit || 'piece').trim().toLocaleLowerCase();
+  if (requestedName === baseName) return 1;
+  const rows = tx.select().from(productUnits).where(eq(productUnits.productId, Number(product.id))).all();
+  if (rows.length) {
+    const definitions = tx.select().from(unitDefinitions).all();
+    const namesByCode = new Map(definitions.map((definition: any) => [String(definition.code), String(definition.name).trim().toLocaleLowerCase()]));
+    const matched = rows.find((row: any) =>
+      (item.unitCode && String(row.unitCode) === String(item.unitCode)) ||
+      namesByCode.get(String(row.unitCode)) === requestedName
+    );
+    if (matched) {
+      const factor = Number(matched.conversionToBase);
+      if (Number.isFinite(factor) && factor > 0) return factor;
+    }
+  }
   return resolveProductUnitFactor(product, item);
+}
+
+function syncNormalizedProductUnits(tx: any, product: any, now: string): void {
+  const normalized = buildCanonicalProductUnits(product);
+  for (const definition of normalized.definitions) {
+    tx.insert(unitDefinitions).values(definition).onConflictDoNothing().run();
+  }
+  for (const unit of normalized.units) {
+    tx.insert(productUnits).values(unit).onConflictDoUpdate({
+      target: productUnits.id,
+      set: {
+        unitCode: unit.unitCode, conversionToBase: unit.conversionToBase,
+        isBaseUnit: unit.isBaseUnit, sellingPrice: unit.sellingPrice,
+        costPrice: unit.costPrice, priceInUSD: unit.priceInUSD,
+        allowFractions: unit.allowFractions, barcode: unit.barcode,
+        isSynced: 0, updatedAt: now,
+      },
+    }).run();
+  }
 }
 
 function handleSale(
@@ -359,7 +397,7 @@ function handleSale(
       throw new OperationError(`الصنف غير موجود (ID: ${item.productId})`, 404);
     }
 
-    const factor = resolveProductUnitFactorForSale(prod, item);
+    const factor = resolveProductUnitFactorForSale(tx, prod, item);
     const baseQty = roundQty(qty * factor);
     const itemType = String(item.itemType || prod.itemType || 'stock');
 
@@ -2715,6 +2753,10 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
       })
       .returning()
       .get();
+  }
+
+  if (tableName === 'products' && savedRecord) {
+    syncNormalizedProductUnits(tx, savedRecord, now);
   }
 
   if (
