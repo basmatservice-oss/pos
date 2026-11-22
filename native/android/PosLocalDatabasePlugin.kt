@@ -654,7 +654,7 @@ class PosLocalDatabasePlugin : Plugin() {
             }
             call.resolve(JSObject().put("records", rows))
         } catch (error: Exception) {
-            call.reject("تعذر قراءة السجلات المحلية: " + (error.message ?: error.javaClass.simpleName), error)
+            call.reject("تعذر قراءة السجلات المحلية من جدول $entity: " + (error.message ?: error.javaClass.simpleName), error)
         }
     }
 
