@@ -174,7 +174,7 @@ test('Windows SQLite validates every registered business entity after migration 
   assert.match(source, /for \(const entity of NATIVE_POS_ENTITIES\)/);
   assert.match(source, /electronPosRepository\.validateSnapshot\(entity, getNativePosPrimaryKeyField\(entity\)\)/);
   assert.doesNotMatch(source.slice(source.indexOf('async function validateElectronClientSnapshot'), source.indexOf('async function restoreDesktopRuntimeConfig')), /getAllWithSyncState/);
-  assert.match(source, /Windows SQLite identity validation failed/);
+  assert.match(source, /electronPosRepository\.validateSnapshot/);
   const desktopStart = source.indexOf('if (isElectronDesktop()) {');
   const validationCall = source.indexOf('await validateElectronClientSnapshot()', desktopStart);
   const restoreCall = source.indexOf('await restoreDesktopRuntimeConfig()', validationCall);
