@@ -4410,8 +4410,8 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
         const changes: any[] = linkedUnits.map((unit) => ({
           action: 'delete', entity: 'productUnits', key: unit.id,
         }));
-        const existing = await nativePosRepository.get<any>('products', payload.id);
-        if (existing) changes.push({ action: 'delete', entity: 'products', key: payload.id });
+        const existing = await nativePosRepository.get<any>('products', productId);
+        if (existing) changes.push({ action: 'delete', entity: 'products', key: productId });
         if (changes.length) {
           const applied = await nativePosRepository.applyChanges(changes);
           if (applied !== changes.length) {
