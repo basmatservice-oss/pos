@@ -730,6 +730,8 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.equal(localReport.purchaseProducts[0].netQuantity, serverReport.purchaseProducts[0].netQuantity);
   assert.equal(localReport.purchaseProducts[0].netTotal, serverReport.purchaseProducts[0].netTotal);
   assert.equal(localReport.inventoryAging.totalValue, serverReport.inventoryAging.totalValue);
+  assert.equal(localReport.inventoryTurnover.cogs, serverReport.inventoryTurnover.cogs);
+  assert.equal(localReport.inventoryTurnover.ratio, serverReport.inventoryTurnover.ratio);
   raw.close();
 });
 
