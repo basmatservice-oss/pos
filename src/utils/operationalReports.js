@@ -236,9 +236,30 @@ export function buildOperationalReports({
     const related = shiftMovements.filter((row) => String(row.shiftId) === String(shift.id));
     const deposits = related.filter((row) => row.type === 'deposit').reduce((sum, row) => sum + amount(row.amount), 0);
     const withdrawals = related.filter((row) => row.type === 'withdrawal').reduce((sum, row) => sum + amount(row.amount), 0);
+    const shiftOrders = sales.filter((row) => String(row.shiftId || '') === String(shift.id));
+    const cashSales = shiftOrders.reduce((sum, row) => sum + (row.paymentMethod === 'mixed'
+      ? amount(row.cashAmount) : row.paymentMethod === 'cash' ? amount(row.cashAmount || row.paidAmount || row.netAmount) : 0), 0);
+    const cardSales = shiftOrders.reduce((sum, row) => sum + (row.paymentMethod === 'mixed'
+      ? amount(row.cardAmount) : row.paymentMethod === 'card' ? amount(row.cardAmount || row.paidAmount || row.netAmount) : 0), 0);
+    const cashRefunds = salesReturns.filter((row) => String(row.shiftId || '') === String(shift.id) && row.refundMethod === 'cash')
+      .reduce((sum, row) => sum + amount(row.totalRefund), 0);
+    const cardRefunds = salesReturns.filter((row) => String(row.shiftId || '') === String(shift.id) && row.refundMethod === 'card')
+      .reduce((sum, row) => sum + amount(row.totalRefund), 0);
+    const cashCollections = periodCustomerPayments.filter((row) => String(row.shiftId || '') === String(shift.id) && row.paymentMethod === 'cash')
+      .reduce((sum, row) => sum + amount(row.amount), 0);
+    const cashSupplierPayments = periodSupplierPayments.filter((row) => String(row.shiftId || '') === String(shift.id) && row.paymentMethod === 'cash')
+      .reduce((sum, row) => sum + amount(row.amount), 0);
+    const cashExpenses = periodExpenses.filter((row) => String(row.shiftId || '') === String(shift.id) && row.paymentMethod === 'cash')
+      .reduce((sum, row) => sum + amount(row.amount), 0);
+    const cashPurchaseRefunds = buyReturns.filter((row) => String(row.shiftId || '') === String(shift.id) && row.refundMethod === 'cash')
+      .reduce((sum, row) => sum + amount(row.totalReturn), 0);
+    const calculatedCash = amount(shift.openingCash) + cashSales + cashCollections + cashPurchaseRefunds +
+      deposits - withdrawals - cashRefunds - cashSupplierPayments - cashExpenses;
     return { id: shift.id, startTime: shift.startTime, endTime: shift.endTime, status: shift.status,
       openingCash: amount(shift.openingCash), expectedCash: amount(shift.expectedCash),
       actualCash: shift.actualCash == null ? null : amount(shift.actualCash), deposits, withdrawals,
+      cashSales, cardSales, cashRefunds, cardRefunds, cashCollections, cashSupplierPayments,
+      cashExpenses, cashPurchaseRefunds, calculatedCash,
       variance: shift.actualCash == null ? null : amount(shift.actualCash) - amount(shift.expectedCash) };
   });
   const bankRows = accounts.filter((account) => /bank|بنك|مصرف/i.test(String(account.name || '') + ' ' + String(account.code || '')))
