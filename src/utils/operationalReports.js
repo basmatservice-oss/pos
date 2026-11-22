@@ -210,7 +210,7 @@ export function buildOperationalReports({
     const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, ageQuantityDays: 0, batches: 0, expiring: 0, expired: 0 };
     // Batch costPrice is already persisted in the system/base currency; exchangeRate is historical metadata only.
     const cost = amount(batch.costPrice);
-    const batchAge = ageDays(batch.purchaseDate);
+    const batchAge = ageDays(batch.purchaseDate || batch.createdAt);
     const batchValue = remaining * cost;
     row.quantity += remaining;
     row.value += batchValue;
