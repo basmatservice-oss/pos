@@ -316,10 +316,15 @@ function resolveProductUnitFactorForSale(tx: any, product: any, item: any): numb
   if (rows.length) {
     const definitions = tx.select().from(unitDefinitions).all();
     const namesByCode = new Map(definitions.map((definition: any) => [String(definition.code), String(definition.name).trim().toLocaleLowerCase()]));
-    const matched = rows.find((row: any) =>
-      (item.unitCode && String(row.unitCode) === String(item.unitCode)) ||
-      namesByCode.get(String(row.unitCode)) === requestedName
-    );
+    const matched = rows.find((row: any) => {
+      const definitionName = namesByCode.get(String(row.unitCode));
+      // A unit code supplied by an offline client must agree with the visible
+      // unit name; stale/mismatched identifiers must never change stock factors.
+      if (item.unitCode && String(row.unitCode) === String(item.unitCode)) {
+        return definitionName === requestedName;
+      }
+      return !item.unitCode && definitionName === requestedName;
+    });
     if (matched) {
       const factor = Number(matched.conversionToBase);
       if (Number.isFinite(factor) && factor > 0) return factor;
