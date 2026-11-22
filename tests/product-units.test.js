@@ -72,3 +72,23 @@ test('adds a scanned carton as a distinct POS line with correct price and stock 
   assert.equal(useCartStore.getState().items[0].cartQuantity * getItemUnitFactor(useCartStore.getState().items[0]), 24);
   useCartStore.getState().clearCart();
 });
+
+test('server conversion trusts the persisted alternate unit over stale client factors', async () => {
+  const { resolveProductUnitFactor } = await import('../src/utils/productUnits.js');
+  const product = {
+    unit: 'piece',
+    conversionFactor: 12,
+    unitsJson: JSON.stringify([
+      { name: 'Carton', conversionFactor: 24 },
+    ]),
+  };
+  assert.equal(resolveProductUnitFactor(product, { unit: 'carton', conversionFactor: 1 }), 24);
+  assert.equal(resolveProductUnitFactor(product, { unit: 'CARTON', conversionFactor: 6 }), 24);
+});
+
+test('server conversion preserves legacy box products and recognizes the base unit', async () => {
+  const { resolveProductUnitFactor } = await import('../src/utils/productUnits.js');
+  const legacyProduct = { unit: 'piece', conversionFactor: 12 };
+  assert.equal(resolveProductUnitFactor(legacyProduct, { unit: 'box', conversionFactor: 1 }), 12);
+  assert.equal(resolveProductUnitFactor({ unit: 'kg', conversionFactor: 10 }, { unit: 'KG', conversionFactor: 10 }), 1);
+});
