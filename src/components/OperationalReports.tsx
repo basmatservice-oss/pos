@@ -155,7 +155,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">العملاء الأكثر شراءً</h4>
-          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">العميل</th><th className="p-2">الفواتير</th><th className="p-2">المبيعات</th><th className="p-2">المتبقي التقريبي</th></tr></thead><tbody>{report.customers.slice(0, 30).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{row.orders}</td><td className="p-2">{money(row.netSales)}</td><td className="p-2">{money(Math.max(0, row.netSales - row.paid))}</td></tr>)}{!report.customers.length && empty(4)}</tbody></table></div>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">العميل</th><th className="p-2">الفواتير</th><th className="p-2">المبيعات</th><th className="p-2">المرتجعات</th></tr></thead><tbody>{report.customers.slice(0, 30).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{row.orders}</td><td className="p-2">{money(row.netSales)}</td><td className="p-2">{money(row.returns)}</td></tr>)}{!report.customers.length && empty(4)}</tbody></table></div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الموردون والمشتريات</h4>
@@ -166,7 +166,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
           <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">نوع الحركة</th><th className="p-2">عددها</th><th className="p-2">وارد</th><th className="p-2">صادر</th><th className="p-2">الصافي</th></tr></thead><tbody>{report.inventory.map((row) => <tr key={row.type} className="border-t"><td className="p-2">{row.type}</td><td className="p-2">{row.count}</td><td className="p-2">{formatQty(row.quantityIn, quantityDecimals)}</td><td className="p-2">{formatQty(row.quantityOut, quantityDecimals)}</td><td className="p-2">{formatQty(row.netQuantity, quantityDecimals)}</td></tr>)}{!report.inventory.length && empty(5)}</tbody></table></div>
         </div>
       </div>
-      <p className="text-xs leading-6 text-slate-500">تحصيلات العملاء ومدفوعات الموردين تعرض كحركة مستقلة ولا تضاف مرة أخرى إلى المبيعات أو المشتريات. أداء الموظف يعتمد على منفذ الفاتورة المحفوظ. المتبقي التقريبي للعميل محسوب من فواتيره خلال الفترة فقط ولا يمثل رصيد حسابه الكامل. هذه التقارير تشغيلية ولا تحل محل القوائم المالية أو دفتر الأستاذ.</p>
+      <p className="text-xs leading-6 text-slate-500">تحصيلات العملاء ومدفوعات الموردين تعرض كحركة مستقلة ولا تضاف مرة أخرى إلى المبيعات أو المشتريات. أداء الموظف يعتمد على منفذ الفاتورة المحفوظ. المدفوع في جدول العملاء هو المدفوع المسجل على الفواتير نفسها؛ أما التحصيلات غير المرتبطة بفاتورة فتظهر منفصلة لتجنب نسبتها إلى فاتورة خاطئة. هذه التقارير تشغيلية ولا تحل محل القوائم المالية أو دفتر الأستاذ.</p>
     </section>
   );
 }
