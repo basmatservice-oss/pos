@@ -140,6 +140,14 @@ test('normalized product-unit reads are projected back for existing POS consumer
   assert.match(source, /unitsJson: JSON\.stringify\(extras\)/);
 });
 
+test('single and filtered product reads use the same normalized unit projection as product lists', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/services/posDataAccess.ts', import.meta.url), 'utf8');
+  assert.match(source, /getPosRecord[\s\S]*?projectProductUnitRecords\(\[record\]\)/);
+  assert.match(source, /getPosRecordsWhereEquals[\s\S]*?getPosRecords<T>\('products'\)/);
+  assert.match(source, /getFirstPosRecordWhereEquals[\s\S]*?getPosRecordsWhereEquals<T>\(entity, field, value\)/);
+});
+
 
 test('SQLite migration adds normalized unit metadata and idempotently backfills legacy products', async () => {
   const { readFile } = await import('node:fs/promises');
