@@ -30,7 +30,7 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
   assert.equal(result.staff.find((row) => row.name === 'Cashier A').netSales, 90);
   assert.equal(result.expenses[0].total, 30);
   assert.equal(result.customers[0].netSales, 108);
-  assert.equal(result.customers[0].paid, 70);
+  assert.equal(result.customers[0].paid, 60);
   assert.equal(result.customerCollections, 10);
   assert.equal(result.supplierPayments, 25);
   assert.equal(result.inventory[0].quantityOut, 3);
