@@ -72,7 +72,7 @@ import {
   AuthPayload,
 } from './auth.js';
 import { ensureChartOfAccountsAsync, postJournalEntry, recordInventoryMovement } from './accounting.js';
-import { executeBusinessOperation, OperationError } from './operations.js';
+import { executeBusinessOperation, OperationError, syncNormalizedProductUnits } from './operations.js';
 import os from 'os';
 
 const upload = multer({ dest: 'uploads/' });
@@ -793,6 +793,8 @@ export function createPosApp() {
           updatedAt: now,
         }).returning().get();
 
+        syncNormalizedProductUnits(tx, created, now);
+
         if (Number(created.stockQuantity || 0) > 0) {
           if (String(created.itemType || 'stock') !== 'stock') {
             throw new Error('Opening stock is only supported for stock-tracked products');
@@ -876,11 +878,16 @@ export function createPosApp() {
         }
       }
       if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable product metadata was supplied' });
-      const [product] = await db
-        .update(products)
-        .set({ ...data, isSynced: 0, updatedAt: new Date().toISOString() })
-        .where(eq(products.id, id))
-        .returning();
+      const now = new Date().toISOString();
+      const product = db.transaction((tx) => {
+        const [updated] = tx
+          .update(products)
+          .set({ ...data, isSynced: 0, updatedAt: now })
+          .where(eq(products.id, id))
+          .returning();
+        if (updated) syncNormalizedProductUnits(tx, updated, now);
+        return updated;
+      });
       if (!product) return res.status(404).json({ error: 'Product not found' });
       res.json(product);
     } catch {
@@ -903,7 +910,10 @@ export function createPosApp() {
       if (Number(product.stockQuantity || 0) > 0 || batches.length || soldItems.length || purchasedItems.length || movements.length) {
         return res.status(409).json({ error: 'لا يمكن حذف صنف له رصيد أو دفعات أو حركات مخزون أو مستندات بيع وشراء؛ عطّله بدلًا من حذفه' });
       }
-      await db.delete(products).where(eq(products.id, id));
+      db.transaction((tx) => {
+        tx.delete(productUnits).where(eq(productUnits.productId, id)).run();
+        tx.delete(products).where(eq(products.id, id)).run();
+      });
       res.json({ message: 'Product deleted' });
     } catch {
       res.status(500).json({ error: 'Failed to delete product' });
