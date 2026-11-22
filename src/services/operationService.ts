@@ -4398,6 +4398,29 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
   if (!android && !table) return;
   if (type === 'entity_delete') {
     if (isLocalSqlite()) {
+      if (tableName === 'products') {
+        const productId = Number(payload.id);
+        if (!Number.isSafeInteger(productId) || productId <= 0) {
+          throw new Error('معرّف الصنف غير صالح عند حذف وحداته المحلية');
+        }
+        // ProductUnit has no database-level cascade. Remove its normalized
+        // children and the product in one SQLite transaction, including
+        // orphaned children left by an earlier interrupted/legacy deletion.
+        const linkedUnits = await nativePosRepository.whereEquals<any>('productUnits', 'productId', productId);
+        const changes: any[] = linkedUnits.map((unit) => ({
+          action: 'delete', entity: 'productUnits', key: unit.id,
+        }));
+        const existing = await nativePosRepository.get<any>('products', payload.id);
+        if (existing) changes.push({ action: 'delete', entity: 'products', key: payload.id });
+        if (changes.length) {
+          const applied = await nativePosRepository.applyChanges(changes);
+          if (applied !== changes.length) {
+            throw new Error('SQLite لم تؤكد حذف الصنف ووحداته بصورة كاملة');
+          }
+        }
+        // Keep the operation idempotent when the product and its units are absent.
+        return;
+      }
       const existing = await nativePosRepository.get<any>(tableName as any, payload.id);
       if (existing && !(await nativePosRepository.delete(tableName as any, payload.id))) {
         throw new Error('SQLite لم تؤكد حذف السجل: ' + String(tableName));
