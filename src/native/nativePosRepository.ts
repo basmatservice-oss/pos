@@ -59,6 +59,11 @@ const NATIVE_PRIMARY_KEYS = {
 
 export type NativePosEntity = keyof typeof NATIVE_PRIMARY_KEYS;
 
+export function getNativePosPrimaryKeyField(entity: NativePosEntity): string {
+  assertEntity(entity);
+  return NATIVE_PRIMARY_KEYS[entity];
+}
+
 // Keep the mirror entity list derived from the same key registry to prevent schema drift.
 // syncOperations is intentionally excluded: Android and Electron store durable queues in pos_outbox.
 export const NATIVE_POS_ENTITIES = Object.keys(NATIVE_PRIMARY_KEYS) as NativePosEntity[];
