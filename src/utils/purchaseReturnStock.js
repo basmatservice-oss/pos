@@ -3,11 +3,11 @@
  * lines in the same request. The caller owns transaction rollback on false.
  */
 export function reservePurchaseReturnStock(
-  availableByProduct: Map<number, number>,
-  productId: number,
-  snapshotStock: unknown,
-  requestedQuantity: number,
-): boolean {
+  availableByProduct,
+  productId,
+  snapshotStock,
+  requestedQuantity,
+) {
   const available = availableByProduct.has(productId)
     ? Number(availableByProduct.get(productId))
     : Number(snapshotStock || 0);
