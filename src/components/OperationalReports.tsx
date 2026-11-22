@@ -9,6 +9,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const [branchFilter, setBranchFilter] = useState('all');
   const [cashierFilter, setCashierFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
+  const [customerFilter, setCustomerFilter] = useState('all');
+  const [supplierFilter, setSupplierFilter] = useState('all');
   const branches = usePosEntityRecords<any>('branches');
   const orders = usePosEntityRecords<any>('orders');
   const returns = usePosEntityRecords<any>('returns');
@@ -26,8 +28,9 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const branchMatches = (row: any) => branchFilter === 'all' || String(row.branchId ?? '') === branchFilter;
   const filteredOrders = useMemo(() => orders.filter((row) => branchMatches(row) &&
     (cashierFilter === 'all' || String(row.createdBy || 'غير محدد') === cashierFilter) &&
+    (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter) &&
     (paymentFilter === 'all' || row.paymentMethod === paymentFilter)),
-    [orders, branchFilter, cashierFilter, paymentFilter]);
+    [orders, branchFilter, cashierFilter, paymentFilter, customerFilter]);
   const filteredOrderIds = useMemo(() => new Set(filteredOrders.map((row) => String(row.id))), [filteredOrders]);
   const report = useMemo(() => buildOperationalReports({
     startDate, endDate,
@@ -36,8 +39,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       const original = orders.find((order) => String(order.id) === String(row.originalOrderId));
       return original && filteredOrderIds.has(String(original.id));
     }),
-    purchases: purchases.filter(branchMatches),
-    purchaseReturns: purchaseReturns.filter(branchMatches),
+    purchases: purchases.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
+    purchaseReturns: purchaseReturns.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
     expenses: expenses.filter(branchMatches),
     payrolls: payrolls.filter(branchMatches),
     employees, customers, suppliers,
@@ -45,7 +48,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     supplierPayments: supplierPayments.filter(branchMatches),
     inventoryMovements: inventoryMovements.filter(branchMatches),
   }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseReturns,
-    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter]);
+    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, branchFilter, supplierFilter]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
@@ -74,6 +77,18 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">وسيلة الدفع
           <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
             <option value="all">كل الوسائل</option><option value="cash">نقدي</option><option value="card">بطاقة</option><option value="credit">آجل</option><option value="mixed">دفع مختلط</option>
+          </select>
+        </label>
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">العميل
+          <select value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
+            <option value="all">كل العملاء</option>
+            {customers.map((customer) => <option key={customer.id} value={String(customer.id)}>{customer.name}</option>)}
+          </select>
+        </label>
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">المورد
+          <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
+            <option value="all">كل الموردين</option>
+            {suppliers.map((supplier) => <option key={supplier.id} value={String(supplier.id)}>{supplier.name}</option>)}
           </select>
         </label>
       </div>
