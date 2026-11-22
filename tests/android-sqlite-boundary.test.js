@@ -172,8 +172,8 @@ test('Windows SQLite validates every registered business entity after migration 
   const source = await read('../src/main.tsx');
   assert.match(source, /async function validateElectronClientSnapshot/);
   assert.match(source, /for \(const entity of NATIVE_POS_ENTITIES\)/);
-  assert.match(source, /electronPosRepository\.getAllWithSyncState\(entity\)/);
-  assert.match(source, /getNativePosRecordId\(entity, row\.record\)/);
+  assert.match(source, /electronPosRepository\.validateSnapshot\(entity, getNativePosPrimaryKeyField\(entity\)\)/);
+  assert.doesNotMatch(source.slice(source.indexOf('async function validateElectronClientSnapshot'), source.indexOf('async function restoreDesktopRuntimeConfig')), /getAllWithSyncState/);
   assert.match(source, /Windows SQLite identity validation failed/);
   const desktopStart = source.indexOf('if (isElectronDesktop()) {');
   const validationCall = source.indexOf('await validateElectronClientSnapshot()', desktopStart);
@@ -251,4 +251,17 @@ test('Android startup validates SQLite snapshot integrity without loading all JS
   assert.match(plugin, /record\.opt\(primaryKeyField\)/);
   assert.match(bridge, /validateRecords\(options: \{ entity: string; primaryKeyField: string \}\)/);
   assert.match(bridge, /JSON\.stringify\(row\.primaryKey\) !== row\.recordId/);
+});
+
+
+test('Windows SQLite startup validates JSON and primary keys in the main process without hydrating renderer records', async () => {
+  const database = await read('../electron/local-database.cjs');
+  const main = await read('../electron/main.cjs');
+  const preload = await read('../electron/preload.cjs');
+  const repository = await read('../src/native/electronPosRepository.ts');
+  assert.match(database, /function validateRecords\(entity, primaryKeyField\)/);
+  assert.match(database, /JSON\.stringify\(primaryKey\) !== row\.recordId/);
+  assert.match(main, /pos-db:validate-records/);
+  assert.match(preload, /validateRecords: \(entity, primaryKeyField\)/);
+  assert.match(repository, /async validateSnapshot\(entity: NativePosEntity, primaryKeyField: string\)/);
 });
