@@ -334,7 +334,7 @@ function resolveProductUnitFactorForSale(tx: any, product: any, item: any): numb
   return resolveProductUnitFactor(product, item);
 }
 
-function syncNormalizedProductUnits(tx: any, product: any, now: string): void {
+export function syncNormalizedProductUnits(tx: any, product: any, now: string): void {
   const normalized = buildCanonicalProductUnits(product);
   let canReconcile = !product.unitsJson;
   if (product.unitsJson) {
