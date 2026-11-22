@@ -57,3 +57,35 @@ test('never uses the current product cost to invent historical sale profit', () 
   assert.equal(rows[0].profit, null);
   assert.equal(rows[0].missingCostSnapshot, true);
 });
+
+test('includes returns in the selected period even when the original sale was earlier', () => {
+  const rows = buildOperationalProductReport({
+    startDate, endDate,
+    returns: [{ id: 'return-old-sale', createdAt: '2026-11-14T10:00:00.000Z' }],
+    returnItems: [{
+      returnId: 'return-old-sale', productId: 81, productName: 'صنف مرتجع',
+      quantity: 2, total: 230, taxAmount: 30, costPrice: 70, condition: 'resalable',
+    }],
+    products: [{ id: 81, name: 'صنف مرتجع', itemType: 'stock' }],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].quantitySold, 0);
+  assert.equal(rows[0].quantityReturned, 2);
+  assert.equal(rows[0].netSales, 200);
+  assert.equal(rows[0].netCost, -140);
+  assert.equal(rows[0].profit, 60);
+});
+
+test('does not reverse cost for damaged returned goods', () => {
+  const rows = buildOperationalProductReport({
+    startDate, endDate,
+    returns: [{ id: 'damaged-return', createdAt: '2026-11-14T10:00:00.000Z' }],
+    returnItems: [{
+      returnId: 'damaged-return', productId: 82, productName: 'صنف تالف',
+      quantity: 1, total: 115, taxAmount: 15, costPrice: 60, condition: 'damaged',
+    }],
+  });
+  assert.equal(rows[0].netSales, 100);
+  assert.equal(rows[0].netCost, 0);
+  assert.equal(rows[0].profit, 100);
+});
