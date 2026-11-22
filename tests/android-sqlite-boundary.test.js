@@ -210,3 +210,20 @@ test('browser compatibility reconciliation also writes the canonical record befo
   assert.match(browser, /await table\.put\(canonicalRecord\)/);
   assert.match(browser, /await table\.delete\(oldId\)/);
 });
+
+test('Android SQLite reads oversized JSON records in bounded chunks instead of CursorWindow-sized rows', async () => {
+  const source = await read('../native/android/PosLocalDatabasePlugin.kt');
+  assert.match(source, /private fun readRecordJson\([\s\S]*?SELECT length\(json\)/);
+  assert.match(source, /SELECT substr\(json, \?, \?\)/);
+  assert.match(source, /val chunkSize = 48 \* 1024/);
+  assert.match(source, /chunk\.codePointCount\(0, chunk\.length\)/);
+  const recordsReader = source.slice(source.indexOf('fun getRecords(call:'), source.indexOf('fun updateRecordSyncState(call:'));
+  assert.doesNotMatch(recordsReader, /arrayOf\("record_id", "json"/);
+  assert.match(recordsReader, /readRecordJson\(database, entity, recordId\)/);
+  const byIdsReader = source.slice(source.indexOf('fun getRecordsByIds(call:'), source.indexOf('fun getRecordsByField(call:'));
+  assert.doesNotMatch(byIdsReader, /arrayOf\("record_id", "json"/);
+  assert.match(byIdsReader, /readRecordJson\(db, entity, id\)/);
+  const fieldReader = source.slice(source.indexOf('fun getRecordsByField(call:'), source.indexOf('fun getRecords(call:'));
+  assert.doesNotMatch(fieldReader, /SELECT record_id, json, sync_state/);
+  assert.match(fieldReader, /readRecordJson\(database, entity, id\)/);
+});
