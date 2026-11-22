@@ -105,7 +105,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       ...Object.entries(report.payablesAging.buckets),
       [],
       ['الورديات', 'البداية', 'النهاية', 'النقد المتوقع', 'النقد الفعلي', 'فرق الصندوق'],
-      ...report.shifts.rows.map((row) => [row.id, row.startTime, row.endTime || '', row.expectedCash, row.actualCash ?? '', row.variance ?? '']),
+      ...report.shifts.rows.map((row) => [row.id, row.startTime, row.endTime || '', row.expectedCash, row.actualCash ?? '', row.calculatedCash, row.variance ?? '']),
       [],
       ['الحسابات البنكية', 'الرصيد', 'مدين', 'دائن'],
       ...report.banks.map((row) => [row.name, row.balance, row.debit, row.credit]),
@@ -225,7 +225,17 @@ export default function OperationalReports({ startDate, endDate, currency, decim
           <h4 className="mb-3 font-bold text-slate-800">الورديات وتسوية الصندوق</h4>
           <div className="mb-2 grid grid-cols-3 gap-2 text-xs"><div>الورديات: <strong>{report.shifts.count}</strong></div><div>المفتوحة: <strong>{report.shifts.open}</strong></div><div>المغلقة: <strong>{report.shifts.closed}</strong></div></div>
           <p className="mb-2 text-sm">إجمالي فرق الصندوق: <strong>{money(report.shifts.variance)}</strong></p>
-          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الوردية</th><th className="p-2">البداية</th><th className="p-2">المتوقع</th><th className="p-2">الفعلي</th><th className="p-2">الفرق</th></tr></thead><tbody>{report.shifts.rows.map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.id}</td><td className="p-2">{String(row.startTime).slice(0, 16)}</td><td className="p-2">{money(row.expectedCash)}</td><td className="p-2">{row.actualCash == null ? 'لم تغلق' : money(row.actualCash)}</td><td className="p-2">{row.variance == null ? '—' : money(row.variance)}</td></tr>)}{!report.shifts.rows.length && empty(5)}</tbody></table></div>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الوردية</th><th className="p-2">البداية</th><th className="p-2">المتوقع</th><th className="p-2">المحسوب من الحركات</th><th className="p-2">الفعلي</th><th className="p-2">فرق الإقفال</th></tr></thead><tbody>{report.shifts.rows.map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.id}</td><td className="p-2">{String(row.startTime).slice(0, 16)}</td><td className="p-2">{money(row.expectedCash)}</td><td className="p-2">{money(row.calculatedCash)}</td><td className="p-2">{row.actualCash == null ? 'لم تغلق' : money(row.actualCash)}</td><td className="p-2">{row.variance == null ? '—' : money(row.variance)}</td></tr>)}{!report.shifts.rows.length && empty(6)}</tbody></table></div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600 md:grid-cols-4">
+            <div>مبيعات نقدية: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashSales, 0))}</strong></div>
+            <div>تحصيلات نقدية: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashCollections, 0))}</strong></div>
+            <div>مدفوعات موردين: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashSupplierPayments, 0))}</strong></div>
+            <div>مصروفات نقدية: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashExpenses, 0))}</strong></div>
+            <div>مرتجعات نقدية: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashRefunds, 0))}</strong></div>
+            <div>رديات مشتريات نقدية: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cashPurchaseRefunds, 0))}</strong></div>
+            <div>مبيعات بطاقة: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cardSales, 0))}</strong></div>
+            <div>مرتجعات بطاقة: <strong>{money(report.shifts.rows.reduce((sum, row) => sum + row.cardRefunds, 0))}</strong></div>
+          </div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الحسابات البنكية والضرائب</h4>
