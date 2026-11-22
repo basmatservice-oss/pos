@@ -225,9 +225,12 @@ export function buildOperationalReports({
   const cogsByProduct = new Map();
   for (const movement of movements) {
     const key = String(movement.productId);
-    const entry = cogsByProduct.get(key) || { sold: 0, reversed: 0 };
+    const entry = cogsByProduct.get(key) || { sold: 0, reversed: 0, inventoryValueChange: 0 };
     if (movement.movementType === 'sale') entry.sold += Math.abs(amount(movement.totalCost));
     if (movement.movementType === 'sale_return' || movement.movementType === 'sale_void') entry.reversed += Math.abs(amount(movement.totalCost));
+    const quantityDelta = amount(movement.quantityDeltaBase);
+    const movementValue = Math.abs(amount(movement.totalCost));
+    entry.inventoryValueChange += quantityDelta > 0 ? movementValue : quantityDelta < 0 ? -movementValue : 0;
     cogsByProduct.set(key, entry);
   }
   const batchGroups = new Map();
@@ -267,9 +270,13 @@ export function buildOperationalReports({
     const last = lastMovementByProduct.get(String(row.productId));
     const lastSaleDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
     const stockAgeDays = row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0;
-    const cogs = Math.max(0, (cogsByProduct.get(String(row.productId))?.sold || 0) - (cogsByProduct.get(String(row.productId))?.reversed || 0));
+    const productActivity = cogsByProduct.get(String(row.productId));
+    const cogs = Math.max(0, (productActivity?.sold || 0) - (productActivity?.reversed || 0));
+    const openingValue = Math.max(0, row.value - (productActivity?.inventoryValueChange || 0));
+    const averageValue = (openingValue + row.value) / 2;
     return { ...row, name: productNames.get(String(row.productId)) || String(row.productId), cogs,
-      turnoverRatio: row.value > 0 ? cogs / row.value : null,
+      openingValue, averageValue,
+      turnoverRatio: averageValue > 0 ? cogs / averageValue : null,
       stockAgeDays,
       lastSaleDate: last?.date || null, lastSaleDays,
       status: lastSaleDays === null ? (stockAgeDays >= staleDays ? 'راكد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
