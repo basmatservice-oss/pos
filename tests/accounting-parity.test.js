@@ -408,7 +408,7 @@ test('production SQLite FIFO and native SQLite FIFO produce identical sale and r
   });
   assert.equal(localReport.sales.gross, serverReport.sales.gross);
   assert.equal(localReport.sales.returns, serverReport.sales.returns);
-  assert.equal(localReport.purchases.net, serverReport.purchases.net);
+  assert.equal(localReport.purchases.gross - localReport.purchases.returns, serverReport.purchases.gross - serverReport.purchases.returns);
   assert.equal(localReport.purchaseProducts[0].netQuantity, serverReport.purchaseProducts[0].netQuantity);
   assert.equal(localReport.purchaseProducts[0].netTotal, serverReport.purchaseProducts[0].netTotal);
   assert.equal(localReport.inventoryAging.totalValue, serverReport.inventoryAging.totalValue);
