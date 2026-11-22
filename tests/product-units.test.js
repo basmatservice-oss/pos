@@ -139,3 +139,30 @@ test('normalized product-unit reads are projected back for existing POS consumer
   assert.match(source, /getPosRecords<Record<string, any>>\('unitDefinitions'\)/);
   assert.match(source, /unitsJson: JSON\.stringify\(extras\)/);
 });
+
+
+test('SQLite migration adds normalized unit metadata and idempotently backfills legacy products', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const migration = await readFile(new URL('../migrate.ts', import.meta.url), 'utf8');
+  const schema = await readFile(new URL('../drizzle/schema.ts', import.meta.url), 'utf8');
+  assert.match(migration, /ensureColumn\(sqlite, 'ProductUnit', 'costPrice', 'real'\)/);
+  assert.match(migration, /ensureColumn\(sqlite, 'ProductUnit', 'priceInUSD', 'real DEFAULT 0'\)/);
+  assert.match(migration, /ensureColumn\(sqlite, 'ProductUnit', 'allowFractions', 'integer DEFAULT 0'\)/);
+  assert.match(migration, /INSERT OR IGNORE INTO "ProductUnit"/);
+  assert.match(migration, /INSERT OR IGNORE INTO "UnitDefinition"/);
+  assert.match(migration, /buildCanonicalProductUnits\(product\)/);
+  assert.match(migration, /"unitsJson" is deliberately retained|legacy JSON is deliberately retained/i);
+  assert.match(schema, /costPrice: real\('costPrice'\)/);
+  assert.match(schema, /priceInUSD: real\('priceInUSD'\)/);
+  assert.match(schema, /allowFractions: integer\('allowFractions'\)/);
+});
+
+test('server sales and purchases resolve unit factors from ProductUnit before trusting client factors', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const operations = await readFile(new URL('../server/operations.ts', import.meta.url), 'utf8');
+  assert.match(operations, /from\(productUnits\)[\s\S]*?conversionToBase/);
+  assert.match(operations, /resolveProductUnitFactorForSale\(tx, prod, item\)/);
+  assert.match(operations, /resolveProductUnitFactorForSale\(tx, purchaseProduct, item\)/);
+  assert.match(operations, /وحدة البيع .*غير معرفة للصنف/);
+  assert.match(operations, /syncNormalizedProductUnits\(tx, savedRecord, now\)/);
+});
