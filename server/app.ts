@@ -880,11 +880,12 @@ export function createPosApp() {
       if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable product metadata was supplied' });
       const now = new Date().toISOString();
       const product = db.transaction((tx) => {
-        const [updated] = tx
+        const updated = tx
           .update(products)
           .set({ ...data, isSynced: 0, updatedAt: now })
           .where(eq(products.id, id))
-          .returning();
+          .returning()
+          .get();
         if (updated) syncNormalizedProductUnits(tx, updated, now);
         return updated;
       });
