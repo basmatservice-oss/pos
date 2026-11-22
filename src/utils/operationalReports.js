@@ -194,7 +194,7 @@ export function buildOperationalReports({
     if (!remaining) continue;
     const key = String(batch.productId);
     const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, ageQuantityDays: 0, batches: 0, expiring: 0, expired: 0 };
-    const cost = amount(batch.costPrice) * amount(batch.exchangeRate || 1);
+    // Batch costPrice is already persisted in the system/base currency; exchangeRate is historical metadata only.\n    const cost = amount(batch.costPrice);
     const batchAge = ageDays(batch.purchaseDate);
     const batchValue = remaining * cost;
     row.quantity += remaining;
@@ -225,7 +225,7 @@ export function buildOperationalReports({
       status: lastMovementDays === null || lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
   const cogsOut = movements.filter((row) => row.movementType === 'sale').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
-  const cogsReturned = movements.filter((row) => row.movementType === 'sale_return').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
+  const cogsReturned = movements.filter((row) => row.movementType === 'sale_return' || row.movementType === 'sale_void').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
   const netCogs = Math.max(0, cogsOut - cogsReturned);
   const endingInventoryValue = inventoryAgeRows.reduce((sum, row) => sum + row.value, 0);
   const inventoryTurnover = endingInventoryValue > 0 ? netCogs / endingInventoryValue : null;
