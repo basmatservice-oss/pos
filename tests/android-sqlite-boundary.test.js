@@ -227,3 +227,14 @@ test('Android SQLite reads oversized JSON records in bounded chunks instead of C
   assert.doesNotMatch(fieldReader, /SELECT record_id, json, sync_state/);
   assert.match(fieldReader, /readRecordJson\(database, entity, id\)/);
 });
+
+test('new product images are resized and compressed before being embedded in SQLite JSON', async () => {
+  const source = await read('../src/utils/productImage.ts');
+  assert.match(source, /maxEdge = 640/);
+  assert.match(source, /25 \* 1024 \* 1024/);
+  assert.match(source, /canvas\.toDataURL\('image\/jpeg', 0\.78\)/);
+  assert.match(source, /URL\.revokeObjectURL/);
+  const inventory = await read('../src/pages/Inventory.tsx');
+  assert.match(inventory, /compressProductImage\(file\)/);
+  assert.doesNotMatch(inventory, /reader\.readAsDataURL\(file\)/);
+});
