@@ -197,3 +197,15 @@ test('native product edits atomically reconcile ProductUnit rows with the edited
   assert.match(service, /entity: 'productUnits'/);
   assert.match(service, /nativePosRepository\.applyChanges\(changes\)/);
 });
+
+test('native product deletion atomically removes normalized unit rows without deleting shared definitions', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const service = await readFile(new URL('../src/services/operationService.ts', import.meta.url), 'utf8');
+  const deleteBlock = service.slice(service.indexOf("if (type === 'entity_delete')"), service.indexOf("if (!payload?.record)"));
+  assert.match(deleteBlock, /tableName === 'products'/);
+  assert.match(deleteBlock, /whereEquals<any>\('productUnits', 'productId', productId\)/);
+  assert.match(deleteBlock, /entity: 'productUnits'/);
+  assert.match(deleteBlock, /entity: 'products'/);
+  assert.match(deleteBlock, /nativePosRepository\.applyChanges\(changes\)/);
+  assert.doesNotMatch(deleteBlock, /entity: 'unitDefinitions'/);
+});
