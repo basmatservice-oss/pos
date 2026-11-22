@@ -21,6 +21,38 @@ class PosLocalDatabasePlugin : Plugin() {
         helper = PosDatabaseHelper(context)
     }
 
+    /**
+     * Read large JSON values in bounded chunks. Selecting the complete JSON
+     * column can overflow Android's CursorWindow (especially legacy base64 images).
+     */
+    private fun readRecordJson(db: SQLiteDatabase, entity: String, recordId: String): String? {
+        val totalLength = db.rawQuery(
+            "SELECT length(json) FROM pos_records WHERE entity = ? AND record_id = ? LIMIT 1",
+            arrayOf(entity, recordId)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            cursor.getInt(0)
+        }
+        if (totalLength < 0) throw IllegalStateException("Invalid JSON length for $entity/$recordId")
+        val result = StringBuilder(totalLength)
+        val chunkSize = 48 * 1024
+        var offset = 0
+        while (offset < totalLength) {
+            val chunk = db.rawQuery(
+                "SELECT substr(json, ?, ?) FROM pos_records WHERE entity = ? AND record_id = ? LIMIT 1",
+                arrayOf((offset + 1).toString(), chunkSize.toString(), entity, recordId)
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) throw IllegalStateException("Local record disappeared while reading $entity/$recordId")
+                cursor.getString(0) ?: ""
+            }
+            if (chunk.isEmpty()) throw IllegalStateException("Incomplete JSON payload for $entity/$recordId at $offset")
+            result.append(chunk)
+            offset += chunk.length
+        }
+        return result.toString()
+    }
+
+
     @PluginMethod
     fun initialize(call: PluginCall) {
         try {
@@ -240,14 +272,13 @@ class PosLocalDatabasePlugin : Plugin() {
                     }
                 }
                 if (!skipped && hasFieldGuard) {
-                    db.query("pos_records", arrayOf("json"), "entity = ?", arrayOf(ifAbsentEntity), null, null, null).use { cursor ->
+                    db.query("pos_records", arrayOf("record_id"), "entity = ?", arrayOf(ifAbsentEntity), null, null, null).use { cursor ->
                         while (!skipped && cursor.moveToNext()) {
-                            val json = cursor.getString(0)
-                            val record = try { JSONObject(json) } catch (_: Exception) { null }
+                            val id = cursor.getString(0)
+                            val json = readRecordJson(db, ifAbsentEntity!!, id)
+                            val record = try { json?.let { JSONObject(it) } } catch (_: Exception) { null }
                             if (record != null && record.opt(ifAbsentField!!) != null &&
-                                record.opt(ifAbsentField!!).toString() == ifAbsentValue) {
-                                skipped = true
-                            }
+                                record.opt(ifAbsentField!!).toString() == ifAbsentValue) skipped = true
                         }
                     }
                 }
@@ -257,19 +288,10 @@ class PosLocalDatabasePlugin : Plugin() {
                     } else matchGuards
                     for (guard in guardsToCheck) {
                         if (skipped) break
-                        db.query(
-                            "pos_records", arrayOf("json"),
-                            "entity = ? AND record_id = ?", arrayOf(guard.entity, guard.recordId),
-                            null, null, null, "1"
-                        ).use { cursor ->
-                            if (!cursor.moveToFirst()) {
-                                skipped = true
-                            } else {
-                                val record = try { JSONObject(cursor.getString(0)) } catch (_: Exception) { null }
-                                if (record == null || record.opt(guard.field) == null ||
-                                    record.opt(guard.field).toString() != guard.expectedValue) skipped = true
-                            }
-                        }
+                        val json = readRecordJson(db, guard.entity, guard.recordId)
+                        val record = try { json?.let { JSONObject(it) } } catch (_: Exception) { null }
+                        if (record == null || record.opt(guard.field) == null ||
+                            record.opt(guard.field).toString() != guard.expectedValue) skipped = true
                     }
                 }
                 if (!skipped) for (change in validated) {
@@ -455,16 +477,21 @@ class PosLocalDatabasePlugin : Plugin() {
             return
         }
         try {
-            val result = helper.readableDatabase.query(
-                "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+            val database = helper.readableDatabase
+            val result = database.query(
+                "pos_records", arrayOf("record_id", "sync_state", "updated_at"),
                 "entity = ? AND record_id = ?", arrayOf(entity, recordId),
                 null, null, null, "1"
             ).use { cursor ->
-                if (!cursor.moveToFirst()) null else JSObject()
-                    .put("recordId", cursor.getString(0))
-                    .put("record", JSONObject(cursor.getString(1)))
-                    .put("syncState", cursor.getString(2))
-                    .put("updatedAt", cursor.getLong(3))
+                if (!cursor.moveToFirst()) null else {
+                    val json = readRecordJson(database, entity, recordId)
+                        ?: throw IllegalStateException("Local record JSON is missing for $entity/$recordId")
+                    JSObject()
+                        .put("recordId", cursor.getString(0))
+                        .put("record", JSONObject(json))
+                        .put("syncState", cursor.getString(1))
+                        .put("updatedAt", cursor.getLong(2))
+                }
             }
             call.resolve(JSObject().put("found", result != null).put("item", result))
         } catch (error: Exception) {
@@ -495,17 +522,20 @@ class PosLocalDatabasePlugin : Plugin() {
                 val placeholders = List(chunk.size) { "?" }.joinToString(",")
                 val args = arrayOf(entity) + chunk.toTypedArray()
                 db.query(
-                    "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                    "pos_records", arrayOf("record_id", "sync_state", "updated_at"),
                     "entity = ? AND record_id IN ($placeholders)", args,
                     null, null, "updated_at ASC, record_id ASC"
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
+                        val id = cursor.getString(0)
+                        val json = readRecordJson(db, entity, id)
+                            ?: throw IllegalStateException("Local record JSON is missing for $entity/$id")
                         rows.put(
                             JSObject()
-                                .put("recordId", cursor.getString(0))
-                                .put("record", JSONObject(cursor.getString(1)))
-                                .put("syncState", cursor.getString(2))
-                                .put("updatedAt", cursor.getLong(3))
+                                .put("recordId", id)
+                                .put("record", JSONObject(json))
+                                .put("syncState", cursor.getString(1))
+                                .put("updatedAt", cursor.getLong(2))
                         )
                     }
                 }
@@ -535,29 +565,35 @@ class PosLocalDatabasePlugin : Plugin() {
             val database = helper.readableDatabase
             try {
                 database.rawQuery(
-                    "SELECT record_id, json, sync_state, updated_at FROM pos_records " +
+                    "SELECT record_id, sync_state, updated_at FROM pos_records " +
                         "WHERE entity = ? AND json_valid(json) AND json_extract(json, ?) = json_extract(?, '\$') " +
                         "ORDER BY updated_at ASC, record_id ASC" + if (requestedLimit > 0) " LIMIT ?" else "",
                     if (requestedLimit > 0) arrayOf(entity, path, valueJson, requestedLimit.toString()) else arrayOf(entity, path, valueJson)
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
+                        val id = cursor.getString(0)
+                        val json = readRecordJson(database, entity, id)
+                            ?: throw IllegalStateException("Local record JSON is missing for $entity/$id")
                         rows.put(
                             JSObject()
-                                .put("recordId", cursor.getString(0))
-                                .put("record", JSONObject(cursor.getString(1)))
-                                .put("syncState", cursor.getString(2))
-                                .put("updatedAt", cursor.getLong(3))
+                                .put("recordId", id)
+                                .put("record", JSONObject(json))
+                                .put("syncState", cursor.getString(1))
+                                .put("updatedAt", cursor.getLong(2))
                         )
                     }
                 }
             } catch (_: Exception) {
                 val expected = JSONTokener(valueJson).nextValue()
                 database.query(
-                    "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+                    "pos_records", arrayOf("record_id", "sync_state", "updated_at"),
                     "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
-                        val record = JSONObject(cursor.getString(1))
+                        val id = cursor.getString(0)
+                        val json = readRecordJson(database, entity, id)
+                            ?: throw IllegalStateException("Local record JSON is missing for $entity/$id")
+                        val record = JSONObject(json)
                         val actual = record.opt(field)
                         val matches = when {
                             actual is Number && expected is Number -> actual.toDouble() == expected.toDouble()
@@ -566,10 +602,10 @@ class PosLocalDatabasePlugin : Plugin() {
                         if (matches) {
                             rows.put(
                                 JSObject()
-                                    .put("recordId", cursor.getString(0))
+                                    .put("recordId", id)
                                     .put("record", record)
-                                    .put("syncState", cursor.getString(2))
-                                    .put("updatedAt", cursor.getLong(3))
+                                    .put("syncState", cursor.getString(1))
+                                    .put("updatedAt", cursor.getLong(2))
                             )
                             if (requestedLimit > 0 && rows.length() >= requestedLimit) break
                         }
@@ -591,13 +627,15 @@ class PosLocalDatabasePlugin : Plugin() {
         }
         try {
             val rows = JSArray()
-            helper.readableDatabase.query(
-                "pos_records", arrayOf("record_id", "json", "sync_state", "updated_at"),
+            val database = helper.readableDatabase
+            database.query(
+                "pos_records", arrayOf("record_id", "sync_state", "updated_at"),
                 "entity = ?", arrayOf(entity), null, null, "updated_at ASC, record_id ASC"
             ).use { cursor ->
                 while (cursor.moveToNext()) {
                     val recordId = cursor.getString(0)
-                    val json = cursor.getString(1)
+                    val json = readRecordJson(database, entity, recordId)
+                        ?: throw IllegalStateException("سجل JSON مفقود في جدول $entity، المعرّف: $recordId")
                     val record = try {
                         JSONObject(json)
                     } catch (parseError: Exception) {
@@ -609,8 +647,8 @@ class PosLocalDatabasePlugin : Plugin() {
                     val item = JSObject()
                     item.put("recordId", recordId)
                     item.put("record", record)
-                    item.put("syncState", cursor.getString(2))
-                    item.put("updatedAt", cursor.getLong(3))
+                    item.put("syncState", cursor.getString(1))
+                    item.put("updatedAt", cursor.getLong(2))
                     rows.put(item)
                 }
             }
@@ -635,12 +673,7 @@ class PosLocalDatabasePlugin : Plugin() {
             var changed = 0
             db.beginTransaction()
             try {
-                val currentJson = db.query(
-                    "pos_records", arrayOf("json"), "entity = ? AND record_id = ?",
-                    arrayOf(entity, recordId), null, null, null, "1"
-                ).use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                }
+                val currentJson = readRecordJson(db, entity, recordId)
                 if (currentJson != null) {
                     // Keep the JSON record and indexed sync_state column consistent so
                     // startup restoration never revives a stale syncStatus value.
