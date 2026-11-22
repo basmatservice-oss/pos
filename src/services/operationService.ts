@@ -1681,10 +1681,13 @@ async function applyPurchaseLocally(
       ...normalized.map((item: any) => Number(item.productId)),
       ...oldItems.map((item: any) => Number(item.productId)),
     ].filter((id: number) => Number.isSafeInteger(id) && id > 0))];
+    // Supplier IDs are numeric SQLite primary keys. Preserve that key type;
+    // stringifying them here makes JSON.stringify('92') differ from the stored
+    // numeric record key JSON.stringify(92), so offline purchase would miss suppliers.
     const supplierIds = [...new Set([
       purchase.supplierId,
       isPurchaseUpdate ? oldPurchase.supplierId : null,
-    ].filter((id) => id != null).map(String))];
+    ].filter((id) => id != null).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
     const [products, suppliers, batchGroups, transactionGroups] = await Promise.all([
       nativePosRepository.getMany<any>('products', affectedProductIds),
       nativePosRepository.getMany<any>('suppliers', supplierIds),
