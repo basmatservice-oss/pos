@@ -760,26 +760,26 @@ export const syncService = {
             }
 
             const existingAll = await cacheTable.toArray();
-            const existingById = new Map(existingAll.map((r: any) => [r.id || r.key, r]));
+            const existingById = new Map(existingAll.map((r: any) => [r.id ?? r.key ?? r.code, r]));
 
             const pendingLocal = await cacheTable
               .where('syncStatus')
               .anyOf(['pending', 'error'])
               .toArray();
-            const pendingIds = new Set(pendingLocal.map((r: any) => r.id || r.key));
+            const pendingIds = new Set(pendingLocal.map((r: any) => r.id ?? r.key ?? r.code));
 
             if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
-              const serverIds = new Set(data.map((d: any) => d.id));
+              const serverIds = new Set(data.map((d: any) => String(d.id ?? d.key ?? d.code)));
               const staleIds = existingAll
-                .filter((r: any) => r.syncStatus === 'synced' && !serverIds.has(r.id))
-                .map((r: any) => r.id)
-                .filter((id: any) => id !== undefined);
+                .filter((r: any) => r.syncStatus === 'synced' && !serverIds.has(String(r.id ?? r.key ?? r.code)))
+                .map((r: any) => r.id ?? r.key ?? r.code)
+                .filter((key: any) => key !== undefined && key !== null);
               if (staleIds.length > 0) {
                 await cacheTable.bulkDelete(staleIds);
               }
             }
 
-            let filtered = data.filter((item: any) => !pendingIds.has(item.id || item.key));
+            let filtered = data.filter((item: any) => !pendingIds.has(item.id ?? item.key ?? item.code));
             if (task.excludeKeys) {
               const excl = new Set(task.excludeKeys);
               filtered = filtered.filter((item: any) => !excl.has(item.key));
@@ -788,7 +788,7 @@ export const syncService = {
             const recordsToPut = filtered.map((item: any) => {
               const normalized = { ...item };
               if (task.preserveLocalAuth) {
-                const prev = existingById.get(item.id);
+                const prev = existingById.get(item.id ?? item.key ?? item.code);
                 if (prev) {
                   if (!normalized.password && (prev as any).password) {
                     normalized.password = (prev as any).password;
