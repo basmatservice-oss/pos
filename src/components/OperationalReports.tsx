@@ -118,7 +118,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       ['الورديات', 'البداية', 'النهاية', 'النقد المتوقع', 'النقد الفعلي', 'فرق الصندوق'],
       ...report.shifts.rows.map((row) => [row.id, row.startTime, row.endTime || '', row.expectedCash, row.actualCash ?? '', row.calculatedCash, row.variance ?? '']),
       [],
-      ['الحسابات البنكية', 'الرصيد', 'مدين', 'دائن'],
+      ['حسابات الصندوق', 'الرصيد الحالي', 'مدين خلال الفترة', 'دائن خلال الفترة'],
+      ...report.cashAccounts.map((row) => [row.name, row.balance, row.debit, row.credit]),
+      [],
+      ['الحسابات البنكية', 'الرصيد الحالي', 'مدين خلال الفترة', 'دائن خلال الفترة'],
       ...report.banks.map((row) => [row.name, row.balance, row.debit, row.credit]),
       [],
       ['الضرائب', 'القيمة'],
@@ -267,7 +270,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الحسابات البنكية والضرائب</h4>
           <p className="mb-2 text-sm">ضريبة المخرجات: {money(report.taxes.outputTax)} | ضريبة مرتجعات المبيعات: {money(report.taxes.returnedTax)} | صافي ضريبة المخرجات: <strong>{money(report.taxes.netOutputTax)}</strong></p><p className="mb-2 text-xs text-slate-500">هذا الجزء يعرض ضريبة المبيعات فقط؛ بيانات الشراء الحالية لا تتضمن حقل ضريبة مدخلات مستقلًا، لذلك لا يمثل صافي الضريبة المستحقة بعد خصم ضريبة المشتريات.</p>
-          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الحساب البنكي</th><th className="p-2">الرصيد</th><th className="p-2">مدين</th><th className="p-2">دائن</th></tr></thead><tbody>{report.banks.map((row) => <tr key={row.code} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{money(row.balance)}</td><td className="p-2">{money(row.debit)}</td><td className="p-2">{money(row.credit)}</td></tr>)}{!report.banks.length && empty(4)}</tbody></table></div>
+          <h5 className="mb-2 text-sm font-bold">الصندوق والحسابات النقدية</h5>
+          <div className="mb-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الحساب النقدي</th><th className="p-2">الرصيد الحالي</th><th className="p-2">مدين خلال الفترة</th><th className="p-2">دائن خلال الفترة</th></tr></thead><tbody>{report.cashAccounts.map((row) => <tr key={row.code} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{money(row.balance)}</td><td className="p-2">{money(row.debit)}</td><td className="p-2">{money(row.credit)}</td></tr>)}{!report.cashAccounts.length && empty(4)}</tbody></table></div>
+          <h5 className="mb-2 text-sm font-bold">الحسابات البنكية</h5>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الحساب البنكي</th><th className="p-2">الرصيد الحالي</th><th className="p-2">مدين خلال الفترة</th><th className="p-2">دائن خلال الفترة</th></tr></thead><tbody>{report.banks.map((row) => <tr key={row.code} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{money(row.balance)}</td><td className="p-2">{money(row.debit)}</td><td className="p-2">{money(row.credit)}</td></tr>)}{!report.banks.length && empty(4)}</tbody></table></div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الحضور والرواتب</h4>
