@@ -187,17 +187,22 @@ export function buildOperationalReports({
     payableRows.push({ id: purchase.id, supplier: purchase.supplierName || 'مورد', date: purchase.date || purchase.createdAt, days, outstanding });
   }
   const batchGroups = new Map();
+  const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 };
   const staleDays = 60;
   for (const batch of inventoryBatches) {
     const remaining = Math.max(0, amount(batch.remainingQuantity));
     if (!remaining) continue;
     const key = String(batch.productId);
-    const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, oldestDate: batch.purchaseDate, batches: 0, expiring: 0, expired: 0 };
+    const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, ageQuantityDays: 0, batches: 0, expiring: 0, expired: 0 };
     const cost = amount(batch.costPrice) * amount(batch.exchangeRate || 1);
+    const batchAge = ageDays(batch.purchaseDate);
+    const batchValue = remaining * cost;
     row.quantity += remaining;
-    row.value += remaining * cost;
+    row.value += batchValue;
+    row.ageQuantityDays += remaining * batchAge;
     row.batches += 1;
-    if (new Date(batch.purchaseDate || end).getTime() < new Date(row.oldestDate || end).getTime()) row.oldestDate = batch.purchaseDate;
+    const ageBucket = batchAge <= 30 ? '0-30 يوم' : batchAge <= 60 ? '31-60 يوم' : batchAge <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
+    ageInventory[ageBucket] += batchValue;
     if (batch.expiryDate) {
       const expiry = new Date(batch.expiryDate).getTime();
       if (Number.isFinite(expiry) && expiry < asOf) row.expired += remaining;
@@ -216,14 +221,9 @@ export function buildOperationalReports({
     const last = lastMovementByProduct.get(String(row.productId));
     const lastMovementDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
     const stockAgeDays = ageDays(row.oldestDate);
-    return { ...row, stockAgeDays, lastMovementDate: last?.date || null, lastMovementDays,
+    return { ...row, stockAgeDays: row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0, lastMovementDate: last?.date || null, lastMovementDays,
       status: lastMovementDays === null || lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
-  const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 };
-  for (const row of inventoryAgeRows) {
-    const key = row.stockAgeDays <= 30 ? '0-30 يوم' : row.stockAgeDays <= 60 ? '31-60 يوم' : row.stockAgeDays <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
-    ageInventory[key] += row.value;
-  }
   const cogsOut = movements.filter((row) => row.movementType === 'sale').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
   const cogsReturned = movements.filter((row) => row.movementType === 'sale_return').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
   const netCogs = Math.max(0, cogsOut - cogsReturned);
