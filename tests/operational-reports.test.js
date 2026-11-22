@@ -53,7 +53,7 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   const result = buildOperationalReports({
     startDate: '2026-11-01T00:00:00.000Z',
     endDate: '2026-11-30T23:59:59.999Z',
-    orders: [{ id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }],
+    orders: [{ id: 'old-sale', createdAt: '2026-11-10T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, taxAmount: 20, paymentMethod: 'credit' }],
     agingOrders: [
       { id: 'old-sale', createdAt: '2026-10-01T10:00:00.000Z', netAmount: 100, paidAmount: 20, returnedAmount: 10, customerName: 'Older Customer' },
       { id: 'very-old', createdAt: '2026-08-01T10:00:00.000Z', netAmount: 100, paidAmount: 0, customerName: 'Old Customer' },
