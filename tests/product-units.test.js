@@ -217,3 +217,21 @@ test('native product deletion atomically removes normalized unit rows without de
   assert.match(deleteBlock, /nativePosRepository\.applyChanges\(changes\)/);
   assert.doesNotMatch(deleteBlock, /entity: 'unitDefinitions'/);
 });
+
+
+test('server product REST create, update and delete keep normalized units transactional', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const [app, operations] = await Promise.all([
+    readFile(new URL('../server/app.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/operations.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(operations, /export function syncNormalizedProductUnits\(/);
+  const createRoute = app.slice(app.indexOf("app.post('/api/products'"), app.indexOf("app.put('/api/products/:id'"));
+  assert.match(createRoute, /syncNormalizedProductUnits\(tx, created, now\)/);
+  const updateRoute = app.slice(app.indexOf("app.put('/api/products/:id'"), app.indexOf("app.delete('/api/products/:id'"));
+  assert.match(updateRoute, /db\.transaction/);
+  assert.match(updateRoute, /syncNormalizedProductUnits\(tx, updated, now\)/);
+  const deleteRoute = app.slice(app.indexOf("app.delete('/api/products/:id'"), app.indexOf('// --- Categories ---'));
+  assert.match(deleteRoute, /tx\.delete\(productUnits\).*productId, id/s);
+  assert.match(deleteRoute, /tx\.delete\(products\)/);
+});
