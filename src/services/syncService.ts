@@ -624,6 +624,8 @@ export const syncService = {
         authoritativeReplaceSynced?: boolean;
       }> = [
         { entity: 'products', api: () => apiService.getProducts() },
+        { entity: 'unitDefinitions', api: () => apiService.getUnitDefinitions(), authoritativeReplaceSynced: true },
+        { entity: 'productUnits', api: () => apiService.getProductUnits(), authoritativeReplaceSynced: true },
         { entity: 'categories', api: () => apiService.getCategories() },
         { entity: 'customers', api: () => apiService.getCustomers() },
         { entity: 'customerPayments', api: () => apiService.getCustomerPayments(), authoritativeReplaceSynced: true },
