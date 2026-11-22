@@ -223,20 +223,21 @@ export function buildOperationalReports({
   const lastMovementByProduct = new Map();
   for (const movement of inventoryMovements) {
     const key = String(movement.productId);
+    if (movement.movementType !== 'sale') continue;
     const time = new Date(movement.createdAt || '').getTime();
     if (!Number.isFinite(time) || time > asOf) continue;
     if (time > (lastMovementByProduct.get(key)?.time ?? -Infinity)) lastMovementByProduct.set(key, { time, date: movement.createdAt });
   }
   const inventoryAgeRows = [...batchGroups.values()].map((row) => {
     const last = lastMovementByProduct.get(String(row.productId));
-    const lastMovementDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
+    const lastSaleDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
     const stockAgeDays = ageDays(row.oldestDate);
     const cogs = Math.max(0, (cogsByProduct.get(String(row.productId))?.sold || 0) - (cogsByProduct.get(String(row.productId))?.reversed || 0));
     return { ...row, name: productNames.get(String(row.productId)) || String(row.productId), cogs,
       turnoverRatio: row.value > 0 ? cogs / row.value : null,
       stockAgeDays: row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0,
-      lastMovementDate: last?.date || null, lastMovementDays,
-      status: lastMovementDays === null ? 'غير محدد' : lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
+      lastSaleDate: last?.date || null, lastSaleDays,
+      status: lastSaleDays === null ? (row.stockAgeDays >= staleDays ? 'راكد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
   const cogsOut = [...cogsByProduct.values()].reduce((sum, row) => sum + row.sold, 0);
   const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
