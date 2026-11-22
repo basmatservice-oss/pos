@@ -26,7 +26,7 @@ export function buildOperationalProductReport({
     const row = rows.get(productId) || {
       productId, name: item.productName || product?.name || 'صنف غير معروف',
       itemType: item.itemType || product?.itemType || 'stock',
-      quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0, missingCostSnapshot: false,
+      quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0, cost: 0, returnedCost: 0, resalableReturnedCost: 0, missingCostSnapshot: false,
     };
     const quantity = Math.max(0, Number(item.quantity || 0));
     row.quantitySold += quantity;
@@ -40,18 +40,30 @@ export function buildOperationalProductReport({
   for (const item of returnItems) {
     const productId = Number(item.productId);
     if (!productId || !validReturns.has(String(item.returnId))) continue;
-    const row = rows.get(productId);
-    if (!row) continue;
+    const product = productMap.get(productId);
+    const row = rows.get(productId) || {
+      productId,
+      name: item.productName || product?.name || 'صنف غير معروف',
+      itemType: product?.itemType || 'stock',
+      quantitySold: 0, quantityReturned: 0, sales: 0, returnedSales: 0,
+      cost: 0, returnedCost: 0, resalableReturnedCost: 0, missingCostSnapshot: false,
+    };
     const quantity = Math.max(0, Number(item.quantity || 0));
+    const returnAmount = Number(item.total || 0) - Number(item.taxAmount || 0);
+    const returnCost = Math.max(0, Number(item.costPrice || 0)) * quantity;
     row.quantityReturned += quantity;
-    row.returnedSales += Number(item.total || 0) - Number(item.taxAmount || 0);
-    row.returnedCost += Number(item.costPrice || 0) * quantity;
+    row.returnedSales += returnAmount;
+    row.returnedCost += returnCost;
+    // Only resalable goods restore inventory and reverse COGS. Damaged goods
+    // reverse revenue but remain a cost/loss; returns may belong to older periods.
+    if (item.condition !== 'damaged') row.resalableReturnedCost += returnCost;
+    rows.set(productId, row);
   }
 
   return [...rows.values()]
     .filter((row) => mode !== 'selected' || selectedProductIds.includes(row.productId))
     .map((row) => {
-      const netCost = Math.max(0, row.cost - row.returnedCost);
+      const netCost = row.cost - row.resalableReturnedCost;
       const netSales = row.sales - row.returnedSales;
       return {
         ...row,
