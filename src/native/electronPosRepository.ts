@@ -31,6 +31,7 @@ type ElectronRecord = { recordId: string; record: Record<string, unknown>; syncS
 type ElectronDatabaseBridge = {
   initialize(): Promise<{ ready: boolean }>;
   getRecords(entity: string): Promise<ElectronRecord[]>;
+  validateRecords(entity: string, primaryKeyField: string): Promise<{ recordIds: string[] }>;
   getRecord(entity: string, recordId: string): Promise<{ found: boolean; item?: ElectronRecord | null }>;
   putRecords(records: Array<{ entity: string; recordId: string; record: Record<string, unknown>; syncState: NativePosSyncState }>): Promise<{ saved: boolean; count: number }>;
   applyRecordChanges(changes: Array<{ action: 'put' | 'delete'; entity: string; recordId: string; record?: Record<string, unknown>; syncState?: NativePosSyncState }>, guards?: Record<string, unknown>): Promise<{ applied: number; count: number; skipped?: boolean }>;
@@ -107,6 +108,17 @@ export const electronPosRepository = {
   async getAllWithSyncState(entity: NativePosEntity) {
     await this.isReady();
     return (await bridge().getRecords(entity)).map(row => ({ record: row.record, recordId: row.recordId, syncState: row.syncState }));
+  },
+  async validateSnapshot(entity: NativePosEntity, primaryKeyField: string): Promise<string[]> {
+    await this.isReady();
+    const result = await bridge().validateRecords(entity, primaryKeyField);
+    if (!Array.isArray(result.recordIds) || result.recordIds.some((id) => typeof id !== 'string' || !id)) {
+      throw new Error(`Electron SQLite returned invalid snapshot validation for ${entity}`);
+    }
+    if (new Set(result.recordIds).size !== result.recordIds.length) {
+      throw new Error(`Electron SQLite returned duplicate snapshot identities for ${entity}`);
+    }
+    return result.recordIds;
   },
   async getMany<T extends Record<string, unknown>>(entity: NativePosEntity, keys: unknown[]): Promise<T[]> {
     const rows = await this.getAllWithSyncState(entity);
