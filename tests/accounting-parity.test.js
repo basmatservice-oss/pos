@@ -602,6 +602,7 @@ test('end-to-end server business operations and native SQLite operations match f
 
 
 test('server purchase returns reject duplicate lines that collectively exceed available legacy stock', async () => {
+  const { executeBusinessOperation } = await import('../server/operations.ts');
   const { db: serverDb, raw } = createServerDatabase();
   const product = {
     id: 91, name: 'Legacy unbatched purchase item', barcode: null, categoryId: null,
