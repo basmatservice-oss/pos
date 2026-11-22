@@ -23,7 +23,7 @@ export function buildCanonicalProductUnits(product = {}) {
     const conversionToBase = isBase ? 1 : Number(source?.conversionFactor);
     if (!name || !Number.isFinite(conversionToBase) || conversionToBase <= 0) return;
     const unitCode = normalizeUnitCode(name, dimension);
-    if (!unitCode) return;
+    if (!unitCode || units.has(unitCode)) return;
     definitions.set(unitCode, {
       code: unitCode, name, symbol: source?.symbol ? String(source.symbol) : null,
       dimension, decimalPlaces: Number.isInteger(Number(source?.decimalPlaces)) ? Number(source.decimalPlaces) : (source?.allowFractions ? 3 : 0),
