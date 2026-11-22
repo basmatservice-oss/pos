@@ -54,12 +54,52 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
   const table = 'w-full min-w-[420px] text-right text-sm';
   const empty = (columns: number) => <tr><td colSpan={columns} className="p-4 text-center text-slate-400">لا توجد بيانات في الفترة المحددة</td></tr>;
+  const exportCsv = () => {
+    const rows: unknown[][] = [
+      ['ملخص المبيعات', 'عدد الفواتير', 'الإجمالي', 'صافي المبيعات بدون الضريبة', 'المرتجعات'],
+      ['المبيعات', report.sales.count, report.sales.gross, report.sales.netExTax, report.sales.returns],
+      [],
+      ['وسائل الدفع', 'الصافي'],
+      ['نقدي', report.payments.cashNet], ['بطاقة', report.payments.cardNet], ['آجل', report.payments.creditNet],
+      [],
+      ['المصروفات', 'القيمة'],
+      ...report.expenses.map((row) => [row.category, row.total]),
+      [],
+      ['الموظفون', 'عدد الفواتير', 'صافي المبيعات'],
+      ...report.staff.map((row) => [row.name, row.count, row.netSales]),
+      [],
+      ['العملاء', 'عدد الفواتير', 'صافي المبيعات', 'المحصل'],
+      ...report.customers.map((row) => [row.name, row.orders, row.netSales, row.paid]),
+      [],
+      ['الموردون', 'عدد الفواتير', 'صافي المشتريات', 'المدفوع'],
+      ...report.suppliers.map((row) => [row.name, row.invoices, row.netPurchases, row.paid]),
+      [],
+      ['حركة المخزون', 'عدد الحركات', 'وارد', 'صادر', 'الصافي'],
+      ...report.inventory.map((row) => [row.type, row.count, row.quantityIn, row.quantityOut, row.netQuantity]),
+    ];
+    const csv = '\uFEFF' + rows.map((row) => row.map((value) => {
+      const text = String(value ?? '');
+      return '"' + text.replace(/"/g, '""') + '"';
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'operational_reports_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-      <div>
-        <h3 className="text-lg font-black text-slate-900">التقارير التشغيلية والإدارية</h3>
-        <p className="mt-1 text-sm text-slate-500">المشتريات والتحصيلات ووسائل الدفع وأداء الموظفين والعملاء والموردين والمصروفات وحركة المخزون.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-slate-900">التقارير التشغيلية والإدارية</h3>
+          <p className="mt-1 text-sm text-slate-500">المشتريات والتحصيلات ووسائل الدفع وأداء الموظفين والعملاء والموردين والمصروفات وحركة المخزون.</p>
+        </div>
+        <button onClick={exportCsv} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700">تصدير التقرير CSV</button>
       </div>
       <div className="flex flex-wrap gap-2 rounded-xl bg-slate-50 p-3">
         <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">الفرع
