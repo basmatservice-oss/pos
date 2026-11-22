@@ -12,7 +12,9 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
     ],
     returns: [{ id: 'r1', originalOrderId: 's1', createdAt: '2026-11-13', totalRefund: 12, taxAmount: 2, refundMethod: 'cash' }],
     purchases: [{ id: 'p1', supplierId: 4, supplierName: 'Supplier', date: '2026-11-10', totalAmount: 200, paidAmount: 100 }],
+    purchaseItems: [{ purchaseId: 'p1', productId: 10, productName: 'Product', quantity: 10, conversionFactor: 2, total: 200 }],
     purchaseReturns: [{ id: 'pr1', supplierId: 4, supplierName: 'Supplier', createdAt: '2026-11-14', totalReturn: 20 }],
+    purchaseReturnItems: [{ purchaseReturnId: 'pr1', productId: 10, productName: 'Product', quantity: 4, total: 40 }],
     expenses: [{ category: 'Rent', amount: 30, date: '2026-11-10' }],
     customers: [{ id: 7, name: 'Customer' }],
     customerPayments: [{ customerId: 7, amount: 10, createdAt: '2026-11-15' }],
@@ -26,6 +28,8 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
   assert.equal(result.payments.creditNet, 50);
   assert.equal(result.purchases.gross, 200);
   assert.equal(result.purchases.returns, 20);
+  assert.equal(result.purchaseProducts[0].netQuantity, 16);
+  assert.equal(result.purchaseProducts[0].netTotal, 160);
   assert.equal(result.suppliers[0].netPurchases, 180);
   assert.equal(result.staff.find((row) => row.name === 'Cashier A').netSales, 90);
   assert.equal(result.expenses[0].total, 30);
