@@ -4,6 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { buildCanonicalProductUnits } from './src/utils/productUnitCatalog.js';
 
 // Determine the best path for the database
 export const getDbPath = () => {
@@ -307,6 +308,10 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Product', 'itemType', "text DEFAULT 'stock'");
   ensureColumn(sqlite, 'Product', 'allowFractions', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'Product', 'unitsJson', 'text');
+  ensureColumn(sqlite, 'ProductUnit', 'costPrice', 'real');
+  ensureColumn(sqlite, 'ProductUnit', 'priceInUSD', 'real DEFAULT 0');
+  ensureColumn(sqlite, 'ProductUnit', 'allowFractions', 'integer DEFAULT 0');
+
   ensureColumn(sqlite, 'Product', 'baseUnitCode', 'text');
   ensureColumn(sqlite, 'Product', 'quantityPrecision', 'integer DEFAULT 0');
   ensureColumn(sqlite, 'Product', 'isActive', 'integer DEFAULT 1');
@@ -424,6 +429,36 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Transaction', 'returnId', 'text');
   ensureColumn(sqlite, 'Transaction', 'createdAt', 'text');
 
+
+  // Normalize legacy Product.unitsJson into UnitDefinition + ProductUnit.
+  // INSERT OR IGNORE makes this safe to rerun and never overwrites already
+  // curated normalized rows. The legacy JSON is deliberately retained.
+  const migrateLegacyProductUnits = sqlite.transaction(() => {
+    const products = sqlite.prepare('SELECT * FROM "Product"').all() as Array<Record<string, any>>;
+    const insertDefinition = sqlite.prepare(`
+      INSERT OR IGNORE INTO "UnitDefinition"
+        ("code", "name", "symbol", "dimension", "decimalPlaces", "isFractional", "isSystem", "isSynced", "createdAt", "updatedAt")
+      VALUES (@code, @name, @symbol, @dimension, @decimalPlaces, @isFractional, @isSystem, @isSynced, @createdAt, @updatedAt)
+    `);
+    const insertProductUnit = sqlite.prepare(`
+      INSERT OR IGNORE INTO "ProductUnit"
+        ("id", "productId", "unitCode", "conversionToBase", "isBaseUnit", "sellingPrice", "costPrice", "priceInUSD", "allowFractions", "barcode", "isSynced", "createdAt", "updatedAt")
+      VALUES (@id, @productId, @unitCode, @conversionToBase, @isBaseUnit, @sellingPrice, @costPrice, @priceInUSD, @allowFractions, @barcode, @isSynced, @createdAt, @updatedAt)
+    `);
+    let migrated = 0;
+    for (const product of products) {
+      const normalized = buildCanonicalProductUnits(product);
+      for (const definition of normalized.definitions) insertDefinition.run(definition);
+      for (const unit of normalized.units) {
+        const result = insertProductUnit.run(unit);
+        migrated += result.changes;
+      }
+    }
+    return migrated;
+  });
+  const migratedProductUnitRows = migrateLegacyProductUnits();
+  console.log(`Normalized ${migratedProductUnitRows} legacy product-unit rows`);
+
   // Helpful indexes for performance
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS "idx_batch_product_rem" ON "InventoryBatch" ("productId", "remainingQuantity", "purchaseDate");
@@ -440,6 +475,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS "idx_fiscal_dates" ON "FiscalPeriod" ("startDate", "endDate", "status");
     CREATE INDEX IF NOT EXISTS "idx_inv_mov_prod_date" ON "InventoryMovement" ("productId", "createdAt");
     CREATE INDEX IF NOT EXISTS "idx_prod_unit_prod" ON "ProductUnit" ("productId", "unitCode");
+    CREATE INDEX IF NOT EXISTS "idx_prod_unit_barcode" ON "ProductUnit" ("barcode");
   `);
 }
 
