@@ -6,7 +6,7 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
   const result = buildOperationalReports({
     startDate: '2026-11-01T00:00:00.000Z', endDate: '2026-11-30T23:59:59.999Z',
     orders: [
-      { id: 's1', createdAt: '2026-11-10', createdBy: 'Cashier A', netAmount: 120, taxAmount: 20, paymentMethod: 'mixed', cashAmount: 70, cardAmount: 50 },
+      { id: 's1', createdAt: '2026-11-10', createdBy: 'Cashier A', customerId: 7, netAmount: 120, paidAmount: 60, taxAmount: 20, paymentMethod: 'mixed', cashAmount: 70, cardAmount: 50 },
       { id: 's2', createdAt: '2026-11-11', createdBy: 'Cashier B', netAmount: 50, taxAmount: 0, paymentMethod: 'credit' },
       { id: 'void', createdAt: '2026-11-12', createdBy: 'Cashier A', netAmount: 900, paymentMethod: 'cash', status: 'void' },
     ],
@@ -14,6 +14,10 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
     purchases: [{ id: 'p1', supplierId: 4, supplierName: 'Supplier', date: '2026-11-10', totalAmount: 200, paidAmount: 100 }],
     purchaseReturns: [{ id: 'pr1', supplierId: 4, supplierName: 'Supplier', createdAt: '2026-11-14', totalReturn: 20 }],
     expenses: [{ category: 'Rent', amount: 30, date: '2026-11-10' }],
+    customers: [{ id: 7, name: 'Customer' }],
+    customerPayments: [{ customerId: 7, amount: 10, createdAt: '2026-11-15' }],
+    supplierPayments: [{ supplierId: 4, amount: 25, createdAt: '2026-11-16' }],
+    inventoryMovements: [{ movementType: 'sale', quantityDeltaBase: -3, totalCost: 15, createdAt: '2026-11-17' }],
   });
   assert.equal(result.sales.count, 2);
   assert.equal(result.sales.netExTax, 150);
@@ -25,6 +29,11 @@ test('operational reports reconcile sales returns, split tenders, purchases and 
   assert.equal(result.suppliers[0].netPurchases, 180);
   assert.equal(result.staff.find((row) => row.name === 'Cashier A').netSales, 90);
   assert.equal(result.expenses[0].total, 30);
+  assert.equal(result.customers[0].netSales, 108);
+  assert.equal(result.customers[0].paid, 70);
+  assert.equal(result.customerCollections, 10);
+  assert.equal(result.supplierPayments, 25);
+  assert.equal(result.inventory[0].quantityOut, 3);
 });
 
 test('operational reports exclude invalid dates and do not mutate source records', () => {
