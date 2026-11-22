@@ -659,6 +659,43 @@ class PosLocalDatabasePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun validateRecords(call: PluginCall) {
+        val entity = call.getString("entity")?.trim().orEmpty()
+        val primaryKeyField = call.getString("primaryKeyField")?.trim().orEmpty()
+        if (entity.isBlank() || primaryKeyField.isBlank()) {
+            call.reject("entity و primaryKeyField مطلوبان")
+            return
+        }
+        try {
+            val rows = JSArray()
+            val database = helper.readableDatabase
+            database.query(
+                "pos_records", arrayOf("record_id"),
+                "entity = ?", arrayOf(entity), null, null, "record_id ASC"
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val recordId = cursor.getString(0)
+                    val json = readRecordJson(database, entity, recordId)
+                        ?: throw IllegalStateException("سجل JSON مفقود في جدول $entity، المعرّف: $recordId")
+                    val record = try {
+                        JSONObject(json)
+                    } catch (parseError: Exception) {
+                        throw IllegalStateException("سجل JSON تالف في جدول $entity، المعرّف: $recordId", parseError)
+                    }
+                    val primaryKey = record.opt(primaryKeyField)
+                    if (primaryKey == null || primaryKey == JSONObject.NULL) {
+                        throw IllegalStateException("المفتاح $primaryKeyField مفقود في سجل $entity/$recordId")
+                    }
+                    rows.put(JSObject().put("recordId", recordId).put("primaryKey", primaryKey))
+                }
+            }
+            call.resolve(JSObject().put("records", rows))
+        } catch (error: Exception) {
+            call.reject("تعذر التحقق من لقطة SQLite للجدول $entity: " + (error.message ?: error.javaClass.simpleName), error)
+        }
+    }
+
+    @PluginMethod
     fun updateRecordSyncState(call: PluginCall) {
         val entity = call.getString("entity")?.trim().orEmpty()
         val recordId = call.getString("recordId")?.trim().orEmpty()
