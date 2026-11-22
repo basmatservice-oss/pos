@@ -74,3 +74,35 @@ export function findProductBarcodeMatch(products = [], barcode) {
   }
   return undefined;
 }
+/**
+ * Resolve the entered sale unit to base units using the product's persisted unit
+ * definition first. Client-supplied factors are only a compatibility fallback.
+ */
+export function resolveProductUnitFactor(product = {}, item = {}) {
+  const unitName = String(item.unit || item.selectedUnit || product.unit || 'piece').trim();
+  const baseUnitName = String(product.unit || 'piece').trim();
+  if (unitName.toLocaleLowerCase() === baseUnitName.toLocaleLowerCase()) return 1;
+
+  if (product.unitsJson) {
+    try {
+      const units = JSON.parse(product.unitsJson);
+      if (Array.isArray(units)) {
+        const matched = units.find((unit) =>
+          String(unit?.name || '').trim().toLocaleLowerCase() === unitName.toLocaleLowerCase()
+        );
+        const factor = Number(matched?.conversionFactor);
+        if (Number.isFinite(factor) && factor > 0) return factor;
+      }
+    } catch {
+      // Fall through to legacy conversion metadata for old products.
+    }
+  }
+
+  const suppliedFactor = Number(item.conversionFactor);
+  if (Number.isFinite(suppliedFactor) && suppliedFactor > 0) return suppliedFactor;
+  if (unitName.toLocaleLowerCase() === 'box') {
+    const legacyFactor = Number(product.conversionFactor);
+    if (Number.isFinite(legacyFactor) && legacyFactor > 0) return legacyFactor;
+  }
+  return 1;
+}
