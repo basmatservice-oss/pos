@@ -231,13 +231,13 @@ export function buildOperationalReports({
   const inventoryAgeRows = [...batchGroups.values()].map((row) => {
     const last = lastMovementByProduct.get(String(row.productId));
     const lastSaleDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
-    const stockAgeDays = ageDays(row.oldestDate);
+    const stockAgeDays = row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0;
     const cogs = Math.max(0, (cogsByProduct.get(String(row.productId))?.sold || 0) - (cogsByProduct.get(String(row.productId))?.reversed || 0));
     return { ...row, name: productNames.get(String(row.productId)) || String(row.productId), cogs,
       turnoverRatio: row.value > 0 ? cogs / row.value : null,
-      stockAgeDays: row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0,
+      stockAgeDays,
       lastSaleDate: last?.date || null, lastSaleDays,
-      status: lastSaleDays === null ? (row.stockAgeDays >= staleDays ? 'راكد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
+      status: lastSaleDays === null ? (stockAgeDays >= staleDays ? 'راكد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
   const cogsOut = [...cogsByProduct.values()].reduce((sum, row) => sum + row.sold, 0);
   const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
