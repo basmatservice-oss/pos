@@ -45,6 +45,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     startDate, endDate,
     orders: filteredOrders,
     agingOrders: orders.filter((row) => branchMatches(row) && (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter)),
+    agingReturns: returns.filter((row) => {
+      const original = orders.find((order) => String(order.id) === String(row.originalOrderId));
+      return original && branchMatches(original) && (customerFilter === 'all' || String(original.customerId ?? '') === customerFilter);
+    }),
     products,
     purchaseItems,
     purchaseReturnItems,
