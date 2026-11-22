@@ -26,7 +26,7 @@ test('Android SQLite snapshot migration has no active Dexie write-through hooks'
 
 test('business data access routes local Android reads and writes through the native SQLite repository', async () => {
   const source = await read('../src/services/posDataAccess.ts');
-  assert.match(source, /if \(isLocalSqlite\(\)\) return \(await nativePosRepository\.get/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.get\(entity, key\)/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?records = await nativePosRepository\.getAll/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?await nativePosRepository\.put/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.applyChanges/);
@@ -73,7 +73,7 @@ test('Windows client startup migrates legacy IndexedDB directly and never initia
 test('Android and Windows client data access share SQLite as their only local runtime repository', async () => {
   const source = await read('../src/services/posDataAccess.ts');
   assert.match(source, /const isLocalSqlite = \(\): boolean => isNativeAndroid\(\) \|\| isElectronLocalClient\(\)/);
-  assert.match(source, /if \(isLocalSqlite\(\)\) return \(await nativePosRepository\.get/);
+  assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.get\(entity, key\)/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?records = await nativePosRepository\.getAll/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?await nativePosRepository\.put/);
   assert.match(source, /if \(isLocalSqlite\(\)\) \{[\s\S]*?nativePosRepository\.applyChanges/);
