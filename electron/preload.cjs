@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   posLocalDatabase: {
     initialize: () => ipcRenderer.invoke('pos-db:initialize'),
     getRecords: (entity) => ipcRenderer.invoke('pos-db:get-records', entity),
+    validateRecords: (entity, primaryKeyField) => ipcRenderer.invoke('pos-db:validate-records', entity, primaryKeyField),
     getRecord: (entity, recordId) => ipcRenderer.invoke('pos-db:get-record', entity, recordId),
     putRecords: (records) => ipcRenderer.invoke('pos-db:put-records', records),
     applyRecordChanges: (changes, guards) => ipcRenderer.invoke('pos-db:apply-record-changes', changes, guards),
