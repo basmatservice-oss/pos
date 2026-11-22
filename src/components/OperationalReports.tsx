@@ -142,6 +142,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">صافي المبيعات حسب وسيلة الدفع</h4>
           {([['نقدي', report.payments.cashNet], ['بطاقة', report.payments.cardNet], ['آجل', report.payments.creditNet]] as const).map(([label, value]) => <div key={label} className="flex justify-between border-b border-slate-100 py-2 text-sm"><span>{label}</span><strong>{money(value)}</strong></div>)}
+          {report.payments.mixed > 0 && <div className="flex justify-between border-b border-amber-100 py-2 text-xs text-amber-700"><span>مبلغ مختلط غير موزع على النقدي والبطاقة</span><strong>{money(report.payments.mixed)}</strong></div>}
           <div className="mt-3 space-y-1 text-xs text-slate-500"><p>تحصيلات حسابات العملاء: {money(report.customerCollections)}</p><p>مدفوعات الموردين: {money(report.supplierPayments)}</p></div>
         </div>
         <div className={section}>
