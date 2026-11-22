@@ -278,7 +278,17 @@ export function buildOperationalReports({
   const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
   const netCogs = Math.max(0, cogsOut - cogsReturned);
   const endingInventoryValue = inventoryAgeRows.reduce((sum, row) => sum + row.value, 0);
-  const inventoryTurnover = endingInventoryValue > 0 ? netCogs / endingInventoryValue : null;
+  // Reconstruct the period opening value from persisted, cost-valued stock movements.
+  // Outbound movements reduce inventory value; inbound movements increase it.
+  // This is more representative than dividing COGS by ending stock alone.
+  const periodInventoryValueChange = movements.reduce((sum, movement) => {
+    const value = Math.abs(amount(movement.totalCost));
+    const quantityDelta = amount(movement.quantityDeltaBase);
+    return sum + (quantityDelta > 0 ? value : quantityDelta < 0 ? -value : 0);
+  }, 0);
+  const beginningInventoryValue = Math.max(0, endingInventoryValue - periodInventoryValueChange);
+  const averageInventoryValue = (beginningInventoryValue + endingInventoryValue) / 2;
+  const inventoryTurnover = averageInventoryValue > 0 ? netCogs / averageInventoryValue : null;
   const periodShifts = shifts.filter((row) => inRange(row.startTime, start, end));
   const shiftIds = new Set(periodShifts.map((row) => String(row.id)));
   const shiftRows = periodShifts.map((shift) => {
@@ -350,7 +360,7 @@ export function buildOperationalReports({
     receivablesAging: { total: Object.values(customerAge).reduce((sum, value) => sum + value, 0), buckets: customerAge, rows: receivableRows.sort((a, b) => b.days - a.days) },
     payablesAging: { total: Object.values(supplierAge).reduce((sum, value) => sum + value, 0), buckets: supplierAge, rows: payableRows.sort((a, b) => b.days - a.days) },
     inventoryAging: { totalValue: endingInventoryValue, buckets: ageInventory, rows: inventoryAgeRows },
-    inventoryTurnover: { cogs: netCogs, endingValue: endingInventoryValue, ratio: inventoryTurnover, staleProducts: inventoryAgeRows.filter((row) => row.status === 'راكد').length },
+    inventoryTurnover: { cogs: netCogs, beginningValue: beginningInventoryValue, averageValue: averageInventoryValue, endingValue: endingInventoryValue, ratio: inventoryTurnover, staleProducts: inventoryAgeRows.filter((row) => row.status === 'راكد').length },
     shifts: { count: shiftRows.length, closed: shiftRows.filter((row) => row.actualCash !== null).length,
       open: shiftRows.filter((row) => row.actualCash === null).length,
       variance: shiftRows.reduce((sum, row) => sum + (row.variance ?? 0), 0), rows: shiftRows },
