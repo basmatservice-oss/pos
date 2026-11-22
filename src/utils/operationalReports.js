@@ -84,10 +84,6 @@ export function buildOperationalReports({
     const row = customerGroups.get(String(order.customerId));
     if (row) row.returns = (row.returns || 0) + amount(record.totalRefund);
   }
-  for (const payment of periodCustomerPayments) {
-    const row = customerGroups.get(String(payment.customerId));
-    if (row) row.paid += amount(payment.amount);
-  }
   const customerRows = [...customerGroups.values()]
     .map((row) => ({ ...row, returns: row.returns || 0, netSales: row.sales - (row.returns || 0) }))
     .sort((a, b) => b.netSales - a.netSales);
