@@ -182,7 +182,10 @@ export function buildOperationalReports({
   const payableRows = [];
   for (const purchase of purchases.filter((row) => new Date(row.date || row.createdAt || '').getTime() <= asOf)) {
     const paid = Math.max(amount(purchase.paidAmount), linkedSupplierPayments.get(String(purchase.id)) || 0);
-    const outstanding = Math.max(0, amount(purchase.totalAmount) - paid - amount(purchase.returnedAmount));
+    const supplierBorneExtras = purchase.extraCostsPaymentMethod === 'supplier'
+      ? amount(purchase.shippingCost) + amount(purchase.customsCost) + amount(purchase.otherCosts) : 0;
+    const supplierPayable = amount(purchase.totalAmount) + supplierBorneExtras;
+    const outstanding = Math.max(0, supplierPayable - paid - amount(purchase.returnedAmount));
     if (!outstanding) continue;
     const days = ageDays(purchase.date || purchase.createdAt);
     supplierAge[bucketForAge(days)] += outstanding;
