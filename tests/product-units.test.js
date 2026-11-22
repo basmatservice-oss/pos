@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getProductUnitOptions, findProductBarcodeMatch } from '../src/utils/productUnits.js';
+import { buildCanonicalProductUnits, normalizeUnitCode } from '../src/utils/productUnitCatalog.js';
 import { useCartStore, getItemPrice, getItemUnitFactor } from '../src/store/useCartStore.ts';
 
 test('keeps a non-count base unit distinct and does not invent a piece alias', () => {
@@ -91,4 +92,50 @@ test('server conversion preserves legacy box products and recognizes the base un
   const legacyProduct = { unit: 'piece', conversionFactor: 12 };
   assert.equal(resolveProductUnitFactor(legacyProduct, { unit: 'box', conversionFactor: 1 }), 12);
   assert.equal(resolveProductUnitFactor({ unit: 'kg', conversionFactor: 10 }, { unit: 'KG', conversionFactor: 10 }), 1);
+});
+
+
+test('normalizes legacy unit JSON into stable catalog rows without losing prices or barcodes', () => {
+  const product = {
+    id: 77, unit: 'piece', baseUnitCode: 'count', barcode: 'BASE-77',
+    sellingPrice: 10, costPrice: 6, allowFractions: false, conversionFactor: 1,
+    unitsJson: JSON.stringify([
+      { name: 'Carton', barcode: 'CTN-77', conversionFactor: 24, sellingPrice: 220, costPrice: 132, priceInUSD: 2.2 },
+      { name: 'Pack', barcode: 'PACK-77', conversionFactor: 6, sellingPrice: 57, costPrice: 34, allowFractions: true },
+      { name: 'Invalid', conversionFactor: 0 },
+    ]),
+    updatedAt: '2026-11-22T00:00:00.000Z',
+  };
+  const first = buildCanonicalProductUnits(product);
+  const second = buildCanonicalProductUnits(product);
+  assert.deepEqual(first, second);
+  assert.equal(first.units.length, 3);
+  const carton = first.units.find((unit) => unit.barcode === 'CTN-77');
+  assert.equal(carton.conversionToBase, 24);
+  assert.equal(carton.sellingPrice, 220);
+  assert.equal(carton.costPrice, 132);
+  assert.equal(carton.priceInUSD, 2.2);
+  const pack = first.units.find((unit) => unit.barcode === 'PACK-77');
+  assert.equal(pack.allowFractions, 1);
+  assert.equal(first.units.find((unit) => unit.isBaseUnit === 1).conversionToBase, 1);
+  assert.equal(first.definitions.find((definition) => definition.code === carton.unitCode).name, 'Carton');
+  assert.equal(normalizeUnitCode('Carton', 'count'), normalizeUnitCode('Carton', 'count'));
+  assert.notEqual(normalizeUnitCode('Carton', 'count'), normalizeUnitCode('Carton', 'weight'));
+});
+
+test('keeps malformed legacy unit JSON non-destructive and preserves the base unit', () => {
+  const result = buildCanonicalProductUnits({
+    id: 78, unit: 'kg', sellingPrice: 20, costPrice: 12, unitsJson: '{broken',
+  });
+  assert.equal(result.units.length, 1);
+  assert.equal(result.units[0].isBaseUnit, 1);
+  assert.equal(result.units[0].conversionToBase, 1);
+});
+
+test('normalized product-unit reads are projected back for existing POS consumers', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/services/posDataAccess.ts', import.meta.url), 'utf8');
+  assert.match(source, /getPosRecords<Record<string, any>>\('productUnits'\)/);
+  assert.match(source, /getPosRecords<Record<string, any>>\('unitDefinitions'\)/);
+  assert.match(source, /unitsJson: JSON\.stringify\(extras\)/);
 });
