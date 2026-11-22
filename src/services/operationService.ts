@@ -2122,7 +2122,7 @@ async function applyPurchaseLocally(
         addPurchaseGuard('inventoryBatches', batch.id, 'costPrice', batch.costPrice);
       }
       for (const supplierId of supplierIds) {
-        const original = originalSupplierMap.get(supplierId);
+        const original = originalSupplierMap.get(String(supplierId));
         if (original) {
           if (!Number.isFinite(Number(original.balance))) throw new Error('رصيد المورد غير صالح قبل تعديل فاتورة الشراء');
           addPurchaseGuard('suppliers', original.id, 'balance', original.balance);
