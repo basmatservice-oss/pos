@@ -78,7 +78,19 @@ export function buildOperationalReports({
     row.paid += amount(order.paidAmount);
     customerGroups.set(key, row);
   }
-  const customerRows = [...customerGroups.values()].sort((a, b) => b.sales - a.sales);
+  for (const record of salesReturns) {
+    const order = orders.find((row) => String(row.id) === String(record.originalOrderId));
+    if (!order?.customerId) continue;
+    const row = customerGroups.get(String(order.customerId));
+    if (row) row.returns = (row.returns || 0) + amount(record.totalRefund);
+  }
+  for (const payment of periodCustomerPayments) {
+    const row = customerGroups.get(String(payment.customerId));
+    if (row) row.paid += amount(payment.amount);
+  }
+  const customerRows = [...customerGroups.values()]
+    .map((row) => ({ ...row, returns: row.returns || 0, netSales: row.sales - (row.returns || 0) }))
+    .sort((a, b) => b.netSales - a.netSales);
 
   const supplierGroups = new Map();
   for (const purchase of buys) {
@@ -94,6 +106,10 @@ export function buildOperationalReports({
     const row = supplierGroups.get(key) || { id: record.supplierId, name: record.supplierName || 'مورد', invoices: 0, purchases: 0, paid: 0, returned: 0 };
     row.returned += amount(record.totalReturn);
     supplierGroups.set(key, row);
+  }
+  for (const payment of periodSupplierPayments) {
+    const row = supplierGroups.get(String(payment.supplierId ?? payment.supplierName ?? 'غير محدد'));
+    if (row) row.paid += amount(payment.amount);
   }
   const supplierRows = [...supplierGroups.values()].map((row) => ({ ...row, netPurchases: row.purchases - row.returned }))
     .sort((a, b) => b.netPurchases - a.netPurchases);
