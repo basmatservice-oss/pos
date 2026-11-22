@@ -107,10 +107,6 @@ export function buildOperationalReports({
     row.returned += amount(record.totalReturn);
     supplierGroups.set(key, row);
   }
-  for (const payment of periodSupplierPayments) {
-    const row = supplierGroups.get(String(payment.supplierId ?? payment.supplierName ?? 'غير محدد'));
-    if (row) row.paid += amount(payment.amount);
-  }
   const supplierRows = [...supplierGroups.values()].map((row) => ({ ...row, netPurchases: row.purchases - row.returned }))
     .sort((a, b) => b.netPurchases - a.netPurchases);
 
