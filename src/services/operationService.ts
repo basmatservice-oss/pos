@@ -10,6 +10,7 @@ import { apiService, getAuthToken } from './apiService';
 import { generateUUID } from '../utils/uuid';
 import { useSyncStore } from '../store/syncStore';
 import { roundQty } from '../utils/format';
+import { buildCanonicalProductUnits } from '../utils/productUnitCatalog.js';
 import { consumeLocalInventoryFIFO, restoreLocalInventoryFIFO, recordLocalInventoryMovement } from './localInventoryEngine';
 import { postLocalJournalEntry, reverseLocalJournalEntriesByReference, setLocalAccountingStandaloneMode } from './localAccountingEngine';
 import { reconcileLocalOperationAfterAck } from './localOperationReconciliation';
@@ -4461,6 +4462,31 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     const changes: any[] = [];
     if (hasChangedPrimaryKey) changes.push({ action: 'delete', entity: 'products', key: previousId });
     changes.push({ action: 'put', entity: 'products', record: productRecord, syncState: syncStatus });
+
+    // Keep the normalized unit catalog in the same SQLite transaction as its
+    // product. Otherwise a stale ProductUnit row would override a newly edited
+    // unitsJson payload at the read boundary while offline.
+    let canReconcileUnits = !productRecord.unitsJson;
+    if (productRecord.unitsJson) {
+      try { canReconcileUnits = Array.isArray(JSON.parse(productRecord.unitsJson)); } catch { canReconcileUnits = false; }
+    }
+    if (canReconcileUnits) {
+      const normalizedUnits = buildCanonicalProductUnits(productRecord);
+      const existingUnits = await nativePosRepository.whereEquals<any>('productUnits', 'productId', productId);
+      const nextIds = new Set(normalizedUnits.units.map((unit) => String(unit.id)));
+      for (const oldUnit of existingUnits) {
+        if (!nextIds.has(String(oldUnit.id))) {
+          changes.push({ action: 'delete', entity: 'productUnits', key: oldUnit.id });
+        }
+      }
+      for (const definition of normalizedUnits.definitions) {
+        changes.push({ action: 'put', entity: 'unitDefinitions', record: { ...definition, syncStatus }, syncState: syncStatus });
+      }
+      for (const unit of normalizedUnits.units) {
+        changes.push({ action: 'put', entity: 'productUnits', record: { ...unit, syncStatus }, syncState: syncStatus });
+      }
+    }
+
     if (Number(finalRecord.stockQuantity || 0) > 0 && (!finalRecord.itemType || finalRecord.itemType === 'stock')) {
       const existingBatches = await nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', productId);
       if (existingBatches.length === 0) {
