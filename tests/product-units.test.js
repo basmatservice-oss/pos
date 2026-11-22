@@ -166,3 +166,22 @@ test('server sales and purchases resolve unit factors from ProductUnit before tr
   assert.match(operations, /وحدة البيع .*غير معرفة للصنف/);
   assert.match(operations, /syncNormalizedProductUnits\(tx, savedRecord, now\)/);
 });
+
+
+test('supplier purchase return UI converts invoice quantities and legacy costs to base units', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const purchasesPage = await readFile(new URL('../src/pages/Purchases.tsx', import.meta.url), 'utf8');
+  assert.match(purchasesPage, /const safeFactor = Number\.isFinite\(conversionFactor\) && conversionFactor > 0 \? conversionFactor : 1/);
+  assert.match(purchasesPage, /Number\(item\.quantity \|\| 0\) \* safeFactor/);
+  assert.match(purchasesPage, /Number\(item\.costPrice \|\| 0\) \/ safeFactor/);
+  assert.match(purchasesPage, /المتاح \(بالوحدة الأساسية\)/);
+  assert.match(purchasesPage, /كمية الإرجاع \(بالوحدة الأساسية\)/);
+  assert.match(purchasesPage, /item\.baseUnit/);
+});
+
+test('server rejects a stale unit code when its definition does not match the requested unit name', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const operations = await readFile(new URL('../server/operations.ts', import.meta.url), 'utf8');
+  assert.match(operations, /if \(item\.unitCode && String\(row\.unitCode\) === String\(item\.unitCode\)\) \{\s*return definitionName === requestedName;/);
+  assert.match(operations, /return !item\.unitCode && definitionName === requestedName;/);
+});
