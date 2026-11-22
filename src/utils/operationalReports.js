@@ -167,13 +167,40 @@ export function buildOperationalReports({
   const customerAge = ageBuckets();
   const supplierAge = ageBuckets();
   const linkedCustomerPayments = new Map();
-  for (const payment of customerPayments) if (payment.orderId) linkedCustomerPayments.set(String(payment.orderId), (linkedCustomerPayments.get(String(payment.orderId)) || 0) + amount(payment.amount));
+  const futureCustomerPayments = new Map();
+  for (const payment of customerPayments) {
+    if (!payment.orderId) continue;
+    const target = new Date(payment.createdAt || payment.date || end).getTime() <= asOf
+      ? linkedCustomerPayments : futureCustomerPayments;
+    target.set(String(payment.orderId), (target.get(String(payment.orderId)) || 0) + amount(payment.amount));
+  }
   const linkedSupplierPayments = new Map();
-  for (const payment of supplierPayments) if (payment.purchaseId) linkedSupplierPayments.set(String(payment.purchaseId), (linkedSupplierPayments.get(String(payment.purchaseId)) || 0) + amount(payment.amount));
+  const futureSupplierPayments = new Map();
+  for (const payment of supplierPayments) {
+    if (!payment.purchaseId) continue;
+    const target = new Date(payment.createdAt || payment.date || end).getTime() <= asOf
+      ? linkedSupplierPayments : futureSupplierPayments;
+    target.set(String(payment.purchaseId), (target.get(String(payment.purchaseId)) || 0) + amount(payment.amount));
+  }
+  const futureSalesReturns = new Map();
+  for (const record of returns) {
+    if (!record.originalOrderId || new Date(record.createdAt || end).getTime() <= asOf) continue;
+    const key = String(record.originalOrderId);
+    futureSalesReturns.set(key, (futureSalesReturns.get(key) || 0) + amount(record.totalRefund));
+  }
+  const futurePurchaseReturns = new Map();
+  for (const record of purchaseReturns) {
+    if (!record.originalPurchaseId || new Date(record.createdAt || end).getTime() <= asOf) continue;
+    const key = String(record.originalPurchaseId);
+    futurePurchaseReturns.set(key, (futurePurchaseReturns.get(key) || 0) + amount(record.totalReturn));
+  }
   const receivableRows = [];
   for (const order of agingOrders.filter((row) => row.status !== 'void' && new Date(row.createdAt || '').getTime() <= asOf)) {
-    const paid = Math.max(amount(order.paidAmount), linkedCustomerPayments.get(String(order.id)) || 0);
-    const outstanding = Math.max(0, amount(order.netAmount) - paid - amount(order.returnedAmount));
+    const key = String(order.id);
+    const paidAtEnd = Math.max(0, amount(order.paidAmount) - (futureCustomerPayments.get(key) || 0));
+    const paid = Math.max(paidAtEnd, linkedCustomerPayments.get(key) || 0);
+    const returnedAtEnd = Math.max(0, amount(order.returnedAmount) - (futureSalesReturns.get(key) || 0));
+    const outstanding = Math.max(0, amount(order.netAmount) - paid - returnedAtEnd);
     if (!outstanding) continue;
     const days = ageDays(order.createdAt);
     customerAge[bucketForAge(days)] += outstanding;
@@ -181,11 +208,14 @@ export function buildOperationalReports({
   }
   const payableRows = [];
   for (const purchase of purchases.filter((row) => new Date(row.date || row.createdAt || '').getTime() <= asOf)) {
-    const paid = Math.max(amount(purchase.paidAmount), linkedSupplierPayments.get(String(purchase.id)) || 0);
+    const key = String(purchase.id);
+    const paidAtEnd = Math.max(0, amount(purchase.paidAmount) - (futureSupplierPayments.get(key) || 0));
+    const paid = Math.max(paidAtEnd, linkedSupplierPayments.get(key) || 0);
+    const returnedAtEnd = Math.max(0, amount(purchase.returnedAmount) - (futurePurchaseReturns.get(key) || 0));
     const supplierBorneExtras = purchase.extraCostsPaymentMethod === 'supplier'
       ? amount(purchase.shippingCost) + amount(purchase.customsCost) + amount(purchase.otherCosts) : 0;
     const supplierPayable = amount(purchase.totalAmount) + supplierBorneExtras;
-    const outstanding = Math.max(0, supplierPayable - paid - amount(purchase.returnedAmount));
+    const outstanding = Math.max(0, supplierPayable - paid - returnedAtEnd);
     if (!outstanding) continue;
     const days = ageDays(purchase.date || purchase.createdAt);
     supplierAge[bucketForAge(days)] += outstanding;
