@@ -51,6 +51,7 @@ import {
 import { hashSecret, sanitizeEmployee } from './auth.js';
 import { resolveProductUnitFactor } from '../src/utils/productUnits.js';
 import { buildCanonicalProductUnits } from '../src/utils/productUnitCatalog.js';
+import { reservePurchaseReturnStock } from '../src/utils/purchaseReturnStock.js';
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -1810,13 +1811,9 @@ function handlePurchaseReturn(
     }
 
     returnedBaseByProduct.set(prodId, roundQty(alreadyReturnedBase + qtyToReturn));
-    const currentStock = availableStockByProduct.has(prodId)
-      ? Number(availableStockByProduct.get(prodId))
-      : Number(product.stockQuantity || 0);
-    if (!Number.isFinite(currentStock) || currentStock < qtyToReturn) {
+    if (!reservePurchaseReturnStock(availableStockByProduct, prodId, product.stockQuantity, qtyToReturn)) {
       throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
     }
-    availableStockByProduct.set(prodId, roundQty(currentStock - qtyToReturn));
 
     for (const allocation of allocations) {
       if (!Number.isFinite(allocation.cost) || allocation.cost < 0) {
