@@ -119,6 +119,8 @@ export default function Purchases() {
       productId: number;
       productName: string;
       purchasedQty: number;
+      baseUnit: string;
+      purchaseUnit: string;
       remainingBatchQty: number;
       costPrice: number;
       returnQty: number;
