@@ -1706,6 +1706,10 @@ function handlePurchaseReturn(
     .filter((entry: any) => priorReturnIds.has(String(entry.purchaseReturnId)));
   const purchasedBaseByProduct = new Map<number, number>();
   const returnedBaseByProduct = new Map<number, number>();
+  // Track stock across repeated request lines for the same product. The product
+  // snapshot is loaded once per line; without this accumulator duplicate lines
+  // could each pass the same stock check and drive legacy (unbatched) stock negative.
+  const availableStockByProduct = new Map<number, number>();
   for (const item of originalItems) {
     const productId = Number(item.productId);
     const quantity = Number(item.quantity);
@@ -1806,10 +1810,13 @@ function handlePurchaseReturn(
     }
 
     returnedBaseByProduct.set(prodId, roundQty(alreadyReturnedBase + qtyToReturn));
-    const currentStock = Number(product.stockQuantity || 0);
+    const currentStock = availableStockByProduct.has(prodId)
+      ? Number(availableStockByProduct.get(prodId))
+      : Number(product.stockQuantity || 0);
     if (!Number.isFinite(currentStock) || currentStock < qtyToReturn) {
       throw new OperationError(`المخزون المتاح لا يكفي لإرجاع المنتج ${reqItem.productName}`, 400);
     }
+    availableStockByProduct.set(prodId, roundQty(currentStock - qtyToReturn));
 
     for (const allocation of allocations) {
       if (!Number.isFinite(allocation.cost) || allocation.cost < 0) {
