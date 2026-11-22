@@ -233,6 +233,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
           <p className="mt-2 text-xs text-slate-500">المعدل تقريبي لأنه يقارن تكلفة الصادر خلال الفترة بقيمة المخزون المتبقي في نهايتها، وليس بمتوسط رصيد أول وآخر الفترة.</p>
           <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">القيمة</th><th className="p-2">تكلفة الصادر</th><th className="p-2">الدوران</th><th className="p-2">عمر المخزون</th><th className="p-2">آخر حركة</th><th className="p-2">الحالة</th></tr></thead><tbody>{report.inventoryAging.rows.slice(0, 30).map((row) => <tr key={row.productId} className="border-t"><td className="p-2">{row.name}</td><td className="p-2">{formatQty(row.quantity, quantityDecimals)}</td><td className="p-2">{money(row.value)}</td><td className="p-2">{money(row.cogs)}</td><td className="p-2">{row.turnoverRatio == null ? '—' : row.turnoverRatio.toFixed(2) + ' مرة'}</td><td className="p-2">{row.stockAgeDays} يوم</td><td className="p-2">{row.lastSaleDays == null ? 'لم يسجل بيع' : row.lastSaleDays + ' يوم'}</td><td className="p-2">{row.status}</td></tr>)}{!report.inventoryAging.rows.length && empty(8)}</tbody></table></div>
           <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">{Object.entries(report.inventoryAging.buckets).map(([key, value]) => <span key={key}>{key}: {money(value)}</span>)}</div>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+            <span>كمية منتهية الصلاحية: {formatQty(report.inventoryAging.rows.reduce((sum, row) => sum + row.expired, 0), quantityDecimals)}</span>
+            <span>كمية تنتهي خلال 30 يومًا: {formatQty(report.inventoryAging.rows.reduce((sum, row) => sum + row.expiring, 0), quantityDecimals)}</span>
+          </div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">أعمار ديون العملاء والموردين</h4>
