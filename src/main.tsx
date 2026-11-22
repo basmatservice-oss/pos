@@ -5,7 +5,7 @@ import './index.css';
 import { mirrorNativePosDatabase, readLegacyIndexedDBStores, restoreNativePosDatabase } from './services/nativeDatabaseMirror';
 import { isNativeAndroid } from './native/posLocalDatabase';
 import { electronPosRepository, isElectronDesktop, setElectronDeviceRole } from './native/electronPosRepository';
-import { NATIVE_POS_ENTITIES, getNativePosRecordId } from './native/nativePosRepository';
+import { NATIVE_POS_ENTITIES, getNativePosPrimaryKeyField, getNativePosRecordId } from './native/nativePosRepository';
 import { putPosSetting } from './services/posDataAccess';
 import bcrypt from 'bcryptjs';
 import { getPosRecords, putPosRecord } from './services/posDataAccess';
