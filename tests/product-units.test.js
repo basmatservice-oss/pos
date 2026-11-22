@@ -185,3 +185,15 @@ test('server rejects a stale unit code when its definition does not match the re
   assert.match(operations, /if \(item\.unitCode && String\(row\.unitCode\) === String\(item\.unitCode\)\) \{\s*return definitionName === requestedName;/);
   assert.match(operations, /return !item\.unitCode && definitionName === requestedName;/);
 });
+
+
+test('native product edits atomically reconcile ProductUnit rows with the edited legacy payload', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const service = await readFile(new URL('../src/services/operationService.ts', import.meta.url), 'utf8');
+  assert.match(service, /buildCanonicalProductUnits\(productRecord\)/);
+  assert.match(service, /nativePosRepository\.whereEquals<any>\('productUnits', 'productId', productId\)/);
+  assert.match(service, /changes\.push\(\{ action: 'delete', entity: 'productUnits', key: oldUnit\.id \}\)/);
+  assert.match(service, /entity: 'unitDefinitions'/);
+  assert.match(service, /entity: 'productUnits'/);
+  assert.match(service, /nativePosRepository\.applyChanges\(changes\)/);
+});
