@@ -421,11 +421,30 @@ export default function Purchases() {
     const items = await getPosRecordsWhereEquals<any>('purchaseItems', 'purchaseId', purchase.id!);
     const batches = await getPosRecordsWhereEquals<any>('inventoryBatches', 'purchaseId', purchase.id!);
 
-    const mapped = items.map((item) => {
-      const productBatches = batches.filter((batch) => Number(batch.productId) === Number(item.productId));
-      const conversionFactor = Number(item.conversionFactor || 1);
-      const safeFactor = Number.isFinite(conversionFactor) && conversionFactor > 0 ? conversionFactor : 1;
-      const baseUnit = products.find((product) => Number(product.id) === Number(item.productId))?.unit || 'piece';
+    // A purchase can contain multiple lines for the same product (different
+    // package units or prices). Present one return row per product so the same
+    // inventory batches and remaining quantity are never counted repeatedly.
+    const itemsByProduct = new Map<number, any[]>();
+    for (const item of items) {
+      const key = Number(item.productId);
+      const group = itemsByProduct.get(key) || [];
+      group.push(item);
+      itemsByProduct.set(key, group);
+    }
+    const mapped = Array.from(itemsByProduct.entries()).map(([productId, productItems]) => {
+      const productBatches = batches.filter((batch) => Number(batch.productId) === productId);
+      const baseUnit = products.find((product) => Number(product.id) === productId)?.unit || 'piece';
+      const normalizedItems = productItems.map((item) => {
+        const factor = Number(item.conversionFactor || 1);
+        const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+        const baseQuantity = Number(item.quantity || 0) * safeFactor;
+        return {
+          item,
+          baseQuantity,
+          baseCost: Number(item.costPrice || 0) / safeFactor,
+        };
+      });
+      const purchasedQty = normalizedItems.reduce((sum, entry) => sum + entry.baseQuantity, 0);
       const remainingByBatch = productBatches.map((batch) => ({
         batch,
         remaining: Math.max(0, Number(batch.remainingQuantity ?? batch.quantity ?? 0)),
@@ -434,18 +453,22 @@ export default function Purchases() {
       // base units, not the package unit used on the supplier invoice.
       const remainingBatchQty = productBatches.length
         ? remainingByBatch.reduce((sum, entry) => sum + entry.remaining, 0)
-        : Number(item.quantity || 0) * safeFactor;
+        : purchasedQty;
+      const fallbackCost = purchasedQty > 0
+        ? normalizedItems.reduce((sum, entry) => sum + entry.baseQuantity * entry.baseCost, 0) / purchasedQty
+        : 0;
       const remainingValue = remainingByBatch.reduce((sum, entry) =>
-        sum + entry.remaining * Number(entry.batch.costPrice ?? (Number(item.costPrice || 0) / safeFactor)), 0);
+        sum + entry.remaining * Number(entry.batch.costPrice ?? fallbackCost), 0);
       const costPrice = remainingBatchQty > 0 && productBatches.length
         ? remainingValue / remainingBatchQty
-        : Number(item.costPrice || 0) / safeFactor;
+        : fallbackCost;
+      const purchaseUnits = Array.from(new Set(normalizedItems.map((entry) => String(entry.item.unit || baseUnit))));
       return {
-        productId: item.productId,
-        productName: item.productName,
-        purchasedQty: Number(item.quantity || 0) * safeFactor,
+        productId,
+        productName: productItems[0]?.productName || products.find((product) => Number(product.id) === productId)?.name || '',
+        purchasedQty,
         baseUnit,
-        purchaseUnit: item.unit || baseUnit,
+        purchaseUnit: purchaseUnits.length === 1 ? purchaseUnits[0] : 'متعدد الوحدات',
         remainingBatchQty,
         costPrice,
         returnQty: 0,
