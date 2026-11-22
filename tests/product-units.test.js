@@ -235,3 +235,11 @@ test('server product REST create, update and delete keep normalized units transa
   assert.match(deleteRoute, /tx\.delete\(productUnits\).*productId, id/s);
   assert.match(deleteRoute, /tx\.delete\(products\)/);
 });
+\n\ntest('purchase return UI groups repeated product lines before totaling shared batches', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/pages/Purchases.tsx', import.meta.url), 'utf8');
+  assert.match(source, /itemsByProduct = new Map<number, any\[\]>/);
+  assert.match(source, /normalizedItems\.reduce\(\(sum, entry\) => sum \+ entry\.baseQuantity, 0\)/);
+  assert.match(source, /purchaseUnits\.length === 1 \? purchaseUnits\[0\] : 'متعدد الوحدات'/);
+  assert.match(source, /batchId: productBatches\.length === 1/);
+});\n
