@@ -43,6 +43,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const report = useMemo(() => buildOperationalReports({
     startDate, endDate,
     orders: filteredOrders,
+    agingOrders: orders.filter((row) => branchMatches(row) && (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter)),
     purchaseItems,
     purchaseReturnItems,
     returns: returns.filter((row) => {
