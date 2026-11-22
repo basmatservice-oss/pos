@@ -95,6 +95,31 @@ function getRecords(entity) {
     .all(entity).map(row => parseStoredRecord(entity, row));
 }
 
+function validateRecords(entity, primaryKeyField) {
+  if (typeof entity !== 'string' || !VALID_ENTITIES.has(entity) ||
+      typeof primaryKeyField !== 'string' || !primaryKeyField.trim()) throw new Error('Invalid snapshot validation request');
+  const rows = db().prepare('SELECT record_id AS recordId, json FROM pos_records WHERE entity = ? ORDER BY record_id').iterate(entity);
+  const recordIds = [];
+  const seen = new Set();
+  for (const row of rows) {
+    let record;
+    try {
+      record = JSON.parse(row.json);
+    } catch (error) {
+      throw new Error('Corrupt SQLite record in ' + entity + ' (recordId=' + String(row.recordId) + '): ' + String(error?.message || error));
+    }
+    if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Invalid SQLite record object in ' + entity);
+    const primaryKey = record[primaryKeyField];
+    if (primaryKey === undefined || primaryKey === null ||
+        JSON.stringify(primaryKey) !== row.recordId || seen.has(row.recordId)) {
+      throw new Error('SQLite identity validation failed for ' + entity + ' (recordId=' + String(row.recordId) + ')');
+    }
+    seen.add(row.recordId);
+    recordIds.push(row.recordId);
+  }
+  return { recordIds };
+}
+
 function getRecord(entity, recordId) {
   validateIdentity(entity, recordId);
   const row = db().prepare('SELECT record_id AS recordId, json, sync_state AS syncState, updated_at AS updatedAt FROM pos_records WHERE entity = ? AND record_id = ?')
@@ -352,4 +377,4 @@ function closeLocalDatabase() {
   database = null;
 }
 
-module.exports = { initializeLocalDatabase, getRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, mergeOperations, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, deleteOperation, acknowledgeOperation, closeLocalDatabase };
+module.exports = { initializeLocalDatabase, getRecords, validateRecords, getRecord, putRecords, applyRecordChanges, getMeta, setMeta, enqueueOperation, mergeOperations, saveAndEnqueueOperation, applySnapshotAndReplaceOutbox, listOperations, updateOperation, retryOperation, updateOperationPayload, deleteOperation, acknowledgeOperation, closeLocalDatabase };
