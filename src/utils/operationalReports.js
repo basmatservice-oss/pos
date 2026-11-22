@@ -19,7 +19,7 @@ const groupBy = (rows, keyOf, makeRow) => {
 
 /** Build operational reports from persisted business documents without recalculating historical costs. */
 export function buildOperationalReports({
-  startDate, endDate, orders = [], returns = [], purchases = [], purchaseReturns = [],
+  startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
   expenses = [], payrolls = [], employees = [], customers = [], suppliers = [],
   customerPayments = [], supplierPayments = [], inventoryMovements = [],
 }) {
@@ -29,6 +29,36 @@ export function buildOperationalReports({
   const salesReturns = returns.filter((row) => inRange(row.createdAt, start, end));
   const buys = purchases.filter((row) => inRange(row.date || row.createdAt, start, end));
   const buyReturns = purchaseReturns.filter((row) => inRange(row.createdAt, start, end));
+  const purchaseIds = new Set(buys.map((row) => String(row.id)));
+  const purchaseReturnIds = new Set(buyReturns.map((row) => String(row.id)));
+  const purchaseProductGroups = new Map();
+  for (const item of purchaseItems) {
+    if (!purchaseIds.has(String(item.purchaseId))) continue;
+    const key = String(item.productId);
+    const factor = amount(item.conversionToBase ?? item.conversionFactor ?? 1);
+    const quantity = amount(item.baseQuantity ?? amount(item.quantity) * (factor > 0 ? factor : 1));
+    const row = purchaseProductGroups.get(key) || {
+      productId: item.productId, name: item.productName || 'صنف غير معروف',
+      quantity: 0, returnedQuantity: 0, total: 0, returnedTotal: 0,
+    };
+    row.quantity += quantity;
+    row.total += amount(item.total ?? item.originalTotal);
+    purchaseProductGroups.set(key, row);
+  }
+  for (const item of purchaseReturnItems) {
+    if (!purchaseReturnIds.has(String(item.purchaseReturnId))) continue;
+    const key = String(item.productId);
+    const row = purchaseProductGroups.get(key) || {
+      productId: item.productId, name: item.productName || 'صنف غير معروف',
+      quantity: 0, returnedQuantity: 0, total: 0, returnedTotal: 0,
+    };
+    row.returnedQuantity += amount(item.quantity);
+    row.returnedTotal += amount(item.total);
+    purchaseProductGroups.set(key, row);
+  }
+  const purchaseProductRows = [...purchaseProductGroups.values()]
+    .map((row) => ({ ...row, netQuantity: row.quantity - row.returnedQuantity, netTotal: row.total - row.returnedTotal }))
+    .sort((a, b) => b.netTotal - a.netTotal);
   const periodExpenses = expenses.filter((row) => inRange(row.date || row.createdAt, start, end));
   const periodPayroll = payrolls.filter((row) => inRange(row.paymentDate, start, end));
   const periodCustomerPayments = customerPayments.filter((row) => inRange(row.createdAt, start, end));
@@ -138,6 +168,7 @@ export function buildOperationalReports({
     staff: staffRows,
     customers: customerRows,
     suppliers: supplierRows,
+    purchaseProducts: purchaseProductRows,
     expenses: expenseRows,
     payroll: { count: periodPayroll.length, total: periodPayroll.reduce((sum, row) => sum + amount(row.netSalary), 0) },
     customerCollections: periodCustomerPayments.reduce((sum, row) => sum + amount(row.amount), 0),
