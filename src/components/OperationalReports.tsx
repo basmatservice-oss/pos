@@ -26,8 +26,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const branchMatches = (row: any) => branchFilter === 'all' || String(row.branchId ?? '') === branchFilter;
   const filteredOrders = useMemo(() => orders.filter((row) => branchMatches(row) &&
     (cashierFilter === 'all' || String(row.createdBy || 'غير محدد') === cashierFilter) &&
-    (paymentFilter === 'all' || row.paymentMethod === paymentFilter ||
-      (row.paymentMethod === 'mixed' && (paymentFilter === 'cash' ? Number(row.cashAmount || 0) > 0 : paymentFilter === 'card' ? Number(row.cardAmount || 0) > 0 : false)))),
+    (paymentFilter === 'all' || row.paymentMethod === paymentFilter)),
     [orders, branchFilter, cashierFilter, paymentFilter]);
   const filteredOrderIds = useMemo(() => new Set(filteredOrders.map((row) => String(row.id))), [filteredOrders]);
   const report = useMemo(() => buildOperationalReports({
@@ -35,7 +34,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     orders: filteredOrders,
     returns: returns.filter((row) => {
       const original = orders.find((order) => String(order.id) === String(row.originalOrderId));
-      return original && filteredOrderIds.has(String(original.id)) && branchMatches(row);
+      return original && filteredOrderIds.has(String(original.id));
     }),
     purchases: purchases.filter(branchMatches),
     purchaseReturns: purchaseReturns.filter(branchMatches),
@@ -74,7 +73,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         </label>
         <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-bold text-slate-600">وسيلة الدفع
           <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
-            <option value="all">كل الوسائل</option><option value="cash">نقدي</option><option value="card">بطاقة</option><option value="credit">آجل</option>
+            <option value="all">كل الوسائل</option><option value="cash">نقدي</option><option value="card">بطاقة</option><option value="credit">آجل</option><option value="mixed">دفع مختلط</option>
           </select>
         </label>
       </div>
