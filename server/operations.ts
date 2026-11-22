@@ -330,6 +330,15 @@ function resolveProductUnitFactorForSale(tx: any, product: any, item: any): numb
 
 function syncNormalizedProductUnits(tx: any, product: any, now: string): void {
   const normalized = buildCanonicalProductUnits(product);
+  let canReconcile = !product.unitsJson;
+  if (product.unitsJson) {
+    try { canReconcile = Array.isArray(JSON.parse(product.unitsJson)); } catch { canReconcile = false; }
+  }
+  if (canReconcile) {
+    // Product form writes a complete unit list. Reconcile atomically so removed
+    // barcodes or pack sizes cannot remain selectable after an edit.
+    tx.delete(productUnits).where(eq(productUnits.productId, Number(product.id))).run();
+  }
   for (const definition of normalized.definitions) {
     tx.insert(unitDefinitions).values(definition).onConflictDoNothing().run();
   }
