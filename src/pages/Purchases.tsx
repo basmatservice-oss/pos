@@ -434,7 +434,7 @@ export default function Purchases() {
         ? remainingByBatch.reduce((sum, entry) => sum + entry.remaining, 0)
         : Number(item.quantity || 0) * safeFactor;
       const remainingValue = remainingByBatch.reduce((sum, entry) =>
-        sum + entry.remaining * Number(entry.batch.costPrice ?? item.costPrice / safeFactor ?? 0), 0);
+        sum + entry.remaining * Number(entry.batch.costPrice ?? (Number(item.costPrice || 0) / safeFactor)), 0);
       const costPrice = remainingBatchQty > 0 && productBatches.length
         ? remainingValue / remainingBatchQty
         : Number(item.costPrice || 0) / safeFactor;
@@ -1066,17 +1066,17 @@ export default function Purchases() {
                   <thead className="bg-slate-50 text-slate-500 text-xs">
                     <tr>
                       <th className="px-3 py-2.5">المنتج</th>
-                      <th className="px-3 py-2.5 text-center">المشترى ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
-                      <th className="px-3 py-2.5 text-center">المتاح ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
+                      <th className="px-3 py-2.5 text-center">المشترى (بالوحدة الأساسية)</th>
+                      <th className="px-3 py-2.5 text-center">المتاح (بالوحدة الأساسية)</th>
                       <th className="px-3 py-2.5 text-center">التكلفة</th>
-                      <th className="px-3 py-2.5 text-center">كمية الإرجاع ({returnItemsState[0]?.baseUnit || "الوحدة الأساسية"})</th>
+                      <th className="px-3 py-2.5 text-center">كمية الإرجاع (بالوحدة الأساسية)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 tabular-nums">
                     {returnItemsState.map((item, idx) => (
                       <tr key={item.productId}>
                         <td className="px-3 py-2.5 font-medium text-slate-900">{item.productName}</td>
-                        <td className="px-3 py-2.5 text-center text-slate-600">{formatQty(item.purchasedQty, qtyDecimals)} <span className="text-[10px] text-slate-400">({item.purchaseUnit})</span></td>
+                        <td className="px-3 py-2.5 text-center text-slate-600">{formatQty(item.purchasedQty, qtyDecimals)} <span className="text-[10px] text-slate-400">({item.baseUnit}، من {item.purchaseUnit})</span></td>
                         <td className="px-3 py-2.5 text-center font-bold text-indigo-600">
                           {formatQty(item.remainingBatchQty, qtyDecimals)}
                         </td>
