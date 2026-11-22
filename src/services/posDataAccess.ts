@@ -133,19 +133,65 @@ async function getWindowsServerRecords<T extends PosRecord>(entity: NativePosEnt
   return records;
 }
 
+async function projectProductUnitRecords<T extends object>(records: T[]): Promise<T[]> {
+  if (!records.length) return records;
+  try {
+    const [unitRows, definitions] = await Promise.all([
+      getPosRecords<Record<string, any>>('productUnits'),
+      getPosRecords<Record<string, any>>('unitDefinitions'),
+    ]);
+    if (!unitRows.length) return records;
+    const namesByCode = new Map(definitions.map((definition) => [String(definition.code), String(definition.name || '')]));
+    const rowsByProduct = new Map<string, Record<string, any>[]>();
+    for (const row of unitRows) {
+      const key = String(row.productId);
+      const list = rowsByProduct.get(key) || [];
+      list.push(row);
+      rowsByProduct.set(key, list);
+    }
+    return records.map((record) => {
+      const product = record as Record<string, any>;
+      const normalized = rowsByProduct.get(String(product.id));
+      if (!normalized) return record; // legacy-only product: retain unitsJson fallback
+      const extras = normalized.filter((unit) => !Boolean(unit.isBaseUnit)).map((unit) => ({
+        name: namesByCode.get(String(unit.unitCode)) || String(unit.unitCode),
+        barcode: unit.barcode || undefined,
+        conversionFactor: Number(unit.conversionToBase),
+        sellingPrice: unit.sellingPrice == null ? undefined : Number(unit.sellingPrice),
+        costPrice: unit.costPrice == null ? undefined : Number(unit.costPrice),
+        priceInUSD: Number(unit.priceInUSD || 0),
+        allowFractions: Boolean(unit.allowFractions),
+      }));
+      return { ...product, unitsJson: JSON.stringify(extras) } as T;
+    });
+  } catch (error) {
+    // A partially synchronized catalog must not make product reads fail.
+    console.warn('Normalized product-unit catalog unavailable; using legacy product unit metadata:', error);
+    return records;
+  }
+}
+
 /** Read one business record from the active platform's authoritative database. */
 export async function getPosRecord<T extends object = PosRecord>(
   entity: NativePosEntity,
   key: unknown,
 ): Promise<T | undefined> {
-  if (isLocalSqlite()) return (await nativePosRepository.get(entity, key)) as T | undefined;
+  if (isLocalSqlite()) {
+    const record = await nativePosRepository.get(entity, key) as T | undefined;
+    if (!record || entity !== 'products') return record;
+    return (await projectProductUnitRecords([record]))[0];
+  }
   if (isWindowsServer()) {
     const records = await getWindowsServerRecords(entity) as unknown as T[];
     const keyField = SERVER_PRIMARY_KEY_FIELDS[entity] || 'id';
-    return records.find((record) => (record as PosRecord)[keyField] === key || (entity === 'settings' && (record as PosRecord).id === key));
+    const record = records.find((item) => (item as PosRecord)[keyField] === key || (entity === 'settings' && (item as PosRecord).id === key));
+    if (!record || entity !== 'products') return record;
+    return (await projectProductUnitRecords([record]))[0];
   }
   const { db } = await import('../db/db');
-  return await db.table(entity).get(key as any) as T | undefined;
+  const record = await db.table(entity).get(key as any) as T | undefined;
+  if (!record || entity !== 'products') return record;
+  return (await projectProductUnitRecords([record]))[0];
 }
 
 /** Read from SQLite on Android/Windows Client and the authoritative API on Windows Server. */
@@ -161,47 +207,7 @@ export async function getPosRecords<T extends object = PosRecord>(
     const { db } = await import('../db/db');
     records = await db.table(entity).toArray() as T[];
   }
-
-  // ProductUnit + UnitDefinition are the normalized catalog. Project them into
-  // the legacy Product.unitsJson shape at the data boundary so existing POS,
-  // barcode, purchase and return screens share one canonical source without
-  // rewriting historical OrderItem/ReturnItem snapshots.
-  if (entity === 'products' && records.length) {
-    try {
-      const [unitRows, definitions] = await Promise.all([
-        getPosRecords<Record<string, any>>('productUnits'),
-        getPosRecords<Record<string, any>>('unitDefinitions'),
-      ]);
-      if (unitRows.length) {
-        const namesByCode = new Map(definitions.map((definition) => [String(definition.code), String(definition.name || '')]));
-        const rowsByProduct = new Map<string, Record<string, any>[]>();
-        for (const row of unitRows) {
-          const key = String(row.productId);
-          const list = rowsByProduct.get(key) || [];
-          list.push(row);
-          rowsByProduct.set(key, list);
-        }
-        records = records.map((record) => {
-          const product = record as Record<string, any>;
-          const normalized = rowsByProduct.get(String(product.id));
-          if (!normalized) return record; // legacy-only product: retain unitsJson fallback
-          const extras = normalized.filter((unit) => !Boolean(unit.isBaseUnit)).map((unit) => ({
-            name: namesByCode.get(String(unit.unitCode)) || String(unit.unitCode),
-            barcode: unit.barcode || undefined,
-            conversionFactor: Number(unit.conversionToBase),
-            sellingPrice: unit.sellingPrice == null ? undefined : Number(unit.sellingPrice),
-            costPrice: unit.costPrice == null ? undefined : Number(unit.costPrice),
-            priceInUSD: Number(unit.priceInUSD || 0),
-            allowFractions: Boolean(unit.allowFractions),
-          }));
-          return { ...product, unitsJson: JSON.stringify(extras) } as T;
-        });
-      }
-    } catch (error) {
-      // A partially synchronized catalog must not make all product reads fail.
-      console.warn('Normalized product-unit catalog unavailable; using legacy product unit metadata:', error);
-    }
-  }
+  if (entity === 'products') return projectProductUnitRecords(records);
   return records;
 }
 
@@ -211,6 +217,10 @@ export async function getPosRecordsWhereEquals<T extends object = PosRecord>(
   field: string,
   value: string | number | boolean,
 ): Promise<T[]> {
+  if (entity === 'products') {
+    const records = await getPosRecords<T>('products');
+    return records.filter((record) => (record as PosRecord)[field] === value);
+  }
   if (isLocalSqlite()) return await nativePosRepository.whereEquals(entity, field, value) as unknown as T[];
   if (isWindowsServer()) {
     const records = await getPosRecords<T>(entity);
@@ -226,6 +236,7 @@ export async function getFirstPosRecordWhereEquals<T extends object = PosRecord>
   field: string,
   value: string | number | boolean,
 ): Promise<T | undefined> {
+  if (entity === 'products') return (await getPosRecordsWhereEquals<T>(entity, field, value))[0];
   if (isLocalSqlite()) return (await nativePosRepository.firstWhereEquals(entity, field, value)) as T | undefined;
   if (isWindowsServer()) return (await getPosRecordsWhereEquals<T>(entity, field, value))[0];
   const { db } = await import('../db/db');
