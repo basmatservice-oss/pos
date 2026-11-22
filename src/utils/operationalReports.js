@@ -22,7 +22,7 @@ export function buildOperationalReports({
   startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
   expenses = [], payrolls = [], employees = [], customers = [], suppliers = [], attendance = [],
   customerPayments = [], supplierPayments = [], inventoryMovements = [], inventoryBatches = [],
-  shifts = [], shiftMovements = [], accounts = [], transactions = [], agingOrders = orders,
+  shifts = [], shiftMovements = [], accounts = [], transactions = [], agingOrders = orders, products = [],
 }) {
   const start = startDate instanceof Date ? startDate : new Date(startDate);
   const end = endDate instanceof Date ? endDate : new Date(endDate);
@@ -186,6 +186,15 @@ export function buildOperationalReports({
     supplierAge[bucketForAge(days)] += outstanding;
     payableRows.push({ id: purchase.id, supplier: purchase.supplierName || 'مورد', date: purchase.date || purchase.createdAt, days, outstanding });
   }
+  const productNames = new Map(products.map((product) => [String(product.id), String(product.name || product.id)]));
+  const cogsByProduct = new Map();
+  for (const movement of movements) {
+    const key = String(movement.productId);
+    const entry = cogsByProduct.get(key) || { sold: 0, reversed: 0 };
+    if (movement.movementType === 'sale') entry.sold += Math.abs(amount(movement.totalCost));
+    if (movement.movementType === 'sale_return' || movement.movementType === 'sale_void') entry.reversed += Math.abs(amount(movement.totalCost));
+    cogsByProduct.set(key, entry);
+  }
   const batchGroups = new Map();
   const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 };
   const staleDays = 60;
@@ -222,11 +231,15 @@ export function buildOperationalReports({
     const last = lastMovementByProduct.get(String(row.productId));
     const lastMovementDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
     const stockAgeDays = ageDays(row.oldestDate);
-    return { ...row, stockAgeDays: row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0, lastMovementDate: last?.date || null, lastMovementDays,
-      status: lastMovementDays === null || lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
+    const cogs = Math.max(0, (cogsByProduct.get(String(row.productId))?.sold || 0) - (cogsByProduct.get(String(row.productId))?.reversed || 0));
+    return { ...row, name: productNames.get(String(row.productId)) || String(row.productId), cogs,
+      turnoverRatio: row.value > 0 ? cogs / row.value : null,
+      stockAgeDays: row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0,
+      lastMovementDate: last?.date || null, lastMovementDays,
+      status: lastMovementDays === null ? 'غير محدد' : lastMovementDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
-  const cogsOut = movements.filter((row) => row.movementType === 'sale').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
-  const cogsReturned = movements.filter((row) => row.movementType === 'sale_return' || row.movementType === 'sale_void').reduce((sum, row) => sum + Math.abs(amount(row.totalCost)), 0);
+  const cogsOut = [...cogsByProduct.values()].reduce((sum, row) => sum + row.sold, 0);
+  const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
   const netCogs = Math.max(0, cogsOut - cogsReturned);
   const endingInventoryValue = inventoryAgeRows.reduce((sum, row) => sum + row.value, 0);
   const inventoryTurnover = endingInventoryValue > 0 ? netCogs / endingInventoryValue : null;
