@@ -134,7 +134,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     ];
     const csv = '\uFEFF' + rows.map((row) => row.map((value) => {
       const text = String(value ?? '');
-      const safeText = typeof value === 'string' && /^[=+@\-\t\r]/.test(text) ? "'" + text : text;
+      const safeText = typeof value === 'string' && /^[\s\u0000]*[=+@\-]/.test(text) ? "'" + text : text;
       return '"' + safeText.replace(/"/g, '""') + '"';
     }).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
