@@ -6,7 +6,7 @@ import * as schema from '../drizzle/schema.ts';
 
 const now = '2026-11-20T12:00:00.000Z';
 const primaryKeys = {
-  products: 'id', inventoryBatches: 'id', inventoryMovements: 'id', settings: 'id',
+  products: 'id', inventoryBatches: 'id', inventoryMovements: 'id', settings: 'id', suppliers: 'id',
   accounts: 'code', journalEntries: 'id', transactions: 'id',
 };
 
