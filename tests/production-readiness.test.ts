@@ -40,6 +40,7 @@ test.before(async () => {
   });
   assert.equal(loginRes.status, 200);
   adminToken = loginRes.data.token;
+  assert.equal(loginRes.data.user.mustChangePassword, true, 'the first-run administrator must be prompted to replace the default password');
 
   const catRes = await api(
     '/api/categories',
