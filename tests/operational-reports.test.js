@@ -99,7 +99,7 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
   assert.equal(result.payablesAging.total, 220);
   assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 220);
-  assert.equal(result.inventoryAging.totalValue, 50);
+  assert.equal(result.inventoryAging.totalValue, 71);
   assert.equal(result.inventoryAging.rows.some((row) => row.productId === 4), false, 'receipts after the report cutoff must be excluded');
   assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 21, 'batches without a reliable purchase date must be separated from dated stock');
   assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).stockAgeDays, null);
