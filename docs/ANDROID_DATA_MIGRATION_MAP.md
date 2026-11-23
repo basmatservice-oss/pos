@@ -29,10 +29,10 @@ Repository coverage is not by itself proof that every page mutation is correctly
 
 The native operation dispatcher contains local SQLite paths for sales, sales returns and voids, purchase creation/update/deletion, purchase returns, expenses, customer and supplier payments, payroll, shift operations, stocktake approval, and entity synchronization. Each path still requires operation-specific parity evidence against the Windows server implementation.
 
-Current accounting parity tests exercise sale/partial-return valuation, FIFO and weighted-average costing, and journal/COGS reversal behavior. The following evidence remains required before declaring the migration complete:
+Current accounting parity tests exercise sale/partial-return valuation, FIFO and weighted-average costing, and journal/COGS reversal behavior. Purchase create/update/delete now also have server-versus-native coverage for stock, supplier balances, batch replacement, journal reversal, and the linked USD cost anchor after an update. The remaining release evidence is broader than this focused fixture:
 
-1. Purchase creation, purchase update and purchase deletion parity, including landed costs, supplier balances, batch replacement and journal reversal.
-2. Purchase-return parity, including returned quantity limits, batch depletion, supplier credit/cash effects and accounting reversals.
+1. Extend purchase create/update/delete parity to landed-cost allocation, supplier changes, paid invoices, extra-cost payment methods, partially consumed batches, purchase returns followed by edits, and concurrent/stale-version rejection.
+2. Expand purchase-return parity across returned quantity limits, batch depletion, supplier credit/cash effects and accounting reversals, including mixed-unit and repeated-line scenarios.
 3. End-to-end parity for expenses, customer/supplier payments, payroll, shifts and stocktake.
 4. Restart/crash tests around staged outbox operations, acknowledgement, retry, conflict and idempotent replay.
 5. Full route audit proving that no Android page or service writes business records directly to Dexie or IndexedDB after startup.
