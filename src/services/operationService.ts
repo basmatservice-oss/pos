@@ -196,6 +196,15 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2100', '2200', '3100', '3200', '4100', '4200', '4300', '5100', '5200', '5300', '5400']),
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(order.id)),
   ]);
+  for (const item of items) {
+    const product = productMap.get(Number(item.productId));
+    const itemType = String(item.itemType || product?.itemType || 'stock');
+    if (itemType === 'service_with_materials' &&
+        !recipes.some((recipe: any) => Number(recipe.parentProductId) === Number(item.productId))) {
+      throw new Error('الخدمة "' + String(product?.name || item.productName || item.productId) +
+        '" تحتاج إلى وصفة مواد خام قبل بيعها');
+    }
+  }
   const batches = batchesByProduct.flat();
   const batchMap = new Map<string, any>(batches.map((x: any) => [String(x.id), x]));
   const changes = new Map<string, any>();
