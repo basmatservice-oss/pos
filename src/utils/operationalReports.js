@@ -18,6 +18,7 @@ const groupBy = (rows, keyOf, makeRow) => {
 };
 
 /** Resolve branch and party filters through a linked source document when a payment/return omits those fields. */
+/** @param {Record<string, any>} row @param {Record<string, any> | null | undefined} parent @param {{ branchFilter?: string, partyFilter?: string, partyField?: string }} filters */
 export function matchesOperationalLinkedRecord(row, parent, { branchFilter = 'all', partyFilter = 'all', partyField } = {}) {
   const hasOwnBranch = row?.branchId !== undefined && row?.branchId !== null && row.branchId !== '';
   const branchOk = branchFilter === 'all' || (hasOwnBranch
