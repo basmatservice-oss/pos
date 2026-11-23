@@ -62,7 +62,13 @@ test('advanced operational reports calculate stock age, approximate turnover, de
     purchases: [{ id: 'old-purchase', supplierId: 9, supplierName: 'Old Supplier', date: '2026-08-01', totalAmount: 300, paidAmount: 100, returnedAmount: 20, extraCostsPaymentMethod: 'supplier', shippingCost: 20 }],
     purchaseReturns: [{ id: 'future-pr', originalPurchaseId: 'old-purchase', createdAt: '2026-12-10', totalReturn: 10 }],
     products: [{ id: 1, name: 'Stock Item' }],
-    inventoryBatches: [{ id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' }, { id: 'b2', productId: 2, remainingQuantity: 2, costPrice: 0, purchaseDate: '2026-11-01' }, { id: 'b3', productId: 3, remainingQuantity: 2, costPrice: 0, createdAt: '2026-08-01' }],
+    inventoryBatches: [
+      { id: 'b1', productId: 1, remainingQuantity: 5, costPrice: 10, exchangeRate: 4, purchaseDate: '2026-08-01', expiryDate: '2026-12-10' },
+      { id: 'b2', productId: 2, remainingQuantity: 2, costPrice: 0, purchaseDate: '2026-11-01' },
+      { id: 'b3', productId: 3, remainingQuantity: 2, costPrice: 0, createdAt: '2026-08-01' },
+      { id: 'b4', productId: 4, remainingQuantity: 9, costPrice: 20, purchaseDate: '2026-12-05' },
+      { id: 'b5', productId: 5, remainingQuantity: 3, costPrice: 7 },
+    ],
     inventoryMovements: [
       { productId: 1, movementType: 'sale', quantityDeltaBase: -4, totalCost: 40, createdAt: '2026-11-10' },
       { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
@@ -94,6 +100,10 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.payablesAging.total, 220);
   assert.equal(result.payablesAging.buckets['أكثر من 90 يوم'], 220);
   assert.equal(result.inventoryAging.totalValue, 50);
+  assert.equal(result.inventoryAging.rows.some((row) => row.productId === 4), false, 'receipts after the report cutoff must be excluded');
+  assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 21, 'batches without a reliable purchase date must be separated from dated stock');
+  assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).stockAgeDays, null);
+  assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).status, 'عمر غير محدد');
   assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
   assert.equal(result.inventoryAging.rows[0].name, 'Stock Item');
