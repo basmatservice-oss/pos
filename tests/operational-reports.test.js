@@ -176,3 +176,28 @@ test('inventory aging averages only batches with known dates and reports the unk
   assert.equal(result.inventoryAging.buckets['0-30 يوم'], 20);
   assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 30);
 });
+
+test('staff performance resolves employee IDs and usernames to one employee row', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    employees: [{ id: 12, username: 'cashier01', name: 'Cashier One' }],
+    orders: [
+      { id: 'staff-sale-1', createdAt: '2026-11-10', createdBy: '12', netAmount: 120, taxAmount: 20 },
+      { id: 'staff-sale-2', createdAt: '2026-11-11', createdBy: 'cashier01', netAmount: 60, taxAmount: 10 },
+      { id: 'staff-sale-3', createdAt: '2026-11-12', createdBy: 'Legacy Cashier', netAmount: 30, taxAmount: 0 },
+    ],
+    returns: [
+      { id: 'staff-return', originalOrderId: 'staff-sale-1', createdAt: '2026-11-13', totalRefund: 12, taxAmount: 2 },
+    ],
+  });
+
+  assert.equal(result.staff.length, 2);
+  const employee = result.staff.find((row) => row.name === 'Cashier One');
+  assert.equal(employee.count, 2);
+  assert.equal(employee.orderCount, 2);
+  assert.equal(employee.sales, 150);
+  assert.equal(employee.returns, 10);
+  assert.equal(employee.netSales, 140);
+  assert.equal(result.staff.find((row) => row.name === 'Legacy Cashier').count, 1);
+});
