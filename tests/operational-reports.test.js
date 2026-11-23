@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOperationalReports } from '../src/utils/operationalReports.js';
+import { buildOperationalReports, matchesOperationalLinkedRecord } from '../src/utils/operationalReports.js';
 
 test('operational reports reconcile sales returns, split tenders, purchases and supplier returns', () => {
   const result = buildOperationalReports({
@@ -125,4 +125,24 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.taxes.netOutputTax, 18);
   assert.equal(result.attendance.records, 2);
   assert.equal(result.attendance.hours, 14);
+});
+
+
+test('linked payment and return filters inherit missing branch and party IDs from their source document', () => {
+  const parent = { id: 41, branchId: 3, customerId: 8, supplierId: 12 };
+  assert.equal(matchesOperationalLinkedRecord({ orderId: 41 }, parent, {
+    branchFilter: '3', partyFilter: '8', partyField: 'customerId',
+  }), true);
+  assert.equal(matchesOperationalLinkedRecord({ purchaseId: 41 }, parent, {
+    branchFilter: '3', partyFilter: '12', partyField: 'supplierId',
+  }), true);
+  assert.equal(matchesOperationalLinkedRecord({ branchId: 4, customerId: 8 }, parent, {
+    branchFilter: '3', partyFilter: '8', partyField: 'customerId',
+  }), false);
+  assert.equal(matchesOperationalLinkedRecord({ orderId: 999 }, null, {
+    branchFilter: '3', partyFilter: '8', partyField: 'customerId',
+  }), false);
+  assert.equal(matchesOperationalLinkedRecord({ orderId: 41 }, parent, {
+    branchFilter: 'all', partyFilter: 'all', partyField: 'customerId',
+  }), true);
 });
