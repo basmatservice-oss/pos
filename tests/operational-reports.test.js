@@ -201,3 +201,23 @@ test('staff performance resolves employee IDs and usernames to one employee row'
   assert.equal(employee.netSales, 140);
   assert.equal(result.staff.find((row) => row.name === 'Legacy Cashier').count, 1);
 });
+
+test('purchase returns in the selected period remain visible when the original purchase predates the period', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    purchases: [{ id: 'older-purchase', supplierId: 31, supplierName: 'Legacy Supplier', date: '2026-10-15', totalAmount: 500, paidAmount: 500 }],
+    purchaseItems: [{ purchaseId: 'older-purchase', productId: 44, productName: 'Returned Cartons', quantity: 5, conversionFactor: 12, landedCostPerBaseUnit: 4, total: 240 }],
+    purchaseReturns: [{ id: 'period-return', originalPurchaseId: 'older-purchase', supplierId: 31, supplierName: 'Legacy Supplier', createdAt: '2026-11-12', totalReturn: 96 }],
+    purchaseReturnItems: [{ purchaseReturnId: 'period-return', productId: 44, productName: 'Returned Cartons', quantity: 24, costPrice: 4, total: 96, batchId: 'original-batch' }],
+  });
+
+  assert.equal(result.purchases.count, 0, 'the original purchase must not be counted as a current-period purchase');
+  assert.equal(result.purchases.returns, 96);
+  assert.equal(result.purchaseProducts.length, 1);
+  assert.equal(result.purchaseProducts[0].quantity, 0);
+  assert.equal(result.purchaseProducts[0].returnedQuantity, 24, 'purchase return quantity is stored in base units');
+  assert.equal(result.purchaseProducts[0].netQuantity, -24);
+  assert.equal(result.purchaseProducts[0].netTotal, -96, 'the return uses its persisted historical batch cost');
+  assert.equal(result.suppliers[0].netPurchases, -96);
+});
