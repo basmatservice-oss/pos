@@ -19,6 +19,7 @@ required = {
     "PurchaseReturnItem": {"unitCode", "baseUnitCode", "conversionToBase", "baseQuantity"},
     "StocktakingEntry": {"unitCode", "baseUnitCode"},
     "AuditLog": {"unitCode"},
+    "Purchase": {"extraCostsPaymentMethod"},
 }
 found = {(table, column) for table, column, _ in columns}
 for table, names in required.items():
@@ -63,6 +64,7 @@ apply_additive_columns()  # Re-running startup migration must remain safe.
 assert connection.execute("SELECT stockQuantity, conversionFactor FROM Product WHERE id=1").fetchone() == (10, 12)
 assert connection.execute("SELECT quantity FROM OrderItem WHERE id=1").fetchone() == (3,)
 assert connection.execute("SELECT totalAmount, paidAmount FROM Purchase WHERE id='legacy-purchase'").fetchone() == (125.5, 25.5)
+assert connection.execute("SELECT extraCostsPaymentMethod FROM Purchase WHERE id='legacy-purchase'").fetchone() == ("cash",)
 assert connection.execute("SELECT costPrice, total FROM PurchaseItem WHERE id=7").fetchone() == (12.55, 125.5)
 assert connection.execute("SELECT costPrice FROM InventoryBatch WHERE id='legacy-batch'").fetchone() == (12.55,)
 
