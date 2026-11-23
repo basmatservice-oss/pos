@@ -468,7 +468,7 @@ test('end-to-end server business operations and native SQLite operations match f
 
   const { db: serverDb, raw } = createServerDatabase();
   const product = {
-    id: 1, name: 'Parity product', barcode: null, categoryId: null, costPrice: 6,
+    id: 1, name: 'Parity product', barcode: null, categoryId: null, costPrice: 6, costInUSD: 5,
     sellingPrice: 23 / 7, stockQuantity: 10, minStockLevel: 0, unit: 'piece',
     conversionFactor: 1, itemType: 'stock', allowFractions: 0, baseUnitCode: 'piece',
     quantityPrecision: 0, isActive: 1, vatRate: 0, branchId: 1, isSynced: 0,
@@ -491,6 +491,7 @@ test('end-to-end server business operations and native SQLite operations match f
     { id: 2, key: 'inventoryValuationMethod', value: 'fifo', isSynced: 0, createdAt: now, updatedAt: now },
     { id: 3, key: 'offlineStockPolicy', value: 'allow_with_alert', isSynced: 0, createdAt: now, updatedAt: now },
     { id: 4, key: 'currency', value: 'ر.س', isSynced: 0, createdAt: now, updatedAt: now },
+    { id: 5, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now },
   ];
   serverDb.insert(schema.products).values(product).run();
   serverDb.insert(schema.inventoryBatches).values(batches).run();
@@ -647,6 +648,11 @@ test('end-to-end server business operations and native SQLite operations match f
   const localCreatedPurchase = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
   assert.ok(localCreatedPurchase.updatedAt, 'local purchase must persist an update version for later guarded returns');
   assert.equal(records.get('products').get(JSON.stringify(2)).record.stockQuantity, 10);
+  const serverPurchasedAfterReceipt = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
+  const localPurchasedAfterReceipt = records.get('products').get(JSON.stringify(2)).record;
+  assert.equal(serverPurchasedAfterReceipt.costInUSD, 2.5);
+  assert.equal(localPurchasedAfterReceipt.costInUSD, serverPurchasedAfterReceipt.costInUSD,
+    'native purchase receipt must rebase the linked USD cost anchor at the active exchange rate');
 
   const purchaseSalePayload = {
     operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
@@ -690,11 +696,7 @@ test('end-to-end server business operations and native SQLite operations match f
   // Exercise the same weighted-average and FX anchor rules on both paths
   // specifically during purchase return (the earlier sale/return fixture uses FIFO).
   raw.prepare('UPDATE Setting SET value = ? WHERE key = ?').run('weighted_average', 'inventoryValuationMethod');
-  serverDb.insert(schema.settings).values({
-    id: 5, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now,
-  }).run();
   seed('settings', { id: 2, key: 'inventoryValuationMethod', value: 'weighted_average', isSynced: 0, createdAt: now, updatedAt: now });
-  seed('settings', { id: 5, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now });
 
   const purchaseReturnPayload = {
     id: 'parity-purchase-return-2', returnNumber: 'PR-PARITY',
