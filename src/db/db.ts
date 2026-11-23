@@ -1240,7 +1240,7 @@ export async function seedUsers() {
   const userCount = await db.employees.count();
   if (userCount === 0) {
     const bcrypt = await import('bcryptjs');
-    const adminHashedPassword = bcrypt.default.hashSync('123456', 10);
+    const adminHashedPassword = bcrypt.default.hashSync('admin', 10);
     const adminHashedPin = bcrypt.default.hashSync('1234', 10);
 
     await db.employees.add({
