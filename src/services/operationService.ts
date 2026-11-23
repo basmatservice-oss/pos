@@ -2269,6 +2269,8 @@ async function applyPurchaseLocally(
     const transactions = transactionGroups.flat();
     const accountCodes = [...new Set(transactions.map((line: any) => String(line.accountId || '')).filter(Boolean))];
     const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
+    const deleteFxSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate');
+    const deleteActiveExchangeRate = Number(deleteFxSetting?.value || 0);
     for (const productId of oldProductIds) {
       const product = allProducts.find((candidate: any) => Number(candidate.id) === productId);
       if (!product) throw new Error('لا يمكن عكس فاتورة الشراء؛ أحد أصنافها غير موجود في SQLite');
@@ -2313,7 +2315,13 @@ async function applyPurchaseLocally(
         !oldBatches.some((old: any) => String(old.id) === String(batch.id)) && Number(batch.remainingQuantity || 0) > 0);
       const qty = active.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
       const value = active.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
-      const updated = { ...product, ...(qty > 0 ? { costPrice: roundMoney(value / qty) } : {}), updatedAt: now, syncStatus };
+      const remainingWeightedCost = qty > 0 ? roundMoney(value / qty) : null;
+      const updated = { ...product, ...(remainingWeightedCost !== null ? {
+        costPrice: remainingWeightedCost,
+        ...(Number(product.costInUSD || 0) > 0 && Number.isFinite(deleteActiveExchangeRate) && deleteActiveExchangeRate > 0
+          ? { costInUSD: Number((remainingWeightedCost / deleteActiveExchangeRate).toFixed(6)) }
+          : {}),
+      } : {}), updatedAt: now, syncStatus };
       productMap.set(productId, updated);
       changes.push({ action: 'put', entity: 'products', record: updated, syncState: syncStatus });
     }
