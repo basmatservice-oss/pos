@@ -323,7 +323,9 @@ export function buildOperationalReports({
       turnoverRatio: averageValue > 0 ? cogs / averageValue : null,
       stockAgeDays,
       lastSaleDate: last?.date || null, lastSaleDays,
-      status: lastSaleDays === null ? (stockAgeDays !== null && stockAgeDays >= staleDays ? 'راكد' : row.unknownDateQuantity > 0 ? 'عمر غير محدد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
+      status: lastSaleDays === null
+        ? (stockAgeDays !== null && stockAgeDays >= staleDays ? 'راكد' : row.unknownDateQuantity > 0 ? 'عمر غير مكتمل' : 'لم يباع')
+        : lastSaleDays >= staleDays ? 'راكد' : row.unknownDateQuantity > 0 ? 'عمر غير مكتمل' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
   const cogsOut = [...cogsByProduct.values()].reduce((sum, row) => sum + row.sold, 0);
   const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
