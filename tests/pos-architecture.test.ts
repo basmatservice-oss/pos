@@ -86,7 +86,7 @@ test('1. Database integrity, seeded accounts, and authentication security', asyn
   // Login with seeded admin credentials
   const login = await api('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: '123456' }),
+    body: JSON.stringify({ username: 'admin', password: 'admin' }),
   });
   assert.equal(login.status, 200);
   assert.ok(login.data.token, 'Expected JWT token on login');
