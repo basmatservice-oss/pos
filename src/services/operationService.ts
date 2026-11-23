@@ -186,9 +186,12 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
   const recipes = (await Promise.all(recipeParentIds.map((id: number) =>
     nativePosRepository.whereEquals<any>('serviceRecipes', 'parentProductId', id)
   ))).flat();
+  const ingredientProductIds = [...new Set(recipes.map((recipe: any) => Number(recipe.ingredientProductId))
+    .filter((id: number) => Number.isSafeInteger(id) && id > 0 && !productMap.has(id)))];
   const batchProductIds = [...new Set([...productIds, ...recipes.map((recipe: any) => Number(recipe.ingredientProductId))]
     .filter((id: number) => Number.isSafeInteger(id) && id > 0))];
-  const [batchesByProduct, movements, alerts, customers, accounts, journals] = await Promise.all([
+  const [ingredientProducts, batchesByProduct, movements, alerts, customers, accounts, journals] = await Promise.all([
+    nativePosRepository.getMany<any>('products', ingredientProductIds),
     Promise.all(batchProductIds.map((id: number) => nativePosRepository.whereEquals<any>('inventoryBatches', 'productId', id))),
     nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(order.id)),
     nativePosRepository.getAll<any>('inventoryAlerts'),
@@ -196,6 +199,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
     nativePosRepository.getMany<any>('accounts', ['1010', '1020', '1100', '1200', '2100', '2200', '3100', '3200', '4100', '4200', '4300', '5100', '5200', '5300', '5400']),
     nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(order.id)),
   ]);
+  for (const ingredient of ingredientProducts) productMap.set(Number(ingredient.id), ingredient);
   for (const item of items) {
     const product = productMap.get(Number(item.productId));
     const itemType = String(item.itemType || product?.itemType || 'stock');
