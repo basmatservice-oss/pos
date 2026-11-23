@@ -253,3 +253,16 @@ test('inventory aging reports unknown age even when a product had a recent sale'
   assert.equal(row.stockAgeDays, null);
   assert.equal(row.status, 'عمر غير معروف', 'recent sales activity cannot manufacture a receipt date for remaining stock');
 });
+
+test('purchase returns inherit supplier identity from the original purchase when legacy return fields are missing', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    purchases: [{ id: 'supplier-parent', supplierId: 73, supplierName: 'Inherited Supplier', date: '2026-10-10', totalAmount: 200, paidAmount: 200 }],
+    purchaseReturns: [{ id: 'legacy-return', originalPurchaseId: 'supplier-parent', createdAt: '2026-11-08', totalReturn: 50 }],
+  });
+  assert.equal(result.suppliers.length, 1);
+  assert.equal(result.suppliers[0].id, 73);
+  assert.equal(result.suppliers[0].name, 'Inherited Supplier');
+  assert.equal(result.suppliers[0].netPurchases, -50);
+});
