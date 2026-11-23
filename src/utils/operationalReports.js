@@ -245,22 +245,33 @@ export function buildOperationalReports({
     cogsByProduct.set(key, entry);
   }
   const batchGroups = new Map();
-  const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0 };
+  const ageInventory = { '0-30 يوم': 0, '31-60 يوم': 0, '61-90 يوم': 0, 'أكثر من 90 يوم': 0, 'تاريخ غير معروف': 0 };
   const staleDays = 60;
   for (const batch of inventoryBatches) {
     const remaining = Math.max(0, amount(batch.remainingQuantity));
     if (!remaining) continue;
+    const batchDate = batch.purchaseDate || batch.createdAt;
+    const batchTime = batchDate ? new Date(batchDate).getTime() : NaN;
+    // A receipt after the report cutoff did not exist at that date and must not enter its aging buckets.
+    if (Number.isFinite(batchTime) && batchTime > asOf) continue;
+    const hasKnownBatchDate = Number.isFinite(batchTime);
     const key = String(batch.productId);
-    const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, ageQuantityDays: 0, batches: 0, expiring: 0, expired: 0 };
+    const row = batchGroups.get(key) || { productId: batch.productId, quantity: 0, value: 0, ageQuantityDays: 0, knownAgeQuantity: 0, unknownDateQuantity: 0, batches: 0, expiring: 0, expired: 0 };
     // Batch costPrice is already persisted in the system/base currency; exchangeRate is historical metadata only.
     const cost = amount(batch.costPrice);
-    const batchAge = ageDays(batch.purchaseDate || batch.createdAt);
+    const batchAge = hasKnownBatchDate ? ageDays(batchDate) : null;
     const batchValue = remaining * cost;
     row.quantity += remaining;
     row.value += batchValue;
-    row.ageQuantityDays += remaining * batchAge;
+    if (hasKnownBatchDate) {
+      row.ageQuantityDays += remaining * batchAge;
+      row.knownAgeQuantity += remaining;
+    } else {
+      row.unknownDateQuantity += remaining;
+    }
     row.batches += 1;
-    const ageBucket = batchAge <= 30 ? '0-30 يوم' : batchAge <= 60 ? '31-60 يوم' : batchAge <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
+    const ageBucket = !hasKnownBatchDate ? 'تاريخ غير معروف'
+      : batchAge <= 30 ? '0-30 يوم' : batchAge <= 60 ? '31-60 يوم' : batchAge <= 90 ? '61-90 يوم' : 'أكثر من 90 يوم';
     ageInventory[ageBucket] += batchValue;
     if (batch.expiryDate) {
       const expiry = new Date(batch.expiryDate).getTime();
@@ -280,7 +291,7 @@ export function buildOperationalReports({
   const inventoryAgeRows = [...batchGroups.values()].map((row) => {
     const last = lastMovementByProduct.get(String(row.productId));
     const lastSaleDays = last ? Math.max(0, Math.floor((asOf - last.time) / 86400000)) : null;
-    const stockAgeDays = row.quantity > 0 ? Math.round(row.ageQuantityDays / row.quantity) : 0;
+    const stockAgeDays = row.knownAgeQuantity > 0 ? Math.round(row.ageQuantityDays / row.knownAgeQuantity) : null;
     const productActivity = cogsByProduct.get(String(row.productId));
     const cogs = Math.max(0, (productActivity?.sold || 0) - (productActivity?.reversed || 0));
     const openingValue = Math.max(0, row.value - (productActivity?.inventoryValueChange || 0));
@@ -290,7 +301,7 @@ export function buildOperationalReports({
       turnoverRatio: averageValue > 0 ? cogs / averageValue : null,
       stockAgeDays,
       lastSaleDate: last?.date || null, lastSaleDays,
-      status: lastSaleDays === null ? (stockAgeDays >= staleDays ? 'راكد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
+      status: lastSaleDays === null ? (stockAgeDays !== null && stockAgeDays >= staleDays ? 'راكد' : row.unknownDateQuantity > 0 ? 'عمر غير محدد' : 'لم يباع') : lastSaleDays >= staleDays ? 'راكد' : 'نشط' };
   }).sort((a, b) => b.value - a.value);
   const cogsOut = [...cogsByProduct.values()].reduce((sum, row) => sum + row.sold, 0);
   const cogsReturned = [...cogsByProduct.values()].reduce((sum, row) => sum + row.reversed, 0);
@@ -377,7 +388,7 @@ export function buildOperationalReports({
     inventory: [...movementGroups.values()].sort((a, b) => b.count - a.count),
     receivablesAging: { total: Object.values(customerAge).reduce((sum, value) => sum + value, 0), buckets: customerAge, rows: receivableRows.sort((a, b) => b.days - a.days) },
     payablesAging: { total: Object.values(supplierAge).reduce((sum, value) => sum + value, 0), buckets: supplierAge, rows: payableRows.sort((a, b) => b.days - a.days) },
-    inventoryAging: { totalValue: endingInventoryValue, buckets: ageInventory, rows: inventoryAgeRows },
+    inventoryAging: { totalValue: endingInventoryValue, buckets: ageInventory, rows: inventoryAgeRows, historicalSnapshotApproximate: end.getTime() < Date.now() - 86400000 },
     inventoryTurnover: { cogs: netCogs, beginningValue: beginningInventoryValue, averageValue: averageInventoryValue, endingValue: endingInventoryValue, ratio: inventoryTurnover, staleProducts: inventoryAgeRows.filter((row) => row.status === 'راكد').length },
     shifts: { count: shiftRows.length, closed: shiftRows.filter((row) => row.actualCash !== null).length,
       open: shiftRows.filter((row) => row.actualCash === null).length,
