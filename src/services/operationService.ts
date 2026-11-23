@@ -846,6 +846,8 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     ))).flat();
     const accountCodes = [...new Set(journalLines.map((line: any) => String(line.accountId)).filter(Boolean))];
     const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
+    const exchangeRateSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate');
+    const activeExchangeRate = Number(exchangeRateSetting?.value || 0);
     const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
     const reversedIds = new Set(journals.map((x: any) => x.reversedEntryId).filter(Boolean).map(String));
     for (const entry of journals) {
@@ -1851,8 +1853,14 @@ async function applyPurchaseLocally(
           !oldBatchIds.has(String(batch.id)) && Number(batch.remainingQuantity || 0) > 0);
         const activeQty = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0), 0);
         const activeValue = activeBatches.reduce((sum: number, batch: any) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
+        const remainingWeightedCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : null;
         productMap.set(productId, { ...product, stockQuantity: nextStock,
-          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}), updatedAt: now, syncStatus });
+          ...(remainingWeightedCost !== null ? {
+            costPrice: remainingWeightedCost,
+            ...(Number(product.costInUSD || 0) > 0 && Number.isFinite(activeExchangeRate) && activeExchangeRate > 0
+              ? { costInUSD: Number((remainingWeightedCost / activeExchangeRate).toFixed(6)) }
+              : {}),
+          } : {}), updatedAt: now, syncStatus });
       }
       for (const item of oldItems) {
         const index = oldItems.indexOf(item);
@@ -1993,9 +2001,13 @@ async function applyPurchaseLocally(
       const active = effectiveBatches.filter((b: any) => Number(b.remainingQuantity || 0) > 0);
       const activeQty = active.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0), 0);
       const activeValue = active.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0) * Number(b.costPrice || 0), 0);
+      const weightedCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCost;
       const updatedProduct = {
         ...product, stockQuantity: roundQty(Number(product.stockQuantity || 0) + baseQty),
-        costPrice: activeQty > 0 ? roundMoney(activeValue / activeQty) : landedCost,
+        costPrice: weightedCost,
+        ...(Number(product.costInUSD || 0) > 0 && Number.isFinite(activeExchangeRate) && activeExchangeRate > 0
+          ? { costInUSD: Number((weightedCost / activeExchangeRate).toFixed(6)) }
+          : {}),
         expiryDate: item.expiryDate || product.expiryDate, batchNumber: item.batchNumber || product.batchNumber,
         updatedAt: now, syncStatus,
       };
