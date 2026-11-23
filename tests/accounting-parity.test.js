@@ -8,6 +8,7 @@ const now = '2026-11-20T12:00:00.000Z';
 const primaryKeys = {
   products: 'id', inventoryBatches: 'id', inventoryMovements: 'id', settings: 'id', suppliers: 'id',
   accounts: 'code', journalEntries: 'id', transactions: 'id', serviceRecipes: 'id',
+  stocktakingSessions: 'id', stocktakingEntries: 'id',
 };
 
 function createMemoryElectronBridge() {
@@ -1033,5 +1034,130 @@ test('service recipes and bundles consume identical FIFO materials and preserve 
   const localCogs = localItems.reduce((sum, row) => sum + Number(row.costPriceAtTimeOfSale) * Number(row.quantity), 0);
   assert.equal(serverCogs, 15);
   assert.equal(localCogs, serverCogs);
+  raw.close();
+});
+
+
+test('native SQLite stocktake increase and weighted-average decrease match server valuation and journals', async () => {
+  const { executeBusinessOperation } = await import('../server/operations.ts');
+  const { db: serverDb, raw } = createServerDatabase();
+  raw.exec(`
+    CREATE TABLE StocktakingSession (
+      id TEXT PRIMARY KEY, status TEXT DEFAULT 'open', createdAt TEXT, createdBy TEXT,
+      branchId INTEGER, isSynced INTEGER DEFAULT 0
+    );
+    CREATE TABLE StocktakingEntry (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, productId INTEGER NOT NULL,
+      productName TEXT NOT NULL, barcode TEXT, systemQuantity REAL NOT NULL,
+      actualQuantity REAL NOT NULL, scannedBy TEXT, scannedAt TEXT, isSynced INTEGER DEFAULT 0
+    );
+  `);
+  const accountRows = [
+    ['1010', 'Cash', 'asset'], ['1020', 'Card', 'asset'], ['1100', 'Receivables', 'asset'],
+    ['1200', 'Inventory', 'asset'], ['2100', 'Payables', 'liability'], ['2200', 'VAT', 'liability'],
+    ['3100', 'Capital', 'equity'], ['3200', 'Retained earnings', 'equity'],
+    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['4300', 'Discounts', 'revenue'],
+    ['5100', 'COGS', 'expense'], ['5200', 'Expenses', 'expense'], ['5300', 'Payroll', 'expense'],
+    ['5400', 'Inventory adjustment', 'expense'],
+  ].map(([code, name, type]) => ({ code, name, type, balance: 0, isSystem: 1, createdAt: now, updatedAt: now }));
+  serverDb.insert(schema.accounts).values(accountRows).run();
+
+  const products = [
+    { id: 71, name: 'Stocktake increase item', costPrice: 4, stockQuantity: 5 },
+    { id: 72, name: 'Stocktake decrease item', costPrice: 3.2, stockQuantity: 10 },
+  ].map((product) => ({
+    ...product, barcode: null, categoryId: null, sellingPrice: 6, minStockLevel: 0,
+    unit: 'piece', conversionFactor: 1, itemType: 'stock', allowFractions: 0,
+    baseUnitCode: 'piece', quantityPrecision: 0, isActive: 1, vatRate: 0,
+    branchId: 1, isSynced: 0, updatedAt: now, createdAt: now,
+  }));
+  serverDb.insert(schema.products).values(products).run();
+  const batches = [
+    { id: 'stocktake-decrease-a', productId: 72, quantity: 4, remainingQuantity: 4, costPrice: 2, purchaseDate: now },
+    { id: 'stocktake-decrease-b', productId: 72, quantity: 6, remainingQuantity: 6, costPrice: 4, purchaseDate: now },
+  ].map((batch) => ({
+    ...batch, purchaseId: null, currency: 'SDG', exchangeRate: 1, expiryDate: null,
+    batchNumber: null, branchId: 1, isSynced: 0, createdAt: now, updatedAt: now,
+  }));
+  serverDb.insert(schema.inventoryBatches).values(batches).run();
+  serverDb.insert(schema.settings).values({
+    id: 71, key: 'inventoryValuationMethod', value: 'weighted_average',
+    isSynced: 0, createdAt: now, updatedAt: now,
+  }).run();
+  const session = { id: 'stocktake-weighted-parity', status: 'open', createdAt: now, createdBy: 'tester', branchId: 1, isSynced: 0 };
+  const entries = [
+    { id: 'stocktake-entry-increase', sessionId: session.id, productId: 71, productName: products[0].name, systemQuantity: 5, actualQuantity: 9, scannedBy: 'tester', scannedAt: now, isSynced: 0 },
+    { id: 'stocktake-entry-decrease', sessionId: session.id, productId: 72, productName: products[1].name, systemQuantity: 10, actualQuantity: 6, scannedBy: 'tester', scannedAt: now, isSynced: 0 },
+  ];
+  serverDb.insert(schema.stocktakingSessions).values(session).run();
+  serverDb.insert(schema.stocktakingEntries).values(entries).run();
+
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.navigator = { onLine: true, userAgent: 'node-test' };
+  const localStorageShim = { getItem() { return null; }, setItem() {} };
+  globalThis.localStorage = localStorageShim;
+  globalThis.window = {
+    location: { hostname: 'localhost', protocol: 'http:', port: '3000', origin: 'http://localhost:3000' },
+    navigator: globalThis.navigator, localStorage: localStorageShim,
+    addEventListener() {}, removeEventListener() {},
+    electronAPI: { isElectron: true, posLocalDatabase: bridge },
+    dispatchEvent() { return true; },
+  };
+  const [{ setElectronDeviceRole }, { dispatchOperation }] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/operationService.ts'),
+  ]);
+  setElectronDeviceRole('client');
+  for (const product of products) seed('products', product);
+  for (const batch of batches) seed('inventoryBatches', batch);
+  seed('settings', { id: 71, key: 'inventoryValuationMethod', value: 'weighted_average', createdAt: now, updatedAt: now });
+  seed('stocktakingSessions', session);
+  for (const entry of entries) seed('stocktakingEntries', entry);
+
+  const payload = {
+    sessionId: session.id, operationId: 'stocktake-weighted-parity-op',
+    deviceId: 'stocktake-parity-device', createdBy: 'tester',
+  };
+  executeBusinessOperation(serverDb, 'stocktake_approve', payload, {
+    operationId: payload.operationId, deviceId: payload.deviceId, userName: 'tester', userRole: 'admin',
+  });
+  await dispatchOperation('stocktake_approve', payload, 1);
+
+  const serverProducts = serverDb.select().from(schema.products).all().sort((a, b) => a.id - b.id);
+  const localProducts = [...records.get('products').values()].map((row) => row.record).sort((a, b) => a.id - b.id);
+  assert.deepEqual(localProducts.map((row) => [row.id, row.stockQuantity, row.costPrice]),
+    serverProducts.map((row) => [row.id, row.stockQuantity, row.costPrice]));
+  assert.deepEqual(localProducts.map((row) => [row.id, row.stockQuantity]), [[71, 9], [72, 6]]);
+
+  const serverBatches = serverDb.select().from(schema.inventoryBatches).all()
+    .filter((row) => row.productId === 72).sort((a, b) => a.id.localeCompare(b.id));
+  const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record)
+    .filter((row) => row.productId === 72).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(localBatches.map((row) => [row.id, row.remainingQuantity, row.costPrice]),
+    serverBatches.map((row) => [row.id, row.remainingQuantity, row.costPrice]));
+  assert.deepEqual(localBatches.map((row) => [row.remainingQuantity, row.costPrice]), [[0, 3.2], [6, 3.2]]);
+
+  const serverMovements = serverDb.select().from(schema.inventoryMovements).all()
+    .map((row) => [row.productId, row.movementType, row.quantityDeltaBase, row.unitCost, row.totalCost])
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+  const localMovements = [...records.get('inventoryMovements').values()].map((row) => row.record)
+    .filter((row) => row.sourceId === session.id)
+    .map((row) => [row.productId, row.movementType, row.quantityDeltaBase, row.unitCost, row.totalCost])
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+  assert.deepEqual(localMovements, serverMovements);
+  assert.equal(serverMovements.find((row) => row[0] === 71)[4], 16);
+  assert.equal(serverMovements.find((row) => row[0] === 72)[4], 12.8);
+
+  const serverJournal = serverDb.select().from(schema.journalEntries).all()
+    .find((row) => row.referenceType === 'stocktake' && row.referenceId === session.id);
+  const localJournal = [...records.get('journalEntries').values()].map((row) => row.record)
+    .find((row) => row.referenceType === 'stocktake' && row.referenceId === session.id);
+  assert.ok(serverJournal && localJournal);
+  assert.equal(serverJournal.totalDebit, 3.2);
+  assert.equal(serverJournal.totalCredit, 3.2);
+  assert.equal(localJournal.totalDebit, serverJournal.totalDebit);
+  assert.equal(localJournal.totalCredit, serverJournal.totalCredit);
+  assert.equal(records.get('stocktakingSessions').get(JSON.stringify(session.id)).record.status, 'approved');
   raw.close();
 });
