@@ -2703,7 +2703,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     }
     const origPurchase = await nativePosRepository.get<any>('purchases', String(originalPurchaseId));
     if (!origPurchase) throw new Error('فاتورة الشراء الأصلية غير موجودة');
-    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems, valuationSetting] = await Promise.all([
+    const [purchaseBatches, allBatches, products, supplier, existingMovements, accounts, originalItems, previousReturns, previousReturnItems, valuationSetting, exchangeRateSetting] = await Promise.all([
       nativePosRepository.whereEquals<any>('inventoryBatches', 'purchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('inventoryBatches'),
       nativePosRepository.getMany<any>('products', [...new Set(items.map((item: any) => Number(item.productId)).filter((id: number) => Number.isSafeInteger(id) && id > 0))]),
@@ -2714,6 +2714,7 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
       nativePosRepository.whereEquals<any>('purchaseReturns', 'originalPurchaseId', String(originalPurchaseId)),
       nativePosRepository.getAll<any>('purchaseReturnItems'),
       nativePosRepository.firstWhereEquals<any>('settings', 'key', 'inventoryValuationMethod'),
+      nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate'),
     ]);
     if (!originalItems.length) throw new Error('لا يمكن إرجاع فاتورة شراء بلا تفاصيل أصناف');
     if (refundMethod === 'credit_adjustment' && !origPurchase.supplierId) {
@@ -2862,10 +2863,19 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
       const activeQty = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0), 0);
       const activeValue = activeBatches.reduce((sum: number, entry: any) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
+      const weightedAverageCost = activeQty > 0
+        ? roundMoney(Math.round((activeValue / activeQty) * 10000) / 10000)
+        : null;
+      const activeExchangeRate = Number(exchangeRateSetting?.value || 0);
       const updatedProduct = {
         ...product, stockQuantity: roundQty(currentStock - qty),
-        ...(valuationSetting?.value === 'weighted_average' && activeQty > 0
-          ? { costPrice: roundMoney(Math.round((activeValue / activeQty) * 10000) / 10000) }
+        ...(valuationSetting?.value === 'weighted_average' && weightedAverageCost !== null
+          ? {
+              costPrice: weightedAverageCost,
+              ...(Number(product.costInUSD || 0) > 0 && Number.isFinite(activeExchangeRate) && activeExchangeRate > 0
+                ? { costInUSD: Number((weightedAverageCost / activeExchangeRate).toFixed(6)) }
+                : {}),
+            }
           : {}),
         updatedAt: now, syncStatus,
       };
