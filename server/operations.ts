@@ -1350,6 +1350,7 @@ function handlePurchaseCreate(
       shippingCost,
       customsCost,
       otherCosts,
+      extraCostsPaymentMethod: ['cash', 'card', 'supplier'].includes(extraCostsPaymentMethod) ? extraCostsPaymentMethod : 'cash',
       date: purchaseDate,
       branchId: purchase.branchId || null,
       deviceId: ctx.deviceId,
