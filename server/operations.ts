@@ -1624,7 +1624,10 @@ function handlePurchaseDelete(
   const extraLandedCost = roundMoney(
     Number(existing.shippingCost || 0) + Number(existing.customsCost || 0) + Number(existing.otherCosts || 0)
   );
-  const oldRemaining = roundMoney(Number(existing.totalAmount || 0) - Number(existing.paidAmount || 0));
+  const oldSupplierBorneExtras = existing.extraCostsPaymentMethod === 'supplier' ? extraLandedCost : 0;
+  const oldRemaining = Math.max(0, roundMoney(
+    Number(existing.totalAmount || 0) + oldSupplierBorneExtras - Number(existing.paidAmount || 0)
+  ));
   if (existing.supplierId && oldRemaining > 0) {
     tx.update(suppliers)
       .set({
