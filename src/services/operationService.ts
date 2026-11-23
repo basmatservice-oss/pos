@@ -2268,7 +2268,9 @@ async function applyPurchaseLocally(
     const allBatches = batchGroups.flat();
     const transactions = transactionGroups.flat();
     const accountCodes = [...new Set(transactions.map((line: any) => String(line.accountId || '')).filter(Boolean))];
-    const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
+    const accounts = accountCodes.length
+      ? await nativePosRepository.getMany<any>('accounts', accountCodes)
+      : [];
     const deleteFxSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate');
     const deleteActiveExchangeRate = Number(deleteFxSetting?.value || 0);
     for (const productId of oldProductIds) {
