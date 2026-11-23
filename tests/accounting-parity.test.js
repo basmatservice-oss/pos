@@ -32,13 +32,7 @@ function createMemoryElectronBridge() {
     }
     for (const guard of guards.ifMatchGuards || []) {
       const row = entityMap(guard.entity).get(guard.recordId);
-      if (!row || String(row.record[guard.field]) !== String(guard.expectedValue)) {
-        globalThis.__lastNativeGuardFailure = {
-          entity: guard.entity, recordId: guard.recordId, field: guard.field,
-          expected: guard.expectedValue, actual: row?.record?.[guard.field] ?? null,
-        };
-        return false;
-      }
+      if (!row || String(row.record[guard.field]) !== String(guard.expectedValue)) return false;
     }
     return true;
   };
@@ -671,11 +665,7 @@ test('end-to-end server business operations and native SQLite operations match f
   executeBusinessOperation(serverDb, 'purchase_update', purchaseUpdatePayload, {
     operationId: purchaseUpdatePayload.operationId, deviceId: purchaseUpdatePayload.deviceId, userName: 'tester',
   });
-  try {
-    await dispatchOperation('purchase_update', purchaseUpdatePayload, 1);
-  } catch (error) {
-    throw new Error(String(error?.message || error) + ' [guard=' + JSON.stringify(globalThis.__lastNativeGuardFailure || null) + ']');
-  }
+  await dispatchOperation('purchase_update', purchaseUpdatePayload, 1);
   const serverPurchasedAfterUpdate = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
   const localPurchasedAfterUpdate = records.get('products').get(JSON.stringify(2)).record;
   assert.equal(serverPurchasedAfterUpdate.stockQuantity, 10);
