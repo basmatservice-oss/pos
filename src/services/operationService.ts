@@ -4230,12 +4230,19 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
         const activeBatches = [...effectiveBatches.values()]
           .filter((b: any) => Number(b.productId) === productId && Number(b.remainingQuantity || 0) > 0)
           .sort((a: any, b: any) => String(a.purchaseDate || '').localeCompare(String(b.purchaseDate || '')) ||
-            String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+            String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+            String(a.id || '').localeCompare(String(b.id || '')));
         let weightedUnitCost = Number(currentProduct.costPrice || 0);
         if (weightedAverage && activeBatches.length) {
           const activeQty = activeBatches.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0), 0);
           const activeValue = activeBatches.reduce((sum: number, b: any) => sum + Number(b.remainingQuantity || 0) * Number(b.costPrice || 0), 0);
-          if (activeQty > 0) weightedUnitCost = activeValue / activeQty;
+          if (activeQty > 0) weightedUnitCost = Math.round((activeValue / activeQty) * 10000) / 10000;
+          for (const batch of activeBatches) {
+            changedBatches.set(String(batch.id), {
+              ...batch, costPrice: weightedUnitCost, updatedAt: now, syncStatus,
+            });
+          }
+          currentProduct.costPrice = roundMoney(weightedUnitCost);
         }
         let remaining = qtyNeeded;
         let totalCost = 0;
@@ -4244,7 +4251,10 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
           const available = Number(batch.remainingQuantity || 0);
           const take = roundQty(Math.min(remaining, available));
           if (take <= 0) continue;
-          const updatedBatch = { ...batch, remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
+          const updatedBatch = {
+            ...batch, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
+            remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus,
+          };
           changedBatches.set(String(batch.id), updatedBatch);
           const unitCost = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
           totalCost += take * unitCost;
@@ -4266,7 +4276,7 @@ async function applyStocktakeApproveLocally(payload: any, syncStatus: 'synced' |
             id: generateUUID(), movementKey, productId, movementType: 'stocktake_decrease',
             sourceType: 'stocktake', sourceId: sessionId, quantityDeltaBase: -qtyNeeded,
             baseUnitCode: currentProduct.baseUnitCode || currentProduct.unit || 'piece',
-            unitCost: qtyNeeded > 0 ? totalCost / qtyNeeded : 0, totalCost: roundMoney(totalCost),
+            unitCost: qtyNeeded > 0 ? roundMoney(totalCost) / qtyNeeded : 0, totalCost: roundMoney(totalCost),
             branchId: session.branchId ?? currentProduct.branchId, operationId,
             reason: 'عجز جرد #' + sessionId, createdBy: payload.createdBy || 'System',
             syncStatus, createdAt: now,
