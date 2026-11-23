@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
-import { buildOperationalReports } from '../utils/operationalReports.js';
+import { buildOperationalReports, matchesOperationalLinkedRecord } from '../utils/operationalReports.js';
 import { formatNumber, formatQty } from '../utils/format';
 
 type Props = { startDate: Date; endDate: Date; currency: string; decimals: number; quantityDecimals: number };
@@ -43,13 +43,8 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   const filteredOrderIds = useMemo(() => new Set(filteredOrders.map((row) => String(row.id))), [filteredOrders]);
   const ordersById = useMemo(() => new Map(orders.map((row) => [String(row.id), row])), [orders]);
   const purchasesById = useMemo(() => new Map(purchases.map((row) => [String(row.id), row])), [purchases]);
-  const linkedRecordMatches = (row: any, parent: any, partyFilter: string, partyField: 'customerId' | 'supplierId') => {
-    const hasOwnBranch = row.branchId !== undefined && row.branchId !== null && row.branchId !== '';
-    const branchOk = branchFilter === 'all' || (hasOwnBranch ? branchMatches(row) : !!parent && branchMatches(parent));
-    const partyId = row[partyField] ?? parent?.[partyField];
-    const partyOk = partyFilter === 'all' || String(partyId ?? '') === partyFilter;
-    return branchOk && partyOk;
-  };
+  const linkedRecordMatches = (row: any, parent: any, partyFilter: string, partyField: 'customerId' | 'supplierId') =>
+    matchesOperationalLinkedRecord(row, parent, { branchFilter, partyFilter, partyField });
   const report = useMemo(() => buildOperationalReports({
     startDate, endDate,
     orders: filteredOrders,
