@@ -3131,6 +3131,9 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
     // SQLite committed only if the purchase version was unchanged; concurrent returns cannot over-return stock or supplier balances.
     return;
   }
+  const purchaseReturnValuation = await db.settings.where('key').equals('inventoryValuationMethod').first();
+  const purchaseReturnFxSetting = await db.settings.where('key').equals('exchangeRate').first();
+  const purchaseReturnExchangeRate = Number(purchaseReturnFxSetting?.value || 0);
   await db.transaction('rw', [
     db.purchaseReturns, db.purchaseReturnItems, db.purchases, db.inventoryBatches, db.products, db.suppliers,
     db.inventoryMovements, db.accounts, db.journalEntries, db.transactions,
@@ -3159,9 +3162,17 @@ async function applyPurchaseReturnLocally(payload: any, syncStatus: 'synced' | '
         const activeBatches = (await db.inventoryBatches.toArray()).filter((entry) => Number(entry.productId) === productId && Number(entry.remainingQuantity || 0) > 0);
         const activeQty = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity || 0), 0);
         const activeValue = activeBatches.reduce((sum, entry) => sum + Number(entry.remainingQuantity || 0) * Number(entry.costPrice || 0), 0);
+        const weightedAverageCost = activeQty > 0 ? roundMoney(activeValue / activeQty) : null;
         await db.products.update(product.id!, {
           stockQuantity: roundQty(Number(product.stockQuantity || 0) - qty),
-          ...(activeQty > 0 ? { costPrice: roundMoney(activeValue / activeQty) } : {}),
+          ...(purchaseReturnValuation?.value === 'weighted_average' && weightedAverageCost !== null
+            ? {
+                costPrice: weightedAverageCost,
+                ...(Number(product.costInUSD || 0) > 0 && Number.isFinite(purchaseReturnExchangeRate) && purchaseReturnExchangeRate > 0
+                  ? { costInUSD: Number((weightedAverageCost / purchaseReturnExchangeRate).toFixed(6)) }
+                  : {}),
+              }
+            : {}),
           updatedAt: now, syncStatus,
         });
       }
