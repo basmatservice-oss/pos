@@ -384,6 +384,7 @@ export function ensureSchemaUpgrades(sqlite: Database.Database) {
   ensureColumn(sqlite, 'Purchase', 'shippingCost', 'real DEFAULT 0');
   ensureColumn(sqlite, 'Purchase', 'customsCost', 'real DEFAULT 0');
   ensureColumn(sqlite, 'Purchase', 'otherCosts', 'real DEFAULT 0');
+  ensureColumn(sqlite, 'Purchase', 'extraCostsPaymentMethod', "text DEFAULT 'cash'");
   ensureColumn(sqlite, 'Purchase', 'deviceId', 'text');
   ensureColumn(sqlite, 'Purchase', 'operationId', 'text');
 
