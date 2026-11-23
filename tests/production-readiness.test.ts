@@ -381,6 +381,41 @@ test('2. Landed Cost Allocation & Multi-Currency FX Purchase', async () => {
   assert.equal(debit1200, 850);
   assert.equal(credit2100, 750);
   assert.equal(credit1010, 100);
+
+  // Supplier-borne freight/customs must be stored on the purchase and included in the supplier payable.
+  const supplierBefore = ((await api('/api/suppliers', {}, adminToken)).data as any[])
+    .find((row) => row.id === supplierId);
+  const supplierBornePurchaseId = crypto.randomUUID();
+  const supplierBornePurchase = await api('/api/operations/execute', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'purchase',
+      operationId: crypto.randomUUID(),
+      deviceId: 'test-dev',
+      payload: {
+        purchase: {
+          id: supplierBornePurchaseId,
+          supplierId,
+          supplierName: 'مورد الجملة',
+          totalAmount: 100,
+          paidAmount: 0,
+          shippingCost: 20,
+          customsCost: 0,
+          otherCosts: 0,
+          extraCostsPaymentMethod: 'supplier',
+          date: '2026-03-04T10:00:00.000Z',
+        },
+        items: [{ productId: p1.id, productName: p1.name, quantity: 1, costPrice: 100 }],
+      },
+    }),
+  }, adminToken);
+  assert.equal(supplierBornePurchase.status, 201);
+  const savedSupplierBornePurchase = ((await api('/api/purchases', {}, adminToken)).data as any[])
+    .find((row) => row.id === supplierBornePurchaseId);
+  assert.equal(savedSupplierBornePurchase.extraCostsPaymentMethod, 'supplier');
+  const supplierAfter = ((await api('/api/suppliers', {}, adminToken)).data as any[])
+    .find((row) => row.id === supplierId);
+  assert.equal(supplierAfter.balance, supplierBefore.balance + 120);
 });
 
 test('3. Inventory Valuation Method Toggle (Weighted Average vs FIFO)', async () => {
