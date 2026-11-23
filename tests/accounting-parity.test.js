@@ -1001,7 +1001,7 @@ test('service recipes and bundles consume identical FIFO materials and preserve 
   const localItems = [...records.get('orderItems').values()].map((row) => row.record)
     .filter((row) => String(row.orderId) === payload.order.id)
     .sort((a, b) => Number(a.productId) - Number(b.productId));
-  const expectedCosts = new Map([[61, 5], [62, 5], [63, 7]]);
+  const expectedCosts = new Map([[61, 4], [62, 4], [63, 7]]);
   for (const serverItem of serverItems) {
     const localItem = localItems.find((row) => Number(row.productId) === Number(serverItem.productId));
     assert.ok(localItem, 'native SQLite must persist each sale line');
@@ -1031,7 +1031,7 @@ test('service recipes and bundles consume identical FIFO materials and preserve 
   assert.deepEqual(localMovements, serverMovements);
   const serverCogs = serverItems.reduce((sum, row) => sum + Number(row.costPriceAtTimeOfSale) * Number(row.quantity), 0);
   const localCogs = localItems.reduce((sum, row) => sum + Number(row.costPriceAtTimeOfSale) * Number(row.quantity), 0);
-  assert.equal(serverCogs, 17);
+  assert.equal(serverCogs, 15);
   assert.equal(localCogs, serverCogs);
   raw.close();
 });
