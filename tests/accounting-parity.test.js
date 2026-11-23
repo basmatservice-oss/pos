@@ -905,3 +905,133 @@ test('native SQLite rejects a service-with-materials sale when its recipe is mis
   assert.equal(records.get('orders')?.size || 0, 0, 'rejected service sale must not create an order');
   assert.equal(records.get('inventoryMovements')?.size || 0, 0, 'rejected service sale must not consume stock');
 });
+
+
+test('service recipes and bundles consume identical FIFO materials and preserve sale cost snapshots in server and native SQLite', async () => {
+  const { executeBusinessOperation } = await import('../server/operations.ts');
+  const { db: serverDb, raw } = createServerDatabase();
+  raw.exec(`
+    CREATE TABLE ServiceRecipe (
+      id TEXT PRIMARY KEY, parentProductId INTEGER NOT NULL, ingredientProductId INTEGER NOT NULL,
+      ingredientName TEXT, quantity REAL NOT NULL, unit TEXT, isSynced INTEGER DEFAULT 0,
+      createdAt TEXT, updatedAt TEXT NOT NULL
+    );
+  `);
+  const accountRows = [
+    ['1010', 'Cash', 'asset'], ['1020', 'Card', 'asset'], ['1100', 'Receivables', 'asset'],
+    ['1200', 'Inventory', 'asset'], ['2100', 'Payables', 'liability'], ['2200', 'VAT', 'liability'],
+    ['3100', 'Capital', 'equity'], ['3200', 'Retained earnings', 'equity'],
+    ['4100', 'Sales', 'revenue'], ['4200', 'Sales returns', 'revenue'], ['4300', 'Discounts', 'revenue'],
+    ['5100', 'COGS', 'expense'], ['5200', 'Expenses', 'expense'], ['5300', 'Payroll', 'expense'],
+    ['5400', 'Inventory adjustment', 'expense'],
+  ].map(([code, name, type]) => ({ code, name, type, balance: 0, isSystem: 1, createdAt: now, updatedAt: now }));
+  serverDb.insert(schema.accounts).values(accountRows).run();
+
+  const products = [
+    { id: 61, name: 'Recipe service', itemType: 'service_with_materials', stockQuantity: 0, costPrice: 0, sellingPrice: 30 },
+    { id: 62, name: 'Recipe bundle', itemType: 'bundle', stockQuantity: 0, costPrice: 0, sellingPrice: 30 },
+    { id: 63, name: 'Stock bundle', itemType: 'bundle', stockQuantity: 5, costPrice: 7, sellingPrice: 20 },
+    { id: 64, name: 'Recipe ingredient', itemType: 'stock', stockQuantity: 10, costPrice: 2.6, sellingPrice: 5 },
+  ].map((product) => ({
+    ...product, barcode: null, categoryId: null, minStockLevel: 0, unit: 'piece',
+    conversionFactor: 1, allowFractions: 0, baseUnitCode: 'piece', quantityPrecision: 0,
+    isActive: 1, vatRate: 0, branchId: 1, isSynced: 0, updatedAt: now, createdAt: now,
+  }));
+  serverDb.insert(schema.products).values(products).run();
+
+  const batches = [
+    { id: 'recipe-ing-a', productId: 64, quantity: 4, remainingQuantity: 4, costPrice: 2, purchaseDate: now },
+    { id: 'recipe-ing-b', productId: 64, quantity: 6, remainingQuantity: 6, costPrice: 3, purchaseDate: now },
+    { id: 'stock-bundle-batch', productId: 63, quantity: 5, remainingQuantity: 5, costPrice: 7, purchaseDate: now },
+  ].map((batch) => ({
+    ...batch, purchaseId: null, currency: 'SDG', exchangeRate: 1, expiryDate: null,
+    batchNumber: null, branchId: 1, isSynced: 0, createdAt: now, updatedAt: now,
+  }));
+  serverDb.insert(schema.inventoryBatches).values(batches).run();
+
+  const recipes = [
+    { id: 'recipe-service-61', parentProductId: 61, ingredientProductId: 64, ingredientName: 'Recipe ingredient', quantity: 2, unit: 'piece', isSynced: 0, createdAt: now, updatedAt: now },
+    { id: 'recipe-bundle-62', parentProductId: 62, ingredientProductId: 64, ingredientName: 'Recipe ingredient', quantity: 2, unit: 'piece', isSynced: 0, createdAt: now, updatedAt: now },
+  ];
+  for (const recipe of recipes) {
+    raw.prepare('INSERT INTO ServiceRecipe (id,parentProductId,ingredientProductId,ingredientName,quantity,unit,isSynced,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(recipe.id, recipe.parentProductId, recipe.ingredientProductId, recipe.ingredientName, recipe.quantity, recipe.unit, recipe.isSynced, recipe.createdAt, recipe.updatedAt);
+  }
+
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.navigator = { onLine: true, userAgent: 'node-test' };
+  const localStorageShim = { getItem() { return null; }, setItem() {} };
+  globalThis.localStorage = localStorageShim;
+  globalThis.window = {
+    location: { hostname: 'localhost', protocol: 'http:', port: '3000', origin: 'http://localhost:3000' },
+    navigator: globalThis.navigator, localStorage: localStorageShim,
+    addEventListener() {}, removeEventListener() {},
+    electronAPI: { isElectron: true, posLocalDatabase: bridge },
+    dispatchEvent() { return true; },
+  };
+  const [{ setElectronDeviceRole }, { dispatchOperation }] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/operationService.ts'),
+  ]);
+  setElectronDeviceRole('client');
+  for (const product of products) seed('products', product);
+  for (const batch of batches) seed('inventoryBatches', batch);
+  for (const recipe of recipes) seed('serviceRecipes', recipe);
+
+  const payload = {
+    operationId: 'recipe-bundle-fifo-parity-op', deviceId: 'recipe-parity-device',
+    order: {
+      id: 'recipe-bundle-fifo-parity-order', receiptNumber: 'INV-RECIPE-PARITY',
+      totalAmount: 80, taxAmount: 0, netAmount: 80, paymentMethod: 'cash',
+      currency: 'SDG', exchangeRate: 1, branchId: 1, createdBy: 'tester', createdAt: now,
+    },
+    items: [
+      { productId: 61, productName: 'Recipe service', quantity: 1, unit: 'piece', conversionFactor: 1, itemType: 'service_with_materials', unitPrice: 30, discountAmount: 0, subTotal: 30, taxAmount: 0, total: 30 },
+      { productId: 62, productName: 'Recipe bundle', quantity: 1, unit: 'piece', conversionFactor: 1, itemType: 'bundle', unitPrice: 30, discountAmount: 0, subTotal: 30, taxAmount: 0, total: 30 },
+      { productId: 63, productName: 'Stock bundle', quantity: 1, unit: 'piece', conversionFactor: 1, itemType: 'bundle', unitPrice: 20, discountAmount: 0, subTotal: 20, taxAmount: 0, total: 20 },
+    ],
+  };
+  const serverResult = executeBusinessOperation(serverDb, 'sale', payload, {
+    operationId: payload.operationId, deviceId: payload.deviceId, userName: 'tester', userRole: 'admin',
+  });
+  await dispatchOperation('sale', payload, 1);
+
+  const serverItems = serverResult.result.items;
+  const localItems = [...records.get('orderItems').values()].map((row) => row.record)
+    .filter((row) => String(row.orderId) === payload.order.id)
+    .sort((a, b) => Number(a.productId) - Number(b.productId));
+  const expectedCosts = new Map([[61, 5], [62, 5], [63, 7]]);
+  for (const serverItem of serverItems) {
+    const localItem = localItems.find((row) => Number(row.productId) === Number(serverItem.productId));
+    assert.ok(localItem, 'native SQLite must persist each sale line');
+    assert.equal(Number(serverItem.costPriceAtTimeOfSale), expectedCosts.get(Number(serverItem.productId)));
+    assert.equal(Number(localItem.costPriceAtTimeOfSale), Number(serverItem.costPriceAtTimeOfSale));
+  }
+
+  const serverIngredient = serverDb.select().from(schema.products).all().find((row) => row.id === 64);
+  const localIngredient = records.get('products').get(JSON.stringify(64)).record;
+  assert.equal(serverIngredient.stockQuantity, 6);
+  assert.equal(localIngredient.stockQuantity, serverIngredient.stockQuantity);
+  const serverStockBundle = serverDb.select().from(schema.products).all().find((row) => row.id === 63);
+  const localStockBundle = records.get('products').get(JSON.stringify(63)).record;
+  assert.equal(localStockBundle.stockQuantity, serverStockBundle.stockQuantity);
+  assert.equal(serverStockBundle.stockQuantity, 4);
+
+  const serverBatches = serverDb.select().from(schema.inventoryBatches).all().sort((a, b) => a.id.localeCompare(b.id));
+  const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record)
+    .filter((row) => ['recipe-ing-a', 'recipe-ing-b', 'stock-bundle-batch'].includes(row.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(localBatches.map((row) => [row.id, row.remainingQuantity]), serverBatches.map((row) => [row.id, row.remainingQuantity]));
+  const serverMovements = serverDb.select().from(schema.inventoryMovements).all()
+    .map((row) => [row.productId, row.quantityDeltaBase, row.totalCost]).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const localMovements = [...records.get('inventoryMovements').values()].map((row) => row.record)
+    .filter((row) => String(row.sourceId) === payload.order.id)
+    .map((row) => [row.productId, row.quantityDeltaBase, row.totalCost]).sort((a, b) => Number(a[0]) - Number(b[0]));
+  assert.deepEqual(localMovements, serverMovements);
+  const serverCogs = serverItems.reduce((sum, row) => sum + Number(row.costPriceAtTimeOfSale) * Number(row.quantity), 0);
+  const localCogs = localItems.reduce((sum, row) => sum + Number(row.costPriceAtTimeOfSale) * Number(row.quantity), 0);
+  assert.equal(serverCogs, 17);
+  assert.equal(localCogs, serverCogs);
+  raw.close();
+});
