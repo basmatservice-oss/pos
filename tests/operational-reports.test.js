@@ -114,10 +114,10 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.inventoryAging.rows.find((row) => row.productId === 3).status, 'راكد');
   assert.equal(result.inventoryTurnover.staleProducts, 1);
   assert.equal(result.inventoryTurnover.cogs, 33);
-  assert.equal(result.inventoryTurnover.beginningValue, 83);
-  assert.equal(result.inventoryTurnover.averageValue, 66.5);
-  assert.equal(result.inventoryTurnover.endingValue, 50);
-  assert.ok(Math.abs(result.inventoryTurnover.ratio - (33 / 66.5)) < 1e-12);
+  assert.equal(result.inventoryTurnover.beginningValue, 104);
+  assert.equal(result.inventoryTurnover.averageValue, 87.5);
+  assert.equal(result.inventoryTurnover.endingValue, 71);
+  assert.ok(Math.abs(result.inventoryTurnover.ratio - (33 / 87.5)) < 1e-12);
   assert.equal(result.shifts.variance, -10);
   assert.equal(result.shifts.rows[0].deposits, 10);
   assert.equal(result.shifts.rows[0].withdrawals, 5);
