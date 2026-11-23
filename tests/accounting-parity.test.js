@@ -191,6 +191,7 @@ function createServerDatabase() {
       paymentStatus TEXT DEFAULT 'unpaid', paymentMethod TEXT DEFAULT 'cash', paidAmount REAL DEFAULT 0,
       returnedAmount REAL DEFAULT 0, currency TEXT, exchangeRate REAL DEFAULT 1,
       shippingCost REAL DEFAULT 0, customsCost REAL DEFAULT 0, otherCosts REAL DEFAULT 0,
+      extraCostsPaymentMethod TEXT DEFAULT 'cash',
       date TEXT NOT NULL, branchId INTEGER, deviceId TEXT, operationId TEXT,
       isSynced INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT NOT NULL
     );
