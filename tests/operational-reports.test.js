@@ -172,7 +172,7 @@ test('inventory aging averages only batches with known dates and reports the unk
   assert.equal(row.value, 50);
   assert.equal(row.stockAgeDays, 29, 'unknown-date quantity must not dilute the known-date weighted age');
   assert.equal(row.unknownDateQuantity, 3);
-  assert.equal(row.status, 'عمر غير محدد', 'mixed-date stock must remain visibly qualified');
+  assert.equal(row.status, 'عمر غير مكتمل', 'mixed-date stock must remain visibly qualified');
   assert.equal(result.inventoryAging.buckets['0-30 يوم'], 20);
   assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 30);
 });
@@ -220,4 +220,19 @@ test('purchase returns in the selected period remain visible when the original p
   assert.equal(result.purchaseProducts[0].netQuantity, -24);
   assert.equal(result.purchaseProducts[0].netTotal, -96, 'the return uses its persisted historical batch cost');
   assert.equal(result.suppliers[0].netPurchases, -96);
+});
+
+test('inventory aging keeps stale status when some remaining batches have unknown dates', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    inventoryBatches: [
+      { id: 'old-known', productId: 91, remainingQuantity: 2, costPrice: 10, purchaseDate: '2026-08-01' },
+      { id: 'unknown', productId: 91, remainingQuantity: 1, costPrice: 10 },
+    ],
+  });
+  const row = result.inventoryAging.rows.find((item) => item.productId === 91);
+  assert.equal(row.stockAgeDays, 121);
+  assert.equal(row.unknownDateQuantity, 1);
+  assert.equal(row.status, 'راكد', 'known old stock must not lose its stale classification because another batch is undated');
 });
