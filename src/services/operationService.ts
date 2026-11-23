@@ -2477,6 +2477,8 @@ async function applyPurchaseLocally(
     // The reversal movement and purchase version are checked atomically with the complete deletion.
     return;
   }
+  const purchaseFxSetting = await db.settings.where('key').equals('exchangeRate').first();
+  const purchaseActiveExchangeRate = Number(purchaseFxSetting?.value || 0);
   await db.transaction(
     'rw',
     [db.purchases, db.purchaseItems, db.products, db.suppliers, db.inventoryBatches, db.purchaseReturns, db.inventoryMovements, db.accounts, db.journalEntries, db.transactions],
@@ -2524,7 +2526,17 @@ async function applyPurchaseLocally(
           const activeBatches = (await db.inventoryBatches.toArray()).filter((batch) => Number(batch.productId) === productId && Number(batch.remainingQuantity || 0) > 0);
           const activeQty = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
           const activeValue = activeBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0) * Number(batch.costPrice || 0), 0);
-          if (activeQty > 0) await db.products.update(productId, { costPrice: roundMoney(activeValue / activeQty), updatedAt: now, syncStatus });
+          if (activeQty > 0) {
+            const remainingWeightedCost = roundMoney(activeValue / activeQty);
+            const product = await db.products.get(productId);
+            await db.products.update(productId, {
+              costPrice: remainingWeightedCost,
+              ...(Number(product?.costInUSD || 0) > 0 && Number.isFinite(purchaseActiveExchangeRate) && purchaseActiveExchangeRate > 0
+                ? { costInUSD: Number((remainingWeightedCost / purchaseActiveExchangeRate).toFixed(6)) }
+                : {}),
+              updatedAt: now, syncStatus,
+            });
+          }
         }
         if (oldPurchase && oldPurchase.supplierId) {
           const oldExtraCosts = oldPurchase.extraCostsPaymentMethod === 'supplier'
@@ -2634,6 +2646,9 @@ async function applyPurchaseLocally(
           await db.products.update(prod.id!, {
             stockQuantity: roundQty(prod.stockQuantity + baseQty),
             costPrice: weightedCost,
+            ...(Number(prod.costInUSD || 0) > 0 && Number.isFinite(purchaseActiveExchangeRate) && purchaseActiveExchangeRate > 0
+              ? { costInUSD: Number((weightedCost / purchaseActiveExchangeRate).toFixed(6)) }
+              : {}),
             expiryDate: item.expiryDate || prod.expiryDate,
             batchNumber: item.batchNumber || prod.batchNumber,
             updatedAt: now,
