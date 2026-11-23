@@ -8,7 +8,7 @@ const now = '2026-11-20T12:00:00.000Z';
 const primaryKeys = {
   products: 'id', inventoryBatches: 'id', inventoryMovements: 'id', settings: 'id', suppliers: 'id',
   accounts: 'code', journalEntries: 'id', transactions: 'id', serviceRecipes: 'id',
-  stocktakingSessions: 'id', stocktakingEntries: 'id',
+  stocktakingSessions: 'id', stocktakingEntries: 'id', purchases: 'id', purchaseItems: 'id',
 };
 
 function createMemoryElectronBridge() {
@@ -1173,5 +1173,87 @@ test('native SQLite stocktake increase and weighted-average decrease match serve
   assert.equal(localJournal.totalDebit, serverJournal.totalDebit);
   assert.equal(localJournal.totalCredit, serverJournal.totalCredit);
   assert.equal(records.get('stocktakingSessions').get(JSON.stringify(session.id)).record.status, 'approved');
+  raw.close();
+});
+
+
+test('native SQLite purchase deletion recalculates linked USD cost anchor like the server', async () => {
+  const { executeBusinessOperation } = await import('../server/operations.ts');
+  const { db: serverDb, raw } = createServerDatabase();
+  const product = {
+    id: 81, name: 'Purchase deletion FX item', barcode: null, categoryId: null,
+    costPrice: 10, costInUSD: 5, sellingPrice: 15, stockQuantity: 10,
+    minStockLevel: 0, unit: 'piece', conversionFactor: 1, itemType: 'stock',
+    allowFractions: 0, baseUnitCode: 'piece', quantityPrecision: 0,
+    isActive: 1, vatRate: 0, branchId: 1, isSynced: 0, updatedAt: now, createdAt: now,
+  };
+  const purchase = {
+    id: 'purchase-delete-fx-81', supplierId: null, supplierName: null,
+    totalAmount: 32, paidAmount: 0, returnedAmount: 0, paymentStatus: 'unpaid',
+    paymentMethod: 'cash', currency: 'SDG', exchangeRate: 1, date: now,
+    branchId: 1, createdBy: 'tester', createdAt: now, updatedAt: now,
+    shippingCost: 0, customsCost: 0, otherCosts: 0, extraCostsPaymentMethod: 'cash',
+  };
+  const items = [{
+    id: 'purchase-delete-item-81', purchaseId: purchase.id, productId: 81,
+    productName: product.name, quantity: 4, unit: 'piece', conversionFactor: 1,
+    costPrice: 8, landedCostPerBaseUnit: 8, total: 32, isSynced: 0, createdAt: now,
+  }];
+  const batches = [
+    { id: 'purchase-delete-batch', productId: 81, purchaseId: purchase.id, quantity: 4, remainingQuantity: 4, costPrice: 8, purchaseDate: now },
+    { id: 'purchase-surviving-batch', productId: 81, purchaseId: 'other-purchase-81', quantity: 6, remainingQuantity: 6, costPrice: 12, purchaseDate: now },
+  ].map((batch) => ({
+    ...batch, currency: 'SDG', exchangeRate: 1, expiryDate: null, batchNumber: null,
+    branchId: 1, isSynced: 0, createdAt: now, updatedAt: now,
+  }));
+  serverDb.insert(schema.products).values(product).run();
+  serverDb.insert(schema.purchases).values(purchase).run();
+  serverDb.insert(schema.purchaseItems).values(items).run();
+  serverDb.insert(schema.inventoryBatches).values(batches).run();
+  serverDb.insert(schema.settings).values({
+    id: 81, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now,
+  }).run();
+
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.navigator = { onLine: true, userAgent: 'node-test' };
+  const localStorageShim = { getItem() { return null; }, setItem() {} };
+  globalThis.localStorage = localStorageShim;
+  globalThis.window = {
+    location: { hostname: 'localhost', protocol: 'http:', port: '3000', origin: 'http://localhost:3000' },
+    navigator: globalThis.navigator, localStorage: localStorageShim,
+    addEventListener() {}, removeEventListener() {},
+    electronAPI: { isElectron: true, posLocalDatabase: bridge },
+    dispatchEvent() { return true; },
+  };
+  const [{ setElectronDeviceRole }, { dispatchOperation }] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/operationService.ts'),
+  ]);
+  setElectronDeviceRole('client');
+  seed('products', product);
+  seed('purchases', purchase);
+  for (const item of items) seed('purchaseItems', item);
+  for (const batch of batches) seed('inventoryBatches', batch);
+  seed('settings', { id: 81, key: 'exchangeRate', value: '4', createdAt: now, updatedAt: now });
+
+  executeBusinessOperation(serverDb, 'purchase_delete', { id: purchase.id }, {
+    operationId: 'purchase-delete-fx-op-81', deviceId: 'purchase-delete-fx-device',
+    userName: 'tester', userRole: 'admin',
+  });
+  await dispatchOperation('purchase_delete', {
+    id: purchase.id, operationId: 'purchase-delete-fx-op-81', deviceId: 'purchase-delete-fx-device',
+  }, 1);
+
+  const serverProduct = serverDb.select().from(schema.products).get();
+  const localProduct = records.get('products').get(JSON.stringify(81)).record;
+  assert.equal(serverProduct.stockQuantity, 6);
+  assert.equal(localProduct.stockQuantity, serverProduct.stockQuantity);
+  assert.equal(serverProduct.costPrice, 12);
+  assert.equal(localProduct.costPrice, serverProduct.costPrice);
+  assert.equal(serverProduct.costInUSD, 3);
+  assert.equal(localProduct.costInUSD, serverProduct.costInUSD);
+  assert.equal(records.get('purchases').has(JSON.stringify(purchase.id)), false);
+  assert.equal(records.get('inventoryBatches').has(JSON.stringify('purchase-delete-batch')), false);
   raw.close();
 });
