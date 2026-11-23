@@ -1689,6 +1689,9 @@ async function applyPurchaseLocally(
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('journalEntries', 'referenceId', String(purchase.id)) : Promise.resolve([]),
       isPurchaseUpdate ? nativePosRepository.whereEquals<any>('inventoryMovements', 'sourceId', String(purchase.id)) : Promise.resolve([]),
     ]);
+    // Compare only journal rows read before this update. New replacement journals
+    // are staged in the same change set and must not be mistaken for stale rows.
+    const originalJournals = [...journals];
     // Load only products touched by this receipt/reversal, not the entire product catalog.
     const affectedProductIds = [...new Set([
       ...normalized.map((item: any) => Number(item.productId)),
@@ -2160,7 +2163,7 @@ async function applyPurchaseLocally(
           addPurchaseGuard('accounts', code, 'balance', original.balance);
         }
       }
-      for (const entry of journals) {
+      for (const entry of originalJournals) {
         addPurchaseGuard('journalEntries', entry.id, 'status', entry.status);
       }
     }
