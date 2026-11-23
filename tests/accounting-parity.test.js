@@ -1195,7 +1195,7 @@ test('native SQLite purchase deletion recalculates linked USD cost anchor like t
     shippingCost: 0, customsCost: 0, otherCosts: 0, extraCostsPaymentMethod: 'cash',
   };
   const items = [{
-    id: 'purchase-delete-item-81', purchaseId: purchase.id, productId: 81,
+    id: 81, purchaseId: purchase.id, productId: 81,
     productName: product.name, quantity: 4, unit: 'piece', conversionFactor: 1,
     costPrice: 8, landedCostPerBaseUnit: 8, total: 32, isSynced: 0, createdAt: now,
   }];
