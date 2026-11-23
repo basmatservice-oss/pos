@@ -357,6 +357,7 @@ export const purchases = sqliteTable('Purchase', {
   shippingCost: real('shippingCost').default(0),
   customsCost: real('customsCost').default(0),
   otherCosts: real('otherCosts').default(0),
+  extraCostsPaymentMethod: text('extraCostsPaymentMethod').default('cash'),
   date: text('date').notNull(),
   branchId: integer('branchId'),
   deviceId: text('deviceId'),
