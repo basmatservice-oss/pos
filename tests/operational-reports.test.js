@@ -103,7 +103,7 @@ test('advanced operational reports calculate stock age, approximate turnover, de
   assert.equal(result.inventoryAging.rows.some((row) => row.productId === 4), false, 'receipts after the report cutoff must be excluded');
   assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 21, 'batches without a reliable purchase date must be separated from dated stock');
   assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).stockAgeDays, null);
-  assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).status, 'عمر غير محدد');
+  assert.equal(result.inventoryAging.rows.find((row) => row.productId === 5).status, 'عمر غير معروف');
   assert.equal(result.inventoryAging.rows[0].stockAgeDays, 121);
   assert.equal(result.inventoryAging.rows[0].expiring, 5);
   assert.equal(result.inventoryAging.rows[0].name, 'Stock Item');
@@ -235,4 +235,21 @@ test('inventory aging keeps stale status when some remaining batches have unknow
   assert.equal(row.stockAgeDays, 121);
   assert.equal(row.unknownDateQuantity, 1);
   assert.equal(row.status, 'راكد', 'known old stock must not lose its stale classification because another batch is undated');
+});
+
+test('inventory aging reports unknown age even when a product had a recent sale', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    inventoryBatches: [
+      { id: 'undated-recent', productId: 92, remainingQuantity: 4, costPrice: 8 },
+    ],
+    inventoryMovements: [
+      { productId: 92, movementType: 'sale', quantityDeltaBase: -1, totalCost: 8, createdAt: '2026-11-25T12:00:00.000Z' },
+    ],
+  });
+  const row = result.inventoryAging.rows.find((item) => item.productId === 92);
+  assert.equal(row.lastSaleDays, 5);
+  assert.equal(row.stockAgeDays, null);
+  assert.equal(row.status, 'عمر غير معروف', 'recent sales activity cannot manufacture a receipt date for remaining stock');
 });
