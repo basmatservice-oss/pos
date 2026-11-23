@@ -654,6 +654,33 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.equal(localPurchasedAfterReceipt.costInUSD, serverPurchasedAfterReceipt.costInUSD,
     'native purchase receipt must rebase the linked USD cost anchor at the active exchange rate');
 
+  const purchaseUpdatePayload = {
+    operationId: 'purchase-update-op-parity-2', deviceId: 'parity-device',
+    purchase: { ...purchasePayload.purchase, totalAmount: 120 },
+    items: [{
+      productId: 2, productName: purchasedProduct.name, quantity: 10, unit: 'piece',
+      conversionFactor: 1, costPrice: 12,
+    }],
+  };
+  executeBusinessOperation(serverDb, 'purchase_update', purchaseUpdatePayload, {
+    operationId: purchaseUpdatePayload.operationId, deviceId: purchaseUpdatePayload.deviceId, userName: 'tester',
+  });
+  await dispatchOperation('purchase_update', purchaseUpdatePayload, 1);
+  const serverPurchasedAfterUpdate = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
+  const localPurchasedAfterUpdate = records.get('products').get(JSON.stringify(2)).record;
+  assert.equal(serverPurchasedAfterUpdate.stockQuantity, 10);
+  assert.equal(localPurchasedAfterUpdate.stockQuantity, serverPurchasedAfterUpdate.stockQuantity);
+  assert.equal(serverPurchasedAfterUpdate.costPrice, 12);
+  assert.equal(localPurchasedAfterUpdate.costPrice, serverPurchasedAfterUpdate.costPrice);
+  assert.equal(serverPurchasedAfterUpdate.costInUSD, 3);
+  assert.equal(localPurchasedAfterUpdate.costInUSD, serverPurchasedAfterUpdate.costInUSD,
+    'native purchase update must recalculate the linked USD cost anchor at the active exchange rate');
+  const serverUpdatedPurchase = serverDb.select().from(schema.purchases).all()
+    .find((row) => row.id === 'parity-purchase-2');
+  const localUpdatedPurchase = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
+  assert.equal(serverUpdatedPurchase.totalAmount, 120);
+  assert.equal(localUpdatedPurchase.totalAmount, serverUpdatedPurchase.totalAmount);
+
   const purchaseSalePayload = {
     operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
     order: {
@@ -674,8 +701,8 @@ test('end-to-end server business operations and native SQLite operations match f
   await dispatchOperation('sale', purchaseSalePayload, 1);
   const localPurchaseSaleItem = [...records.get('orderItems').values()].map((row) => row.record)
     .find((row) => String(row.orderId) === 'parity-purchase-sale-2');
-  assert.equal(serverPurchaseSale.result.items[0].costPriceAtTimeOfSale, 10);
-  assert.equal(localPurchaseSaleItem.costPriceAtTimeOfSale, 10);
+  assert.equal(serverPurchaseSale.result.items[0].costPriceAtTimeOfSale, 12);
+  assert.equal(localPurchaseSaleItem.costPriceAtTimeOfSale, 12);
 
   const purchaseSaleReturnPayload = {
     id: 'parity-purchase-sale-return-2', returnNumber: 'RET-PURCHASE-PARITY',
@@ -715,7 +742,7 @@ test('end-to-end server business operations and native SQLite operations match f
   const localPurchasedProduct = records.get('products').get(JSON.stringify(2)).record;
   assert.equal(serverPurchasedProduct.stockQuantity, 5);
   assert.equal(localPurchasedProduct.stockQuantity, serverPurchasedProduct.stockQuantity);
-  assert.equal(serverPurchasedProduct.costInUSD, 2.5);
+  assert.equal(serverPurchasedProduct.costInUSD, 3);
   assert.equal(localPurchasedProduct.costInUSD, serverPurchasedProduct.costInUSD,
     'native purchase return must rebase the linked USD cost anchor using the active exchange rate');
   const serverPurchaseRecord = serverDb.select().from(schema.purchases).get();
@@ -724,7 +751,7 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.equal(localPurchaseRecord.returnedAmount, serverPurchaseRecord.returnedAmount);
   const serverSupplier = serverDb.select().from(schema.suppliers).get();
   const localSupplier = records.get('suppliers').get(JSON.stringify(92)).record;
-  assert.equal(serverSupplier.balance, 70);
+  assert.equal(serverSupplier.balance, 90);
   assert.equal(localSupplier.balance, serverSupplier.balance);
   const serverPurchaseBatch = serverDb.select().from(schema.inventoryBatches).all().find((row) => row.purchaseId === 'parity-purchase-2');
   const localPurchaseBatch = [...records.get('inventoryBatches').values()].map((row) => row.record)
