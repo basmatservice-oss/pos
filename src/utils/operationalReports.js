@@ -17,6 +17,17 @@ const groupBy = (rows, keyOf, makeRow) => {
   return map;
 };
 
+/** Resolve branch and party filters through a linked source document when a payment/return omits those fields. */
+export function matchesOperationalLinkedRecord(row, parent, { branchFilter = 'all', partyFilter = 'all', partyField } = {}) {
+  const hasOwnBranch = row?.branchId !== undefined && row?.branchId !== null && row.branchId !== '';
+  const branchOk = branchFilter === 'all' || (hasOwnBranch
+    ? String(row.branchId) === String(branchFilter)
+    : !!parent && String(parent.branchId ?? '') === String(branchFilter));
+  const partyId = row?.[partyField] ?? parent?.[partyField];
+  const partyOk = partyFilter === 'all' || String(partyId ?? '') === String(partyFilter);
+  return branchOk && partyOk;
+}
+
 /** Build operational reports from persisted business documents without recalculating historical costs. */
 export function buildOperationalReports({
   startDate, endDate, orders = [], returns = [], purchases = [], purchaseItems = [], purchaseReturns = [], purchaseReturnItems = [],
