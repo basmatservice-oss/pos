@@ -846,8 +846,6 @@ async function applyOrderVoidLocallyNative(payload: any, syncStatus: 'synced' | 
     ))).flat();
     const accountCodes = [...new Set(journalLines.map((line: any) => String(line.accountId)).filter(Boolean))];
     const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
-    const exchangeRateSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate');
-    const activeExchangeRate = Number(exchangeRateSetting?.value || 0);
     const accountMap = new Map(accounts.map((x: any) => [String(x.code), x]));
     const reversedIds = new Set(journals.map((x: any) => x.reversedEntryId).filter(Boolean).map(String));
     for (const entry of journals) {
@@ -1712,6 +1710,8 @@ async function applyPurchaseLocally(
       ...transactions.map((line: any) => String(line.accountId || '')),
     ].filter(Boolean))];
     const accounts = await nativePosRepository.getMany<any>('accounts', accountCodes);
+    const exchangeRateSetting = await nativePosRepository.firstWhereEquals<any>('settings', 'key', 'exchangeRate');
+    const activeExchangeRate = Number(exchangeRateSetting?.value || 0);
     if (purchase.supplierId && !suppliers.some((entry: any) => String(entry.id) === String(purchase.supplierId))) {
       throw new Error('لا يمكن تسجيل فاتورة الشراء؛ المورد المحدد غير موجود في قاعدة SQLite');
     }
