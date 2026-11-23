@@ -3,12 +3,16 @@ import sqlite3
 from pathlib import Path
 
 source = Path("migrate.ts").read_text(encoding="utf-8")
-pattern = re.compile(r"ensureColumn\(sqlite, '([^']+)', '([^']+)', '([^']*)'\);")
+pattern = re.compile(r"""ensureColumn\(sqlite, '([^']+)', '([^']+)', (['"])(.*?)\3\);""")
 targets = {
     "Product", "OrderItem", "Purchase", "PurchaseItem", "InventoryBatch",
     "ReturnItem", "PurchaseReturnItem", "StocktakingEntry", "AuditLog",
 }
-columns = [(table, column, definition) for table, column, definition in pattern.findall(source) if table in targets]
+columns = [
+    (match.group(1), match.group(2), match.group(4))
+    for match in pattern.finditer(source)
+    if match.group(1) in targets
+]
 
 required = {
     "Product": {"baseUnitCode", "quantityPrecision"},
