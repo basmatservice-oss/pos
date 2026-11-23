@@ -7,7 +7,7 @@ import * as schema from '../drizzle/schema.ts';
 const now = '2026-11-20T12:00:00.000Z';
 const primaryKeys = {
   products: 'id', inventoryBatches: 'id', inventoryMovements: 'id', settings: 'id', suppliers: 'id',
-  accounts: 'code', journalEntries: 'id', transactions: 'id',
+  accounts: 'code', journalEntries: 'id', transactions: 'id', serviceRecipes: 'id',
 };
 
 function createMemoryElectronBridge() {
@@ -852,4 +852,56 @@ test('server purchase, sale and purchase return remain balanced and reject dupli
   assert.ok(movementTypes.includes('sale'));
   assert.ok(movementTypes.includes('purchase_return'));
   raw.close();
+});
+
+test('native SQLite rejects a service-with-materials sale when its recipe is missing, matching server validation', async () => {
+  const { bridge, seed, records } = createMemoryElectronBridge();
+  globalThis.CustomEvent = class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } };
+  globalThis.navigator = { onLine: true, userAgent: 'node-test' };
+  const localStorageShim = { getItem() { return null; }, setItem() {} };
+  globalThis.localStorage = localStorageShim;
+  globalThis.window = {
+    location: { hostname: 'localhost', protocol: 'http:', port: '3000', origin: 'http://localhost:3000' },
+    navigator: globalThis.navigator,
+    localStorage: localStorageShim,
+    addEventListener() {},
+    removeEventListener() {},
+    electronAPI: { isElectron: true, posLocalDatabase: bridge },
+    dispatchEvent() { return true; },
+  };
+
+  const [{ setElectronDeviceRole }, { dispatchOperation }] = await Promise.all([
+    import('../src/native/electronPosRepository.ts'),
+    import('../src/services/operationService.ts'),
+  ]);
+  setElectronDeviceRole('client');
+  seed('products', {
+    id: 51, name: 'Unconfigured service', barcode: null, categoryId: null,
+    costPrice: 0, sellingPrice: 100, stockQuantity: 0, minStockLevel: 0,
+    unit: 'piece', conversionFactor: 1, itemType: 'service_with_materials',
+    allowFractions: 0, baseUnitCode: 'piece', quantityPrecision: 0,
+    isActive: 1, vatRate: 0, branchId: 1, isSynced: 0, updatedAt: now, createdAt: now,
+  });
+
+  const payload = {
+    operationId: 'missing-service-recipe-op',
+    deviceId: 'service-recipe-device',
+    order: {
+      id: 'missing-service-recipe-order', receiptNumber: 'INV-SERVICE-MISSING',
+      totalAmount: 100, taxAmount: 0, netAmount: 100, paymentMethod: 'cash',
+      currency: 'SDG', exchangeRate: 1, branchId: 1, createdBy: 'tester', createdAt: now,
+    },
+    items: [{
+      productId: 51, productName: 'Unconfigured service', quantity: 1,
+      unit: 'piece', conversionFactor: 1, itemType: 'service_with_materials',
+      unitPrice: 100, discountAmount: 0, subTotal: 100, taxAmount: 0, total: 100,
+    }],
+  };
+
+  await assert.rejects(
+    () => dispatchOperation('sale', payload, 1),
+    /تحتاج إلى وصفة مواد خام قبل بيعها/,
+  );
+  assert.equal(records.get('orders')?.size || 0, 0, 'rejected service sale must not create an order');
+  assert.equal(records.get('inventoryMovements')?.size || 0, 0, 'rejected service sale must not consume stock');
 });
