@@ -41,6 +41,15 @@ export default function OperationalReports({ startDate, endDate, currency, decim
     (paymentFilter === 'all' || row.paymentMethod === paymentFilter)),
     [orders, branchFilter, cashierFilter, paymentFilter, customerFilter]);
   const filteredOrderIds = useMemo(() => new Set(filteredOrders.map((row) => String(row.id))), [filteredOrders]);
+  const ordersById = useMemo(() => new Map(orders.map((row) => [String(row.id), row])), [orders]);
+  const purchasesById = useMemo(() => new Map(purchases.map((row) => [String(row.id), row])), [purchases]);
+  const linkedRecordMatches = (row: any, parent: any, partyFilter: string, partyField: 'customerId' | 'supplierId') => {
+    const hasOwnBranch = row.branchId !== undefined && row.branchId !== null && row.branchId !== '';
+    const branchOk = branchFilter === 'all' || (hasOwnBranch ? branchMatches(row) : !!parent && branchMatches(parent));
+    const partyId = row[partyField] ?? parent?.[partyField];
+    const partyOk = partyFilter === 'all' || String(partyId ?? '') === partyFilter;
+    return branchOk && partyOk;
+  };
   const report = useMemo(() => buildOperationalReports({
     startDate, endDate,
     orders: filteredOrders,
@@ -57,19 +66,19 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       return original && filteredOrderIds.has(String(original.id));
     }),
     purchases: purchases.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
-    purchaseReturns: purchaseReturns.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
+    purchaseReturns: purchaseReturns.filter((row) => linkedRecordMatches(row, purchasesById.get(String(row.originalPurchaseId ?? '')), supplierFilter, 'supplierId')),
     expenses: expenses.filter(branchMatches),
     payrolls: payrolls.filter(branchMatches),
     employees, customers, suppliers,
-    customerPayments: customerPayments.filter((row) => branchMatches(row) && (customerFilter === 'all' || String(row.customerId ?? '') === customerFilter)),
-    supplierPayments: supplierPayments.filter((row) => branchMatches(row) && (supplierFilter === 'all' || String(row.supplierId ?? '') === supplierFilter)),
+    customerPayments: customerPayments.filter((row) => linkedRecordMatches(row, ordersById.get(String(row.orderId ?? '')), customerFilter, 'customerId')),
+    supplierPayments: supplierPayments.filter((row) => linkedRecordMatches(row, purchasesById.get(String(row.purchaseId ?? '')), supplierFilter, 'supplierId')),
     inventoryMovements: inventoryMovements.filter(branchMatches),
     inventoryBatches: inventoryBatches.filter(branchMatches),
     shifts: shifts.filter(branchMatches),
     shiftMovements: shiftMovements.filter(branchMatches),
     accounts, transactions, attendance: attendance.filter(branchMatches),
   }), [startDate, endDate, filteredOrders, filteredOrderIds, orders, returns, purchases, purchaseItems, purchaseReturns, purchaseReturnItems,
-    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, inventoryBatches, shifts, shiftMovements, accounts, transactions, attendance, products, branchFilter, supplierFilter, customerFilter]);
+    expenses, payrolls, employees, customers, suppliers, customerPayments, supplierPayments, inventoryMovements, inventoryBatches, shifts, shiftMovements, accounts, transactions, attendance, products, branchFilter, supplierFilter, customerFilter, ordersById, purchasesById]);
 
   const money = (value: number) => formatNumber(value, decimals) + ' ' + currency;
   const section = 'rounded-xl border border-slate-200 p-3 min-w-0';
