@@ -691,10 +691,10 @@ test('end-to-end server business operations and native SQLite operations match f
   // specifically during purchase return (the earlier sale/return fixture uses FIFO).
   raw.prepare('UPDATE Setting SET value = ? WHERE key = ?').run('weighted_average', 'inventoryValuationMethod');
   serverDb.insert(schema.settings).values({
-    id: 5, key: 'exchangeRate', value: '2', isSynced: 0, createdAt: now, updatedAt: now,
+    id: 5, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now,
   }).run();
   seed('settings', { id: 2, key: 'inventoryValuationMethod', value: 'weighted_average', isSynced: 0, createdAt: now, updatedAt: now });
-  seed('settings', { id: 5, key: 'exchangeRate', value: '2', isSynced: 0, createdAt: now, updatedAt: now });
+  seed('settings', { id: 5, key: 'exchangeRate', value: '4', isSynced: 0, createdAt: now, updatedAt: now });
 
   const purchaseReturnPayload = {
     id: 'parity-purchase-return-2', returnNumber: 'PR-PARITY',
@@ -713,7 +713,7 @@ test('end-to-end server business operations and native SQLite operations match f
   const localPurchasedProduct = records.get('products').get(JSON.stringify(2)).record;
   assert.equal(serverPurchasedProduct.stockQuantity, 5);
   assert.equal(localPurchasedProduct.stockQuantity, serverPurchasedProduct.stockQuantity);
-  assert.equal(serverPurchasedProduct.costInUSD, 5);
+  assert.equal(serverPurchasedProduct.costInUSD, 2.5);
   assert.equal(localPurchasedProduct.costInUSD, serverPurchasedProduct.costInUSD,
     'native purchase return must rebase the linked USD cost anchor using the active exchange rate');
   const serverPurchaseRecord = serverDb.select().from(schema.purchases).get();
