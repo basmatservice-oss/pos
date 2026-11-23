@@ -96,16 +96,38 @@ export function buildOperationalReports({
   paymentTotals.cardNet = paymentTotals.card - paymentTotals.returnsCard;
   paymentTotals.creditNet = paymentTotals.credit - paymentTotals.returnsCredit;
 
-  const staff = groupBy(sales, (row) => row.createdBy || 'غير محدد', (row, key) => ({
-    name: key, count: 0, sales: 0, returns: 0, orderCount: 0,
-  }));
-  for (const [key, row] of staff) row.sales = sales.filter((sale) => String(sale.createdBy || 'غير محدد') === key)
-    .reduce((sum, sale) => sum + amount(sale.netAmount) - amount(sale.taxAmount), 0);
+  const employeeByIdentity = new Map();
+  for (const employee of employees) {
+    for (const identity of [employee.id, employee.username, employee.name]) {
+      if (identity !== undefined && identity !== null && String(identity).trim()) {
+        employeeByIdentity.set(String(identity).trim().toLocaleLowerCase(), employee);
+      }
+    }
+  }
+  const resolveStaff = (createdBy) => {
+    const raw = String(createdBy ?? '').trim();
+    if (!raw) return { key: 'غير محدد', name: 'غير محدد' };
+    const employee = employeeByIdentity.get(raw.toLocaleLowerCase());
+    return employee
+      ? { key: String(employee.id), name: employee.name || employee.username || raw }
+      : { key: raw, name: raw };
+  };
+  const staff = new Map();
+  for (const sale of sales) {
+    const identity = resolveStaff(sale.createdBy);
+    const row = staff.get(identity.key) || {
+      name: identity.name, count: 0, sales: 0, returns: 0, orderCount: 0,
+    };
+    row.count += 1;
+    row.orderCount += 1;
+    row.sales += amount(sale.netAmount) - amount(sale.taxAmount);
+    staff.set(identity.key, row);
+  }
   for (const record of salesReturns) {
     const order = orders.find((item) => String(item.id) === String(record.originalOrderId));
     if (!order) continue;
-    const key = String(order.createdBy || 'غير محدد');
-    const row = staff.get(key);
+    const identity = resolveStaff(order.createdBy);
+    const row = staff.get(identity.key);
     if (row) row.returns += amount(record.totalRefund) - amount(record.taxAmount);
   }
   const staffRows = [...staff.values()].map((row) => ({ ...row, netSales: row.sales - row.returns }))
