@@ -416,6 +416,34 @@ test('2. Landed Cost Allocation & Multi-Currency FX Purchase', async () => {
   const supplierAfter = ((await api('/api/suppliers', {}, adminToken)).data as any[])
     .find((row) => row.id === supplierId);
   assert.equal(supplierAfter.balance, supplierBefore.balance + 120);
+
+  const updatedSupplierBornePurchase = await api('/api/operations/execute', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'purchase_update',
+      operationId: crypto.randomUUID(),
+      deviceId: 'test-dev',
+      payload: {
+        purchase: {
+          id: supplierBornePurchaseId,
+          supplierId,
+          supplierName: 'مورد الجملة',
+          totalAmount: 100,
+          paidAmount: 0,
+          shippingCost: 30,
+          customsCost: 0,
+          otherCosts: 0,
+          extraCostsPaymentMethod: 'supplier',
+          date: '2026-03-04T10:00:00.000Z',
+        },
+        items: [{ productId: p1.id, productName: p1.name, quantity: 1, costPrice: 100 }],
+      },
+    }),
+  }, adminToken);
+  assert.equal(updatedSupplierBornePurchase.status, 201);
+  const supplierAfterUpdate = ((await api('/api/suppliers', {}, adminToken)).data as any[])
+    .find((row) => row.id === supplierId);
+  assert.equal(supplierAfterUpdate.balance, supplierBefore.balance + 130, 'editing a supplier-borne extra cost must reverse the old payable before posting the new one');
 });
 
 test('3. Inventory Valuation Method Toggle (Weighted Average vs FIFO)', async () => {
