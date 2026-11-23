@@ -36,7 +36,7 @@ test.before(async () => {
 
   const loginRes = await api('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: '123456' }),
+    body: JSON.stringify({ username: 'admin', password: 'admin' }),
   });
   assert.equal(loginRes.status, 200);
   adminToken = loginRes.data.token;
