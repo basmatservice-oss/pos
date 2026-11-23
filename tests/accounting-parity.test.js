@@ -747,18 +747,18 @@ test('end-to-end server business operations and native SQLite operations match f
     'native purchase return must rebase the linked USD cost anchor using the active exchange rate');
   const serverPurchaseRecord = serverDb.select().from(schema.purchases).get();
   const localPurchaseRecord = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
-  assert.equal(serverPurchaseRecord.returnedAmount, 30);
+  assert.equal(serverPurchaseRecord.returnedAmount, 36);
   assert.equal(localPurchaseRecord.returnedAmount, serverPurchaseRecord.returnedAmount);
   const serverSupplier = serverDb.select().from(schema.suppliers).get();
   const localSupplier = records.get('suppliers').get(JSON.stringify(92)).record;
-  assert.equal(serverSupplier.balance, 90);
+  assert.equal(serverSupplier.balance, 84);
   assert.equal(localSupplier.balance, serverSupplier.balance);
   const serverPurchaseBatch = serverDb.select().from(schema.inventoryBatches).all().find((row) => row.purchaseId === 'parity-purchase-2');
   const localPurchaseBatch = [...records.get('inventoryBatches').values()].map((row) => row.record)
     .find((row) => row.purchaseId === 'parity-purchase-2');
   assert.equal(serverPurchaseBatch.remainingQuantity, 5);
   assert.equal(localPurchaseBatch.remainingQuantity, serverPurchaseBatch.remainingQuantity);
-  assert.equal(serverPurchaseReturn.result.purchaseReturn.totalReturn, 30);
+  assert.equal(serverPurchaseReturn.result.purchaseReturn.totalReturn, 36);
 
   const { buildOperationalReports } = await import('../src/utils/operationalReports.js');
   const reportStart = new Date('2025-01-01T00:00:00.000Z');
