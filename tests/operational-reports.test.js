@@ -266,3 +266,59 @@ test('purchase returns inherit supplier identity from the original purchase when
   assert.equal(result.suppliers[0].name, 'Inherited Supplier');
   assert.equal(result.suppliers[0].netPurchases, -50);
 });
+
+test('debt aging reconciles partial payments and returns at the report cutoff without counting future activity twice', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    orders: [{
+      id: 'aged-customer-invoice',
+      customerName: 'Partial payer',
+      createdAt: '2026-10-01T10:00:00.000Z',
+      netAmount: 500,
+      paidAmount: 450,
+      returnedAmount: 100,
+    }],
+    returns: [{
+      id: 'future-customer-return',
+      originalOrderId: 'aged-customer-invoice',
+      createdAt: '2026-12-02T10:00:00.000Z',
+      totalRefund: 40,
+    }],
+    customerPayments: [
+      { id: 'cp-1', orderId: 'aged-customer-invoice', amount: 100, createdAt: '2026-10-15T10:00:00.000Z' },
+      { id: 'cp-2', orderId: 'aged-customer-invoice', amount: 200, createdAt: '2026-11-15T10:00:00.000Z' },
+      { id: 'cp-future', orderId: 'aged-customer-invoice', amount: 150, createdAt: '2026-12-05T10:00:00.000Z' },
+      { id: 'cp-unlinked', amount: 999, createdAt: '2026-11-20T10:00:00.000Z' },
+    ],
+    purchases: [{
+      id: 'aged-supplier-invoice',
+      supplierName: 'Supplier with installments',
+      date: '2026-10-01T10:00:00.000Z',
+      totalAmount: 800,
+      paidAmount: 500,
+      returnedAmount: 150,
+      extraCostsPaymentMethod: 'supplier',
+      shippingCost: 30,
+      customsCost: 0,
+      otherCosts: 20,
+    }],
+    purchaseReturns: [{
+      id: 'future-supplier-return',
+      originalPurchaseId: 'aged-supplier-invoice',
+      createdAt: '2026-12-03T10:00:00.000Z',
+      totalReturn: 50,
+    }],
+    supplierPayments: [
+      { id: 'sp-1', purchaseId: 'aged-supplier-invoice', amount: 120, createdAt: '2026-10-15T10:00:00.000Z' },
+      { id: 'sp-2', purchaseId: 'aged-supplier-invoice', amount: 180, createdAt: '2026-11-15T10:00:00.000Z' },
+      { id: 'sp-future', purchaseId: 'aged-supplier-invoice', amount: 200, createdAt: '2026-12-05T10:00:00.000Z' },
+      { id: 'sp-unlinked', amount: 999, createdAt: '2026-11-20T10:00:00.000Z' },
+    ],
+  });
+
+  assert.equal(result.receivablesAging.total, 140);
+  assert.equal(result.receivablesAging.rows[0].outstanding, 140);
+  assert.equal(result.payablesAging.total, 450);
+  assert.equal(result.payablesAging.rows[0].outstanding, 450);
+});
