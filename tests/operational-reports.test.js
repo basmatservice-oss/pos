@@ -156,3 +156,23 @@ test('linked payment and return filters inherit missing branch and party IDs fro
     branchFilter: 'all', partyFilter: 'all', partyField: 'customerId',
   }), true);
 });
+
+test('inventory aging averages only batches with known dates and reports the unknown-date quantity separately', () => {
+  const result = buildOperationalReports({
+    startDate: '2026-11-01T00:00:00.000Z',
+    endDate: '2026-11-30T23:59:59.999Z',
+    products: [{ id: 90, name: 'Mixed-date stock' }],
+    inventoryBatches: [
+      { id: 'dated', productId: 90, remainingQuantity: 2, costPrice: 10, purchaseDate: '2026-11-01' },
+      { id: 'undated', productId: 90, remainingQuantity: 3, costPrice: 10 },
+    ],
+  });
+
+  const row = result.inventoryAging.rows.find((item) => item.productId === 90);
+  assert.equal(row.value, 50);
+  assert.equal(row.stockAgeDays, 29, 'unknown-date quantity must not dilute the known-date weighted age');
+  assert.equal(row.unknownDateQuantity, 3);
+  assert.equal(row.status, 'عمر غير محدد', 'mixed-date stock must remain visibly qualified');
+  assert.equal(result.inventoryAging.buckets['0-30 يوم'], 20);
+  assert.equal(result.inventoryAging.buckets['تاريخ غير معروف'], 30);
+});
