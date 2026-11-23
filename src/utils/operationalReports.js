@@ -163,9 +163,13 @@ export function buildOperationalReports({
     row.paid += amount(purchase.paidAmount);
     supplierGroups.set(key, row);
   }
+  const purchasesById = new Map(purchases.map((purchase) => [String(purchase.id), purchase]));
   for (const record of buyReturns) {
-    const key = String(record.supplierId ?? record.supplierName ?? 'غير محدد');
-    const row = supplierGroups.get(key) || { id: record.supplierId, name: record.supplierName || 'مورد', invoices: 0, purchases: 0, paid: 0, returned: 0 };
+    const originalPurchase = purchasesById.get(String(record.originalPurchaseId));
+    const supplierId = record.supplierId ?? originalPurchase?.supplierId;
+    const supplierName = record.supplierName || originalPurchase?.supplierName;
+    const key = String(supplierId ?? supplierName ?? (record.originalPurchaseId ? `purchase:${record.originalPurchaseId}` : `return:${record.id}`));
+    const row = supplierGroups.get(key) || { id: supplierId, name: supplierName || 'مورد غير معروف', invoices: 0, purchases: 0, paid: 0, returned: 0 };
     row.returned += amount(record.totalReturn);
     supplierGroups.set(key, row);
   }
