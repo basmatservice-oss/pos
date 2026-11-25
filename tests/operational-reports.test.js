@@ -74,8 +74,18 @@ test('advanced operational reports calculate stock age, approximate turnover, de
       { productId: 1, movementType: 'sale_return', quantityDeltaBase: 1, totalCost: 5, createdAt: '2026-11-12' },
       { productId: 1, movementType: 'sale_void', quantityDeltaBase: 1, totalCost: 2, createdAt: '2026-11-13' },
     ],
-    customerPayments: [{ customerId: 7, shiftId: 'sh1', paymentMethod: 'cash', amount: 20, createdAt: '2026-11-10' }, { orderId: 'old-sale', customerId: 7, amount: 10, createdAt: '2026-12-05' }],
-    supplierPayments: [{ supplierId: 9, shiftId: 'sh1', paymentMethod: 'cash', amount: 5, createdAt: '2026-11-10' }, { purchaseId: 'old-purchase', supplierId: 9, amount: 10, createdAt: '2026-12-05' }],
+    customerPayments: [
+      { customerId: 7, shiftId: 'sh1', paymentMethod: 'cash', amount: 20, createdAt: '2026-11-10' },
+      { orderId: 'old-sale', customerId: 7, amount: 10, createdAt: '2026-12-05' },
+      { customerId: 8, amount: 15, createdAt: '2026-11-15' },
+      { customerId: 8, amount: 5, createdAt: '2026-12-05' },
+    ],
+    supplierPayments: [
+      { supplierId: 9, shiftId: 'sh1', paymentMethod: 'cash', amount: 5, createdAt: '2026-11-10' },
+      { purchaseId: 'old-purchase', supplierId: 9, amount: 10, createdAt: '2026-12-05' },
+      { supplierId: 10, amount: 7, createdAt: '2026-11-15' },
+      { supplierId: 10, amount: 3, createdAt: '2026-12-05' },
+    ],
     expenses: [{ shiftId: 'sh1', paymentMethod: 'cash', amount: 8, date: '2026-11-10' }],
     shifts: [{ id: 'sh1', startTime: '2026-11-10', endTime: '2026-11-10T20:00:00Z', status: 'closed', openingCash: 50, expectedCash: 100, actualCash: 90 }],
     shiftMovements: [
@@ -95,6 +105,10 @@ test('advanced operational reports calculate stock age, approximate turnover, de
     ],
   });
   assert.equal(result.receivablesAging.total, 160);
+  assert.equal(result.unallocatedPayments.customerCollections, 15,
+    'unlinked customer advances are visible separately and future collections are excluded');
+  assert.equal(result.unallocatedPayments.supplierPayments, 7,
+    'unlinked supplier advances are visible separately and future payments are excluded');
   assert.equal(result.receivablesAging.buckets['31-60 يوم'], 60);
   assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
   assert.equal(result.payablesAging.total, 220);
