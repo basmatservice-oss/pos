@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import localDatabase from '../electron/local-database.cjs';
+import { filterServerSnapshotPreservingLocalPending, getPendingSyncKeys } from '../src/utils/syncSnapshot.ts';
 
 test('Electron SQLite commits a product and its opening inventory atomically and keeps them after reopen', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'smart-pos-sqlite-'));
@@ -124,6 +125,93 @@ test('Electron SQLite validates snapshot identities without returning full busin
       { action: 'put', entity: 'products', recordId: '502', record: { id: 501, name: 'Mismatched key' }, syncState: 'synced' },
     ]);
     assert.throws(() => localDatabase.validateRecords('products', 'id'), /identity validation failed/);
+  } finally {
+    localDatabase.closeLocalDatabase();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('SQLite snapshot merge preserves unresolved accounts and inventory alerts using real persisted sync states', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'smart-pos-sqlite-sync-snapshot-'));
+  try {
+    localDatabase.initializeLocalDatabase(directory);
+
+    const cases = [
+      {
+        entity: 'accounts',
+        keyField: 'code',
+        local: [
+          { record: { code: '1100', name: 'local pending account' }, syncState: 'pending' },
+          { record: { code: '2100', name: 'local error account' }, syncState: 'error' },
+          { record: { code: '3100', name: 'local conflict account', syncStatus: 'conflict' }, syncState: 'local' },
+          { record: { code: '4100', name: 'old synced account' }, syncState: 'synced' },
+        ],
+        server: [
+          { code: '1100', name: 'stale pending account' },
+          { code: '2100', name: 'stale error account' },
+          { code: '3100', name: 'stale conflict account' },
+          { code: '4100', name: 'fresh synced account' },
+          { code: '5100', name: 'new server account' },
+        ],
+      },
+      {
+        entity: 'inventoryAlerts',
+        keyField: 'id',
+        local: [
+          { record: { id: 'alert-pending', productName: 'local pending alert' }, syncState: 'pending' },
+          { record: { id: 'alert-error', productName: 'local error alert' }, syncState: 'error' },
+          { record: { id: 'alert-conflict', productName: 'local conflict alert', syncStatus: 'conflict' }, syncState: 'local' },
+          { record: { id: 'alert-synced', productName: 'old synced alert' }, syncState: 'synced' },
+        ],
+        server: [
+          { id: 'alert-pending', productName: 'stale pending alert' },
+          { id: 'alert-error', productName: 'stale error alert' },
+          { id: 'alert-conflict', productName: 'stale conflict alert' },
+          { id: 'alert-synced', productName: 'fresh synced alert' },
+          { id: 'alert-new', productName: 'new server alert' },
+        ],
+      },
+    ];
+
+    for (const scenario of cases) {
+      localDatabase.applyRecordChanges(scenario.local.map(({ record, syncState }) => ({
+        action: 'put',
+        entity: scenario.entity,
+        recordId: JSON.stringify(record[scenario.keyField]),
+        record,
+        syncState,
+      })));
+
+      const persisted = localDatabase.getRecords(scenario.entity);
+      const pendingKeys = getPendingSyncKeys(persisted.map(({ record, syncState }) => ({
+        ...record,
+        syncState,
+      })));
+      const acceptedServerRows = filterServerSnapshotPreservingLocalPending(scenario.server, pendingKeys);
+      const applied = localDatabase.applyRecordChanges(acceptedServerRows.map((record) => ({
+        action: 'put',
+        entity: scenario.entity,
+        recordId: JSON.stringify(record[scenario.keyField]),
+        record,
+        syncState: 'synced',
+      })));
+      assert.equal(applied.applied, acceptedServerRows.length);
+
+      const finalRows = localDatabase.getRecords(scenario.entity);
+      const byKey = new Map(finalRows.map(({ record }) => [String(record[scenario.keyField]), record]));
+      for (const local of scenario.local.slice(0, 3)) {
+        const key = String(local.record[scenario.keyField]);
+        assert.equal(byKey.get(key).name ?? byKey.get(key).productName, local.record.name ?? local.record.productName,
+          scenario.entity + ' must retain the unresolved local value for ' + key);
+      }
+      const refreshedKey = scenario.entity === 'accounts' ? '4100' : 'alert-synced';
+      const newKey = scenario.entity === 'accounts' ? '5100' : 'alert-new';
+      assert.equal(byKey.get(refreshedKey).name ?? byKey.get(refreshedKey).productName,
+        scenario.server.find((record) => String(record[scenario.keyField]) === refreshedKey).name ??
+        scenario.server.find((record) => String(record[scenario.keyField]) === refreshedKey).productName);
+      assert.ok(byKey.has(newKey), scenario.entity + ' must accept new server rows');
+    }
   } finally {
     localDatabase.closeLocalDatabase();
     await rm(directory, { recursive: true, force: true });
