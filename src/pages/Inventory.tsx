@@ -7,7 +7,8 @@ import { Plus, Search, Edit, Trash2, Package, X, Download, Upload, RefreshCcw, T
 import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
@@ -305,37 +306,14 @@ export default function Inventory() {
           await stopScanner();
           const html5QrCode = new Html5Qrcode("inventory-reader", {
             verbose: false,
-            formatsToSupport: [
-              Html5QrcodeSupportedFormats.EAN_13,
-              Html5QrcodeSupportedFormats.EAN_8,
-              Html5QrcodeSupportedFormats.UPC_A,
-              Html5QrcodeSupportedFormats.UPC_E,
-              Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.ITF,
-              Html5QrcodeSupportedFormats.CODABAR,
-              Html5QrcodeSupportedFormats.QR_CODE,
-            ],
+            formatsToSupport: PRODUCT_BARCODE_FORMATS,
             experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           } as any);
           scannerRef.current = html5QrCode;
           
           await html5QrCode.start(
             { facingMode: "environment" },
-            {
-              fps: 20,
-              aspectRatio: 16 / 9,
-              disableFlip: false,
-              qrbox: (width, height) => ({
-                width: Math.max(1, Math.min(width, Math.floor(width * 0.92))),
-                height: Math.max(1, Math.min(height, Math.max(90, Math.min(190, Math.floor(height * 0.34))))),
-              }),
-              videoConstraints: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-              },
-            } as any,
+            PRODUCT_BARCODE_CAMERA_CONFIG as any,
             (decodedText) => {
               handleBarcodeScanned(decodedText);
             },
