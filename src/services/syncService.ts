@@ -693,24 +693,33 @@ export const syncService = {
                 const key = record.id ?? record.key ?? record.code;
                 return [key === undefined || key === null ? '' : String(key), record];
               }));
-              if (task.noSyncStatus) {
-                const changes = data.map((record: any) => ({
-                  action: 'put' as const, entity: entity as any, record, syncState: 'synced' as const,
-                }));
-                const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
-                if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
-                if (data.length) {
-                  // SQLite owns the Android snapshot; no Dexie cache write is required here.
-                }
-                continue;
-              }
-
-              const pendingLocal = existingNative.filter((item) => item.syncState === 'pending' || item.syncState === 'error');
+              const pendingLocal = existingNative.filter((item) =>
+                ['pending', 'error', 'conflict'].includes(String(item.syncState || ''))
+              );
               const pendingIds = new Set(pendingLocal.map((item) => {
                 const record: any = item.record;
                 const key = record.id ?? record.key ?? record.code;
                 return key === undefined || key === null ? '' : String(key);
               }));
+
+              if (task.noSyncStatus) {
+                // Accounts and inventory alerts do not expose a syncStatus field,
+                // but their native repository rows still carry syncState. Never
+                // let a server pull overwrite a local row with an unresolved write.
+                const changes = data
+                  .filter((record: any) => {
+                    const key = record.id ?? record.key ?? record.code;
+                    return key === undefined || key === null || !pendingIds.has(String(key));
+                  })
+                  .map((record: any) => ({
+                    action: 'put' as const, entity: entity as any, record, syncState: 'synced' as const,
+                  }));
+                const applied = changes.length ? await nativePosRepository.applyChanges(changes) : 0;
+                if (applied !== changes.length) throw new Error('SQLite did not apply the complete server snapshot for ' + entity);
+                // Do not delete absent rows here: these entities do not use the
+                // authoritative replacement path and may contain local-only state.
+                continue;
+              }
               const changes: Array<any> = [];
               const staleIds: any[] = [];
               if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
