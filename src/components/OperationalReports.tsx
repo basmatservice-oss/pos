@@ -114,6 +114,10 @@ export default function OperationalReports({ startDate, endDate, currency, decim
       ['تفاصيل الذمم الدائنة', 'المورد', 'تاريخ الفاتورة', 'العمر بالأيام', 'المتبقي'],
       ...report.payablesAging.rows.map((row) => [row.supplier, row.date, row.days, row.outstanding]),
       [],
+      ['دفعات غير موزعة', 'النوع', 'القيمة'],
+      ['تحصيلات عملاء غير مرتبطة بفاتورة', report.unallocatedPayments.customerCollections],
+      ['دفعات موردين غير مرتبطة بفاتورة', report.unallocatedPayments.supplierPayments],
+      [],
       ['أعمار المخزون', 'قيمة المخزون'],
       ...Object.entries(report.inventoryAging.buckets),
       [],
@@ -261,7 +265,11 @@ export default function OperationalReports({ startDate, endDate, currency, decim
           </div>
           <div className="mt-3 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الطرف</th><th className="p-2">التاريخ</th><th className="p-2">العمر</th><th className="p-2">المتبقي</th></tr></thead><tbody>{report.receivablesAging.rows.slice(0, 15).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.customer}</td><td className="p-2">{String(row.date || '').slice(0, 10)}</td><td className="p-2">{row.days} يوم</td><td className="p-2">{money(row.outstanding)}</td></tr>)}{!report.receivablesAging.rows.length && empty(4)}</tbody></table></div>
           <div className="mt-2 overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">المورد</th><th className="p-2">التاريخ</th><th className="p-2">العمر</th><th className="p-2">المتبقي</th></tr></thead><tbody>{report.payablesAging.rows.slice(0, 15).map((row) => <tr key={row.id} className="border-t"><td className="p-2">{row.supplier}</td><td className="p-2">{String(row.date || '').slice(0, 10)}</td><td className="p-2">{row.days} يوم</td><td className="p-2">{money(row.outstanding)}</td></tr>)}{!report.payablesAging.rows.length && empty(4)}</tbody></table></div>
-          <p className="mt-2 text-xs text-slate-500">تقدير الأعمار مبني على تاريخ الفاتورة والمبالغ المدفوعة/المرتجعة المرتبطة بها، ولا يستبدل كشف الحساب التفصيلي.</p>
+          <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+            <div className="rounded-lg bg-slate-50 p-2">تحصيلات عملاء غير موزعة على فواتير: <strong>{money(report.unallocatedPayments.customerCollections)}</strong></div>
+            <div className="rounded-lg bg-slate-50 p-2">دفعات موردين غير موزعة على فواتير: <strong>{money(report.unallocatedPayments.supplierPayments)}</strong></div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">الدفعات غير المرتبطة بمستند مصدر تُعرض منفصلة ولا تُخصم اعتباطيًا من أعمار فواتير بعينها. تقدير الأعمار لا يستبدل كشف الحساب التفصيلي.</p>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">الورديات وتسوية الصندوق</h4>
