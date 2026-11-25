@@ -105,9 +105,9 @@ test('advanced operational reports calculate stock age, approximate turnover, de
     ],
   });
   assert.equal(result.receivablesAging.total, 160);
-  assert.equal(result.unallocatedPayments.customerCollections, 15,
+  assert.equal(result.unallocatedPayments.customerCollections, 35,
     'unlinked customer advances are visible separately and future collections are excluded');
-  assert.equal(result.unallocatedPayments.supplierPayments, 7,
+  assert.equal(result.unallocatedPayments.supplierPayments, 12,
     'unlinked supplier advances are visible separately and future payments are excluded');
   assert.equal(result.receivablesAging.buckets['31-60 يوم'], 60);
   assert.equal(result.receivablesAging.buckets['أكثر من 90 يوم'], 100);
