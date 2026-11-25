@@ -613,7 +613,7 @@ export const syncService = {
         ? (await listNativePendingPosOperations()).length
         : await db.syncOperations
             .where('status')
-            .anyOf(['pending', 'error', 'syncing'])
+            .anyOf(['pending', 'error', 'syncing', 'conflict'])
             .count();
 
       const pullTasks: Array<{
@@ -753,8 +753,10 @@ export const syncService = {
 
             const cacheTable = db.table(task.entity);
             if (task.noSyncStatus) {
-              // These tables intentionally omit syncStatus from their business
-              // schema, but pending local writes must still win over a server pull.
+              // Dexie accounts/alerts intentionally have no row-level sync marker.
+              // If any outbox operation is unresolved, do not replace either
+              // snapshot: their local changes may be side effects of that operation.
+              if (pendingOpsCount > 0) continue;
               const existingNoStatus = await cacheTable.toArray();
               const pendingNoStatus = getPendingSyncKeys(existingNoStatus);
               const safeServerRows = filterServerSnapshotPreservingLocalPending(data, pendingNoStatus);
