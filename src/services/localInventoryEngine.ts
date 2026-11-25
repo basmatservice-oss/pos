@@ -203,8 +203,16 @@ export async function consumeLocalInventoryFIFO(
     let remaining = qtyNeeded, totalCost = 0;
     const allocations: LocalBatchAllocation[] = [];
     const changes: any[] = [];
-    // Weighted-average COGS must not overwrite acquisition costs on source batches.
-    // The batch costs remain available if the valuation method later returns to FIFO.
+    if (weightedAverage) {
+      for (const row of batches) {
+        const batch: any = row.record;
+        changes.push({
+          action: 'put', entity: 'inventoryBatches',
+          record: { ...batch, costPrice: weightedUnitCost, updatedAt: params.createdAt, syncStatus: params.syncStatus || 'pending' },
+          syncState: params.syncStatus || row.syncState,
+        });
+      }
+    }
     for (const row of batches) {
       if (remaining <= 1e-6) break;
       const batch: any = row.record;
@@ -214,7 +222,7 @@ export async function consumeLocalInventoryFIFO(
       const costPrice = weightedAverage ? weightedUnitCost : Number(batch.costPrice || 0);
       changes.push({
         action: 'put', entity: 'inventoryBatches',
-        record: { ...batch,
+        record: { ...batch, ...(weightedAverage ? { costPrice: weightedUnitCost } : {}),
           remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: params.createdAt,
           syncStatus: params.syncStatus || 'pending' },
         syncState: params.syncStatus || row.syncState,
@@ -317,7 +325,15 @@ export async function consumeLocalInventoryFIFO(
     if (activeQty > 0) weightedUnitCost = Math.round((activeValue / activeQty) * 10000) / 10000;
   }
 
-  // Preserve purchase acquisition costs on each batch under weighted-average costing.
+  if (weightedAverage) {
+    for (const batch of batches) {
+      await db.inventoryBatches.update(batch.id!, {
+        costPrice: weightedUnitCost,
+        updatedAt: params.createdAt,
+        syncStatus: params.syncStatus || 'pending',
+      });
+    }
+  }
 
   let remaining = qtyNeeded;
   let totalCost = 0;
