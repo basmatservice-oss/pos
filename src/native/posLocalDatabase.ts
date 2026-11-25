@@ -113,7 +113,9 @@ export async function countNativeUnresolvedPosOperations(): Promise<number> {
     const all = (await electronPosRepository.listOperations(false)).operations;
     return (all as any[]).filter((operation) => unresolved.has(String(operation.status || ''))).length;
   }
-  if (!(await ensureNativePosDatabase())) return 0;
+  if (!(await ensureNativePosDatabase())) {
+    throw new Error('SQLite outbox is unavailable; refusing to assume there are no unresolved local operations');
+  }
   const all = (await posLocalDatabase.listAllOperations()).operations;
   return (all as any[]).filter((operation) => unresolved.has(String(operation.status || ''))).length;
 }
