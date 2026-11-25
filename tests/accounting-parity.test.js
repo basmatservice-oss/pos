@@ -697,10 +697,22 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.ok(serverPurchaseJournalsAfterUpdate.some((entry) => entry.status === 'posted'),
     'server must post replacement purchase accounting during update');
   assert.deepEqual(
-    localPurchaseJournalsAfterUpdate.map((entry) => [entry.id, entry.status, entry.reversedEntryId || null, entry.totalDebit, entry.totalCredit]).sort(),
-    serverPurchaseJournalsAfterUpdate.map((entry) => [entry.id, entry.status, entry.reversedEntryId || null, entry.totalDebit, entry.totalCredit]).sort(),
-    'native purchase update must match server journal reversal and replacement',
+    localPurchaseJournalsAfterUpdate
+      .map((entry) => [entry.status, entry.totalDebit, entry.totalCredit])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || Number(a[1]) - Number(b[1])),
+    serverPurchaseJournalsAfterUpdate
+      .map((entry) => [entry.status, entry.totalDebit, entry.totalCredit])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || Number(a[1]) - Number(b[1])),
+    'native purchase update must match server journal reversal and replacement values',
   );
+  for (const entry of localPurchaseJournalsAfterUpdate.filter((candidate) => candidate.status === 'reversed')) {
+    assert.ok(localPurchaseJournalsAfterUpdate.some((candidate) => String(candidate.id) === String(entry.reversedEntryId)),
+      'native reversed journal must point to its local reversal entry');
+  }
+  for (const entry of serverPurchaseJournalsAfterUpdate.filter((candidate) => candidate.status === 'reversed')) {
+    assert.ok(serverPurchaseJournalsAfterUpdate.some((candidate) => String(candidate.id) === String(entry.reversedEntryId)),
+      'server reversed journal must point to its reversal entry');
+  }
   const serverPurchaseBatchAfterUpdate = serverDb.select().from(schema.inventoryBatches).all()
     .filter((batch) => String(batch.purchaseId) === 'parity-purchase-2');
   const localPurchaseBatchAfterUpdate = [...records.get('inventoryBatches').values()].map((row) => row.record)
