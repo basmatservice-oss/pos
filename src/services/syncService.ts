@@ -764,7 +764,19 @@ export const syncService = {
 
             const cacheTable = db.table(task.entity);
             if (task.noSyncStatus) {
-              await cacheTable.bulkPut(data);
+              // These tables intentionally omit syncStatus from their business
+              // schema, but pending local writes must still win over a server pull.
+              const existingNoStatus = await cacheTable.toArray();
+              const pendingNoStatus = new Set(existingNoStatus
+                .filter((record: any) => ['pending', 'error', 'conflict'].includes(String(record.syncState || record.syncStatus || '')))
+                .map((record: any) => record.id ?? record.key ?? record.code)
+                .filter((key: any) => key !== undefined && key !== null)
+                .map((key: any) => String(key)));
+              const safeServerRows = data.filter((record: any) => {
+                const key = record.id ?? record.key ?? record.code;
+                return key === undefined || key === null || !pendingNoStatus.has(String(key));
+              });
+              if (safeServerRows.length) await cacheTable.bulkPut(safeServerRows);
               continue;
             }
 
