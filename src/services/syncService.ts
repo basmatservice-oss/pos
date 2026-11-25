@@ -1,7 +1,7 @@
 import { apiService, getAuthToken } from './apiService';
 import { filterServerSnapshotPreservingLocalPending, getPendingSyncKeys } from '../utils/syncSnapshot';
 import { useSyncStore } from '../store/syncStore';
-import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
+import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, countNativeUnresolvedPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
 import { nativePosRepository, NATIVE_POS_ENTITIES } from '../native/nativePosRepository';
 import { readLegacyIndexedDBStores } from './nativeDatabaseMirror';
@@ -610,10 +610,10 @@ export const syncService = {
       // Dexie mirror entry prevent an authoritative server snapshot from
       // reconciling SQLite records.
       const pendingOpsCount = isLocalSqlite()
-        ? (await listNativePendingPosOperations()).length
+        ? await countNativeUnresolvedPosOperations()
         : await db.syncOperations
             .where('status')
-            .anyOf(['pending', 'error', 'syncing', 'conflict'])
+            .anyOf(['staging', 'pending', 'error', 'syncing', 'conflict'])
             .count();
 
       const pullTasks: Array<{
