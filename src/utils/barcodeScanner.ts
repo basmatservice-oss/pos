@@ -19,6 +19,10 @@ export const PRODUCT_BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.DATA_MATRIX,
   Html5QrcodeSupportedFormats.PDF_417,
   Html5QrcodeSupportedFormats.AZTEC,
+  Html5QrcodeSupportedFormats.MAXICODE,
+  Html5QrcodeSupportedFormats.RSS_14,
+  Html5QrcodeSupportedFormats.RSS_EXPANDED,
+  Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
 ];
 
 /**
