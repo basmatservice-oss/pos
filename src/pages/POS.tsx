@@ -31,7 +31,8 @@ import { useInventoryStore } from '../store/useInventoryStore';
 import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -270,35 +271,12 @@ export default function POS() {
           if (devices && devices.length > 0) {
             scannerRef.current = new Html5Qrcode('reader', {
               verbose: false,
-              formatsToSupport: [
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.ITF,
-                Html5QrcodeSupportedFormats.CODABAR,
-                Html5QrcodeSupportedFormats.QR_CODE,
-              ],
+              formatsToSupport: PRODUCT_BARCODE_FORMATS,
               experimentalFeatures: { useBarCodeDetectorIfSupported: true },
             } as any);
             await scannerRef.current.start(
               { facingMode: 'environment' },
-              {
-                fps: 20,
-                aspectRatio: 16 / 9,
-                disableFlip: false,
-                qrbox: (width, height) => ({
-                  width: Math.max(1, Math.min(width, Math.floor(width * 0.92))),
-                  height: Math.max(1, Math.min(height, Math.max(90, Math.min(190, Math.floor(height * 0.34))))),
-                }),
-                videoConstraints: {
-                  facingMode: { ideal: 'environment' },
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 },
-                },
-              } as any,
+              PRODUCT_BARCODE_CAMERA_CONFIG as any,
               (decodedText) => {
                 const now = Date.now();
                 if (lastScannedRef.current.code !== decodedText || now - lastScannedRef.current.time > 2000) {
