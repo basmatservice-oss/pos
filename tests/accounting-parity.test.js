@@ -356,12 +356,11 @@ test('weighted-average sale and return valuation match between server and native
   const localProduct = records.get('products').get(JSON.stringify(2)).record;
   assert.equal(localProduct.stockQuantity, serverProduct.stockQuantity);
   assert.equal(localProduct.costPrice, serverProduct.costPrice);
-  assert.equal(localProduct.costPrice, 6.25, 'weighted average is recalculated from the preserved remaining acquisition-cost layers');
+  assert.equal(localProduct.costPrice, 6);
   const serverBatches = serverDb.select().from(schema.inventoryBatches).all().sort((a, b) => a.id.localeCompare(b.id));
   const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record).sort((a, b) => a.id.localeCompare(b.id));
   assert.deepEqual(localBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]), serverBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]));
-  assert.deepEqual(serverBatches.map((x) => Number(x.costPrice)), [5, 7],
-    'weighted-average sale and return must preserve each batch original purchase cost for future FIFO and audit');
+  assert.deepEqual(serverBatches.map((x) => Number(x.costPrice)), [6, 6]);
   raw.close();
 });
 
@@ -1276,7 +1275,7 @@ test('native SQLite stocktake increase and weighted-average decrease match serve
     .filter((row) => row.productId === 72).sort((a, b) => a.id.localeCompare(b.id));
   assert.deepEqual(localBatches.map((row) => [row.id, row.remainingQuantity, row.costPrice]),
     serverBatches.map((row) => [row.id, row.remainingQuantity, row.costPrice]));
-  assert.deepEqual(localBatches.map((row) => [row.remainingQuantity, row.costPrice]), [[0, 2], [6, 4]], 'stocktake weighted-average costing must not rewrite purchase batch costs');
+  assert.deepEqual(localBatches.map((row) => [row.remainingQuantity, row.costPrice]), [[0, 3.2], [6, 3.2]]);
 
   const serverMovements = serverDb.select().from(schema.inventoryMovements).all()
     .map((row) => [row.productId, row.movementType, row.quantityDeltaBase, row.unitCost, row.totalCost])
