@@ -29,14 +29,15 @@ Repository coverage is not by itself proof that every page mutation is correctly
 
 The native operation dispatcher contains local SQLite paths for sales, sales returns and voids, purchase creation/update/deletion, purchase returns, expenses, customer and supplier payments, payroll, shift operations, stocktake approval, and entity synchronization. Each path still requires operation-specific parity evidence against the Windows server implementation.
 
-Current accounting parity tests exercise sale/partial-return valuation, FIFO and weighted-average costing, journal/COGS reversal behavior, stocktake valuation, service recipes/bundles, and purchase deletion with linked USD cost-anchor recalculation. The current test file does **not** contain a dedicated server-versus-native `purchase_update` scenario, so update parity (including cost-anchor recalculation) remains unproven despite the local update implementation and its preflight guards. Purchase creation and purchase-return behavior also need broader scenario coverage. The remaining release evidence is:
+Current accounting parity tests exercise sale/partial-return valuation, FIFO and weighted-average costing, journal/COGS reversal behavior, stocktake valuation, service recipes/bundles, and a server-versus-native purchase create → update → sale → sale return → purchase return sequence. The purchase update fixture checks stock, cost price, total amount and the linked USD cost anchor, but broader cases (supplier changes, landed costs, paid invoices, partially consumed batches and stale-version rejection) remain unproven. Purchase deletion has a separate native valuation test. The remaining release evidence is:
 
 1. Extend purchase create/update/delete parity to landed-cost allocation, supplier changes, paid invoices, extra-cost payment methods, partially consumed batches, purchase returns followed by edits, and concurrent/stale-version rejection.
 2. Expand purchase-return parity across returned quantity limits, batch depletion, supplier credit/cash effects and accounting reversals, including mixed-unit and repeated-line scenarios.
 3. End-to-end parity for expenses, customer/supplier payments, payroll, shifts and stocktake.
 4. Restart/crash tests around staged outbox operations, acknowledgement, retry, conflict and idempotent replay.
 5. Full route audit proving that no Android page or service writes business records directly to Dexie or IndexedDB after startup.
-6. Existing Android IndexedDB and Windows Electron legacy migration verification, including preserved keys and pending operations.
+6. Server-pull regression tests for local pending/error/conflict preservation on both SQLite and Dexie paths, including entities without a business-level syncStatus field.
+7. Existing Android IndexedDB and Windows Electron legacy migration verification, including preserved keys and pending operations.
 
 ## Transaction dispatcher inventory
 
