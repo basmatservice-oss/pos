@@ -4,6 +4,9 @@ name: Build Smart POS Android and Windows Packages
 # migrations are completed and verified. Builds may only be started manually.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - packaging/capacitor-electron22-win7-android8
 
 permissions:
   contents: read
