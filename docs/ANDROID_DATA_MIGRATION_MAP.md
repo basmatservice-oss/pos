@@ -29,7 +29,7 @@ Repository coverage is not by itself proof that every page mutation is correctly
 
 The CI unit-test command now executes both `tests/*.test.js` and `tests/*.test.ts`; the TypeScript integration suites are no longer silently excluded. The full current run completed 146/146 tests with zero failures, plus the Python purchase/currency migration test, TypeScript validation, browser build, native SQLite frontend build, and native renderer no-Dexie bundle check. This is automated CI evidence only, not physical-device verification.
 
-The expanded run exposed and led to fixes for the seeded administrator's first-login test credentials, numeric PIN validation, and weighted-average inventory costing overwriting original batch acquisition costs. Weighted-average issues now apply the average to COGS/current product cost while preserving batch acquisition costs across server, native SQLite, and Dexie inventory paths. The server/native weighted-average and stocktake parity tests assert the preserved batch values. Historical sale cost snapshots remain unchanged.
+The expanded run exposed and led to fixes for the seeded administrator's first-login test credentials and numeric PIN validation, and clarified the weighted-average inventory contract. Under weighted-average costing, remaining batch carrying values are revalued to the active average so later issues do not silently revert to FIFO layers; original purchase costs remain recorded on purchase-item and receipt-movement history. Switching methods does not rewrite historical sale cost snapshots. Server/native weighted-average and stocktake parity tests assert matching carrying values.
 
 ## Business operation coverage and proof still required
 
