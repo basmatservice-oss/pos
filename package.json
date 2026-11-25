@@ -19,7 +19,7 @@
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "lint": "tsc --noEmit",
-    "test:unit": "node --import tsx --test tests/*.test.js",
+    "test:unit": "node --import tsx --test tests/*.test.js tests/*.test.ts",
     "build:native": "cross-env POS_NATIVE_SQLITE_BUILD=1 vite build",
     "test:native-bundle": "node tests/native-bundle-check.cjs"
   },
