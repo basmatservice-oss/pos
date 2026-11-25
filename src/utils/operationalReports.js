@@ -244,6 +244,12 @@ export function buildOperationalReports({
     customerAge[bucketForAge(days)] += outstanding;
     receivableRows.push({ id: order.id, customer: order.customerName || 'عميل نقدي', date: order.createdAt, days, outstanding });
   }
+  const unallocatedCustomerCollections = customerPayments
+    .filter((payment) => !payment.orderId && new Date(payment.createdAt || payment.date || end).getTime() <= asOf)
+    .reduce((sum, payment) => sum + amount(payment.amount), 0);
+  const unallocatedSupplierPayments = supplierPayments
+    .filter((payment) => !payment.purchaseId && new Date(payment.createdAt || payment.date || end).getTime() <= asOf)
+    .reduce((sum, payment) => sum + amount(payment.amount), 0);
   const payableRows = [];
   for (const purchase of purchases.filter((row) => new Date(row.date || row.createdAt || '').getTime() <= asOf)) {
     const key = String(purchase.id);
@@ -419,6 +425,10 @@ export function buildOperationalReports({
     inventory: [...movementGroups.values()].sort((a, b) => b.count - a.count),
     receivablesAging: { total: Object.values(customerAge).reduce((sum, value) => sum + value, 0), buckets: customerAge, rows: receivableRows.sort((a, b) => b.days - a.days) },
     payablesAging: { total: Object.values(supplierAge).reduce((sum, value) => sum + value, 0), buckets: supplierAge, rows: payableRows.sort((a, b) => b.days - a.days) },
+    unallocatedPayments: {
+      customerCollections: unallocatedCustomerCollections,
+      supplierPayments: unallocatedSupplierPayments,
+    },
     inventoryAging: { totalValue: endingInventoryValue, buckets: ageInventory, rows: inventoryAgeRows, historicalSnapshotApproximate: end.getTime() < Date.now() - 86400000 },
     inventoryTurnover: { cogs: netCogs, beginningValue: beginningInventoryValue, averageValue: averageInventoryValue, endingValue: endingInventoryValue, ratio: inventoryTurnover, staleProducts: inventoryAgeRows.filter((row) => row.status === 'راكد').length },
     shifts: { count: shiftRows.length, closed: shiftRows.filter((row) => row.actualCash !== null).length,
