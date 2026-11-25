@@ -59,3 +59,13 @@ test('unknown local sync states do not block authoritative server refreshes', ()
   const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
   assert.deepEqual(filterServerSnapshotPreservingLocalPending(rows, pending), rows);
 });
+
+test('sync service applies the shared pending filter on SQLite and Dexie pull paths', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/services/syncService.ts', import.meta.url), 'utf8');
+  assert.match(source, /getPendingSyncKeys\(existingNative\.map/);
+  assert.match(source, /filterServerSnapshotPreservingLocalPending\(data, pendingIds\)/);
+  assert.match(source, /const pendingNoStatus = getPendingSyncKeys\(existingNoStatus\)/);
+  assert.match(source, /anyOf\(\['pending', 'error', 'syncing', 'conflict'\]\)/);
+  assert.match(source, /if \(pendingOpsCount > 0\) continue;[\s\S]*?const existingNoStatus/);
+});
