@@ -79,4 +79,5 @@ test('sync service applies the shared pending filter on SQLite and Dexie pull pa
   assert.match(source, /if \(pendingOpsCount > 0\) continue;[\s\S]*?const existingNoStatus/);
   const nativeDb = await readFile(new URL('../src/native/posLocalDatabase.ts', import.meta.url), 'utf8');
   assert.match(nativeDb, /countNativeUnresolvedPosOperations[\s\S]*?staging', 'pending', 'error', 'syncing', 'conflict/);
+  assert.match(nativeDb, /countNativeUnresolvedPosOperations[\s\S]*?throw new Error\('SQLite outbox is unavailable/);
 });
