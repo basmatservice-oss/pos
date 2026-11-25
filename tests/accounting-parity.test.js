@@ -360,6 +360,8 @@ test('weighted-average sale and return valuation match between server and native
   const serverBatches = serverDb.select().from(schema.inventoryBatches).all().sort((a, b) => a.id.localeCompare(b.id));
   const localBatches = [...records.get('inventoryBatches').values()].map((row) => row.record).sort((a, b) => a.id.localeCompare(b.id));
   assert.deepEqual(localBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]), serverBatches.map((x) => [x.id, x.remainingQuantity, x.costPrice]));
+  assert.deepEqual(serverBatches.map((x) => Number(x.costPrice)), [5, 7],
+    'weighted-average sale and return must preserve each batch original purchase cost for future FIFO and audit');
   raw.close();
 });
 
