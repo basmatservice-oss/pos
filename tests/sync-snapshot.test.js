@@ -81,3 +81,54 @@ test('sync service applies the shared pending filter on SQLite and Dexie pull pa
   assert.match(nativeDb, /countNativeUnresolvedPosOperations[\s\S]*?staging', 'pending', 'error', 'syncing', 'conflict/);
   assert.match(nativeDb, /countNativeUnresolvedPosOperations[\s\S]*?throw new Error\('SQLite outbox is unavailable/);
 });
+
+test('accounts and inventory alerts preserve unresolved SQLite rows without row-level syncStatus', () => {
+  for (const [entity, localRows, serverRows, expectedKeys] of [
+    [
+      'accounts',
+      [
+        { record: { code: '1100', name: 'local pending' }, syncState: 'pending' },
+        { record: { code: '2100', name: 'local error' }, syncState: 'error' },
+        { record: { code: '3100', name: 'local conflict' }, syncState: 'conflict' },
+        { record: { code: '4100', name: 'already synced' }, syncState: 'synced' },
+      ],
+      [
+        { code: '1100', name: 'stale server pending' },
+        { code: '2100', name: 'stale server error' },
+        { code: '3100', name: 'stale server conflict' },
+        { code: '4100', name: 'fresh server synced' },
+        { code: '5100', name: 'new server account' },
+      ],
+      ['4100', '5100'],
+    ],
+    [
+      'inventoryAlerts',
+      [
+        { record: { id: 'alert-pending', productName: 'local pending' }, syncState: 'pending' },
+        { record: { id: 'alert-error', productName: 'local error' }, syncState: 'error' },
+        { record: { id: 'alert-conflict', productName: 'local conflict' }, syncState: 'conflict' },
+        { record: { id: 'alert-synced', productName: 'old local copy' }, syncState: 'synced' },
+      ],
+      [
+        { id: 'alert-pending', productName: 'stale server pending' },
+        { id: 'alert-error', productName: 'stale server error' },
+        { id: 'alert-conflict', productName: 'stale server conflict' },
+        { id: 'alert-synced', productName: 'fresh server copy' },
+        { id: 'alert-new', productName: 'new server alert' },
+      ],
+      ['alert-new', 'alert-synced'],
+    ],
+  ]) {
+    const pendingKeys = getPendingSyncKeys(localRows.map(({ record, syncState }) => ({
+      ...record,
+      syncState,
+    })));
+    const accepted = filterServerSnapshotPreservingLocalPending(serverRows, pendingKeys);
+    assert.deepEqual(
+      accepted.map((record) => record.code ?? record.id).sort(),
+      expectedKeys,
+      entity + ' must not replace pending, error or conflict rows without syncStatus',
+    );
+  }
+});
+
