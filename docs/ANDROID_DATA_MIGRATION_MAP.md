@@ -25,6 +25,12 @@ The native repository registry covers the following persisted entities:
 
 Repository coverage is not by itself proof that every page mutation is correctly routed through it. UI writes must continue to use `posDataAccess` or the operation dispatcher; stock, balances, accounting and source-document changes must not bypass business operations.
 
+## Automated validation baseline (2026-11-25)
+
+The CI unit-test command now executes both `tests/*.test.js` and `tests/*.test.ts`; the TypeScript integration suites are no longer silently excluded. The full current run completed 146/146 tests with zero failures, plus the Python purchase/currency migration test, TypeScript validation, browser build, native SQLite frontend build, and native renderer no-Dexie bundle check. This is automated CI evidence only, not physical-device verification.
+
+The expanded run exposed and led to fixes for the seeded administrator's first-login test credentials, numeric PIN validation, and weighted-average inventory costing overwriting original batch acquisition costs. Weighted-average issues now apply the average to COGS/current product cost while preserving batch acquisition costs across server, native SQLite, and Dexie inventory paths. The server/native weighted-average and stocktake parity tests assert the preserved batch values. Historical sale cost snapshots remain unchanged.
+
 ## Business operation coverage and proof still required
 
 The native operation dispatcher contains local SQLite paths for sales, sales returns and voids, purchase creation/update/deletion, purchase returns, expenses, customer and supplier payments, payroll, shift operations, stocktake approval, and entity synchronization. Each path still requires operation-specific parity evidence against the Windows server implementation.
