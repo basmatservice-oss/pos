@@ -783,7 +783,7 @@ test('end-to-end server business operations and native SQLite operations match f
   }), /لا يمكن تعديل أو حذف فاتورة شراء تم بيع جزء من مخزونها/);
   await assert.rejects(
     dispatchOperation('purchase_update', consumedPurchaseUpdatePayload, 1),
-    /استُهلك مخزونها|لا يمكن تعديل فاتورة شراء/,
+    /استُهلك مخزونها|لا يمكن تعديل فاتورة شراء|إحدى دفعاتها مستهلكة/,
   );
   const serverAfterRejectedUpdate = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
   const localAfterRejectedUpdate = records.get('products').get(JSON.stringify(2)).record;
