@@ -681,6 +681,46 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.equal(serverUpdatedPurchase.totalAmount, 120);
   assert.equal(localUpdatedPurchase.totalAmount, serverUpdatedPurchase.totalAmount);
 
+  // Updating an unconsumed receipt must reverse the original supplier/accounting
+  // effects, replace its stock batch, and leave both implementations equivalent.
+  const serverSupplierAfterUpdate = serverDb.select().from(schema.suppliers).all().find((row) => row.id === 92);
+  const localSupplierAfterUpdate = records.get('suppliers').get(JSON.stringify(92)).record;
+  assert.equal(serverSupplierAfterUpdate.balance, 120);
+  assert.equal(localSupplierAfterUpdate.balance, serverSupplierAfterUpdate.balance);
+
+  const serverPurchaseJournalsAfterUpdate = serverDb.select().from(schema.journalEntries).all()
+    .filter((entry) => String(entry.referenceId) === 'parity-purchase-2');
+  const localPurchaseJournalsAfterUpdate = [...records.get('journalEntries').values()].map((row) => row.record)
+    .filter((entry) => String(entry.referenceId) === 'parity-purchase-2');
+  assert.ok(serverPurchaseJournalsAfterUpdate.some((entry) => entry.status === 'reversed' && entry.reversedEntryId),
+    'server must reverse the original purchase journal during update');
+  assert.ok(serverPurchaseJournalsAfterUpdate.some((entry) => entry.status === 'posted'),
+    'server must post replacement purchase accounting during update');
+  assert.deepEqual(
+    localPurchaseJournalsAfterUpdate.map((entry) => [entry.id, entry.status, entry.reversedEntryId || null, entry.totalDebit, entry.totalCredit]).sort(),
+    serverPurchaseJournalsAfterUpdate.map((entry) => [entry.id, entry.status, entry.reversedEntryId || null, entry.totalDebit, entry.totalCredit]).sort(),
+    'native purchase update must match server journal reversal and replacement',
+  );
+  const serverPurchaseBatchAfterUpdate = serverDb.select().from(schema.inventoryBatches).all()
+    .filter((batch) => String(batch.purchaseId) === 'parity-purchase-2');
+  const localPurchaseBatchAfterUpdate = [...records.get('inventoryBatches').values()].map((row) => row.record)
+    .filter((batch) => String(batch.purchaseId) === 'parity-purchase-2');
+  assert.equal(serverPurchaseBatchAfterUpdate.length, 1);
+  assert.equal(localPurchaseBatchAfterUpdate.length, serverPurchaseBatchAfterUpdate.length);
+  assert.equal(serverPurchaseBatchAfterUpdate[0].quantity, 10);
+  assert.equal(serverPurchaseBatchAfterUpdate[0].remainingQuantity, 10);
+  assert.equal(localPurchaseBatchAfterUpdate[0].costPrice, serverPurchaseBatchAfterUpdate[0].costPrice);
+  const serverPurchaseMovementsAfterUpdate = serverDb.select().from(schema.inventoryMovements).all()
+    .filter((movement) => String(movement.sourceId) === 'parity-purchase-2')
+    .map((movement) => [movement.movementType, movement.quantityDeltaBase, movement.unitCost, movement.totalCost])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const localPurchaseMovementsAfterUpdate = [...records.get('inventoryMovements').values()].map((row) => row.record)
+    .filter((movement) => String(movement.sourceId) === 'parity-purchase-2')
+    .map((movement) => [movement.movementType, movement.quantityDeltaBase, movement.unitCost, movement.totalCost])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  assert.deepEqual(localPurchaseMovementsAfterUpdate, serverPurchaseMovementsAfterUpdate,
+    'native purchase update must reverse old stock movements and record the replacement receipt');
+
   const purchaseSalePayload = {
     operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
     order: {
@@ -719,6 +759,20 @@ test('end-to-end server business operations and native SQLite operations match f
     operationId: 'purchase-sale-return-op-parity-2', deviceId: 'parity-device', userName: 'tester',
   });
   await dispatchOperation('return', localPurchaseSaleReturnPayload, 1);
+
+  // A receipt whose batch has been partially consumed must not be editable:
+  // otherwise the reversal could silently remove stock already sold.
+  const consumedPurchaseUpdatePayload = {
+    ...purchaseUpdatePayload,
+    operationId: 'purchase-update-consumed-op-parity-2',
+  };
+  assert.throws(() => executeBusinessOperation(serverDb, 'purchase_update', consumedPurchaseUpdatePayload, {
+    operationId: consumedPurchaseUpdatePayload.operationId, deviceId: consumedPurchaseUpdatePayload.deviceId, userName: 'tester',
+  }), /لا يمكن تعديل أو حذف فاتورة شراء تم بيع جزء من مخزونها/);
+  await assert.rejects(
+    dispatchOperation('purchase_update', consumedPurchaseUpdatePayload, 1),
+    /استُهلك مخزونها|لا يمكن تعديل فاتورة شراء/,
+  );
 
   // Exercise the same weighted-average and FX anchor rules on both paths
   // specifically during purchase return (the earlier sale/return fixture uses FIFO).
