@@ -156,10 +156,10 @@ test('E2E 01: Cold Boot, Health, Security Guard, Onboarding & Default Password C
   });
   assert.equal(duplicateOnboard.status, 409);
 
-  // 4. First login with seeded admin (123456) -> mustChangePassword === 1, secrets stripped
+  // 4. First login with seeded admin (admin) -> mustChangePassword === 1, secrets stripped
   const login1 = await api('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: '123456' }),
+    body: JSON.stringify({ username: 'admin', password: 'admin' }),
   });
   assert.equal(login1.status, 200);
   assert.ok(login1.data.token);
@@ -173,7 +173,7 @@ test('E2E 01: Cold Boot, Health, Security Guard, Onboarding & Default Password C
     {
       method: 'POST',
       body: JSON.stringify({
-        currentPassword: '123456',
+        currentPassword: 'admin',
         newPassword: 'ProdAdmin!2026',
         newPinCode: '9876',
       }),
@@ -186,7 +186,7 @@ test('E2E 01: Cold Boot, Health, Security Guard, Onboarding & Default Password C
   // Old password rejected, new password + PIN work
   const badLogin = await api('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: '123456' }),
+    body: JSON.stringify({ username: 'admin', password: 'admin' }),
   });
   assert.equal(badLogin.status, 401);
 
