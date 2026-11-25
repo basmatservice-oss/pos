@@ -20,9 +20,11 @@ function getRecordKey(record: SyncSnapshotRecord): string | null {
 export function getPendingSyncKeys(localRows: SyncSnapshotRecord[]): Set<string> {
   const keys = new Set<string>();
   for (const row of localRows) {
-    const state = String(row.syncState ?? row.syncStatus ?? '');
+    // Native repositories store queue state beside the row, while the
+    // business record may independently carry conflict in syncStatus.
+    const states = [row.syncState, row.syncStatus].map((value) => String(value ?? ''));
     const key = getRecordKey(row);
-    if (key !== null && PENDING_SYNC_STATES.has(state)) keys.add(key);
+    if (key !== null && states.some((state) => PENDING_SYNC_STATES.has(state))) keys.add(key);
   }
   return keys;
 }
