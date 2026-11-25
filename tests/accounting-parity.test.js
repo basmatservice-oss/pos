@@ -733,6 +733,26 @@ test('end-to-end server business operations and native SQLite operations match f
   assert.deepEqual(localPurchaseMovementsAfterUpdate, serverPurchaseMovementsAfterUpdate,
     'native purchase update must reverse old stock movements and record the replacement receipt');
 
+  const serverJournalCountBeforeReplay = serverDb.select().from(schema.journalEntries).all()
+    .filter((entry) => String(entry.referenceId) === 'parity-purchase-2').length;
+  const localJournalCountBeforeReplay = records.get('journalEntries').size;
+  const serverMovementCountBeforeReplay = serverDb.select().from(schema.inventoryMovements).all()
+    .filter((movement) => String(movement.sourceId) === 'parity-purchase-2').length;
+  const localMovementCountBeforeReplay = records.get('inventoryMovements').size;
+  const duplicateUpdateResult = executeBusinessOperation(serverDb, 'purchase_update', purchaseUpdatePayload, {
+    operationId: purchaseUpdatePayload.operationId, deviceId: purchaseUpdatePayload.deviceId, userName: 'tester',
+  });
+  assert.equal(duplicateUpdateResult.duplicate, true, 'server must replay the cached result for a duplicate update operation');
+  await dispatchOperation('purchase_update', purchaseUpdatePayload, 1);
+  assert.equal(records.get('products').get(JSON.stringify(2)).record.stockQuantity, 10);
+  assert.equal(records.get('suppliers').get(JSON.stringify(92)).record.balance, 120);
+  assert.equal(serverDb.select().from(schema.journalEntries).all()
+    .filter((entry) => String(entry.referenceId) === 'parity-purchase-2').length, serverJournalCountBeforeReplay);
+  assert.equal(records.get('journalEntries').size, localJournalCountBeforeReplay);
+  assert.equal(serverDb.select().from(schema.inventoryMovements).all()
+    .filter((movement) => String(movement.sourceId) === 'parity-purchase-2').length, serverMovementCountBeforeReplay);
+  assert.equal(records.get('inventoryMovements').size, localMovementCountBeforeReplay);
+
   const purchaseSalePayload = {
     operationId: 'purchase-sale-op-parity-2', deviceId: 'parity-device',
     order: {
