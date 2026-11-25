@@ -50,6 +50,14 @@ test('numeric and string primary keys reconcile identically and empty identifier
   assert.deepEqual(filterServerSnapshotPreservingLocalPending(rows, pending), [rows[2], rows[3]]);
 });
 
+test('conflict is preserved when native row metadata says local but business syncStatus says conflict', () => {
+  const pending = getPendingSyncKeys([
+    { id: 'conflicted-account', syncState: 'local', syncStatus: 'conflict' },
+    { id: 'pending-alert', syncState: 'pending', syncStatus: 'synced' },
+  ]);
+  assert.deepEqual([...pending].sort(), ['conflicted-account', 'pending-alert']);
+});
+
 test('unknown local sync states do not block authoritative server refreshes', () => {
   const pending = getPendingSyncKeys([
     { id: 'a', syncState: 'synced' },
@@ -66,6 +74,9 @@ test('sync service applies the shared pending filter on SQLite and Dexie pull pa
   assert.match(source, /getPendingSyncKeys\(existingNative\.map/);
   assert.match(source, /filterServerSnapshotPreservingLocalPending\(data, pendingIds\)/);
   assert.match(source, /const pendingNoStatus = getPendingSyncKeys\(existingNoStatus\)/);
-  assert.match(source, /anyOf\(\['pending', 'error', 'syncing', 'conflict'\]\)/);
+  assert.match(source, /countNativeUnresolvedPosOperations\(\)/);
+  assert.match(source, /anyOf\(\['staging', 'pending', 'error', 'syncing', 'conflict'\]\)/);
   assert.match(source, /if \(pendingOpsCount > 0\) continue;[\s\S]*?const existingNoStatus/);
+  const nativeDb = await readFile(new URL('../src/native/posLocalDatabase.ts', import.meta.url), 'utf8');
+  assert.match(nativeDb, /countNativeUnresolvedPosOperations[\s\S]*?staging', 'pending', 'error', 'syncing', 'conflict/);
 });
