@@ -544,6 +544,11 @@ test('3. Inventory Valuation Method Toggle (Weighted Average vs FIFO)', async ()
   );
   assert.equal(saleWa.status, 201);
   assert.equal(saleWa.data.result.items[0].costPriceAtTimeOfSale, 15);
+  const batchesAfterWeightedSale = ((await api('/api/inventoryBatches', {}, adminToken)).data as any[])
+    .filter((batch) => Number(batch.productId) === Number(prod.id))
+    .sort((a, b) => Number(a.costPrice) - Number(b.costPrice));
+  assert.deepEqual(batchesAfterWeightedSale.map((batch) => Number(batch.costPrice)), [10, 20],
+    'weighted-average issues must not overwrite original acquisition costs on remaining FIFO batches');
 
   // Switch back to FIFO -> next sale pulls from remaining Batch 1 (@ 10)
   await api(
