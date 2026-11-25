@@ -239,11 +239,8 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       if (activeQty > 0) weightedCost = Math.round((activeValue / activeQty) * 10000) / 10000;
     }
     if (weightedAverage) {
-      for (const batch of activeBatches) {
-        const updated = { ...batch, costPrice: weightedCost, updatedAt: now, syncStatus };
-        batchMap.set(String(batch.id), updated);
-        stage('inventoryBatches', updated);
-      }
+      // Keep each batch's acquisition cost immutable. The weighted-average
+      // amount applies to this issue and the product's current cost only.
       const updatedProduct = { ...product, costPrice: roundMoney(weightedCost), updatedAt: now, syncStatus };
       productMap.set(Number(productId), updatedProduct);
       stage('products', updatedProduct);
@@ -255,7 +252,7 @@ async function applySaleLocallyNative(payload: any, syncStatus: 'synced' | 'pend
       const available = Number(batch.remainingQuantity || 0), take = roundQty(Math.min(remaining, available));
       if (take <= 0) continue;
       const costPrice = weightedAverage ? weightedCost : Number(batch.costPrice || 0);
-      const updated = { ...batch, ...(weightedAverage ? { costPrice: weightedCost } : {}),
+      const updated = { ...batch,
         remainingQuantity: roundQty(Math.max(0, available - take)), updatedAt: now, syncStatus };
       batchMap.set(String(batch.id), updated); stage('inventoryBatches', updated);
       totalCost += take * costPrice; allocations.push({ batchId: String(batch.id), quantity: take, costPrice });
