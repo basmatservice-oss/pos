@@ -107,6 +107,17 @@ export async function enqueueNativePosOperation(operation: PosQueuedOperation): 
   return result.queued;
 }
 
+export async function countNativeUnresolvedPosOperations(): Promise<number> {
+  const unresolved = new Set(['staging', 'pending', 'error', 'syncing', 'conflict']);
+  if (isElectronLocalClient()) {
+    const all = (await electronPosRepository.listOperations(false)).operations;
+    return (all as any[]).filter((operation) => unresolved.has(String(operation.status || ''))).length;
+  }
+  if (!(await ensureNativePosDatabase())) return 0;
+  const all = (await posLocalDatabase.listAllOperations()).operations;
+  return (all as any[]).filter((operation) => unresolved.has(String(operation.status || ''))).length;
+}
+
 export async function listNativePendingPosOperations() {
   const now = Date.now();
   const stagingTimeoutMs = 5 * 60 * 1000;
