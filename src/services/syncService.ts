@@ -1,4 +1,5 @@
 import { apiService, getAuthToken } from './apiService';
+import { filterServerSnapshotPreservingLocalPending, getPendingSyncKeys } from '../utils/syncSnapshot';
 import { useSyncStore } from '../store/syncStore';
 import { isNativeAndroid, ensureNativePosDatabase, posLocalDatabase, listNativePendingPosOperations, getNativePosRecord, enqueueNativePosOperation, acknowledgeNativePosOperation, markNativePosOperationError, markNativePosOperationConflict } from '../native/posLocalDatabase';
 import { reconcileLocalOperationAfterAck, remapPendingEntityReferences } from './localOperationReconciliation';
@@ -693,24 +694,15 @@ export const syncService = {
                 const key = record.id ?? record.key ?? record.code;
                 return [key === undefined || key === null ? '' : String(key), record];
               }));
-              const pendingLocal = existingNative.filter((item) =>
-                ['pending', 'error', 'conflict'].includes(String(item.syncState || ''))
-              );
-              const pendingIds = new Set(pendingLocal.map((item) => {
-                const record: any = item.record;
-                const key = record.id ?? record.key ?? record.code;
-                return key === undefined || key === null ? '' : String(key);
-              }));
+              const pendingIds = getPendingSyncKeys(existingNative.map((item) => ({
+                ...(item.record as any), syncState: item.syncState,
+              })));
 
               if (task.noSyncStatus) {
                 // Accounts and inventory alerts do not expose a syncStatus field,
                 // but their native repository rows still carry syncState. Never
                 // let a server pull overwrite a local row with an unresolved write.
-                const changes = data
-                  .filter((record: any) => {
-                    const key = record.id ?? record.key ?? record.code;
-                    return key === undefined || key === null || !pendingIds.has(String(key));
-                  })
+                const changes = filterServerSnapshotPreservingLocalPending(data, pendingIds)
                   .map((record: any) => ({
                     action: 'put' as const, entity: entity as any, record, syncState: 'synced' as const,
                   }));
@@ -734,10 +726,7 @@ export const syncService = {
                 }
               }
 
-              let filtered = data.filter((item: any) => {
-                const key = item.id ?? item.key ?? item.code;
-                return key === undefined || key === null || !pendingIds.has(String(key));
-              });
+              let filtered = filterServerSnapshotPreservingLocalPending(data, pendingIds);
               if (task.excludeKeys) {
                 const excluded = new Set(task.excludeKeys);
                 filtered = filtered.filter((item: any) => !excluded.has(item.key));
@@ -767,15 +756,8 @@ export const syncService = {
               // These tables intentionally omit syncStatus from their business
               // schema, but pending local writes must still win over a server pull.
               const existingNoStatus = await cacheTable.toArray();
-              const pendingNoStatus = new Set(existingNoStatus
-                .filter((record: any) => ['pending', 'error', 'conflict'].includes(String(record.syncState || record.syncStatus || '')))
-                .map((record: any) => record.id ?? record.key ?? record.code)
-                .filter((key: any) => key !== undefined && key !== null)
-                .map((key: any) => String(key)));
-              const safeServerRows = data.filter((record: any) => {
-                const key = record.id ?? record.key ?? record.code;
-                return key === undefined || key === null || !pendingNoStatus.has(String(key));
-              });
+              const pendingNoStatus = getPendingSyncKeys(existingNoStatus);
+              const safeServerRows = filterServerSnapshotPreservingLocalPending(data, pendingNoStatus);
               if (safeServerRows.length) await cacheTable.bulkPut(safeServerRows);
               continue;
             }
@@ -783,11 +765,9 @@ export const syncService = {
             const existingAll = await cacheTable.toArray();
             const existingById = new Map(existingAll.map((r: any) => [r.id ?? r.key ?? r.code, r]));
 
-            const pendingLocal = await cacheTable
-              .where('syncStatus')
-              .anyOf(['pending', 'error'])
-              .toArray();
-            const pendingIds = new Set(pendingLocal.map((r: any) => r.id ?? r.key ?? r.code));
+            // Read all rows so conflict states are protected as well; not every
+            // legacy table has a syncStatus index or even a syncStatus field.
+            const pendingIds = getPendingSyncKeys(existingAll);
 
             if (task.authoritativeReplaceSynced && pendingOpsCount === 0) {
               const serverIds = new Set(data.map((d: any) => String(d.id ?? d.key ?? d.code)));
@@ -800,7 +780,7 @@ export const syncService = {
               }
             }
 
-            let filtered = data.filter((item: any) => !pendingIds.has(item.id ?? item.key ?? item.code));
+            let filtered = filterServerSnapshotPreservingLocalPending(data, pendingIds);
             if (task.excludeKeys) {
               const excl = new Set(task.excludeKeys);
               filtered = filtered.filter((item: any) => !excl.has(item.key));
