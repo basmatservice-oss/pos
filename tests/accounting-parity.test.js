@@ -773,6 +773,17 @@ test('end-to-end server business operations and native SQLite operations match f
     dispatchOperation('purchase_update', consumedPurchaseUpdatePayload, 1),
     /استُهلك مخزونها|لا يمكن تعديل فاتورة شراء/,
   );
+  const serverAfterRejectedUpdate = serverDb.select().from(schema.products).all().find((row) => row.id === 2);
+  const localAfterRejectedUpdate = records.get('products').get(JSON.stringify(2)).record;
+  assert.equal(serverAfterRejectedUpdate.stockQuantity, 8,
+    'rejected server update must not reverse stock already consumed by sales');
+  assert.equal(localAfterRejectedUpdate.stockQuantity, serverAfterRejectedUpdate.stockQuantity,
+    'rejected native update must leave stock unchanged');
+  const serverPurchaseAfterRejectedUpdate = serverDb.select().from(schema.purchases).all()
+    .find((row) => row.id === 'parity-purchase-2');
+  const localPurchaseAfterRejectedUpdate = records.get('purchases').get(JSON.stringify('parity-purchase-2')).record;
+  assert.equal(serverPurchaseAfterRejectedUpdate.totalAmount, 120);
+  assert.equal(localPurchaseAfterRejectedUpdate.totalAmount, serverPurchaseAfterRejectedUpdate.totalAmount);
 
   // Exercise the same weighted-average and FX anchor rules on both paths
   // specifically during purchase return (the earlier sale/return fixture uses FIFO).
