@@ -29,6 +29,7 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
 import { useReactToPrint } from 'react-to-print';
 import type { Product, Customer, Order, OrderItem, StocktakingEntry } from '../db/db';
 import toast from 'react-hot-toast';
@@ -117,12 +118,16 @@ const MobileSales: React.FC = () => {
 
         try {
           await stopScanner();
-          const html5QrCode = new Html5Qrcode('mobile-reader');
+          const html5QrCode = new Html5Qrcode('mobile-reader', {
+            verbose: false,
+            formatsToSupport: PRODUCT_BARCODE_FORMATS,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          } as any);
           scannerRef.current = html5QrCode;
 
           await html5QrCode.start(
             { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            PRODUCT_BARCODE_CAMERA_CONFIG as any,
             (decodedText) => {
               const nowTs = Date.now();
               if (decodedText === lastScannedRef.current.code && nowTs - lastScannedRef.current.time < 3000) return;
