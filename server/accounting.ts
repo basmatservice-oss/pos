@@ -401,14 +401,9 @@ export function consumeInventoryFIFO(
     }
     if (activeQty > 0) {
       weightedUnitCost = Math.round((activeVal / activeQty) * 10000) / 10000;
-      // Keep the remaining batch valuation aligned with the weighted-average
-      // COGS applied to this issue, so later issues do not drift back to FIFO layer costs.
-      for (const batch of availableBatches) {
-        tx.update(inventoryBatches)
-          .set({ costPrice: weightedUnitCost, updatedAt: now, isSynced: 0 })
-          .where(eq(inventoryBatches.id, batch.id))
-          .run();
-      }
+      // Batch costPrice is the immutable acquisition cost used by FIFO and
+      // purchase-history reports. Weighted-average COGS is applied to this
+      // issue only; never rewrite the source batch costs when the method changes.
     }
   }
 
