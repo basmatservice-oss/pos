@@ -554,7 +554,7 @@ export default function Inventory() {
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber || undefined,
         unit: formData.unit || 'piece',
-        baseUnitCode: getBaseUnitDimension(formData.unit),
+        baseUnitCode: editingProduct ? (editingProduct.baseUnitCode || 'legacy') : getBaseUnitDimension(formData.unit),
         conversionFactor: editingProduct?.conversionFactor || 1,
         itemType: formData.itemType,
         allowFractions: formData.allowFractions,
@@ -1346,6 +1346,15 @@ export default function Inventory() {
                         <option value="سنتيمتر">سنتيمتر</option>
                         <option value="متر">متر</option>
                         <option value="كيلومتر">كيلومتر</option>
+                        <option value="kg">Kilogram (kg)</option>
+                        <option value="g">Gram (g)</option>
+                        <option value="liter">Liter</option>
+                        <option value="ml">Milliliter (ml)</option>
+                        <option value="m">Meter (m)</option>
+                        <option value="cm">Centimeter (cm)</option>
+                        <option value="mm">Millimeter (mm)</option>
+                        <option value="m2">Square meter (m²)</option>
+                        <option value="m3">Cubic meter (m³)</option>
                         <option value="متر مربع">متر مربع</option>
                         <option value="سنتيمتر مربع">سنتيمتر مربع</option>
                       </optgroup>
