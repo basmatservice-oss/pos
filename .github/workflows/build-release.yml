@@ -3,6 +3,11 @@ name: Build Smart POS Android and Windows Packages
 # Packaging is intentionally paused while the Android and Windows SQLite
 # migrations are completed and verified. Builds may only be started manually.
 on:
+  push:
+    branches:
+      - packaging/capacitor-electron22-win7-android8
+    paths:
+      - 'src/utils/barcodeScanner.ts'
   workflow_dispatch:
 
 permissions:
