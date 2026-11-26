@@ -20,6 +20,7 @@ import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import ProductPriceManager from '../components/ProductPriceManager';
+import { getBaseUnitDimension } from '../utils/standardUnits.js';
 import { findProductBarcodeMatch } from '../utils/productUnits';
 import { buildProductPricingAnchors, buildProductUnitFxAnchors } from '../utils/exchangePricing';
 import { compressProductImage } from '../utils/productImage';
@@ -553,6 +554,7 @@ export default function Inventory() {
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber || undefined,
         unit: formData.unit || 'piece',
+        baseUnitCode: getBaseUnitDimension(formData.unit),
         conversionFactor: editingProduct?.conversionFactor || 1,
         itemType: formData.itemType,
         allowFractions: formData.allowFractions,
@@ -1352,7 +1354,6 @@ export default function Inventory() {
                         <option value="ساعة">ساعة</option>
                         <option value="يوم">يوم</option>
                       </optgroup>
-                      {formData.unit === 'box' && <option value="box">صندوق / كرتون (وحدة أساسية قديمة)</option>}
                     </select>
                     <p className="mt-1 text-xs leading-5 text-gray-500">المخزون يُحفظ بهذه الوحدة. إذا كنت تشتري بالقطعة وتبيع بالكرتونة، اجعل القطعة هي الوحدة الأساسية وأضف الكرتونة كوحدة بيع إضافية.</p>
                   </div>
