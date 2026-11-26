@@ -123,3 +123,37 @@ test('camera focus and zoom tuning does not discard the requested HD resolution'
   assert.equal(applied.height.ideal, 1080);
   assert.deepEqual(applied.advanced, [{ focusMode: 'continuous' }, { zoom: 2 }]);
 });
+
+
+test('camera startup falls back to direct rear-facing capture when Android returns no devices', async () => {
+  const originalGetCameras = Html5Qrcode.getCameras;
+  let selectedSource;
+  Html5Qrcode.getCameras = async () => [];
+  try {
+    const scanner = {
+      start: async (source) => { selectedSource = source; },
+      applyVideoConstraints: async () => {},
+    };
+    const selected = await startProductBarcodeCamera(scanner, () => {}, () => {});
+    assert.deepEqual(selectedSource, { facingMode: { ideal: 'environment' } });
+    assert.equal(selected.id, 'environment');
+  } finally {
+    Html5Qrcode.getCameras = originalGetCameras;
+  }
+});
+
+test('camera startup still tries direct rear-facing capture when device enumeration throws', async () => {
+  const originalGetCameras = Html5Qrcode.getCameras;
+  let selectedSource;
+  Html5Qrcode.getCameras = async () => { throw new Error('enumerateDevices unavailable'); };
+  try {
+    const scanner = {
+      start: async (source) => { selectedSource = source; },
+      applyVideoConstraints: async () => {},
+    };
+    await startProductBarcodeCamera(scanner, () => {}, () => {});
+    assert.deepEqual(selectedSource, { facingMode: { ideal: 'environment' } });
+  } finally {
+    Html5Qrcode.getCameras = originalGetCameras;
+  }
+});
