@@ -41,7 +41,6 @@ export default function Inventory() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const mainSearchInputRef = useRef<HTMLInputElement>(null);
   const deviceInputRef = useRef<HTMLInputElement>(null);
-  const lastScannedTimeRef = useRef<Record<string, number>>({});
   const isSavingProductRef = useRef(false);
   const scanGateRef = useRef(createBarcodeScanGate(1400));
   const isHandlingBarcodeRef = useRef(false);
@@ -242,27 +241,29 @@ export default function Inventory() {
     const barcode = normalizeBarcodeValue(rawBarcode);
     if (!barcode || isHandlingBarcodeRef.current || !scanGateRef.current(barcode)) return;
     isHandlingBarcodeRef.current = true;
-    lastScannedTimeRef.current[barcode] = Date.now();
-
-    // Optimized lookup using memory cache
-    const existingProduct = getProductByBarcode(barcode);
-    setIsScannerModalOpen(false);
-    
-    if (existingProduct) {
-      toast.success(`تم العثور على المنتج: ${existingProduct.name}`);
-      handleOpenModal(existingProduct);
-    } else {
-      // Fallback to DB
-      const dbProducts = await getPosRecords<Product>('products');
-      const dbMatch = findProductBarcodeMatch(dbProducts, barcode);
-      if (dbMatch) {
-        handleOpenModal(dbMatch.product);
+    try {
+      const existingProduct = getProductByBarcode(barcode);
+      setIsScannerModalOpen(false);
+      if (existingProduct) {
+        toast.success('تم العثور على المنتج: ' + existingProduct.name);
+        handleOpenModal(existingProduct);
       } else {
-        toast.success('منتج جديد، يرجى إكمال البيانات');
-        handleOpenModal(undefined, barcode);
+        const dbProducts = await getPosRecords<Product>('products');
+        const dbMatch = findProductBarcodeMatch(dbProducts, barcode);
+        if (dbMatch) {
+          handleOpenModal(dbMatch.product);
+        } else {
+          toast.success('منتج جديد، يرجى إكمال البيانات');
+          handleOpenModal(undefined, barcode);
+        }
       }
+    } catch (error) {
+      console.error('Barcode lookup failed:', error);
+      toast.error('تعذر البحث عن الباركود، حاول مرة أخرى');
+      setIsScannerModalOpen(false);
+    } finally {
+      isHandlingBarcodeRef.current = false;
     }
-    isHandlingBarcodeRef.current = false;
   };
 
   const generateBarcode = () => {
