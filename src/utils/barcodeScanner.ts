@@ -58,3 +58,66 @@ export const PRODUCT_BARCODE_CAMERA_CONFIG = {
     height: { ideal: 1080 },
   },
 };
+
+/**
+ * Capture HID keyboard-wedge scanners even when a particular input is not focused.
+ * Most USB/Bluetooth scanners type a burst of characters followed by Enter/Tab.
+ * Ordinary human typing is ignored unless the characters arrive at scanner speed.
+ */
+export function attachBarcodeKeyboardListener(
+  onBarcode: (barcode: string) => void,
+  options: { maxInterKeyDelayMs?: number; minLength?: number; maxLength?: number } = {},
+): () => void {
+  const maxInterKeyDelayMs = options.maxInterKeyDelayMs ?? 120;
+  const minLength = options.minLength ?? 4;
+  const maxLength = options.maxLength ?? 128;
+  let buffer = '';
+  let lastKeyAt = 0;
+
+  const reset = () => {
+    buffer = '';
+    lastKeyAt = 0;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
+      reset();
+      return;
+    }
+
+    const now = Date.now();
+    if (lastKeyAt && now - lastKeyAt > maxInterKeyDelayMs) reset();
+
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const barcode = normalizeBarcodeValue(buffer);
+      if (barcode.length >= minLength) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        reset();
+        onBarcode(barcode);
+      } else {
+        reset();
+      }
+      return;
+    }
+
+    if (event.key.length !== 1) {
+      if (event.key === 'Escape') reset();
+      return;
+    }
+
+    // Ignore whitespace and control characters, but preserve all printable
+    // barcode characters including leading zeroes and punctuation.
+    if (/^[\\x20-\\x7E]$/.test(event.key)) {
+      buffer += event.key;
+      lastKeyAt = now;
+      if (buffer.length > maxLength) reset();
+    } else {
+      reset();
+    }
+  };
+
+  document.addEventListener('keydown', handleKeyDown, true);
+  return () => document.removeEventListener('keydown', handleKeyDown, true);
+}
+
