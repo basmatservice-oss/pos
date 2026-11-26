@@ -1,3 +1,5 @@
+import { getBaseUnitDimension } from './standardUnits.js';
+
 /**
  * Canonical, deterministic representation of legacy Product.unitsJson entries.
  * ProductUnit + UnitDefinition become the normalized catalog; unitsJson remains
@@ -14,7 +16,7 @@ export function normalizeUnitCode(name, dimension = 'legacy') {
 export function buildCanonicalProductUnits(product = {}) {
   const productId = Number(product.id);
   if (!Number.isSafeInteger(productId) || productId <= 0) return { definitions: [], units: [] };
-  const dimension = String(product.baseUnitCode || 'legacy').trim() || 'legacy';
+  const dimension = String(product.baseUnitCode || getBaseUnitDimension(product.unit) || 'legacy').trim() || 'legacy';
   const now = product.updatedAt || new Date().toISOString();
   const definitions = new Map();
   const units = new Map();
