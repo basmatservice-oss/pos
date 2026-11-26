@@ -1,4 +1,4 @@
-import { Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 // Build trigger: verified barcode capture, normalization, and camera tuning.
 
 import { normalizeBarcodeValue } from './barcodeValue';
@@ -51,7 +51,6 @@ export const PRODUCT_BARCODE_CAMERA_CONFIG = {
   disableFlip: true,
   // Do not put videoConstraints here: html5-qrcode gives them precedence over
   // the camera id passed to start(), which can silently defeat rear-camera selection.
-  useBarCodeDetectorIfSupported: false,
 };
 
 export const PRODUCT_BARCODE_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
@@ -78,7 +77,7 @@ export async function startProductBarcodeCamera(
   onSuccess: (decodedText: string) => void,
   onDecodeFailure: (errorMessage: string) => void,
 ): Promise<{ id: string; label: string }> {
-  const cameras = await (await import('html5-qrcode')).Html5Qrcode.getCameras();
+  const cameras = await Html5Qrcode.getCameras();
   if (!cameras?.length) throw new Error('لم يتم العثور على كاميرا متاحة');
 
   const rearCameraPattern = /back|rear|environment|خلفية|خلفي/i;
