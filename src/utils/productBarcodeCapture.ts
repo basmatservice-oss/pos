@@ -53,6 +53,11 @@ export async function startProductBarcodeCapture(
     });
 
     try {
+      const support = await BarcodeScanner.isSupported();
+      if (!support.supported) {
+        throw new Error('لا توجد كاميرا متوافقة متاحة على هذا الجهاز.');
+      }
+
       let permission = await BarcodeScanner.checkPermissions();
       if (permission.camera !== 'granted') {
         permission = await BarcodeScanner.requestPermissions();
