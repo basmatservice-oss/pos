@@ -76,8 +76,16 @@ export async function startProductBarcodeCamera(
   onSuccess: (decodedText: string) => void,
   onDecodeFailure: (errorMessage: string) => void,
 ): Promise<{ id: string; label: string }> {
-  const cameras = await Html5Qrcode.getCameras();
-  if (!cameras?.length) throw new Error('لم يتم العثور على كاميرا متاحة');
+  let cameras: Array<{ id: string; label: string }> = [];
+  let enumerationError: unknown;
+  try {
+    cameras = await Html5Qrcode.getCameras();
+  } catch (error) {
+    // Some Android 8 WebViews reject enumerateDevices even though getUserMedia
+    // can still open the camera. Do not make enumeration a hard prerequisite.
+    enumerationError = error;
+    console.warn('Barcode camera enumeration failed; trying direct rear-camera access:', error);
+  }
 
   const rearCameraPattern = /back|rear|environment|خلفية|خلفي/i;
   const labelledRearCamera = cameras.find((camera) => rearCameraPattern.test(camera.label || ''));
@@ -86,10 +94,12 @@ export async function startProductBarcodeCamera(
       ? [
           ...[labelledRearCamera, ...cameras.filter((camera) => camera.id !== labelledRearCamera.id)]
             .map((camera) => ({ id: camera.id, label: camera.label || 'Camera', source: camera.id })),
+          { id: 'environment', label: 'Rear camera fallback', source: { facingMode: { ideal: 'environment' } } },
         ]
       : [
-          // Older Android WebViews often hide camera labels until a stream is
-          // active. Prefer the browser's rear-facing constraint in that case.
+          // Try facingMode first when labels are hidden or enumeration returned
+          // no devices. This works around older Android WebViews that expose
+          // an empty enumerateDevices() result while camera capture is allowed.
           { id: 'environment', label: 'Rear camera', source: { facingMode: { ideal: 'environment' } } },
           ...cameras.map((camera) => ({ id: camera.id, label: camera.label || 'Camera', source: camera.id })),
         ];
@@ -112,7 +122,24 @@ export async function startProductBarcodeCamera(
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'تعذر تشغيل أي كاميرا'));
+  const failure = lastError || enumerationError;
+  if (failure instanceof Error) {
+    const name = (failure as Error & { name?: string }).name;
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+      throw new Error('تم رفض إذن الكاميرا. اسمح للتطبيق باستخدام الكاميرا من إعدادات الجهاز.');
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      throw new Error('لم يعثر النظام على كاميرا متاحة.');
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      throw new Error('الكاميرا مستخدمة من تطبيق آخر أو تعذر فتحها. أغلق التطبيقات الأخرى ثم أعد المحاولة.');
+    }
+    if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+      throw new Error('تعذر تشغيل الكاميرا بالإعدادات المطلوبة؛ تحقق من دعم الجهاز.');
+    }
+    throw failure;
+  }
+  throw new Error('تعذر تشغيل الكاميرا. تحقق من صلاحياتها ثم أعد المحاولة.');
 }
 
 /**
