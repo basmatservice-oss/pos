@@ -203,23 +203,36 @@ export default function OperationalReports({ startDate, endDate, currency, decim
           </select>
         </label>
       </div>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">فواتير المبيعات</p><p className="mt-1 text-xl font-black">{report.sales.count}</p><p className="text-xs text-slate-500">{money(report.sales.netExTax)} بدون الضريبة</p></div>
-        <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">المشتريات</p><p className="mt-1 text-xl font-black">{money(report.purchases.gross)}</p><p className="text-xs text-slate-500">{report.purchases.count} فاتورة</p></div>
-        <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">مرتجعات المبيعات</p><p className="mt-1 text-xl font-black">{money(report.sales.returns)}</p></div>
-        <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">مرتجعات المشتريات</p><p className="mt-1 text-xl font-black">{money(report.purchases.returns)}</p></div>
+      <div className={section}>
+        <h4 className="mb-2 font-bold text-slate-800">ملخص النشاط للفترة</h4>
+        <div className="overflow-x-auto"><table className={table}>
+          <thead className="bg-slate-50 text-xs"><tr><th className="p-2">المؤشر</th><th className="p-2">العدد</th><th className="p-2">القيمة</th></tr></thead>
+          <tbody>
+            <tr className="border-t"><td className="p-2">فواتير المبيعات</td><td className="p-2">{report.sales.count}</td><td className="p-2 font-bold">{money(report.sales.netExTax)}</td></tr>
+            <tr className="border-t"><td className="p-2">فواتير المشتريات</td><td className="p-2">{report.purchases.count}</td><td className="p-2 font-bold">{money(report.purchases.gross)}</td></tr>
+            <tr className="border-t"><td className="p-2">مرتجعات المبيعات</td><td className="p-2">—</td><td className="p-2 font-bold">{money(report.sales.returns)}</td></tr>
+            <tr className="border-t"><td className="p-2">مرتجعات المشتريات</td><td className="p-2">—</td><td className="p-2 font-bold">{money(report.purchases.returns)}</td></tr>
+          </tbody>
+        </table></div>
       </div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">صافي المبيعات حسب وسيلة الدفع</h4>
-          {([['نقدي', report.payments.cashNet], ['بطاقة', report.payments.cardNet], ['آجل', report.payments.creditNet]] as const).map(([label, value]) => <div key={label} className="flex justify-between border-b border-slate-100 py-2 text-sm"><span>{label}</span><strong>{money(value)}</strong></div>)}
-          {report.payments.mixed > 0 && <div className="flex justify-between border-b border-amber-100 py-2 text-xs text-amber-700"><span>مبلغ مختلط غير موزع على النقدي والبطاقة</span><strong>{money(report.payments.mixed)}</strong></div>}
-          <div className="mt-3 space-y-1 text-xs text-slate-500"><p>تحصيلات حسابات العملاء: {money(report.customerCollections)}</p><p>مدفوعات الموردين: {money(report.supplierPayments)}</p></div>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">الوسيلة</th><th className="p-2">صافي القيمة</th></tr></thead><tbody>
+            <tr className="border-t"><td className="p-2">نقدي</td><td className="p-2 font-bold">{money(report.payments.cashNet)}</td></tr>
+            <tr className="border-t"><td className="p-2">بطاقة</td><td className="p-2 font-bold">{money(report.payments.cardNet)}</td></tr>
+            <tr className="border-t"><td className="p-2">آجل</td><td className="p-2 font-bold">{money(report.payments.creditNet)}</td></tr>
+            {report.payments.mixed > 0 && <tr className="border-t"><td className="p-2">دفع مختلط غير موزع</td><td className="p-2">{money(report.payments.mixed)}</td></tr>}
+          </tbody></table></div>
+          <p className="mt-3 text-xs text-slate-500">تحصيلات حسابات العملاء: {money(report.customerCollections)} · مدفوعات الموردين: {money(report.supplierPayments)}</p>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">المصروفات حسب التصنيف</h4>
-          {report.expenses.length ? report.expenses.map((row) => <div key={row.category} className="flex justify-between border-b border-slate-100 py-2 text-sm"><span>{row.category}</span><strong>{money(row.total)}</strong></div>) : <p className="py-4 text-center text-sm text-slate-400">لا توجد مصروفات</p>}
-          <p className="mt-3 text-xs text-slate-500">الرواتب المدفوعة: {money(report.payroll.total)} ({report.payroll.count} عملية)</p>
+          <div className="overflow-x-auto"><table className={table}><thead className="bg-slate-50 text-xs"><tr><th className="p-2">التصنيف</th><th className="p-2">القيمة</th></tr></thead><tbody>
+            {report.expenses.map((row) => <tr key={row.category} className="border-t"><td className="p-2">{row.category}</td><td className="p-2 font-bold">{money(row.total)}</td></tr>)}
+            {!report.expenses.length && empty(2)}
+            <tr className="border-t bg-slate-50"><td className="p-2 font-black">الرواتب المدفوعة ({report.payroll.count})</td><td className="p-2 font-black">{money(report.payroll.total)}</td></tr>
+          </tbody></table></div>
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">أداء الموظفين حسب منفذ الفاتورة</h4>
