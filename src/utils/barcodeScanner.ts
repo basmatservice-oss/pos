@@ -127,3 +127,36 @@ export function attachBarcodeKeyboardListener(
   return () => document.removeEventListener('keydown', handleKeyDown, true);
 }
 
+
+
+/**
+ * Use camera controls only when the active device explicitly reports support.
+ * Continuous focus and a modest zoom materially help narrow retail labels.
+ */
+export async function optimizeBarcodeCamera(scanner: unknown): Promise<void> {
+  const camera = scanner as {
+    getRunningTrackCapabilities?: () => MediaTrackCapabilities;
+    applyVideoConstraints?: (constraints: MediaTrackConstraints) => Promise<void>;
+  };
+  if (typeof camera?.getRunningTrackCapabilities !== 'function' ||
+      typeof camera?.applyVideoConstraints !== 'function') return;
+
+  try {
+    const capabilities = camera.getRunningTrackCapabilities();
+    const advanced: Array<Record<string, unknown>> = [];
+    const focusModes = (capabilities as any)?.focusMode;
+    if (Array.isArray(focusModes) && focusModes.includes('continuous')) {
+      advanced.push({ focusMode: 'continuous' });
+    }
+    const zoom = (capabilities as any)?.zoom;
+    if (zoom && Number.isFinite(zoom.max) && Number.isFinite(zoom.min) && zoom.max > zoom.min) {
+      advanced.push({ zoom: Math.min(2, zoom.max) });
+    }
+    if (advanced.length) {
+      await camera.applyVideoConstraints({ advanced } as MediaTrackConstraints);
+    }
+  } catch (error) {
+    // Unsupported or locked camera controls must never stop barcode scanning.
+    console.debug('Optional barcode camera optimization unavailable:', error);
+  }
+}
