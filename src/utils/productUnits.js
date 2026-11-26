@@ -64,12 +64,21 @@ export function getProductUnitOptions(product = {}) {
 }
 
 /** Resolve a scanned code against both the product barcode and its sellable unit barcodes. */
+function normalizeProductBarcode(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[\\u0000-\\u001F\\u007F]/g, '')
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+    .trim();
+}
+
 export function findProductBarcodeMatch(products = [], barcode) {
-  const code = String(barcode || '').trim();
+  const code = normalizeProductBarcode(barcode);
   if (!code) return undefined;
   for (const product of products) {
-    if (String(product?.barcode || '').trim() === code) return { product };
-    const matchedUnit = getProductUnitOptions(product).find((unit) => String(unit.barcode || '').trim() === code);
+    if (normalizeProductBarcode(product?.barcode) === code) return { product };
+    const matchedUnit = getProductUnitOptions(product).find((unit) => normalizeProductBarcode(unit.barcode) === code);
     if (matchedUnit) return { product, matchedUnit };
   }
   return undefined;
