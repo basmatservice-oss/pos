@@ -1,4 +1,5 @@
 import { Html5QrcodeSupportedFormats } from 'html5-qrcode';
+// Build trigger: verified barcode capture, normalization, and camera tuning.
 
 import { normalizeBarcodeValue } from './barcodeValue';
 export { normalizeBarcodeValue } from './barcodeValue';
