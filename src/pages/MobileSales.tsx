@@ -29,7 +29,9 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
+import { findProductBarcodeMatch, getProductUnitOptions, resolveProductUnitFactor } from '../utils/productUnits';
+import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useReactToPrint } from 'react-to-print';
 import type { Product, Customer, Order, OrderItem, StocktakingEntry } from '../db/db';
 import toast from 'react-hot-toast';
@@ -49,7 +51,7 @@ const MobileSales: React.FC = () => {
   const [lang, setLang] = useState<'ar' | 'en'>('ar');
   const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [cart, setCart] = useState<{ product: Product; quantity: number; unit: 'piece' | 'box' }[]>([]);
+  const [cart, setCart] = useState<{ product: Product; quantity: number; unit: string }[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -89,22 +91,21 @@ const MobileSales: React.FC = () => {
   );
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const lastScannedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const scanGateRef = useRef(createBarcodeScanGate(1400));
+  const mobileScannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
 
     const stopScanner = async () => {
-      if (scannerRef.current) {
-        try {
-          if (scannerRef.current.isScanning) {
-            await scannerRef.current.stop();
-          }
-          await scannerRef.current.clear();
-        } catch (err) {
-          console.error('Error stopping scanner:', err);
-        }
-        scannerRef.current = null;
+      const activeScanner = scannerRef.current;
+      if (!activeScanner) return;
+      scannerRef.current = null;
+      try {
+        if (activeScanner.isScanning) await activeScanner.stop();
+        await activeScanner.clear();
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
       }
     };
 
@@ -117,6 +118,12 @@ const MobileSales: React.FC = () => {
         if (!element) return;
 
         try {
+          const cameraGranted = await ensureAndroidCameraPermission();
+          if (!cameraGranted) {
+            toast.error(lang === 'en' ? 'Camera permission is required' : 'يجب السماح للتطبيق باستخدام الكاميرا');
+            if (isMounted) setIsScannerOpen(false);
+            return;
+          }
           await stopScanner();
           const html5QrCode = new Html5Qrcode('mobile-reader', {
             verbose: false,
@@ -128,22 +135,19 @@ const MobileSales: React.FC = () => {
           await html5QrCode.start(
             { facingMode: 'environment' },
             PRODUCT_BARCODE_CAMERA_CONFIG as any,
-            (decodedText) => {
-              const nowTs = Date.now();
-              if (decodedText === lastScannedRef.current.code && nowTs - lastScannedRef.current.time < 3000) return;
-              lastScannedRef.current = { code: decodedText, time: nowTs };
-
-              const product = products.find((p) => p.barcode === decodedText);
-              if (product) {
+                        (decodedText) => {
+              const barcode = normalizeBarcodeValue(decodedText);
+              if (!scanGateRef.current(barcode)) return;
+              const match = findProductBarcodeMatch(allProducts, barcode);
+              if (match) {
                 playScanSound();
                 if (scannerMode === 'stocktaking') {
-                  setScannedProduct(product);
+                  setScannedProduct(match.product);
                   setActualQuantity('');
                   setIsStocktakingModalOpen(true);
                   setIsScannerOpen(false);
                 } else {
-                  addToCart(product);
-                  toast.success(`${product.name} تمت إضافته للسلة`, { duration: 1000 });
+                  addToCart(match.product, match.matchedUnit?.name || match.product.unit || 'piece');
                 }
               } else {
                 playErrorSound();
@@ -169,9 +173,9 @@ const MobileSales: React.FC = () => {
       isMounted = false;
       stopScanner();
     };
-  }, [isScannerOpen, products, scannerMode, lang]);
+  }, [isScannerOpen, allProducts, scannerMode, lang]);
 
-  const addToCart = (product: Product, unit: 'piece' | 'box' = 'piece') => {
+  const addToCart = (product: Product, unit: string = 'piece') => {
     if (product.isActive === 0) {
       toast.error('هذا الصنف موقوف ولا يمكن بيعه');
       return;
@@ -239,7 +243,7 @@ const MobileSales: React.FC = () => {
     }
   };
 
-  const updateQuantity = (productId: number, unit: 'piece' | 'box', delta: number) => {
+  const updateQuantity = (productId: number, unit: string, delta: number) => {
     setCart((prev) =>
       prev.map((item) => {
         if (item.product.id === productId && item.unit === unit) {
@@ -251,7 +255,7 @@ const MobileSales: React.FC = () => {
     );
   };
 
-  const removeFromCart = (productId: number, unit: 'piece' | 'box') => {
+  const removeFromCart = (productId: number, unit: string) => {
     setCart((prev) => prev.filter((item) => !(item.product.id === productId && item.unit === unit)));
     toast.success(lang === 'en' ? 'Item removed' : 'تم حذف المنتج');
   };
@@ -262,12 +266,31 @@ const MobileSales: React.FC = () => {
     toast.success(lang === 'en' ? 'Cart cleared' : 'تم إلغاء الفاتورة');
   };
 
-  const getMobileItemPrice = (item: { product: Product; unit: 'piece' | 'box' }) => {
-    const basePrice = Number(item.product.sellingPrice) || 0;
-    if (item.unit === 'box' && item.product.conversionFactor) {
-      return basePrice * (Number(item.product.conversionFactor) || 1);
+  const getMobileItemPrice = (item: { product: Product; unit: string }) => {
+    const unit = getProductUnitOptions(item.product).find((option) => option.name.toLocaleLowerCase() === item.unit.toLocaleLowerCase());
+    return Number(unit?.sellingPrice ?? item.product.sellingPrice) || 0;
+  };
+
+  const handleMobileBarcodeInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault();
+    const input = e.currentTarget;
+    const barcode = normalizeBarcodeValue(input.value);
+    input.value = '';
+    if (!scanGateRef.current(barcode)) return;
+    const match = findProductBarcodeMatch(allProducts, barcode);
+    if (!match) {
+      playErrorSound();
+      toast.error(lang === 'en' ? 'Product not found' : 'المنتج غير موجود');
+      return;
     }
-    return basePrice;
+    if (scannerMode === 'stocktaking') {
+      setScannedProduct(match.product);
+      setActualQuantity('');
+      setIsStocktakingModalOpen(true);
+    } else {
+      addToCart(match.product, match.matchedUnit?.name || match.product.unit || 'piece');
+    }
   };
 
   const grossSubtotal = cart.reduce((sum, item) => sum + getMobileItemPrice(item) * item.quantity, 0);
@@ -361,7 +384,7 @@ const MobileSales: React.FC = () => {
 
       const orderItemsPayload: OrderItem[] = cart.map((item, idx) => {
         const unitPrice = getMobileItemPrice(item);
-        const factor = item.unit === 'box' ? item.product.conversionFactor || 1 : 1;
+        const factor = resolveProductUnitFactor(item.product, { unit: item.unit });
         const line = taxSummary.lines[idx];
         return {
           orderId,
@@ -561,6 +584,18 @@ const MobileSales: React.FC = () => {
               <p className="text-sm">{lang === 'en' ? 'Tap icon to start camera' : 'اضغط على الأيقونة لتشغيل الكاميرا'}</p>
             </div>
           )}
+        </div>
+        <div className="w-full max-w-sm mt-5">
+          <label className="block text-sm text-white/80 mb-2">{lang === 'en' ? 'USB / Bluetooth scanner' : 'الماسح الخارجي USB / Bluetooth'}</label>
+          <input
+            ref={mobileScannerInputRef}
+            type="text"
+            inputMode="none"
+            autoComplete="off"
+            placeholder={lang === 'en' ? 'Scan barcode here...' : 'وجّه الماسح إلى هذا الحقل...'}
+            onKeyDown={handleMobileBarcodeInput}
+            className="w-full rounded-xl border border-white/20 bg-white px-4 py-3 text-center font-mono text-lg text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400"
+          />
         </div>
       </div>
     </div>
