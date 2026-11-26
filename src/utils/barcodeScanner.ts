@@ -47,7 +47,7 @@ export const PRODUCT_BARCODE_FORMATS = [
 export const PRODUCT_BARCODE_CAMERA_CONFIG = {
   // Keep the full camera frame: narrow labels are often missed by a cropped qrbox.
   fps: 10,
-  aspectRatio: 4 / 3,
+  aspectRatio: 16 / 9,
   disableFlip: true,
   // Do not put videoConstraints here: html5-qrcode gives them precedence over
   // the camera id passed to start(), which can silently defeat rear-camera selection.
