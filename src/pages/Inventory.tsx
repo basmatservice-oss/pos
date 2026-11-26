@@ -1673,11 +1673,9 @@ export default function Inventory() {
             <div className="p-8">
               {storeSettings.inventoryScannerType === 'camera' ? (
                 <div className="space-y-4">
-                  <div id="inventory-reader" className="w-full bg-transparent rounded-2xl overflow-hidden aspect-square flex items-center justify-center text-white text-sm">
-                    جاري تشغيل الكاميرا...
-                  </div>
-                  <p className="text-center text-sm text-gray-500">
-                    وجه الكاميرا نحو الباركود أو استخدم الماسح الخارجي في الحقل التالي
+                  <div id="inventory-reader" className="w-full bg-transparent rounded-2xl overflow-hidden aspect-square" />
+                  <p className="text-center text-sm text-white/80">
+                    وجّه الكاميرا نحو الباركود أو استخدم الماسح الخارجي في الحقل التالي
                   </p>
                   <input
                     ref={deviceInputRef}
