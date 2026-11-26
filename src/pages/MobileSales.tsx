@@ -181,7 +181,7 @@ const MobileSales: React.FC = () => {
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
-            toast.error(lang === 'en' ? 'Camera access denied' : 'تعذر الوصول للكاميرا');
+            toast.error(err instanceof Error ? err.message : (lang === 'en' ? 'Unable to start the camera. Check camera permission and retry.' : 'تعذر تشغيل الكاميرا. تحقق من الصلاحيات ثم أعد المحاولة.'));
             setIsScannerOpen(false);
           }
         }
