@@ -45,15 +45,69 @@ export const PRODUCT_BARCODE_FORMATS = [
 ];
 
 export const PRODUCT_BARCODE_CAMERA_CONFIG = {
-  fps: 12,
-  aspectRatio: 16 / 9,
-  disableFlip: false,
-  videoConstraints: {
-    facingMode: { ideal: 'environment' },
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-  },
+  // Keep the full camera frame: narrow labels are often missed by a cropped qrbox.
+  fps: 10,
+  aspectRatio: 4 / 3,
+  disableFlip: true,
+  // Do not put videoConstraints here: html5-qrcode gives them precedence over
+  // the camera id passed to start(), which can silently defeat rear-camera selection.
+  useBarCodeDetectorIfSupported: false,
 };
+
+export const PRODUCT_BARCODE_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
+  facingMode: { ideal: 'environment' },
+};
+
+/**
+ * Start with a concrete rear-camera device id instead of relying on the
+ * WebView's facingMode implementation. Try remaining devices if that camera
+ * cannot be opened (common on older Android WebViews with incomplete labels).
+ */
+export async function startProductBarcodeCamera(
+  scanner: {
+    start: (
+      cameraId: string,
+      config: typeof PRODUCT_BARCODE_CAMERA_CONFIG,
+      onSuccess: (decodedText: string) => void,
+      onError: (errorMessage: string) => void,
+    ) => Promise<unknown>;
+    applyVideoConstraints?: (constraints: MediaTrackConstraints) => Promise<void>;
+  },
+  onSuccess: (decodedText: string) => void,
+  onDecodeFailure: (errorMessage: string) => void,
+): Promise<{ id: string; label: string }> {
+  const cameras = await (await import('html5-qrcode')).Html5Qrcode.getCameras();
+  if (!cameras?.length) throw new Error('لم يتم العثور على كاميرا متاحة');
+
+  const rearCameraPattern = /back|rear|environment|خلفية|خلفي/i;
+  const ordered = [...cameras].sort((a, b) => {
+    const aRear = rearCameraPattern.test(a.label || '');
+    const bRear = rearCameraPattern.test(b.label || '');
+    return Number(bRear) - Number(aRear);
+  });
+
+  let lastError: unknown;
+  for (const camera of ordered) {
+    try {
+      await scanner.start(camera.id, PRODUCT_BARCODE_CAMERA_CONFIG, onSuccess, onDecodeFailure);
+      try {
+        await scanner.applyVideoConstraints?.(PRODUCT_BARCODE_VIDEO_CONSTRAINTS);
+      } catch (error) {
+        // Resolution is an enhancement; a camera that has already started
+        // must remain usable when a device rejects optional constraints.
+        console.debug('Optional barcode resolution request was rejected:', error);
+      }
+      return camera;
+    } catch (error) {
+      lastError = error;
+      console.warn('Unable to start barcode camera:', camera.label || camera.id, error);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'تعذر تشغيل أي كاميرا'));
+}
 
 /**
  * Capture HID keyboard-wedge scanners even when a particular input is not focused.
