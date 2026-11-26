@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -227,12 +227,12 @@ export default function POS() {
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const lastScannedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const scanGateRef = useRef(createBarcodeScanGate(1400));
 
   useEffect(() => {
     const handleGlobalScan = (e: any) => {
-      const barcode = String(e.detail || '').trim();
-      if (!barcode) return;
+      const barcode = normalizeBarcodeValue(e.detail);
+      if (!scanGateRef.current(barcode)) return;
       const match = getMatchByBarcode(barcode);
       if (match) {
         addItem(match.product, match.matchedUnit?.name);
@@ -247,14 +247,14 @@ export default function POS() {
   useEffect(() => {
     let isMounted = true;
     const stopScanner = async () => {
-      if (scannerRef.current) {
-        try {
-          await scannerRef.current.stop();
-          scannerRef.current.clear();
-          scannerRef.current = null;
-        } catch (err) {
-          console.error('Error stopping scanner:', err);
-        }
+      const activeScanner = scannerRef.current;
+      if (!activeScanner) return;
+      scannerRef.current = null;
+      try {
+        if (activeScanner.isScanning) await activeScanner.stop();
+        await activeScanner.clear();
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
       }
     };
 
@@ -277,18 +277,16 @@ export default function POS() {
             await scannerRef.current.start(
               { facingMode: 'environment' },
               PRODUCT_BARCODE_CAMERA_CONFIG as any,
-              (decodedText) => {
-                const now = Date.now();
-                if (lastScannedRef.current.code !== decodedText || now - lastScannedRef.current.time > 2000) {
-                  lastScannedRef.current = { code: decodedText, time: now };
-                  const match = getMatchByBarcode(decodedText);
-                  if (match) {
-                    addItem(match.product, match.matchedUnit?.name);
-                    toast.success(`تم العثور على: ${match.product.name}${match.matchedUnit ? ` (${match.matchedUnit.name})` : ''}`);
-                    setIsScannerOpen(false);
-                  } else {
-                    toast.error('المنتج غير موجود');
-                  }
+               (decodedText) => {
+                const barcode = normalizeBarcodeValue(decodedText);
+                if (!scanGateRef.current(barcode)) return;
+                const match = getMatchByBarcode(barcode);
+                if (match) {
+                  addItem(match.product, match.matchedUnit?.name);
+                  toast.success('تم العثور على: ' + match.product.name + (match.matchedUnit ? ' (' + match.matchedUnit.name + ')' : ''));
+                  setIsScannerOpen(false);
+                } else {
+                  toast.error('المنتج غير موجود');
                 }
               },
               () => {}
@@ -318,7 +316,7 @@ export default function POS() {
 
   const handleBarcodeSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const barcode = searchInputRef.current?.value?.trim();
+    const barcode = normalizeBarcodeValue(searchInputRef.current?.value);
     if (!barcode) return;
 
     const now = Date.now();
