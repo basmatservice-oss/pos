@@ -333,7 +333,7 @@ export default function Inventory() {
         } catch (err) {
           console.error("Error starting camera scanner:", err);
           if (isMounted) {
-            toast.error('تعذر الوصول للكاميرا. يرجى التحقق من الصلاحيات.');
+            toast.error(err instanceof Error ? err.message : 'تعذر تشغيل الكاميرا. تحقق من الصلاحيات ثم أعد المحاولة.');
             setIsScannerModalOpen(false);
           }
         }
