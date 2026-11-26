@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -24,6 +24,40 @@ function assertTrustedRenderer(event) {
   const expectedFile = path.join(app.getAppPath(), 'dist', 'index.html');
   const localFile = parsed.protocol === 'file:' && path.resolve(fileURLToPath(parsed)) === path.resolve(expectedFile);
   if (!localHttp && !localFile) throw new Error('IPC requests are allowed only from the trusted local POS renderer');
+}
+
+function isTrustedRendererUrl(value) {
+  if (typeof value !== 'string' || !value) return false;
+  let parsed;
+  try { parsed = new URL(value); } catch { return false; }
+  const localHttp = parsed.protocol === 'http:' &&
+    parsed.hostname === '127.0.0.1' &&
+    parsed.port === String(SERVER_PORT);
+  const expectedFile = path.join(app.getAppPath(), 'dist', 'index.html');
+  let localFile = false;
+  try {
+    localFile = parsed.protocol === 'file:' &&
+      path.resolve(fileURLToPath(parsed)) === path.resolve(expectedFile);
+  } catch {}
+  return localHttp || localFile;
+}
+
+function installCameraPermissionHandlers() {
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission !== 'media') return false;
+    const source = requestingOrigin || details?.requestingUrl || webContents?.getURL();
+    const mediaType = details?.mediaType;
+    return isTrustedRendererUrl(source) && mediaType !== 'audio';
+  });
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    if (permission !== 'media') return callback(false);
+    const source = details?.requestingUrl || webContents?.getURL();
+    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    const requestsVideo = mediaTypes.includes('video');
+    const requestsAudio = mediaTypes.includes('audio');
+    callback(isTrustedRendererUrl(source) && requestsVideo && !requestsAudio);
+  });
 }
 function guardIpc(handler) {
   return (event, ...args) => {
@@ -256,6 +290,7 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
+      installCameraPermissionHandlers();
       if (readConfiguredRole() === 'client') {
         localDatabase.initializeLocalDatabase(app.getPath('userData'));
       }
