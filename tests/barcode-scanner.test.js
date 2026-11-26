@@ -14,3 +14,18 @@ test('small-label camera scan uses the full frame and requests a high-resolution
   assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.fps, 15);
   assert.equal('qrbox' in PRODUCT_BARCODE_CAMERA_CONFIG, false);
 });
+
+import { createBarcodeScanGate, normalizeBarcodeValue } from '../src/utils/barcodeScanner.ts';
+
+test('barcode normalization removes scanner terminators but preserves leading zeroes', () => {
+  assert.equal(normalizeBarcodeValue('  001234567890\\r\\n '), '001234567890');
+  assert.equal(normalizeBarcodeValue('１２３４５'), '12345');
+});
+
+test('scan gate rejects rapid duplicate frames but accepts a different barcode immediately', () => {
+  const gate = createBarcodeScanGate(1200);
+  assert.equal(gate('00123', 1000), true);
+  assert.equal(gate('00123', 1500), false);
+  assert.equal(gate('00999', 1501), true);
+  assert.equal(gate('00123', 2301), true);
+});
