@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
@@ -310,17 +310,23 @@ export default function Inventory() {
           const html5QrCode = new Html5Qrcode("inventory-reader", {
             verbose: false,
             formatsToSupport: PRODUCT_BARCODE_FORMATS,
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+            useBarCodeDetectorIfSupported: false,
           } as any);
           scannerRef.current = html5QrCode;
           
-          await html5QrCode.start(
-            { facingMode: "environment" },
-            PRODUCT_BARCODE_CAMERA_CONFIG as any,
+          let lastDecodeDiagnosticAt = 0;
+          await startProductBarcodeCamera(
+            html5QrCode,
             (decodedText) => {
               void handleBarcodeScanned(decodedText, 'camera');
             },
-            () => {}
+            (decodeError) => {
+              const now = Date.now();
+              if (now - lastDecodeDiagnosticAt >= 8000) {
+                lastDecodeDiagnosticAt = now;
+                console.debug('Inventory barcode camera is running; no code decoded in recent frames:', decodeError);
+              }
+            },
           );
           await optimizeBarcodeCamera(html5QrCode);
         } catch (err) {
