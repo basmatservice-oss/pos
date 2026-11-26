@@ -302,3 +302,20 @@ input[inputmode="decimal"] {
 input[type="number"] { -webkit-appearance: textfield; appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { opacity: 0.65; }
+
+
+/* Native Android ML Kit preview is rendered behind the WebView. Keep only the
+   explicitly marked scanner surface visible while the native camera is active. */
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+body.barcode-scanner-active #root {
+  visibility: hidden;
+}
+body.barcode-scanner-active .barcode-scanner-modal {
+  visibility: visible !important;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: transparent !important;
+}
