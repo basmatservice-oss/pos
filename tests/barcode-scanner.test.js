@@ -62,3 +62,48 @@ test('keyboard-wedge listener captures a fast scanner burst and preserves zeroes
     globalThis.document = originalDocument;
   }
 });
+
+
+import { Html5Qrcode } from 'html5-qrcode';
+import { startProductBarcodeCamera } from '../src/utils/barcodeScanner.ts';
+
+test('camera startup prefers a labelled rear camera and applies optional resolution', async () => {
+  const originalGetCameras = Html5Qrcode.getCameras;
+  const started = [];
+  const applied = [];
+  Html5Qrcode.getCameras = async () => [
+    { id: 'front-id', label: 'Front Camera' },
+    { id: 'rear-id', label: 'Back Camera' },
+  ];
+  try {
+    const scanner = {
+      start: async (source, config) => { started.push({ source, config }); },
+      applyVideoConstraints: async (constraints) => { applied.push(constraints); },
+    };
+    const selected = await startProductBarcodeCamera(scanner, () => {}, () => {});
+    assert.equal(started[0].source, 'rear-id');
+    assert.equal(selected.id, 'rear-id');
+    assert.equal(applied[0].width.ideal, 1920);
+  } finally {
+    Html5Qrcode.getCameras = originalGetCameras;
+  }
+});
+
+test('camera startup uses rear-facing constraint when Android hides camera labels', async () => {
+  const originalGetCameras = Html5Qrcode.getCameras;
+  let selectedSource;
+  Html5Qrcode.getCameras = async () => [
+    { id: 'camera-0', label: '' },
+    { id: 'camera-1', label: '' },
+  ];
+  try {
+    const scanner = {
+      start: async (source) => { selectedSource = source; },
+      applyVideoConstraints: async () => {},
+    };
+    await startProductBarcodeCamera(scanner, () => {}, () => {});
+    assert.deepEqual(selectedSource, { facingMode: { ideal: 'environment' } });
+  } finally {
+    Html5Qrcode.getCameras = originalGetCameras;
+  }
+});
