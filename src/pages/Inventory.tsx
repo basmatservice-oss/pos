@@ -19,6 +19,7 @@ import { formatMoney, formatQty, roundQty } from '../utils/format';
 import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
+import ProductPriceManager from '../components/ProductPriceManager';
 import { findProductBarcodeMatch } from '../utils/productUnits';
 import { buildProductPricingAnchors, buildProductUnitFxAnchors } from '../utils/exchangePricing';
 import { compressProductImage } from '../utils/productImage';
@@ -27,6 +28,7 @@ export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPriceManagerOpen, setIsPriceManagerOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [itemCardProduct, setItemCardProduct] = useState<Product | null>(null);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
@@ -915,7 +917,13 @@ export default function Inventory() {
               placeholder="بحث برقم الباركود أو اسم المنتج..."
             />
           </form>
-          <div className="flex items-center">
+          <div className="flex flex-wrap items-center gap-2">
+            {(user?.role === 'admin' || hasPermission('manage_inventory')) && (
+              <button type="button" onClick={() => setIsPriceManagerOpen(true)}
+                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100">
+                إدارة أسعار البيع
+              </button>
+            )}
             <label className="flex items-center cursor-pointer">
               <div className="relative">
                 <input 
@@ -1308,12 +1316,43 @@ export default function Inventory() {
                       onChange={e => setFormData({...formData, unit: e.target.value})}
                       className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     >
-                      <option value="piece">قطعة / حبة</option>
+                      <optgroup label="العدد والتعبئة">
+                        <option value="piece">قطعة / حبة</option>
+                        <option value="pair">زوج</option>
+                        <option value="dozen">دستة (12 قطعة)</option>
+                        <option value="set">طقم / مجموعة</option>
+                        <option value="pack">عبوة</option>
+                        <option value="bundle">ربطة</option>
+                        <option value="ream">رزمة</option>
+                        <option value="box">صندوق</option>
+                        <option value="carton">كرتونة</option>
+                        <option value="sack">شوال</option>
+                        <option value="roll">لفة</option>
+                      </optgroup>
+                      <optgroup label="الوزن">
+                        <option value="جرام">جرام</option>
+                        <option value="كجم">كيلوجرام (كجم)</option>
+                        <option value="طن">طن</option>
+                      </optgroup>
+                      <optgroup label="الحجم والسوائل">
+                        <option value="ملليلتر">ملليلتر</option>
+                        <option value="لتر">لتر</option>
+                        <option value="متر مكعب">متر مكعب</option>
+                      </optgroup>
+                      <optgroup label="الطول والمساحة">
+                        <option value="ملليمتر">ملليمتر</option>
+                        <option value="سنتيمتر">سنتيمتر</option>
+                        <option value="متر">متر</option>
+                        <option value="كيلومتر">كيلومتر</option>
+                        <option value="متر مربع">متر مربع</option>
+                        <option value="سنتيمتر مربع">سنتيمتر مربع</option>
+                      </optgroup>
+                      <optgroup label="الزمن">
+                        <option value="دقيقة">دقيقة</option>
+                        <option value="ساعة">ساعة</option>
+                        <option value="يوم">يوم</option>
+                      </optgroup>
                       {formData.unit === 'box' && <option value="box">صندوق / كرتون (وحدة أساسية قديمة)</option>}
-                      <option value="كجم">كيلوجرام (كجم)</option>
-                      <option value="جرام">جرام</option>
-                      <option value="لتر">لتر</option>
-                      <option value="متر">متر</option>
                     </select>
                     <p className="mt-1 text-xs leading-5 text-gray-500">المخزون يُحفظ بهذه الوحدة. إذا كنت تشتري بالقطعة وتبيع بالكرتونة، اجعل القطعة هي الوحدة الأساسية وأضف الكرتونة كوحدة بيع إضافية.</p>
                   </div>
@@ -1586,6 +1625,16 @@ export default function Inventory() {
           </div>
         </div>
       )}
+      {isPriceManagerOpen && (
+        <ProductPriceManager
+          products={allProducts}
+          branchId={user?.branchId}
+          actorName={user?.name || 'System'}
+          currency={storeSettings.currency}
+          onClose={() => setIsPriceManagerOpen(false)}
+        />
+      )}
+
       {/* Category Modal */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
