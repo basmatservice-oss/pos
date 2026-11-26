@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -244,6 +244,30 @@ export default function POS() {
 
     window.addEventListener('barcode-scanned' as any, handleGlobalScan);
     return () => window.removeEventListener('barcode-scanned' as any, handleGlobalScan);
+  }, [getMatchByBarcode, addItem]);
+
+  useEffect(() => {
+    return attachBarcodeKeyboardListener((barcode) => {
+      if (!deviceScanGateRef.current(barcode)) return;
+      const indexedMatch = getMatchByBarcode(barcode);
+      if (indexedMatch) {
+        addItem(indexedMatch.product, indexedMatch.matchedUnit?.name);
+        toast.success(`تم العثور على: ${indexedMatch.product.name}${indexedMatch.matchedUnit ? ` (${indexedMatch.matchedUnit.name})` : ''}`);
+        return;
+      }
+      void getPosRecords<any>('products').then((products) => {
+        const match = findProductBarcodeMatch(products, barcode);
+        if (match) {
+          addItem(match.product, match.matchedUnit?.name);
+          toast.success(`تم العثور على: ${match.product.name}${match.matchedUnit ? ` (${match.matchedUnit.name})` : ''}`);
+        } else {
+          toast.error('المنتج غير موجود');
+        }
+      }).catch((error) => {
+        console.error('Hardware barcode lookup failed:', error);
+        toast.error('تعذر البحث عن الباركود');
+      });
+    });
   }, [getMatchByBarcode, addItem]);
 
   useEffect(() => {
