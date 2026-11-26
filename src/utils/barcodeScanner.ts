@@ -5,6 +5,8 @@ export function normalizeBarcodeValue(value: unknown): string {
   return String(value ?? '')
     .normalize('NFKC')
     .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
     .trim();
 }
 
@@ -113,7 +115,7 @@ export function attachBarcodeKeyboardListener(
 
     // Ignore whitespace and control characters, but preserve all printable
     // barcode characters including leading zeroes and punctuation.
-    if (/^[\\x20-\\x7E]$/.test(event.key)) {
+    if (event.key.length === 1 && !/\\s/u.test(event.key) && !/^[\\u0000-\\u001F\\u007F]$/.test(event.key)) {
       buffer += event.key;
       lastKeyAt = now;
       if (buffer.length > maxLength) reset();
