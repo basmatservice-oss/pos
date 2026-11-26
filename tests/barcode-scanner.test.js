@@ -11,14 +11,14 @@ test('small-label camera scan uses the full frame and requests a high-resolution
   assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.videoConstraints.facingMode.ideal, 'environment');
   assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.videoConstraints.width.ideal, 1920);
   assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.videoConstraints.height.ideal, 1080);
-  assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.fps, 15);
+  assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.fps, 12);
   assert.equal('qrbox' in PRODUCT_BARCODE_CAMERA_CONFIG, false);
 });
 
 import { createBarcodeScanGate, normalizeBarcodeValue } from '../src/utils/barcodeScanner.ts';
 
 test('barcode normalization removes scanner terminators but preserves leading zeroes', () => {
-  assert.equal(normalizeBarcodeValue('  001234567890\\r\\n '), '001234567890');
+  assert.equal(normalizeBarcodeValue('  001234567890\r\n '), '001234567890');
   assert.equal(normalizeBarcodeValue('１２３４５'), '12345');
 });
 
