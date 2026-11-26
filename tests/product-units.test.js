@@ -281,12 +281,14 @@ test('barcode lookup normalizes Arabic and full-width digits without dropping le
 });
 
 
-test('infers the physical dimension for standard and legacy product base units', async () => {
+test('uses explicit unit dimensions without rewriting legacy product unit codes', async () => {
   const { buildCanonicalProductUnits: build } = await import('../src/utils/productUnitCatalog.js');
-  const weight = build({ id: 81, unit: 'كجم', sellingPrice: 10 });
-  const volume = build({ id: 82, unit: 'لتر', sellingPrice: 8 });
-  const count = build({ id: 83, unit: 'piece', sellingPrice: 2 });
+  const weight = build({ id: 81, unit: 'كجم', baseUnitCode: 'weight', sellingPrice: 10 });
+  const volume = build({ id: 82, unit: 'لتر', baseUnitCode: 'volume', sellingPrice: 8 });
+  const count = build({ id: 83, unit: 'piece', baseUnitCode: 'count', sellingPrice: 2 });
+  const legacy = build({ id: 84, unit: 'kg', sellingPrice: 12 });
   assert.equal(weight.definitions[0].dimension, 'weight');
   assert.equal(volume.definitions[0].dimension, 'volume');
   assert.equal(count.definitions[0].dimension, 'count');
+  assert.equal(legacy.definitions[0].dimension, 'legacy');
 });
