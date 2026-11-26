@@ -469,40 +469,19 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">صافي المبيعات (بدون ضريبة)</p>
-                <p className="text-2xl font-black text-emerald-600">{formatNumber(netSalesExclTax, decimals)}</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">صافي ضريبة القيمة المضافة</p>
-                <p className="text-2xl font-black text-amber-600">{formatNumber(netVatPayable, decimals)}</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">تكلفة المبيعات (COGS)</p>
-                <p className="text-2xl font-black text-slate-900">{formatNumber(totalCOGS, decimals)}</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">المصروفات + تسوية الجرد</p>
-                <p className="text-2xl font-black text-rose-600">{formatNumber(totalExpenses + stocktakeAdjustments, decimals)}</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">الرواتب والأجور</p>
-                <p className="text-2xl font-black text-rose-600">{formatNumber(totalSalaries, decimals)}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-indigo-600 p-5 rounded-2xl text-white">
-                <p className="text-indigo-100 text-xs font-bold mb-1">صافي الربح المحاسبي (بدون ضريبة)</p>
-                <p className="text-3xl font-black">{formatMoney(netProfit, storeSettings.currency, decimals)}</p>
-              </div>
-              <div className="bg-white p-5 rounded-2xl border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold mb-1">
-                  قيمة المخزون الحالية ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})
-                </p>
-                <p className="text-3xl font-black text-slate-900">{formatMoney(inventoryCostValue, storeSettings.currency, decimals)}</p>
-              </div>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="w-full min-w-[680px] text-right text-sm tabular-nums">
+                <thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-3">البند المالي</th><th className="px-4 py-3">القيمة</th><th className="px-4 py-3">التوضيح</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr><td className="px-4 py-3 font-semibold">صافي المبيعات بدون ضريبة</td><td className="px-4 py-3 font-black">{formatNumber(netSalesExclTax, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">بعد فصل ضريبة القيمة المضافة والمرتجعات</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">صافي ضريبة القيمة المضافة</td><td className="px-4 py-3 font-black">{formatNumber(netVatPayable, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">حساب الضريبة المستحقة</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">تكلفة المبيعات (COGS)</td><td className="px-4 py-3 font-black">{formatNumber(totalCOGS, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">تعتمد على تكلفة البيع التاريخية</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">المصروفات وتسوية الجرد</td><td className="px-4 py-3 font-black">{formatNumber(totalExpenses + stocktakeAdjustments, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">مصروفات الفترة وتسويات الجرد</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">الرواتب والأجور</td><td className="px-4 py-3 font-black">{formatNumber(totalSalaries, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">الرواتب المسجلة للفترة</td></tr>
+                  <tr className="bg-slate-50"><td className="px-4 py-3 font-black">صافي الربح المحاسبي</td><td className="px-4 py-3 font-black text-indigo-700">{formatMoney(netProfit, storeSettings.currency, decimals)}</td><td className="px-4 py-3 text-xs text-slate-500">بدون ضريبة القيمة المضافة</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">قيمة المخزون الحالية ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})</td><td className="px-4 py-3 font-black">{formatMoney(inventoryCostValue, storeSettings.currency, decimals)}</td><td className="px-4 py-3 text-xs text-slate-500">تقييم المخزون الحالي بالتكلفة</td></tr>
+                </tbody>
+              </table>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
