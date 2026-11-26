@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { deletePosRecord, getFirstPosRecordWhereEquals, getPosRecord, getPosRecords, getPosRecordsWhereEquals, putPosRecord } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
@@ -32,8 +33,8 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
-import { ensureAndroidCameraPermission } from '../native/cameraPermission';
+import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { startProductBarcodeCapture, type ProductBarcodeCaptureSession } from '../utils/productBarcodeCapture';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
 import { dispatchOperation } from '../services/operationService';
@@ -227,7 +228,7 @@ export default function POS() {
 
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<ProductBarcodeCaptureSession | null>(null);
   const cameraScanGateRef = useRef(createBarcodeScanGate(2200));
   const deviceScanGateRef = useRef(createBarcodeScanGate(300));
 
@@ -277,8 +278,7 @@ export default function POS() {
       if (!activeScanner) return;
       scannerRef.current = null;
       try {
-        if (activeScanner.isScanning) await activeScanner.stop();
-        await activeScanner.clear();
+        await activeScanner.stop();
       } catch (err) {
         console.error('Error stopping scanner:', err);
       }
@@ -287,23 +287,14 @@ export default function POS() {
     if (isScannerOpen) {
       const startScanner = async () => {
         try {
-          const cameraGranted = await ensureAndroidCameraPermission();
-          if (!cameraGranted) {
-            toast.error('يجب السماح للتطبيق باستخدام الكاميرا لتشغيل ماسح الباركود');
-            if (isMounted) setIsScannerOpen(false);
-            return;
-          }
-          const activeScanner = new Html5Qrcode('reader', {
+          const webScanner = Capacitor.getPlatform() === 'android' ? null : new Html5Qrcode('reader', {
             verbose: false,
             formatsToSupport: PRODUCT_BARCODE_FORMATS,
-            // Force the bundled ZXing decoder; do not depend on Android WebView's
-            // partially supported native BarcodeDetector implementation.
             useBarCodeDetectorIfSupported: false,
           } as any);
-          scannerRef.current = activeScanner;
           let lastDecodeDiagnosticAt = 0;
-          await startProductBarcodeCamera(
-            activeScanner,
+          const session = await startProductBarcodeCapture(
+            webScanner,
             (decodedText) => {
               const barcode = normalizeBarcodeValue(decodedText);
               if (!cameraScanGateRef.current(barcode)) return;
@@ -337,7 +328,12 @@ export default function POS() {
               }
             },
           );
-          await optimizeBarcodeCamera(activeScanner);
+          if (!isMounted) {
+            await session.stop();
+            return;
+          }
+          scannerRef.current = session;
+          if (webScanner) await optimizeBarcodeCamera(webScanner);
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
@@ -1432,11 +1428,11 @@ export default function POS() {
 
       {/* Scanner Modal */}
       {isScannerOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Camera className="w-5 h-5 text-indigo-600" />
+        <div className="barcode-scanner-modal fixed inset-0 bg-transparent backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-950/75 text-white rounded-2xl border border-white/20 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b border-white/20 bg-slate-950/80">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Camera className="w-5 h-5 text-indigo-300" />
                 مسح الباركود
               </h3>
               <button onClick={() => setIsScannerOpen(false)} className="text-slate-400 hover:text-slate-600">
