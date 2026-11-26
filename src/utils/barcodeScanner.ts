@@ -93,6 +93,11 @@ export function attachBarcodeKeyboardListener(
       if (barcode.length >= minLength) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        const target = event.target as HTMLInputElement | HTMLTextAreaElement | null;
+        if (target && typeof target.value === 'string' && target.value.endsWith(barcode)) {
+          target.value = target.value.slice(0, -barcode.length);
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         reset();
         onBarcode(barcode);
       } else {
