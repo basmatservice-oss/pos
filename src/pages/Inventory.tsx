@@ -339,7 +339,7 @@ export default function Inventory() {
   }, [isScannerModalOpen, storeSettings.inventoryScannerType]);
 
   useEffect(() => {
-    if (isScannerModalOpen && storeSettings.inventoryScannerType === 'usb' && deviceInputRef.current) {
+    if (isScannerModalOpen && deviceInputRef.current) {
       deviceInputRef.current.focus();
     }
   }, [isScannerModalOpen, storeSettings.inventoryScannerType]);
@@ -1660,8 +1660,18 @@ export default function Inventory() {
                     جاري تشغيل الكاميرا...
                   </div>
                   <p className="text-center text-sm text-gray-500">
-                    وجه الكاميرا نحو الباركود للمسح تلقائياً
+                    وجه الكاميرا نحو الباركود أو استخدم الماسح الخارجي في الحقل التالي
                   </p>
+                  <input
+                    ref={deviceInputRef}
+                    type="text"
+                    autoFocus
+                    autoComplete="off"
+                    inputMode="none"
+                    placeholder="الماسح الخارجي USB / Bluetooth"
+                    onKeyDown={handleDeviceScan}
+                    className="w-full rounded-xl border border-indigo-200 px-4 py-3 text-center font-mono text-base outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center text-center space-y-6">
