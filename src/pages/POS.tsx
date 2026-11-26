@@ -312,7 +312,19 @@ export default function POS() {
                   toast.success('تم العثور على: ' + match.product.name + (match.matchedUnit ? ' (' + match.matchedUnit.name + ')' : ''));
                   setIsScannerOpen(false);
                 } else {
-                  toast.error('المنتج غير موجود');
+                  void getPosRecords<any>('products').then((products) => {
+                    const dbMatch = findProductBarcodeMatch(products, barcode);
+                    if (dbMatch) {
+                      addItem(dbMatch.product, dbMatch.matchedUnit?.name);
+                      toast.success('تم العثور على: ' + dbMatch.product.name + (dbMatch.matchedUnit ? ' (' + dbMatch.matchedUnit.name + ')' : ''));
+                      setIsScannerOpen(false);
+                    } else {
+                      toast.error('المنتج غير موجود');
+                    }
+                  }).catch((error) => {
+                    console.error('Camera barcode lookup failed:', error);
+                    toast.error('تعذر البحث عن الباركود');
+                  });
                 }
               },
               () => {}
