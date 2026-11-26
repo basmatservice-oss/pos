@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
@@ -345,6 +345,12 @@ export default function Inventory() {
       deviceInputRef.current.focus();
     }
   }, [isScannerModalOpen, storeSettings.inventoryScannerType]);
+
+  useEffect(() => {
+    return attachBarcodeKeyboardListener((barcode) => {
+      void handleBarcodeScanned(barcode, 'device');
+    });
+  }, [handleBarcodeScanned]);
 
   const handleDeviceScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
