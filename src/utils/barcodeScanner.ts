@@ -56,7 +56,6 @@ export const PRODUCT_BARCODE_CAMERA_CONFIG = {
 export const PRODUCT_BARCODE_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1920 },
   height: { ideal: 1080 },
-  facingMode: { ideal: 'environment' },
 };
 
 /**
@@ -67,7 +66,7 @@ export const PRODUCT_BARCODE_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
 export async function startProductBarcodeCamera(
   scanner: {
     start: (
-      cameraId: string,
+      cameraId: string | MediaTrackConstraints,
       config: typeof PRODUCT_BARCODE_CAMERA_CONFIG,
       onSuccess: (decodedText: string) => void,
       onError: (errorMessage: string) => void,
@@ -81,16 +80,24 @@ export async function startProductBarcodeCamera(
   if (!cameras?.length) throw new Error('لم يتم العثور على كاميرا متاحة');
 
   const rearCameraPattern = /back|rear|environment|خلفية|خلفي/i;
-  const ordered = [...cameras].sort((a, b) => {
-    const aRear = rearCameraPattern.test(a.label || '');
-    const bRear = rearCameraPattern.test(b.label || '');
-    return Number(bRear) - Number(aRear);
-  });
+  const labelledRearCamera = cameras.find((camera) => rearCameraPattern.test(camera.label || ''));
+  const ordered: Array<{ id: string; label: string; source: string | MediaTrackConstraints }> =
+    labelledRearCamera
+      ? [
+          ...[labelledRearCamera, ...cameras.filter((camera) => camera.id !== labelledRearCamera.id)]
+            .map((camera) => ({ id: camera.id, label: camera.label || 'Camera', source: camera.id })),
+        ]
+      : [
+          // Older Android WebViews often hide camera labels until a stream is
+          // active. Prefer the browser's rear-facing constraint in that case.
+          { id: 'environment', label: 'Rear camera', source: { facingMode: { ideal: 'environment' } } },
+          ...cameras.map((camera) => ({ id: camera.id, label: camera.label || 'Camera', source: camera.id })),
+        ];
 
   let lastError: unknown;
   for (const camera of ordered) {
     try {
-      await scanner.start(camera.id, PRODUCT_BARCODE_CAMERA_CONFIG, onSuccess, onDecodeFailure);
+      await scanner.start(camera.source, PRODUCT_BARCODE_CAMERA_CONFIG, onSuccess, onDecodeFailure);
       try {
         await scanner.applyVideoConstraints?.(PRODUCT_BARCODE_VIDEO_CONSTRAINTS);
       } catch (error) {
@@ -98,7 +105,7 @@ export async function startProductBarcodeCamera(
         // must remain usable when a device rejects optional constraints.
         console.debug('Optional barcode resolution request was rejected:', error);
       }
-      return camera;
+      return { id: camera.id, label: camera.label };
     } catch (error) {
       lastError = error;
       console.warn('Unable to start barcode camera:', camera.label || camera.id, error);
