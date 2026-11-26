@@ -2789,7 +2789,9 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
     prevProduct &&
     savedRecord &&
     (Number(prevProduct.sellingPrice) !== Number(savedRecord.sellingPrice) ||
-      Number(prevProduct.costPrice) !== Number(savedRecord.costPrice))
+      Number(prevProduct.costPrice) !== Number(savedRecord.costPrice) ||
+      Number(prevProduct.priceInUSD || 0) !== Number(savedRecord.priceInUSD || 0) ||
+      String(prevProduct.unitsJson || '') !== String(savedRecord.unitsJson || ''))
   ) {
     tx.insert(auditLogs)
       .values({
@@ -2804,8 +2806,8 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
         quantity: 1,
         value: Number(savedRecord.sellingPrice || 0),
         branchId: savedRecord.branchId || null,
-        previousValue: JSON.stringify({ costPrice: prevProduct.costPrice, sellingPrice: prevProduct.sellingPrice }),
-        newValue: JSON.stringify({ costPrice: savedRecord.costPrice, sellingPrice: savedRecord.sellingPrice }),
+        previousValue: JSON.stringify({ costPrice: prevProduct.costPrice, sellingPrice: prevProduct.sellingPrice, priceInUSD: prevProduct.priceInUSD, unitsJson: prevProduct.unitsJson }),
+        newValue: JSON.stringify({ costPrice: savedRecord.costPrice, sellingPrice: savedRecord.sellingPrice, priceInUSD: savedRecord.priceInUSD, unitsJson: savedRecord.unitsJson }),
         entityId: String(savedRecord.id),
         entityName: savedRecord.name,
       })
