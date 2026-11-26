@@ -62,7 +62,7 @@ jobs:
           let gradle = fs.readFileSync(gradleFile, 'utf8');
           const settings = [['minSdkVersion', 26], ['compileSdkVersion', 36], ['targetSdkVersion', 36]];
           for (const [key, value] of settings) {
-            const pattern = new RegExp(key + '\s*=\s*\\d+');
+            const pattern = new RegExp(key + '\\s*=\\s*\\d+');
             if (!pattern.test(gradle)) throw new Error('Capacitor Android Gradle setting not found: ' + key);
             gradle = gradle.replace(pattern, key + ' = ' + value);
           }
