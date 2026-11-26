@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
@@ -43,6 +43,8 @@ export default function Inventory() {
   const deviceInputRef = useRef<HTMLInputElement>(null);
   const lastScannedTimeRef = useRef<Record<string, number>>({});
   const isSavingProductRef = useRef(false);
+  const scanGateRef = useRef(createBarcodeScanGate(1400));
+  const isHandlingBarcodeRef = useRef(false);
 
   // Category Form State
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -236,13 +238,11 @@ export default function Inventory() {
     setEditingProduct(null);
   };
 
-  const handleBarcodeScanned = async (barcode: string) => {
-    // Double scan protection
-    const now = Date.now();
-    if (lastScannedTimeRef.current[barcode] && (now - lastScannedTimeRef.current[barcode]) < 500) {
-      return;
-    }
-    lastScannedTimeRef.current[barcode] = now;
+  const handleBarcodeScanned = async (rawBarcode: string) => {
+    const barcode = normalizeBarcodeValue(rawBarcode);
+    if (!barcode || isHandlingBarcodeRef.current || !scanGateRef.current(barcode)) return;
+    isHandlingBarcodeRef.current = true;
+    lastScannedTimeRef.current[barcode] = Date.now();
 
     // Optimized lookup using memory cache
     const existingProduct = getProductByBarcode(barcode);
@@ -262,6 +262,7 @@ export default function Inventory() {
         handleOpenModal(undefined, barcode);
       }
     }
+    isHandlingBarcodeRef.current = false;
   };
 
   const generateBarcode = () => {
@@ -275,16 +276,14 @@ export default function Inventory() {
     let isMounted = true;
 
     const stopScanner = async () => {
-      if (scannerRef.current) {
-        try {
-          if (scannerRef.current.isScanning) {
-            await scannerRef.current.stop();
-          }
-          await scannerRef.current.clear();
-        } catch (err) {
-          console.error("Error stopping scanner:", err);
-        }
-        scannerRef.current = null;
+      const activeScanner = scannerRef.current;
+      if (!activeScanner) return;
+      scannerRef.current = null;
+      try {
+        if (activeScanner.isScanning) await activeScanner.stop();
+        await activeScanner.clear();
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
       }
     };
 
@@ -345,18 +344,18 @@ export default function Inventory() {
   }, [isScannerModalOpen, storeSettings.inventoryScannerType]);
 
   const handleDeviceScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const barcode = e.currentTarget.value.trim();
-      if (barcode) {
-        await handleBarcodeScanned(barcode);
-      }
-      e.currentTarget.value = '';
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const input = e.currentTarget;
+      const barcode = normalizeBarcodeValue(input.value);
+      input.value = '';
+      if (barcode) await handleBarcodeScanned(barcode);
     }
   };
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const barcode = mainSearchInputRef.current?.value?.trim();
+    const barcode = normalizeBarcodeValue(mainSearchInputRef.current?.value);
     if (!barcode) return;
     
     // Check if what was entered/scanned is an exact barcode match - optimized lookup
