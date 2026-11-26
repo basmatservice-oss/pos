@@ -341,7 +341,7 @@ export default function POS() {
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
-            toast.error('تعذر الوصول للكاميرا. يرجى التحقق من الصلاحيات.');
+            toast.error(err instanceof Error ? err.message : 'تعذر تشغيل الكاميرا. تحقق من الصلاحيات ثم أعد المحاولة.');
             setIsScannerOpen(false);
           }
         }
