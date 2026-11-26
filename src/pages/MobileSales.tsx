@@ -29,7 +29,7 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
 import { findProductBarcodeMatch, getProductUnitOptions, resolveProductUnitFactor } from '../utils/productUnits';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useReactToPrint } from 'react-to-print';
@@ -169,6 +169,7 @@ const MobileSales: React.FC = () => {
             },
             () => {}
           );
+          await optimizeBarcodeCamera(html5QrCode);
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
