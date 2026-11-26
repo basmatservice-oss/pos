@@ -29,7 +29,7 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
 import { findProductBarcodeMatch, getProductUnitOptions, resolveProductUnitFactor } from '../utils/productUnits';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useReactToPrint } from 'react-to-print';
@@ -128,20 +128,21 @@ const MobileSales: React.FC = () => {
           const html5QrCode = new Html5Qrcode('mobile-reader', {
             verbose: false,
             formatsToSupport: PRODUCT_BARCODE_FORMATS,
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+            // Use the bundled decoder for consistent behavior on Android 8 WebView.
+            useBarCodeDetectorIfSupported: false,
           } as any);
           scannerRef.current = html5QrCode;
+          let lastDecodeDiagnosticAt = 0;
 
-          await html5QrCode.start(
-            { facingMode: 'environment' },
-            PRODUCT_BARCODE_CAMERA_CONFIG as any,
-                        (decodedText) => {
+          await startProductBarcodeCamera(
+            html5QrCode,
+            (decodedText) => {
               const barcode = normalizeBarcodeValue(decodedText);
               if (!cameraScanGateRef.current(barcode)) return;
               const applyCameraMatch = (match: ReturnType<typeof findProductBarcodeMatch>) => {
                 if (!match) {
                   playErrorSound();
-                  toast.error(lang === 'en' ? 'Product not found' : 'المنتج غير موجود');
+                  toast.error(lang === 'en' ? 'Barcode read, but product was not found' : 'تمت قراءة الباركود لكن المنتج غير موجود');
                   return;
                 }
                 playScanSound();
@@ -167,7 +168,13 @@ const MobileSales: React.FC = () => {
                 });
               }
             },
-            () => {}
+            (decodeError) => {
+              const now = Date.now();
+              if (now - lastDecodeDiagnosticAt >= 8000) {
+                lastDecodeDiagnosticAt = now;
+                console.debug('Mobile barcode camera is running; no code decoded in recent frames:', decodeError);
+              }
+            },
           );
           await optimizeBarcodeCamera(html5QrCode);
         } catch (err) {
