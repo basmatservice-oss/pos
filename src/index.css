@@ -323,3 +323,13 @@ body.barcode-scanner-active .barcode-scanner-modal {
   z-index: 2147483000;
   background: transparent !important;
 }
+
+/* Keep HTML5-Qrcode's injected camera feed visible in browser and Electron. */
+#reader video,
+#inventory-reader video,
+#mobile-reader video {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
