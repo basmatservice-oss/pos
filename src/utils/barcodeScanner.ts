@@ -89,8 +89,14 @@ export function attachBarcodeKeyboardListener(
         event.preventDefault();
         event.stopImmediatePropagation();
         const target = event.target as HTMLInputElement | HTMLTextAreaElement | null;
-        if (target && typeof target.value === 'string' && target.value.endsWith(barcode)) {
-          target.value = target.value.slice(0, -barcode.length);
+        if (target && typeof target.value === 'string' && buffer && target.value.endsWith(buffer)) {
+          const nextValue = target.value.slice(0, -buffer.length);
+          const prototype = target instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+          const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+          if (valueSetter) valueSetter.call(target, nextValue);
+          else target.value = nextValue;
           target.dispatchEvent(new Event('input', { bubbles: true }));
         }
         reset();
