@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
