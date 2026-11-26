@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -293,48 +293,50 @@ export default function POS() {
             if (isMounted) setIsScannerOpen(false);
             return;
           }
-          const devices = await Html5Qrcode.getCameras();
-          if (devices && devices.length > 0) {
-            const activeScanner = new Html5Qrcode('reader', {
-              verbose: false,
-              formatsToSupport: PRODUCT_BARCODE_FORMATS,
-              experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-            } as any);
-            scannerRef.current = activeScanner;
-            await activeScanner.start(
-              { facingMode: 'environment' },
-              PRODUCT_BARCODE_CAMERA_CONFIG as any,
-               (decodedText) => {
-                const barcode = normalizeBarcodeValue(decodedText);
-                if (!cameraScanGateRef.current(barcode)) return;
-                const match = getMatchByBarcode(barcode);
-                if (match) {
-                  addItem(match.product, match.matchedUnit?.name);
-                  toast.success('تم العثور على: ' + match.product.name + (match.matchedUnit ? ' (' + match.matchedUnit.name + ')' : ''));
-                  setIsScannerOpen(false);
-                } else {
-                  void getPosRecords<any>('products').then((products) => {
-                    const dbMatch = findProductBarcodeMatch(products, barcode);
-                    if (dbMatch) {
-                      addItem(dbMatch.product, dbMatch.matchedUnit?.name);
-                      toast.success('تم العثور على: ' + dbMatch.product.name + (dbMatch.matchedUnit ? ' (' + dbMatch.matchedUnit.name + ')' : ''));
-                      setIsScannerOpen(false);
-                    } else {
-                      toast.error('المنتج غير موجود');
-                    }
-                  }).catch((error) => {
-                    console.error('Camera barcode lookup failed:', error);
-                    toast.error('تعذر البحث عن الباركود');
-                  });
-                }
-              },
-              () => {}
-            );
-            await optimizeBarcodeCamera(activeScanner);
-          } else {
-            toast.error('لا يوجد كاميرا متاحة');
-            setIsScannerOpen(false);
-          }
+          const activeScanner = new Html5Qrcode('reader', {
+            verbose: false,
+            formatsToSupport: PRODUCT_BARCODE_FORMATS,
+            // Force the bundled ZXing decoder; do not depend on Android WebView's
+            // partially supported native BarcodeDetector implementation.
+            useBarCodeDetectorIfSupported: false,
+          } as any);
+          scannerRef.current = activeScanner;
+          let lastDecodeDiagnosticAt = 0;
+          await startProductBarcodeCamera(
+            activeScanner,
+            (decodedText) => {
+              const barcode = normalizeBarcodeValue(decodedText);
+              if (!cameraScanGateRef.current(barcode)) return;
+              const match = getMatchByBarcode(barcode);
+              if (match) {
+                addItem(match.product, match.matchedUnit?.name);
+                toast.success('تم العثور على: ' + match.product.name + (match.matchedUnit ? ' (' + match.matchedUnit.name + ')' : ''));
+                setIsScannerOpen(false);
+              } else {
+                void getPosRecords<any>('products').then((products) => {
+                  const dbMatch = findProductBarcodeMatch(products, barcode);
+                  if (dbMatch) {
+                    addItem(dbMatch.product, dbMatch.matchedUnit?.name);
+                    toast.success('تم العثور على: ' + dbMatch.product.name + (dbMatch.matchedUnit ? ' (' + dbMatch.matchedUnit.name + ')' : ''));
+                    setIsScannerOpen(false);
+                  } else {
+                    toast.error('تمت قراءة الباركود لكن المنتج غير موجود');
+                  }
+                }).catch((error) => {
+                  console.error('Camera barcode lookup failed:', error);
+                  toast.error('تعذر البحث عن الباركود');
+                });
+              }
+            },
+            (decodeError) => {
+              const now = Date.now();
+              if (now - lastDecodeDiagnosticAt >= 8000) {
+                lastDecodeDiagnosticAt = now;
+                console.debug('Barcode camera is running; no code decoded in recent frames:', decodeError);
+              }
+            },
+          );
+          await optimizeBarcodeCamera(activeScanner);
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
