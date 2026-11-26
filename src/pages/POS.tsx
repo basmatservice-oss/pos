@@ -1428,7 +1428,7 @@ export default function POS() {
 
       {/* Scanner Modal */}
       {isScannerOpen && (
-        <div className="barcode-scanner-modal fixed inset-0 bg-transparent backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="barcode-scanner-modal fixed inset-0 bg-transparent flex items-center justify-center z-50 p-4">
           <div className="bg-slate-950/75 text-white rounded-2xl border border-white/20 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
             <div className="flex justify-between items-center p-4 border-b border-white/20 bg-slate-950/80">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
