@@ -92,7 +92,6 @@ const MobileSales: React.FC = () => {
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scanGateRef = useRef(createBarcodeScanGate(1400));
-  const mobileScannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -588,8 +587,8 @@ const MobileSales: React.FC = () => {
         <div className="w-full max-w-sm mt-5">
           <label className="block text-sm text-white/80 mb-2">{lang === 'en' ? 'USB / Bluetooth scanner' : 'الماسح الخارجي USB / Bluetooth'}</label>
           <input
-            ref={mobileScannerInputRef}
             type="text"
+            autoFocus
             inputMode="none"
             autoComplete="off"
             placeholder={lang === 'en' ? 'Scan barcode here...' : 'وجّه الماسح إلى هذا الحقل...'}
