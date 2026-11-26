@@ -252,14 +252,17 @@ export default function OperationalReports({ startDate, endDate, currency, decim
         </div>
         <div className={section}>
           <h4 className="mb-3 font-bold text-slate-800">دوران المخزون والأصناف الراكدة</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">تكلفة البضاعة الخارجة بعد المرتجعات</span><p className="font-black">{money(report.inventoryTurnover.cogs)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">مخزون أول الفترة (مقدر)</span><p className="font-black">{money(report.inventoryTurnover.beginningValue)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">متوسط قيمة المخزون</span><p className="font-black">{money(report.inventoryTurnover.averageValue)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">قيمة المخزون المتبقي</span><p className="font-black">{money(report.inventoryTurnover.endingValue)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">معدل الدوران على متوسط المخزون</span><p className="font-black">{report.inventoryTurnover.ratio == null ? '—' : report.inventoryTurnover.ratio.toFixed(2) + ' مرة'}</p></div>
-            <div className="rounded-lg bg-slate-50 p-2"><span className="text-xs text-slate-500">أصناف راكدة (60 يومًا دون حركة)</span><p className="font-black">{report.inventoryTurnover.staleProducts}</p></div>
-          </div>
+          <div className="overflow-x-auto"><table className={table}>
+            <thead className="bg-slate-50 text-xs"><tr><th className="p-2">مؤشر دوران المخزون</th><th className="p-2">القيمة</th></tr></thead>
+            <tbody>
+              <tr className="border-t"><td className="p-2">تكلفة البضاعة الخارجة بعد المرتجعات</td><td className="p-2 font-bold">{money(report.inventoryTurnover.cogs)}</td></tr>
+              <tr className="border-t"><td className="p-2">مخزون أول الفترة (مقدر)</td><td className="p-2 font-bold">{money(report.inventoryTurnover.beginningValue)}</td></tr>
+              <tr className="border-t"><td className="p-2">متوسط قيمة المخزون</td><td className="p-2 font-bold">{money(report.inventoryTurnover.averageValue)}</td></tr>
+              <tr className="border-t"><td className="p-2">قيمة المخزون المتبقي</td><td className="p-2 font-bold">{money(report.inventoryTurnover.endingValue)}</td></tr>
+              <tr className="border-t"><td className="p-2">معدل الدوران على متوسط المخزون</td><td className="p-2 font-bold">{report.inventoryTurnover.ratio == null ? '—' : report.inventoryTurnover.ratio.toFixed(2) + ' مرة'}</td></tr>
+              <tr className="border-t"><td className="p-2">أصناف راكدة (60 يومًا دون حركة)</td><td className="p-2 font-bold">{report.inventoryTurnover.staleProducts}</td></tr>
+            </tbody>
+          </table></div>
           <p className="mt-2 text-xs text-slate-500">يُقدّر مخزون أول الفترة من قيمة المخزون الحالي وصافي قيم الحركات المسجلة بتكلفة تاريخية؛ لذلك تتأثر الدقة باكتمال توثيق حركات المخزون وتكلفتها خلال الفترة.</p>
           {report.inventoryAging.historicalSnapshotApproximate && <p className="mt-1 text-xs text-amber-700">تنبيه: تاريخ التقرير أقدم من تاريخ البيانات الحالية؛ كميات الدفعات المتبقية تعكس الرصيد المتاح الآن، ولا تمثل لقطة تاريخية دقيقة لذلك اليوم. لا تعتمد قيمة المخزون أو أعمار الدفعات التاريخية كرصيد إقفال معتمد.</p>}
           <p className="mt-1 text-xs text-slate-500">الدفعات التي لا يتوفر لها تاريخ شراء موثوق تظهر ضمن «تاريخ غير معروف»، ولا تُصنّف تلقائيًا كدفعات حديثة.</p>
