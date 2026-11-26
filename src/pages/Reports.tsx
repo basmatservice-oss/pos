@@ -609,71 +609,29 @@ export default function Reports() {
             </div>
           )}
 
-          {/* KPI Grid */}
-          <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 tabular-nums sm:grid-cols-2 lg:mb-6 lg:grid-cols-4 lg:gap-4">
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-500 mb-1">صافي المبيعات (بدون ضريبة)</p>
-                <h3 className="text-xl font-black text-slate-900">
-                  {formatNumber(stats.totalRevenueExclVat, decimals)}{' '}
-                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
-                </h3>
-                <div className="flex items-center gap-1 mt-1 text-emerald-600">
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span className="text-xs font-bold">صافي الربح: {stats.netProfit === null ? 'غير مكتمل' : formatNumber(stats.netProfit, decimals)}</span>
-                </div>
-              </div>
+          {/* Primary financial summary table */}
+          <section className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <h3 className="text-sm font-black text-slate-800">ملخص الأداء المالي</h3>
+              <p className="mt-1 text-xs text-slate-500">القيم للفترة المحددة، مع فصل ضريبة القيمة المضافة عن الإيرادات.</p>
             </div>
-
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
-                <DollarSign className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-500 mb-1">صافي ضريبة القيمة المضافة (2200)</p>
-                <h3 className="text-xl font-black text-slate-900">
-                  {formatNumber(stats.netVatPayable, decimals)}{' '}
-                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">المحصل شاملاً: {formatNumber(stats.netCollectedInclVat, decimals)}</p>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[620px] text-right text-sm tabular-nums">
+                <thead className="bg-white text-xs text-slate-500"><tr>
+                  <th className="px-4 py-3 font-bold">البند</th><th className="px-4 py-3 font-bold">القيمة</th><th className="px-4 py-3 font-bold">ملاحظات</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr><td className="px-4 py-3 font-semibold">صافي المبيعات بدون الضريبة</td><td className="px-4 py-3 font-black">{formatNumber(stats.totalRevenueExclVat, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">بعد خصم المرتجعات</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">صافي ضريبة القيمة المضافة (2200)</td><td className="px-4 py-3 font-black">{formatNumber(stats.netVatPayable, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">المبيعات ناقص ضريبة المرتجعات</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">إجمالي التحصيل شامل الضريبة</td><td className="px-4 py-3 font-black">{formatNumber(stats.netCollectedInclVat, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">المبلغ بعد المرتجعات</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">المصروفات التشغيلية</td><td className="px-4 py-3 font-black">{formatNumber(stats.totalExpenses, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">خلال الفترة</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">الرواتب</td><td className="px-4 py-3 font-black">{formatNumber(stats.totalPayrolls, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">الرواتب المسددة</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">قيمة المخزون بالتكلفة ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})</td><td className="px-4 py-3 font-black">{formatNumber(stats.totalInventoryValue, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">القيمة البيعية: {formatNumber(stats.totalRetailValue, decimals)} {storeSettings.currency}</td></tr>
+                  <tr className="bg-slate-50"><td className="px-4 py-3 font-black">صافي الربح</td><td className="px-4 py-3 font-black">{stats.netProfit === null ? 'غير مكتمل' : formatNumber(stats.netProfit, decimals) + ' ' + storeSettings.currency}</td><td className="px-4 py-3 text-xs text-slate-500">{stats.netProfit === null ? 'توجد بنود تكلفة تاريخية غير مكتملة' : 'بعد المصروفات والرواتب والتسويات'}</td></tr>
+                </tbody>
+              </table>
             </div>
-
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
-                <ArrowDownRight className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-500 mb-1">المصروفات والرواتب</p>
-                <h3 className="text-xl font-black text-slate-900">
-                  {formatNumber(stats.totalExpenses + stats.totalPayrolls, decimals)}{' '}
-                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  تشغيلية: {formatNumber(stats.totalExpenses, decimals)} | رواتب: {formatNumber(stats.totalPayrolls, decimals)}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                <Package className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-500 mb-1">
-                  قيمة المخزون ({storeSettings.inventoryValuationMethod === 'weighted_average' ? 'المتوسط المرجح' : 'FIFO'})
-                </p>
-                <h3 className="text-xl font-black text-slate-900">
-                  {formatNumber(stats.totalInventoryValue, decimals)}{' '}
-                  <span className="text-xs font-bold text-slate-400">{storeSettings.currency}</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">القيمة البيعية: {formatNumber(stats.totalRetailValue, decimals)}</p>
-              </div>
-            </div>
-          </div>
+          </section>
 
           {stats.missingCostSnapshotCount > 0 && (
             <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800">
@@ -681,59 +639,22 @@ export default function Reports() {
             </p>
           )}
 
-          {/* Payment Distribution Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 shrink-0 tabular-nums">
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                <Banknote className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-bold text-slate-500 mb-1">التحصيل النقدي (شامل الضريبة)</p>
-                <div className="flex items-end justify-between">
-                  <h3 className="text-xl font-black text-slate-900">
-                    {formatNumber(stats.cashRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
-                  </h3>
-                  <span className="text-xs font-bold text-slate-500">
-                    {stats.netCollectedInclVat > 0 ? ((stats.cashRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
-                  </span>
-                </div>
-              </div>
+          <section className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <h3 className="text-sm font-black text-slate-800">توزيع التحصيل حسب وسيلة الدفع</h3>
             </div>
-
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-                <CreditCard className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الشبكة (شامل الضريبة)</p>
-                <div className="flex items-end justify-between">
-                  <h3 className="text-xl font-black text-slate-900">
-                    {formatNumber(stats.cardRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
-                  </h3>
-                  <span className="text-xs font-bold text-slate-500">
-                    {stats.netCollectedInclVat > 0 ? ((stats.cardRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
-                  </span>
-                </div>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-right text-sm tabular-nums">
+                <thead className="text-xs text-slate-500"><tr><th className="px-4 py-3">وسيلة الدفع</th><th className="px-4 py-3">صافي التحصيل</th><th className="px-4 py-3">النسبة من التحصيل</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr><td className="px-4 py-3 font-semibold">نقدي</td><td className="px-4 py-3 font-black">{formatNumber(stats.cashRevenue, decimals)} {storeSettings.currency}</td><td className="px-4 py-3">{stats.netCollectedInclVat > 0 ? ((stats.cashRevenue / stats.netCollectedInclVat) * 100).toFixed(1) : '0.0'}%</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">بطاقة / شبكة</td><td className="px-4 py-3 font-black">{formatNumber(stats.cardRevenue, decimals)} {storeSettings.currency}</td><td className="px-4 py-3">{stats.netCollectedInclVat > 0 ? ((stats.cardRevenue / stats.netCollectedInclVat) * 100).toFixed(1) : '0.0'}%</td></tr>
+                  <tr><td className="px-4 py-3 font-semibold">آجل / ذمم</td><td className="px-4 py-3 font-black">{formatNumber(stats.creditRevenue, decimals)} {storeSettings.currency}</td><td className="px-4 py-3">{stats.netCollectedInclVat > 0 ? ((stats.creditRevenue / stats.netCollectedInclVat) * 100).toFixed(1) : '0.0'}%</td></tr>
+                </tbody>
+                <tfoot className="border-t border-slate-200 bg-slate-50"><tr><td className="px-4 py-3 font-black">إجمالي التحصيل</td><td className="px-4 py-3 font-black">{formatNumber(stats.netCollectedInclVat, decimals)} {storeSettings.currency}</td><td className="px-4 py-3 font-black">100%</td></tr></tfoot>
+              </table>
             </div>
-
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
-                <Users className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-bold text-slate-500 mb-1">مبيعات الآجل (ذمم)</p>
-                <div className="flex items-end justify-between">
-                  <h3 className="text-xl font-black text-slate-900">
-                    {formatNumber(stats.creditRevenue, decimals)} <span className="text-xs text-slate-400">{storeSettings.currency}</span>
-                  </h3>
-                  <span className="text-xs font-bold text-slate-500">
-                    {stats.netCollectedInclVat > 0 ? ((stats.creditRevenue / stats.netCollectedInclVat) * 100).toFixed(0) : 0}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          </section>
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
