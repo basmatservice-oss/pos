@@ -42,7 +42,8 @@ export default function Inventory() {
   const mainSearchInputRef = useRef<HTMLInputElement>(null);
   const deviceInputRef = useRef<HTMLInputElement>(null);
   const isSavingProductRef = useRef(false);
-  const scanGateRef = useRef(createBarcodeScanGate(1400));
+  const cameraScanGateRef = useRef(createBarcodeScanGate(2200));
+  const deviceScanGateRef = useRef(createBarcodeScanGate(300));
   const isHandlingBarcodeRef = useRef(false);
 
   // Category Form State
@@ -237,9 +238,10 @@ export default function Inventory() {
     setEditingProduct(null);
   };
 
-  const handleBarcodeScanned = async (rawBarcode: string) => {
+  const handleBarcodeScanned = async (rawBarcode: string, source: 'camera' | 'device' = 'device') => {
     const barcode = normalizeBarcodeValue(rawBarcode);
-    if (!barcode || isHandlingBarcodeRef.current || !scanGateRef.current(barcode)) return;
+    const acceptScan = source === 'camera' ? cameraScanGateRef.current : deviceScanGateRef.current;
+    if (!barcode || isHandlingBarcodeRef.current || !acceptScan(barcode)) return;
     isHandlingBarcodeRef.current = true;
     try {
       const existingProduct = getProductByBarcode(barcode);
@@ -315,7 +317,7 @@ export default function Inventory() {
             { facingMode: "environment" },
             PRODUCT_BARCODE_CAMERA_CONFIG as any,
             (decodedText) => {
-              handleBarcodeScanned(decodedText);
+              void handleBarcodeScanned(decodedText, 'camera');
             },
             () => {}
           );
