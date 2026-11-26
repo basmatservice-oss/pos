@@ -279,3 +279,14 @@ test('barcode lookup normalizes Arabic and full-width digits without dropping le
   assert.equal(findProductBarcodeMatch([product], '٠٠١٢٣٤٥٦٧٨٩٠')?.product, product);
   assert.equal(findProductBarcodeMatch([product], '００１２３４５６７８９０')?.product, product);
 });
+
+
+test('infers the physical dimension for standard and legacy product base units', async () => {
+  const { buildCanonicalProductUnits: build } = await import('../src/utils/productUnitCatalog.js');
+  const weight = build({ id: 81, unit: 'كجم', sellingPrice: 10 });
+  const volume = build({ id: 82, unit: 'لتر', sellingPrice: 8 });
+  const count = build({ id: 83, unit: 'piece', sellingPrice: 2 });
+  assert.equal(weight.definitions[0].dimension, 'weight');
+  assert.equal(volume.definitions[0].dimension, 'volume');
+  assert.equal(count.definitions[0].dimension, 'count');
+});
