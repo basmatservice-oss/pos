@@ -310,6 +310,9 @@ body.barcode-scanner-active,
 body.barcode-scanner-active #root {
   background: transparent !important;
 }
+body.barcode-scanner-active {
+  visibility: hidden;
+}
 body.barcode-scanner-active #root {
   visibility: hidden;
 }
