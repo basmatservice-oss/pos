@@ -392,7 +392,7 @@ const MobileSales: React.FC = () => {
           quantity: item.quantity,
           returnedQuantity: 0,
           unit: item.unit || 'piece',
-          conversionFactor: item.product.conversionFactor || 1,
+          conversionFactor: factor,
           unitPrice,
           costPriceAtTimeOfSale: roundMoney(Number(item.product.costPrice || 0) * factor),
           discountAmount: line.discountExclTax,
