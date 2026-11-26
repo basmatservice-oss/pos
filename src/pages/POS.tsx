@@ -333,6 +333,7 @@ export default function POS() {
             return;
           }
           scannerRef.current = session;
+          if (session.engine === 'android-mlkit') toast.success('تم تشغيل قارئ الكاميرا الأصلي. وجّه الباركود نحو العدسة.');
           if (webScanner) await optimizeBarcodeCamera(webScanner);
         } catch (err) {
           console.error('Error starting scanner:', err);
