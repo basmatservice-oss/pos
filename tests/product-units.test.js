@@ -272,3 +272,10 @@ test('Dexie pull reconciliation uses code keys for normalized unit definitions a
   assert.match(dexiePull, /item\.id \?\? item\.key \?\? item\.code/);
   assert.match(dexiePull, /cacheTable\.bulkDelete\(staleIds\)/);
 });
+
+
+test('barcode lookup normalizes Arabic and full-width digits without dropping leading zeroes', () => {
+  const product = { id: 1, barcode: '001234567890', unit: 'piece' };
+  assert.equal(findProductBarcodeMatch([product], '٠٠١٢٣٤٥٦٧٨٩٠')?.product, product);
+  assert.equal(findProductBarcodeMatch([product], '００１２３４５６７８９０')?.product, product);
+});
