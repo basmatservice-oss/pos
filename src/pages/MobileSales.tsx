@@ -138,8 +138,12 @@ const MobileSales: React.FC = () => {
                         (decodedText) => {
               const barcode = normalizeBarcodeValue(decodedText);
               if (!cameraScanGateRef.current(barcode)) return;
-              const match = findProductBarcodeMatch(allProducts, barcode);
-              if (match) {
+              const applyCameraMatch = (match: ReturnType<typeof findProductBarcodeMatch>) => {
+                if (!match) {
+                  playErrorSound();
+                  toast.error(lang === 'en' ? 'Product not found' : 'المنتج غير موجود');
+                  return;
+                }
                 playScanSound();
                 if (scannerMode === 'stocktaking') {
                   setScannedProduct(match.product);
@@ -149,9 +153,18 @@ const MobileSales: React.FC = () => {
                 } else {
                   addToCart(match.product, match.matchedUnit?.name || match.product.unit || 'piece');
                 }
+              };
+              const match = findProductBarcodeMatch(allProducts, barcode);
+              if (match) {
+                applyCameraMatch(match);
               } else {
-                playErrorSound();
-                toast.error(lang === 'en' ? 'Product not found' : 'المنتج غير موجود');
+                void getPosRecords<Product>('products').then((productsFromDb) => {
+                  applyCameraMatch(findProductBarcodeMatch(productsFromDb, barcode));
+                }).catch((error) => {
+                  console.error('Mobile camera barcode lookup failed:', error);
+                  playErrorSound();
+                  toast.error(lang === 'en' ? 'Barcode lookup failed' : 'تعذر البحث عن الباركود');
+                });
               }
             },
             () => {}
