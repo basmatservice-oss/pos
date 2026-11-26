@@ -98,9 +98,7 @@ jobs:
           if (!manifest.includes('android.permission.CAMERA')) {
             manifest = manifest.replace(
               '<application',
-              '<uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <application'
+              '<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application'
             );
           }
           fs.writeFileSync(manifestFile, manifest);
