@@ -108,7 +108,7 @@ export function attachBarcodeKeyboardListener(
 
     // Ignore whitespace and control characters, but preserve all printable
     // barcode characters including leading zeroes and punctuation.
-    if (event.key.length === 1 && !/\\s/u.test(event.key) && !/^[\\u0000-\\u001F\\u007F]$/.test(event.key)) {
+    if (event.key.length === 1 && !/\s/u.test(event.key) && !/^[\u0000-\u001F\u007F]$/.test(event.key)) {
       buffer += event.key;
       lastKeyAt = now;
       if (buffer.length > maxLength) reset();
