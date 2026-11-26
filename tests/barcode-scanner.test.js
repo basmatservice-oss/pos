@@ -15,7 +15,7 @@ test('small-label camera scan uses the full frame and requests a high-resolution
   assert.equal('qrbox' in PRODUCT_BARCODE_CAMERA_CONFIG, false);
 });
 
-import { createBarcodeScanGate, normalizeBarcodeValue } from '../src/utils/barcodeScanner.ts';
+import { attachBarcodeKeyboardListener, createBarcodeScanGate, normalizeBarcodeValue } from '../src/utils/barcodeScanner.ts';
 
 test('barcode normalization removes scanner terminators but preserves leading zeroes', () => {
   assert.equal(normalizeBarcodeValue('  001234567890\r\n '), '001234567890');
@@ -30,4 +30,34 @@ test('scan gate rejects rapid duplicate frames but accepts a different barcode i
   assert.equal(gate('00123', 1500), false);
   assert.equal(gate('00999', 1501), true);
   assert.equal(gate('00123', 2301), true);
+});
+
+
+test('keyboard-wedge listener captures a fast scanner burst and preserves zeroes', () => {
+  const originalDocument = globalThis.document;
+  let listener;
+  globalThis.document = {
+    addEventListener: (_type, callback) => { listener = callback; },
+    removeEventListener: () => {},
+  };
+  const received = [];
+  const detach = attachBarcodeKeyboardListener((barcode) => received.push(barcode));
+  const dispatch = (key) => listener({
+    key,
+    isComposing: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: null,
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+  try {
+    for (const key of '001234567890') dispatch(key);
+    dispatch('Enter');
+    assert.deepEqual(received, ['001234567890']);
+  } finally {
+    detach();
+    globalThis.document = originalDocument;
+  }
 });
