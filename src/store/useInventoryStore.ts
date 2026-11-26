@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Product, Category, ProductUnit } from '../db/db';
 import { getPosRecords } from '../services/posDataAccess';
+import { normalizeBarcodeValue } from '../utils/barcodeScanner';
 
 export interface BarcodeMatch {
   product: Product;
@@ -42,15 +43,21 @@ function buildMaps(products: Product[]) {
 
   products.forEach((p) => {
     if (p.barcode) {
-      pMap.set(p.barcode, p);
-      uMap.set(p.barcode, { product: p });
+      const barcode = normalizeBarcodeValue(p.barcode);
+      if (barcode) {
+        pMap.set(barcode, p);
+        uMap.set(barcode, { product: p });
+      }
     }
     if (p.id) iMap.set(p.id, p);
 
     for (const u of parseUnits(p.unitsJson)) {
       if (u.barcode) {
-        if (!pMap.has(u.barcode)) pMap.set(u.barcode, p);
-        uMap.set(u.barcode, { product: p, matchedUnit: u });
+        const barcode = normalizeBarcodeValue(u.barcode);
+        if (barcode) {
+          if (!pMap.has(barcode)) pMap.set(barcode, p);
+          uMap.set(barcode, { product: p, matchedUnit: u });
+        }
       }
     }
   });
@@ -100,11 +107,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   },
 
   getProductByBarcode: (barcode) => {
-    return get().productMap.get(barcode) || get().unitBarcodeMap.get(barcode)?.product;
+    const normalized = normalizeBarcodeValue(barcode);
+    return get().productMap.get(normalized) || get().unitBarcodeMap.get(normalized)?.product;
   },
 
   getMatchByBarcode: (barcode) => {
-    return get().unitBarcodeMap.get(barcode);
+    return get().unitBarcodeMap.get(normalizeBarcodeValue(barcode));
   },
 
   getProductById: (id) => {
