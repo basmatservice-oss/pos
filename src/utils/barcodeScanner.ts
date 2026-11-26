@@ -25,7 +25,8 @@ export function createBarcodeScanGate(windowMs = 1200) {
 /**
  * Keep one broad symbology profile for unknown retail labels. The full frame
  * remains available for narrow labels; the decoder is throttled to avoid
- * saturating lower-powered Android devices.
+ * saturating lower-powered Android devices. Camera and device input gates are
+ * deliberately independent so fast consecutive hardware scans are not lost.
  */
 export const PRODUCT_BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
