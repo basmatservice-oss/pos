@@ -91,7 +91,8 @@ const MobileSales: React.FC = () => {
   );
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const scanGateRef = useRef(createBarcodeScanGate(1400));
+  const cameraScanGateRef = useRef(createBarcodeScanGate(2600));
+  const deviceScanGateRef = useRef(createBarcodeScanGate(300));
 
   useEffect(() => {
     let isMounted = true;
@@ -136,7 +137,7 @@ const MobileSales: React.FC = () => {
             PRODUCT_BARCODE_CAMERA_CONFIG as any,
                         (decodedText) => {
               const barcode = normalizeBarcodeValue(decodedText);
-              if (!scanGateRef.current(barcode)) return;
+              if (!cameraScanGateRef.current(barcode)) return;
               const match = findProductBarcodeMatch(allProducts, barcode);
               if (match) {
                 playScanSound();
@@ -276,7 +277,7 @@ const MobileSales: React.FC = () => {
     const input = e.currentTarget;
     const barcode = normalizeBarcodeValue(input.value);
     input.value = '';
-    if (!scanGateRef.current(barcode)) return;
+    if (!deviceScanGateRef.current(barcode)) return;
     const match = findProductBarcodeMatch(allProducts, barcode);
     if (!match) {
       playErrorSound();
