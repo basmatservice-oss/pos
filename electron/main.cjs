@@ -44,14 +44,14 @@ function isTrustedRendererUrl(value) {
 
 function installCameraPermissionHandlers() {
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-    if (permission !== 'media') return false;
+    if (permission !== 'media') return true;
     const source = details?.requestingUrl || webContents?.getURL() || requestingOrigin;
     const mediaType = details?.mediaType;
     return isTrustedRendererUrl(source) && mediaType !== 'audio';
   });
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    if (permission !== 'media') return callback(false);
+    if (permission !== 'media') return callback(true);
     const source = details?.requestingUrl || webContents?.getURL();
     const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
     const requestsVideo = mediaTypes.includes('video');
