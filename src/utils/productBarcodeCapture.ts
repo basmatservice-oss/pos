@@ -40,16 +40,10 @@ export async function startProductBarcodeCapture(
       await import('@capacitor-mlkit/barcode-scanning');
 
     let active = true;
-    let deliveredBarcode = '';
     const deliver = (event: unknown) => {
       if (!active) return;
-      for (const barcode of extractNativeBarcodeValues(event)) {
-        if (barcode !== deliveredBarcode) {
-          deliveredBarcode = barcode;
-          onSuccess(barcode);
-          return;
-        }
-      }
+      const barcode = extractNativeBarcodeValues(event)[0];
+      if (barcode) onSuccess(barcode);
     };
 
     const pluralListener = await BarcodeScanner.addListener('barcodesScanned', deliver);
