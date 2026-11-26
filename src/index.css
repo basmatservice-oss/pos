@@ -306,7 +306,6 @@ input[type="number"]::-webkit-outer-spin-button { opacity: 0.65; }
 
 /* Native Android ML Kit preview is rendered behind the WebView. Keep only the
    explicitly marked scanner surface visible while the native camera is active. */
-html:has(body.barcode-scanner-active),
 body.barcode-scanner-active,
 body.barcode-scanner-active #root {
   background: transparent !important;
