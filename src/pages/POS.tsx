@@ -51,6 +51,7 @@ export default function POS() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scannerInputRef = useRef<HTMLInputElement>(null);
   const lastScannedTimeRef = useRef<Record<string, number>>({});
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -313,6 +314,17 @@ export default function POS() {
       stopScanner();
     };
   }, [isScannerOpen, getMatchByBarcode, addItem]);
+
+  const handlePosDeviceScan = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault();
+    const input = e.currentTarget;
+    const barcode = normalizeBarcodeValue(input.value);
+    input.value = '';
+    if (!barcode) return;
+    if (searchInputRef.current) searchInputRef.current.value = barcode;
+    void handleBarcodeSubmit();
+  };
 
   const handleBarcodeSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1392,8 +1404,18 @@ export default function POS() {
             <div className="p-4">
               <div id="reader" className="w-full" />
               <p className="text-center text-sm text-slate-500 mt-4">
-                قم بتوجيه الكاميرا نحو الباركود لمسحه تلقائياً
+                قم بتوجيه الكاميرا نحو الباركود لمسحه تلقائياً أو استخدم الماسح الخارجي
               </p>
+              <input
+                ref={scannerInputRef}
+                type="text"
+                autoFocus
+                autoComplete="off"
+                inputMode="none"
+                placeholder="الماسح الخارجي USB / Bluetooth"
+                onKeyDown={handlePosDeviceScan}
+                className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-center font-mono text-base outline-none focus:ring-2 focus:ring-indigo-500"
+              />
             </div>
           </div>
         </div>
