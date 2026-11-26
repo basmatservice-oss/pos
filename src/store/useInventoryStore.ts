@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Product, Category, ProductUnit } from '../db/db';
 import { getPosRecords } from '../services/posDataAccess';
-import { normalizeBarcodeValue } from '../utils/barcodeScanner';
+import { normalizeBarcodeValue } from '../utils/barcodeValue';
 
 export interface BarcodeMatch {
   product: Product;
