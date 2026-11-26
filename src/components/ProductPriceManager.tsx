@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { dispatchOperation } from '../services/operationService';
+import { logAction } from '../services/auditService';
 import { calculateAdjustedSellingPrice, buildManualSellingPriceUpdate } from '../utils/productPriceAdjustments.js';
 
 type Props = {
@@ -66,6 +67,16 @@ export default function ProductPriceManager({ products, branchId, actorName, cur
             allowProductPriceUpdate: true,
             record,
           }, branchId);
+          await logAction(
+            actorName || 'System',
+            'تحديث سعر بيع يدوي',
+            'price_change',
+            `تغيير سعر ${row.product.name} من ${Number(row.product.sellingPrice || 0)} إلى ${row.nextPrice} وفصل السعر عن سعر الصرف`,
+            1,
+            row.nextPrice,
+            row.product.name,
+            branchId
+          );
           saved += 1;
         } catch (error) {
           failures.push(`${row.product.name}: ${error instanceof Error ? error.message : String(error)}`);
