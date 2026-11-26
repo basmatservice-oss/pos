@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { getPosRecord, getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import type { Product, Category, ProductUnit, ServiceRecipe } from '../db/db';
@@ -8,8 +9,8 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
-import { ensureAndroidCameraPermission } from '../native/cameraPermission';
+import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { startProductBarcodeCapture, type ProductBarcodeCaptureSession } from '../utils/productBarcodeCapture';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
 import { useAuth } from '../context/AuthContext';
@@ -38,7 +39,7 @@ export default function Inventory() {
   
   // Barcode Scanner State (Unified)
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<ProductBarcodeCaptureSession | null>(null);
   const mainSearchInputRef = useRef<HTMLInputElement>(null);
   const deviceInputRef = useRef<HTMLInputElement>(null);
   const isSavingProductRef = useRef(false);
@@ -284,8 +285,7 @@ export default function Inventory() {
       if (!activeScanner) return;
       scannerRef.current = null;
       try {
-        if (activeScanner.isScanning) await activeScanner.stop();
-        await activeScanner.clear();
+        await activeScanner.stop();
       } catch (err) {
         console.error('Error stopping scanner:', err);
       }
@@ -300,23 +300,16 @@ export default function Inventory() {
         if (!element) return;
 
         try {
-          const cameraGranted = await ensureAndroidCameraPermission();
-          if (!cameraGranted) {
-            toast.error('يجب السماح للتطبيق باستخدام الكاميرا لتشغيل ماسح الباركود');
-            if (isMounted) setIsScannerModalOpen(false);
-            return;
-          }
           await stopScanner();
-          const html5QrCode = new Html5Qrcode("inventory-reader", {
+          const webScanner = Capacitor.getPlatform() === 'android' ? null : new Html5Qrcode("inventory-reader", {
             verbose: false,
             formatsToSupport: PRODUCT_BARCODE_FORMATS,
             useBarCodeDetectorIfSupported: false,
           } as any);
-          scannerRef.current = html5QrCode;
           
           let lastDecodeDiagnosticAt = 0;
-          await startProductBarcodeCamera(
-            html5QrCode,
+          const session = await startProductBarcodeCapture(
+            webScanner,
             (decodedText) => {
               void handleBarcodeScanned(decodedText, 'camera');
             },
@@ -329,7 +322,12 @@ export default function Inventory() {
               }
             },
           );
-          await optimizeBarcodeCamera(html5QrCode);
+          if (!isMounted) {
+            await session.stop();
+            return;
+          }
+          scannerRef.current = session;
+          if (webScanner) await optimizeBarcodeCamera(webScanner);
         } catch (err) {
           console.error("Error starting camera scanner:", err);
           if (isMounted) {
@@ -1648,10 +1646,10 @@ export default function Inventory() {
       )}
       {/* Barcode Scanner Modal */}
       {isScannerModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+        <div className="barcode-scanner-modal fixed inset-0 bg-transparent flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-950/75 text-white rounded-2xl border border-white/20 shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-white/20 bg-slate-950/80">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 {storeSettings.inventoryScannerType === 'camera' ? (
                   <>
                     <Camera className="w-6 h-6 text-indigo-600" />
@@ -1675,7 +1673,7 @@ export default function Inventory() {
             <div className="p-8">
               {storeSettings.inventoryScannerType === 'camera' ? (
                 <div className="space-y-4">
-                  <div id="inventory-reader" className="w-full bg-black rounded-2xl overflow-hidden aspect-square flex items-center justify-center text-white text-sm">
+                  <div id="inventory-reader" className="w-full bg-transparent rounded-2xl overflow-hidden aspect-square flex items-center justify-center text-white text-sm">
                     جاري تشغيل الكاميرا...
                   </div>
                   <p className="text-center text-sm text-gray-500">
@@ -1732,7 +1730,7 @@ export default function Inventory() {
               </div>
             </div>
 
-            <div className="p-6 bg-gray-50 flex justify-center">
+            <div className="p-6 bg-slate-950/80 flex justify-center">
               <button
                 onClick={() => setIsScannerModalOpen(false)}
                 className="px-8 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-colors shadow-sm"
