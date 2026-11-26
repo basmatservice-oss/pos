@@ -1441,7 +1441,7 @@ export default function POS() {
               </button>
             </div>
             <div className="p-4">
-              <div id="reader" className="w-full" />
+              <div id="reader" className="w-full min-h-[260px] aspect-video overflow-hidden rounded-xl bg-black/20" />
               <p className="text-center text-sm text-slate-500 mt-4">
                 قم بتوجيه الكاميرا نحو الباركود لمسحه تلقائياً أو استخدم الماسح الخارجي
               </p>
