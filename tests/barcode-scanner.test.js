@@ -20,6 +20,8 @@ import { createBarcodeScanGate, normalizeBarcodeValue } from '../src/utils/barco
 test('barcode normalization removes scanner terminators but preserves leading zeroes', () => {
   assert.equal(normalizeBarcodeValue('  001234567890\r\n '), '001234567890');
   assert.equal(normalizeBarcodeValue('１２３４５'), '12345');
+  assert.equal(normalizeBarcodeValue('٠٠١٢٣٤٥٦٧٨٩٠'), '001234567890');
+  assert.equal(normalizeBarcodeValue('۰۱۲۳۴۵'), '012345');
 });
 
 test('scan gate rejects rapid duplicate frames but accepts a different barcode immediately', () => {
