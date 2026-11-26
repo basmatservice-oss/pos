@@ -4,6 +4,7 @@ import { getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAcce
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   ShoppingBag,
   Search,
@@ -29,9 +30,9 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
+import { startProductBarcodeCapture, type ProductBarcodeCaptureSession } from '../utils/productBarcodeCapture';
 import { findProductBarcodeMatch, getProductUnitOptions, resolveProductUnitFactor } from '../utils/productUnits';
-import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useReactToPrint } from 'react-to-print';
 import type { Product, Customer, Order, OrderItem, StocktakingEntry } from '../db/db';
 import toast from 'react-hot-toast';
@@ -90,7 +91,7 @@ const MobileSales: React.FC = () => {
     (o) => o.isActive && new Date(o.startDate) <= now && new Date(o.endDate) >= now
   );
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<ProductBarcodeCaptureSession | null>(null);
   const cameraScanGateRef = useRef(createBarcodeScanGate(2600));
   const deviceScanGateRef = useRef(createBarcodeScanGate(300));
 
@@ -102,8 +103,7 @@ const MobileSales: React.FC = () => {
       if (!activeScanner) return;
       scannerRef.current = null;
       try {
-        if (activeScanner.isScanning) await activeScanner.stop();
-        await activeScanner.clear();
+        await activeScanner.stop();
       } catch (err) {
         console.error('Error stopping scanner:', err);
       }
@@ -118,24 +118,16 @@ const MobileSales: React.FC = () => {
         if (!element) return;
 
         try {
-          const cameraGranted = await ensureAndroidCameraPermission();
-          if (!cameraGranted) {
-            toast.error(lang === 'en' ? 'Camera permission is required' : 'يجب السماح للتطبيق باستخدام الكاميرا');
-            if (isMounted) setIsScannerOpen(false);
-            return;
-          }
           await stopScanner();
-          const html5QrCode = new Html5Qrcode('mobile-reader', {
+          const webScanner = Capacitor.getPlatform() === 'android' ? null : new Html5Qrcode('mobile-reader', {
             verbose: false,
             formatsToSupport: PRODUCT_BARCODE_FORMATS,
-            // Use the bundled decoder for consistent behavior on Android 8 WebView.
             useBarCodeDetectorIfSupported: false,
           } as any);
-          scannerRef.current = html5QrCode;
           let lastDecodeDiagnosticAt = 0;
 
-          await startProductBarcodeCamera(
-            html5QrCode,
+          const session = await startProductBarcodeCapture(
+            webScanner,
             (decodedText) => {
               const barcode = normalizeBarcodeValue(decodedText);
               if (!cameraScanGateRef.current(barcode)) return;
@@ -177,7 +169,12 @@ const MobileSales: React.FC = () => {
               }
             },
           );
-          await optimizeBarcodeCamera(html5QrCode);
+          if (!isMounted) {
+            await session.stop();
+            return;
+          }
+          scannerRef.current = session;
+          if (webScanner) await optimizeBarcodeCamera(webScanner);
         } catch (err) {
           console.error('Error starting scanner:', err);
           if (isMounted) {
@@ -618,7 +615,7 @@ const MobileSales: React.FC = () => {
   );
 
   const renderScanner = () => (
-    <div className="flex flex-col h-full p-4 bg-slate-900">
+    <div className="barcode-scanner-modal flex flex-col h-full p-4 bg-transparent">
       <div className="flex justify-between items-center mb-6 text-white">
         <h2 className="text-lg font-bold flex items-center gap-2">
           <Scan className="w-5 h-5" />
@@ -630,7 +627,7 @@ const MobileSales: React.FC = () => {
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center relative">
-        <div className="w-full aspect-square max-w-sm bg-black rounded-3xl overflow-hidden border-4 border-indigo-500/30 relative">
+        <div className="w-full aspect-square max-w-sm bg-transparent rounded-3xl overflow-hidden border-4 border-indigo-500/50 relative">
           <div id="mobile-reader" className="w-full h-full" />
           {!isScannerOpen && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 space-y-3">
