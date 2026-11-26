@@ -1,6 +1,6 @@
 import { playSuccessSound, playErrorSound, playScanSound } from '../lib/sound';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
-import { getPosRecordsWhereEquals } from '../services/posDataAccess';
+import { getPosRecords, getPosRecordsWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -29,7 +29,7 @@ import {
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener } from '../utils/barcodeScanner';
 import { findProductBarcodeMatch, getProductUnitOptions, resolveProductUnitFactor } from '../utils/productUnits';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useReactToPrint } from 'react-to-print';
@@ -192,6 +192,38 @@ const MobileSales: React.FC = () => {
     toast.success(`${product.name} تمت إضافته للسلة`, { duration: 1000 });
     playSuccessSound();
   };
+
+  useEffect(() => {
+    return attachBarcodeKeyboardListener((barcode) => {
+      if (!deviceScanGateRef.current(barcode)) return;
+      const indexedMatch = findProductBarcodeMatch(allProducts, barcode);
+      const resolveAndApply = (match: ReturnType<typeof findProductBarcodeMatch>) => {
+        if (!match) {
+          playErrorSound();
+          toast.error(lang === 'en' ? 'Product not found' : 'المنتج غير موجود');
+          return;
+        }
+        if (scannerMode === 'stocktaking') {
+          setScannedProduct(match.product);
+          setActualQuantity('');
+          setIsStocktakingModalOpen(true);
+        } else {
+          addToCart(match.product, match.matchedUnit?.name || match.product.unit || 'piece');
+        }
+      };
+      if (indexedMatch) {
+        resolveAndApply(indexedMatch);
+        return;
+      }
+      void getPosRecords<Product>('products').then((productsFromDb) => {
+        resolveAndApply(findProductBarcodeMatch(productsFromDb, barcode));
+      }).catch((error) => {
+        console.error('Mobile hardware barcode lookup failed:', error);
+        playErrorSound();
+        toast.error(lang === 'en' ? 'Barcode lookup failed' : 'تعذر البحث عن الباركود');
+      });
+    });
+  }, [allProducts, scannerMode, lang]);
 
   const handleSaveStocktakingEntry = async () => {
     if (!openSession) return toast.error('لا توجد جلسة جرد مفتوحة');
