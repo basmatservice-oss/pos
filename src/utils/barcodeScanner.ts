@@ -1,9 +1,31 @@
 import { Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
+/** Normalize scanner output without removing significant leading zeroes. */
+export function normalizeBarcodeValue(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[\\u0000-\\u001F\\u007F]/g, '')
+    .trim();
+}
+
+/** Ignore repeated decoder frames while allowing a different code immediately. */
+export function createBarcodeScanGate(windowMs = 1200) {
+  let lastCode = '';
+  let lastTime = 0;
+  return (value: unknown, now = Date.now()): boolean => {
+    const code = normalizeBarcodeValue(value);
+    if (!code) return false;
+    if (code === lastCode && now - lastTime < windowMs) return false;
+    lastCode = code;
+    lastTime = now;
+    return true;
+  };
+}
+
 /**
- * Product labels vary widely in size and symbology. Keep one broad format
- * profile for every camera entry point so POS, inventory and mobile sales
- * behave consistently.
+ * Keep one broad symbology profile for unknown retail labels. The full frame
+ * remains available for narrow labels; the decoder is throttled to avoid
+ * saturating lower-powered Android devices.
  */
 export const PRODUCT_BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
@@ -25,13 +47,8 @@ export const PRODUCT_BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
 ];
 
-/**
- * Do not crop the camera frame with qrbox: narrow/short retail labels can
- * otherwise fall outside the decode region. Prefer a high-resolution rear
- * camera stream; use the native BarcodeDetector path where supported.
- */
 export const PRODUCT_BARCODE_CAMERA_CONFIG = {
-  fps: 15,
+  fps: 12,
   aspectRatio: 16 / 9,
   disableFlip: false,
   videoConstraints: {
