@@ -45,7 +45,7 @@ function isTrustedRendererUrl(value) {
 function installCameraPermissionHandlers() {
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
     if (permission !== 'media') return false;
-    const source = requestingOrigin || details?.requestingUrl || webContents?.getURL();
+    const source = details?.requestingUrl || webContents?.getURL() || requestingOrigin;
     const mediaType = details?.mediaType;
     return isTrustedRendererUrl(source) && mediaType !== 'audio';
   });
