@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera, startProductBarcodeCamera } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { useSettings } from '../hooks/useSettings';
 import { logAction } from '../services/auditService';
