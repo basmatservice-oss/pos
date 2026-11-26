@@ -45,6 +45,7 @@ export default function Inventory() {
   const cameraScanGateRef = useRef(createBarcodeScanGate(2200));
   const deviceScanGateRef = useRef(createBarcodeScanGate(300));
   const isHandlingBarcodeRef = useRef(false);
+  const barcodeScanCallbackRef = useRef<(barcode: string) => void>(() => {});
 
   // Category Form State
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -346,11 +347,13 @@ export default function Inventory() {
     }
   }, [isScannerModalOpen, storeSettings.inventoryScannerType]);
 
+  barcodeScanCallbackRef.current = (barcode) => {
+    void handleBarcodeScanned(barcode, 'device');
+  };
+
   useEffect(() => {
-    return attachBarcodeKeyboardListener((barcode) => {
-      void handleBarcodeScanned(barcode, 'device');
-    });
-  }, [handleBarcodeScanned]);
+    return attachBarcodeKeyboardListener((barcode) => barcodeScanCallbackRef.current(barcode));
+  }, []);
 
   const handleDeviceScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
