@@ -173,6 +173,7 @@ const MobileSales: React.FC = () => {
               if (now - lastDecodeDiagnosticAt >= 8000) {
                 lastDecodeDiagnosticAt = now;
                 console.debug('Mobile barcode camera is running; no code decoded in recent frames:', decodeError);
+                toast(lang === 'en' ? 'Camera is running but no barcode has been read yet. Move closer and hold steady.' : 'الكاميرا تعمل، لكن لم يُقرأ الرمز بعد. قرّب الملصق وثبّت الهاتف.', { duration: 2200 });
               }
             },
           );
