@@ -65,7 +65,7 @@ test('keyboard-wedge listener captures a fast scanner burst and preserves zeroes
 
 
 import { Html5Qrcode } from 'html5-qrcode';
-import { startProductBarcodeCamera } from '../src/utils/barcodeScanner.ts';
+import { optimizeBarcodeCamera, startProductBarcodeCamera } from '../src/utils/barcodeScanner.ts';
 
 test('camera startup prefers a labelled rear camera and applies optional resolution', async () => {
   const originalGetCameras = Html5Qrcode.getCameras;
@@ -106,4 +106,20 @@ test('camera startup uses rear-facing constraint when Android hides camera label
   } finally {
     Html5Qrcode.getCameras = originalGetCameras;
   }
+});
+
+
+test('camera focus and zoom tuning does not discard the requested HD resolution', async () => {
+  let applied;
+  const scanner = {
+    getRunningTrackCapabilities: () => ({
+      focusMode: ['continuous'],
+      zoom: { min: 1, max: 4 },
+    }),
+    applyVideoConstraints: async (constraints) => { applied = constraints; },
+  };
+  await optimizeBarcodeCamera(scanner);
+  assert.equal(applied.width.ideal, 1920);
+  assert.equal(applied.height.ideal, 1080);
+  assert.deepEqual(applied.advanced, [{ focusMode: 'continuous' }, { zoom: 2 }]);
 });
