@@ -333,6 +333,7 @@ export default function POS() {
               if (now - lastDecodeDiagnosticAt >= 8000) {
                 lastDecodeDiagnosticAt = now;
                 console.debug('Barcode camera is running; no code decoded in recent frames:', decodeError);
+                toast('الكاميرا تعمل، لكن لم يُقرأ الرمز بعد. قرّب الملصق وثبّت الهاتف.', { duration: 2200 });
               }
             },
           );
