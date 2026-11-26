@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCartStore, getItemPrice, getProductUnits, getItemUnitFactor } from '../store/useCartStore';
 import { useSettings } from '../hooks/useSettings';
 import { Html5Qrcode } from 'html5-qrcode';
-import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener } from '../utils/barcodeScanner';
+import { PRODUCT_BARCODE_FORMATS, PRODUCT_BARCODE_CAMERA_CONFIG, createBarcodeScanGate, normalizeBarcodeValue, attachBarcodeKeyboardListener, optimizeBarcodeCamera } from '../utils/barcodeScanner';
 import { ensureAndroidCameraPermission } from '../native/cameraPermission';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { printService } from '../services/printService';
@@ -295,12 +295,13 @@ export default function POS() {
           }
           const devices = await Html5Qrcode.getCameras();
           if (devices && devices.length > 0) {
-            scannerRef.current = new Html5Qrcode('reader', {
+            const activeScanner = new Html5Qrcode('reader', {
               verbose: false,
               formatsToSupport: PRODUCT_BARCODE_FORMATS,
               experimentalFeatures: { useBarCodeDetectorIfSupported: true },
             } as any);
-            await scannerRef.current.start(
+            scannerRef.current = activeScanner;
+            await activeScanner.start(
               { facingMode: 'environment' },
               PRODUCT_BARCODE_CAMERA_CONFIG as any,
                (decodedText) => {
@@ -329,6 +330,7 @@ export default function POS() {
               },
               () => {}
             );
+            await optimizeBarcodeCamera(activeScanner);
           } else {
             toast.error('لا يوجد كاميرا متاحة');
             setIsScannerOpen(false);
