@@ -214,7 +214,7 @@ export async function optimizeBarcodeCamera(scanner: unknown): Promise<void> {
       advanced.push({ zoom: Math.min(2, zoom.max) });
     }
     if (advanced.length) {
-      await camera.applyVideoConstraints({ advanced } as MediaTrackConstraints);
+      await camera.applyVideoConstraints({ ...PRODUCT_BARCODE_VIDEO_CONSTRAINTS, advanced } as MediaTrackConstraints);
     }
   } catch (error) {
     // Unsupported or locked camera controls must never stop barcode scanning.
