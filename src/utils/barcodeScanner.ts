@@ -4,7 +4,7 @@ import { Html5QrcodeSupportedFormats } from 'html5-qrcode';
 export function normalizeBarcodeValue(value: unknown): string {
   return String(value ?? '')
     .normalize('NFKC')
-    .replace(/[\\u0000-\\u001F\\u007F]/g, '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
     .trim();
 }
 
