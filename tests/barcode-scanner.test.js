@@ -11,7 +11,7 @@ test('small-label camera scan uses the full frame and requests high resolution a
   assert.equal(PRODUCT_BARCODE_VIDEO_CONSTRAINTS.width.ideal, 1920);
   assert.equal(PRODUCT_BARCODE_VIDEO_CONSTRAINTS.height.ideal, 1080);
   assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.fps, 10);
-  assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.aspectRatio, 4 / 3);
+  assert.equal(PRODUCT_BARCODE_CAMERA_CONFIG.aspectRatio, 16 / 9);
   assert.equal('qrbox' in PRODUCT_BARCODE_CAMERA_CONFIG, false);
   assert.equal('videoConstraints' in PRODUCT_BARCODE_CAMERA_CONFIG, false);
 });
