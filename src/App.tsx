@@ -300,7 +300,7 @@ function AppContent() {
 
   if (isLoading || isAuthLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] font-sans" dir="rtl">
+      <div className="lineage-startup-loader min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] font-sans" dir="rtl">
         <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
         <div className="mt-6 text-center">
           <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">POS System v3</h1>
