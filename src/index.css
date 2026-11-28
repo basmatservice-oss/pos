@@ -2358,3 +2358,76 @@ body.theme-lineageos24 .lineage-onboarding-step {
     flex: 0 0 auto;
   }
 }
+
+
+/* LineageOS 24 finishing pass for operational pages and compact mobile POS. */
+body.theme-lineageos24 .lineage-page :is(.bg-white, .bg-gray-50, .bg-gray-50\/50, .bg-slate-50, .bg-slate-50\/50) {
+  background-color: var(--md-surface-container) !important;
+  border-color: var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-page :is(.text-gray-900, .text-gray-800, .text-slate-900, .text-slate-800) {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-page :is(.text-gray-700, .text-gray-600, .text-slate-700, .text-slate-600) {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-page :is(.text-gray-500, .text-gray-400, .text-slate-500, .text-slate-400) {
+  color: var(--md-on-surface-variant);
+}
+body.theme-lineageos24 .lineage-page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  border-color: var(--md-outline);
+  border-radius: .95rem;
+  background-color: var(--md-surface);
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-page :is(input, select, textarea)::placeholder {
+  color: var(--md-on-surface-variant);
+  opacity: .78;
+}
+body.theme-lineageos24 .lineage-page :is(input, select, textarea):focus {
+  border-color: var(--md-primary);
+  outline-color: color-mix(in srgb, var(--md-primary) 28%, transparent);
+}
+body.theme-lineageos24 .lineage-page :is(.rounded-xl, .rounded-2xl, .rounded-3xl) {
+  scroll-margin-block: .75rem;
+}
+body.theme-lineageos24 .lineage-attendance-page > .grid > div > .bg-white {
+  border-radius: 1.55rem;
+  box-shadow: none;
+}
+body.theme-lineageos24 .lineage-attendance-page .hover\:bg-gray-50:hover {
+  background-color: var(--md-surface-container-high);
+}
+body.theme-lineageos24 .lineage-mobile-app :is(.bg-white, .bg-slate-50, .bg-gray-50) {
+  background-color: var(--md-surface-container) !important;
+}
+body.theme-lineageos24 .lineage-mobile-app :is(.text-slate-900, .text-gray-900, .text-gray-800) {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-mobile-app :is(.text-slate-500, .text-gray-500, .text-gray-400) {
+  color: var(--md-on-surface-variant);
+}
+body.theme-lineageos24 .lineage-mobile-app :is(input:not([type="checkbox"]), select, textarea) {
+  border-color: var(--md-outline);
+  border-radius: .95rem;
+  background-color: var(--md-surface);
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-mobile-nav button[aria-current="page"],
+body.theme-lineageos24 .lineage-mobile-nav button[data-active="true"] {
+  background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface));
+  color: var(--md-primary);
+}
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-attendance-page > .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body.theme-lineageos24 .lineage-attendance-page > .grid > div {
+    min-width: 0;
+  }
+  body.theme-lineageos24 .lineage-page-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+}
