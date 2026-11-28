@@ -384,7 +384,7 @@ export default function Suppliers() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-suppliers-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
       <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center sm:gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">الموردون</h2>
