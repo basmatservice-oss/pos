@@ -153,11 +153,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="lineage-onboarding min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center p-6" dir="rtl">
-      <div className="max-w-4xl w-full">
+    <div className="lineage-onboarding lineage-onboarding-shell min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center p-6" dir="rtl">
+      <div className="lineage-onboarding-container max-w-4xl w-full">
         {step === 1 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="text-center mb-10">
+          <div className="lineage-onboarding-step animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="lineage-onboarding-heading text-center mb-10">
               <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
                 <Server className="w-10 h-10 text-white" />
               </div>
@@ -165,10 +165,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <p className="text-xl text-gray-600">الرجاء تحديد دور هذا الجهاز في الشبكة</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 max-w-2xl mx-auto">
+            <div className="lineage-choice-grid grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 max-w-2xl mx-auto">
               {!isMobileApp && <button
                 onClick={() => handleRoleSelection('server')}
-                className={`p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
+                className={`lineage-choice-card p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
                   deviceRole === 'server' 
                     ? 'border-indigo-600 bg-indigo-50 shadow-md transform scale-[1.02]' 
                     : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
@@ -241,7 +241,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <p className="text-lg text-gray-600">اختر نوع نشاطك التجاري لتخصيص النظام</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+            <div className="lineage-activity-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
               {businessTypes.map((type) => {
                 const Icon = type.icon;
                 const isSelected = selectedType === type.id;
@@ -249,7 +249,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <button
                     key={type.id}
                     onClick={() => setSelectedType(type.id as BusinessType)}
-                    className={`p-6 rounded-2xl border-2 text-right transition-all duration-200 ${
+                    className={`lineage-choice-card lineage-activity-card p-6 rounded-2xl border-2 text-right transition-all duration-200 ${
                       isSelected 
                         ? 'border-indigo-600 bg-indigo-50 shadow-md transform scale-[1.02]' 
                         : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
