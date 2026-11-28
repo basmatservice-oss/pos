@@ -485,9 +485,17 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos2
 }
 html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-900,
 html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-800,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-950,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-900,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-800 {
+  color: var(--md-on-surface) !important;
+}
 html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-700,
 html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-600,
-html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-500 {
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-500,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-700,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-600,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-slate-500 {
   color: var(--md-on-surface-variant) !important;
 }
 @media (prefers-color-scheme: dark) {
@@ -784,6 +792,13 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos2
 @media (prefers-color-scheme: dark) {
   html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 {
     color-scheme: dark;
+  }
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-slate-950,
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-slate-900,
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-slate-800,
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-gray-900,
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-gray-800 {
+    color: var(--md-on-surface) !important;
   }
   html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-slate-700,
   html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .text-slate-600,
