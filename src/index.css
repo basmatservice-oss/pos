@@ -1640,3 +1640,166 @@ body.theme-lineageos24 .lineage-purchase-editor-page .text-slate-600 {
   body.theme-lineageos24 .lineage-operational-report,
   body.theme-lineageos24 .lineage-financial-report { border-radius: 1.25rem !important; }
 }
+
+
+/* Administration and operations modules share one consistent LineageOS workspace frame. */
+body.theme-lineageos24 .lineage-employees-page,
+body.theme-lineageos24 .lineage-expenses-page,
+body.theme-lineageos24 .lineage-returns-page,
+body.theme-lineageos24 .lineage-shifts-page,
+body.theme-lineageos24 .lineage-stocktaking-page,
+body.theme-lineageos24 .lineage-sync-page,
+body.theme-lineageos24 .lineage-branches-page,
+body.theme-lineageos24 .lineage-payroll-page,
+body.theme-lineageos24 .lineage-attendance-page,
+body.theme-lineageos24 .lineage-offers-page,
+body.theme-lineageos24 .lineage-apps-page {
+  background: var(--md-surface) !important;
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-employees-page,
+body.theme-lineageos24 .lineage-expenses-page,
+body.theme-lineageos24 .lineage-returns-page,
+body.theme-lineageos24 .lineage-shifts-page,
+body.theme-lineageos24 .lineage-stocktaking-page,
+body.theme-lineageos24 .lineage-sync-page,
+body.theme-lineageos24 .lineage-branches-page,
+body.theme-lineageos24 .lineage-payroll-page,
+body.theme-lineageos24 .lineage-attendance-page,
+body.theme-lineageos24 .lineage-offers-page {
+  padding: clamp(.7rem, 2vw, 1.6rem);
+}
+body.theme-lineageos24 .lineage-employees-page > div:first-child,
+body.theme-lineageos24 .lineage-expenses-page > div:first-child,
+body.theme-lineageos24 .lineage-returns-page > div:first-child,
+body.theme-lineageos24 .lineage-shifts-page > div:first-child,
+body.theme-lineageos24 .lineage-stocktaking-page > div:first-child,
+body.theme-lineageos24 .lineage-sync-page > div:first-child,
+body.theme-lineageos24 .lineage-branches-page > div:first-child,
+body.theme-lineageos24 .lineage-payroll-page > div:first-child,
+body.theme-lineageos24 .lineage-attendance-page > div:first-child,
+body.theme-lineageos24 .lineage-offers-page > div:first-child {
+  border-radius: 1.45rem;
+}
+body.theme-lineageos24 .lineage-employees-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-expenses-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-returns-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-shifts-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-stocktaking-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-sync-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-branches-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-payroll-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-attendance-page [class*="rounded-2xl"],
+body.theme-lineageos24 .lineage-offers-page [class*="rounded-2xl"] {
+  border-radius: 1.4rem !important;
+}
+body.theme-lineageos24 .lineage-employees-page .bg-white,
+body.theme-lineageos24 .lineage-expenses-page .bg-white,
+body.theme-lineageos24 .lineage-returns-page .bg-white,
+body.theme-lineageos24 .lineage-shifts-page .bg-white,
+body.theme-lineageos24 .lineage-stocktaking-page .bg-white,
+body.theme-lineageos24 .lineage-sync-page .bg-white,
+body.theme-lineageos24 .lineage-branches-page .bg-white,
+body.theme-lineageos24 .lineage-payroll-page .bg-white,
+body.theme-lineageos24 .lineage-attendance-page .bg-white,
+body.theme-lineageos24 .lineage-offers-page .bg-white {
+  background: var(--md-surface-container) !important;
+}
+body.theme-lineageos24 .lineage-employees-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-expenses-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-returns-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-shifts-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-stocktaking-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-sync-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-branches-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-payroll-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-attendance-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-offers-page [class*="border-slate-"],
+body.theme-lineageos24 .lineage-employees-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-expenses-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-returns-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-shifts-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-stocktaking-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-sync-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-branches-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-payroll-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-attendance-page [class*="border-gray-"],
+body.theme-lineageos24 .lineage-offers-page [class*="border-gray-"] {
+  border-color: var(--md-outline-variant) !important;
+}
+body.theme-lineageos24 .lineage-employees-page .text-gray-900,
+body.theme-lineageos24 .lineage-expenses-page .text-gray-900,
+body.theme-lineageos24 .lineage-returns-page .text-gray-900,
+body.theme-lineageos24 .lineage-shifts-page .text-gray-900,
+body.theme-lineageos24 .lineage-stocktaking-page .text-gray-900,
+body.theme-lineageos24 .lineage-sync-page .text-gray-900,
+body.theme-lineageos24 .lineage-branches-page .text-gray-900,
+body.theme-lineageos24 .lineage-payroll-page .text-gray-900,
+body.theme-lineageos24 .lineage-attendance-page .text-gray-900,
+body.theme-lineageos24 .lineage-offers-page .text-gray-900,
+body.theme-lineageos24 .lineage-employees-page .text-slate-900,
+body.theme-lineageos24 .lineage-expenses-page .text-slate-900,
+body.theme-lineageos24 .lineage-returns-page .text-slate-900,
+body.theme-lineageos24 .lineage-shifts-page .text-slate-900,
+body.theme-lineageos24 .lineage-stocktaking-page .text-slate-900,
+body.theme-lineageos24 .lineage-sync-page .text-slate-900,
+body.theme-lineageos24 .lineage-branches-page .text-slate-900,
+body.theme-lineageos24 .lineage-payroll-page .text-slate-900,
+body.theme-lineageos24 .lineage-attendance-page .text-slate-900,
+body.theme-lineageos24 .lineage-offers-page .text-slate-900 {
+  color: var(--md-on-surface) !important;
+}
+body.theme-lineageos24 .lineage-employees-page table,
+body.theme-lineageos24 .lineage-expenses-page table,
+body.theme-lineageos24 .lineage-returns-page table,
+body.theme-lineageos24 .lineage-shifts-page table,
+body.theme-lineageos24 .lineage-stocktaking-page table,
+body.theme-lineageos24 .lineage-payroll-page table {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-employees-page thead,
+body.theme-lineageos24 .lineage-expenses-page thead,
+body.theme-lineageos24 .lineage-returns-page thead,
+body.theme-lineageos24 .lineage-shifts-page thead,
+body.theme-lineageos24 .lineage-stocktaking-page thead,
+body.theme-lineageos24 .lineage-payroll-page thead {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface-variant) !important;
+}
+body.theme-lineageos24 .lineage-employees-page tbody,
+body.theme-lineageos24 .lineage-expenses-page tbody,
+body.theme-lineageos24 .lineage-returns-page tbody,
+body.theme-lineageos24 .lineage-shifts-page tbody,
+body.theme-lineageos24 .lineage-stocktaking-page tbody,
+body.theme-lineageos24 .lineage-payroll-page tbody {
+  background: var(--md-surface-container) !important;
+}
+body.theme-lineageos24 .lineage-apps-page { background: var(--md-surface) !important; }
+body.theme-lineageos24 .lineage-apps-page > div:first-child > section {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 1.8rem !important;
+  background: var(--md-surface-container) !important;
+  box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-apps-page a,
+body.theme-lineageos24 .lineage-apps-page button {
+  border-radius: 1.35rem !important;
+}
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-employees-page,
+  body.theme-lineageos24 .lineage-expenses-page,
+  body.theme-lineageos24 .lineage-returns-page,
+  body.theme-lineageos24 .lineage-shifts-page,
+  body.theme-lineageos24 .lineage-stocktaking-page,
+  body.theme-lineageos24 .lineage-sync-page,
+  body.theme-lineageos24 .lineage-branches-page,
+  body.theme-lineageos24 .lineage-payroll-page,
+  body.theme-lineageos24 .lineage-attendance-page,
+  body.theme-lineageos24 .lineage-offers-page { padding: .65rem; }
+  body.theme-lineageos24 .lineage-employees-page table,
+  body.theme-lineageos24 .lineage-expenses-page table,
+  body.theme-lineageos24 .lineage-returns-page table,
+  body.theme-lineageos24 .lineage-shifts-page table,
+  body.theme-lineageos24 .lineage-stocktaking-page table,
+  body.theme-lineageos24 .lineage-payroll-page table { min-width: 40rem; }
+}
