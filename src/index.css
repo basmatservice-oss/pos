@@ -2052,3 +2052,31 @@ body.theme-lineageos24 .lineage-dialog-panel button[type="button"] {
 @media (prefers-reduced-motion: reduce) {
   body.theme-lineageos24 .lineage-dialog-panel { animation: none; }
 }
+
+
+/* Shared LineageOS dialog treatment for customer, supplier and payment workflows. */
+body.theme-lineageos24 .lineage-dialog-panel > div[class*="border-b"] {
+  border-color: var(--md-outline-variant);
+  background: var(--md-surface-container-high);
+}
+body.theme-lineageos24 .lineage-dialog-panel input,
+body.theme-lineageos24 .lineage-dialog-panel select,
+body.theme-lineageos24 .lineage-dialog-panel textarea {
+  border-color: var(--md-outline);
+  border-radius: .9rem;
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-dialog-panel input::placeholder,
+body.theme-lineageos24 .lineage-dialog-panel textarea::placeholder {
+  color: var(--md-on-surface-variant);
+  opacity: .78;
+}
+body.theme-lineageos24 .lineage-dialog-panel button {
+  border-radius: 999px;
+}
+@media (max-width: 640px) {
+  body.theme-lineageos24 .lineage-dialog-panel {
+    overscroll-behavior: contain;
+  }
+}
