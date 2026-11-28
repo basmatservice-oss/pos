@@ -68,7 +68,7 @@ export default function Apps() {
   const canUsePos = user?.role === 'admin' || user?.permissions?.includes('view_pos');
 
   return (
-    <div className="apps-hub h-full overflow-y-auto bg-[#f4f6fb] px-4 pb-6 pt-4 sm:px-6" dir="rtl">
+    <div className="lineage-page lineage-apps-page apps-hub h-full overflow-y-auto bg-[#f4f6fb] px-4 pb-6 pt-4 sm:px-6" dir="rtl">
       <div className="mx-auto w-full max-w-5xl">
         <section className="relative mb-5 overflow-hidden rounded-[26px] bg-gradient-to-l from-[#18264b] via-[#243b70] to-[#3155a4] p-5 text-white shadow-[0_14px_34px_rgba(25,48,98,0.18)] sm:p-7">
           <div className="pointer-events-none absolute -left-8 -top-12 h-44 w-44 rounded-full border-[24px] border-white/5" />
