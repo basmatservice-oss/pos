@@ -548,7 +548,7 @@ export default function Purchases() {
 
   if (isAddingNew) {
     return (
-      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--app-bg)] lg:flex-row" dir="rtl">
+      <div className="lineage-page lineage-purchase-editor-page flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--app-bg)] lg:flex-row" dir="rtl">
         {/* Left Side: Products Selection */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-6">
           <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 sm:mb-6 sm:gap-4">
@@ -907,7 +907,7 @@ export default function Purchases() {
   }
 
   return (
-    <div className="p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
+    <div className="lineage-page lineage-purchases-page p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
       <div className="flex justify-between items-center mb-6 shrink-0 gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
