@@ -515,3 +515,70 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos2
     color: var(--md-on-surface) !important;
   }
 }
+
+
+/* Expressive navigation rail, system-style icon treatment, and compact mobile bar. */
+.theme-lineageos24 aside nav a {
+  min-height: 4.25rem;
+  gap: .2rem;
+  border-radius: 1.25rem !important;
+  padding: .45rem .3rem !important;
+  color: var(--md-on-surface-variant);
+}
+.theme-lineageos24 aside nav a svg {
+  box-sizing: content-box;
+  padding: .45rem .85rem;
+  border-radius: 1.25rem;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.theme-lineageos24 aside nav a.bg-indigo-50 svg {
+  background: color-mix(in srgb, var(--md-primary) 18%, var(--md-surface));
+  color: var(--md-primary) !important;
+}
+.theme-lineageos24 aside nav a.bg-indigo-50 {
+  background: transparent !important;
+  color: var(--md-on-surface) !important;
+  box-shadow: none !important;
+}
+.theme-lineageos24 header {
+  border-color: var(--md-outline-variant) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .06);
+}
+.theme-lineageos24 main > div > .bg-white,
+.theme-lineageos24 main > div > div > .bg-white {
+  border-color: var(--md-outline-variant);
+  border-radius: 1.5rem !important;
+}
+.theme-lineageos24 table thead {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface-variant);
+}
+.theme-lineageos24 table tbody tr {
+  border-color: var(--md-outline-variant) !important;
+}
+.theme-lineageos24 .android-bottom-nav {
+  background: color-mix(in srgb, var(--md-surface-container) 94%, transparent) !important;
+  border-color: var(--md-outline-variant) !important;
+  box-shadow: 0 -4px 18px rgb(0 0 0 / .06);
+}
+.theme-lineageos24 .android-bottom-nav a {
+  border-radius: 1.25rem !important;
+}
+.theme-lineageos24 .android-bottom-nav a svg {
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.theme-lineageos24 button,
+.theme-lineageos24 a,
+.theme-lineageos24 input,
+.theme-lineageos24 select,
+.theme-lineageos24 textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+.theme-lineageos24 button:active,
+.theme-lineageos24 a:active {
+  transform: scale(.98);
+}

@@ -161,7 +161,9 @@ function AppContent() {
     settings.textColor, 
     settings.fontSize, 
     settings.borderRadius, 
-    settings.fontFamily
+    settings.fontFamily,
+    settings.themeName,
+    settings.appearanceMode
   ]);
 
   useEffect(() => {
