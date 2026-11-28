@@ -1161,8 +1161,8 @@ export default function POS() {
 
       {/* Held Orders List Modal */}
       {isHeldListOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PauseCircle className="w-5 h-5 text-amber-600" />
@@ -1216,8 +1216,8 @@ export default function POS() {
 
       {/* Item Discount Modal */}
       {itemDiscountTarget && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-6">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Percent className="w-4 h-4 text-indigo-600" />
@@ -1289,8 +1289,8 @@ export default function POS() {
 
       {/* Global Discount Modal */}
       {isGlobalDiscountOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-6">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-base font-bold text-slate-900">تعديل الخصم العام للفاتورة</h3>
               <button onClick={() => setIsGlobalDiscountOpen(false)} className="text-slate-400 hover:text-slate-600">
@@ -1358,8 +1358,8 @@ export default function POS() {
 
       {/* Mixed / Split Payment Modal */}
       {isMixedModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md p-6">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Split className="w-5 h-5 text-indigo-600" />
@@ -1473,8 +1473,8 @@ export default function POS() {
 
       {/* Customer Selection Modal */}
       {isCustomerModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-5 h-5 text-indigo-600" />
@@ -1556,8 +1556,8 @@ export default function POS() {
 
       {/* Receipt Modal */}
       {completedOrder && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-indigo-600" />
