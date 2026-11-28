@@ -164,7 +164,7 @@ export default function OperationalReports({ startDate, endDate, currency, decim
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+    <section className="reports-workspace flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-black text-slate-900">التقارير التشغيلية والإدارية</h3>
