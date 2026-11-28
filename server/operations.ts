@@ -309,8 +309,9 @@ export function executeBusinessOperation(
                 Math.abs(Number(existing.sellingPrice || 0) - Number(record.previousSellingPrice)) > 0.0001) {
               throw new OperationError(`Product price changed since preview: ${id}`, 409);
             }
+            const { previousSellingPrice: _previousSellingPrice, ...priceRecord } = record;
             return {
-              ...record,
+              ...priceRecord,
               stockQuantity: existing.stockQuantity,
               costPrice: existing.costPrice,
               costInUSD: existing.costInUSD,
