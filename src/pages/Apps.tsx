@@ -70,7 +70,7 @@ export default function Apps() {
   return (
     <div className="lineage-page lineage-apps-page apps-hub h-full overflow-y-auto bg-[#f4f6fb] px-4 pb-6 pt-4 sm:px-6" dir="rtl">
       <div className="mx-auto w-full max-w-5xl">
-        <section className="relative mb-5 overflow-hidden rounded-[26px] bg-gradient-to-l from-[#18264b] via-[#243b70] to-[#3155a4] p-5 text-white shadow-[0_14px_34px_rgba(25,48,98,0.18)] sm:p-7">
+        <section className="lineage-app-launcher-hero relative mb-5 overflow-hidden rounded-[26px] bg-gradient-to-l from-[#18264b] via-[#243b70] to-[#3155a4] p-5 text-white shadow-[0_14px_34px_rgba(25,48,98,0.18)] sm:p-7">
           <div className="pointer-events-none absolute -left-8 -top-12 h-44 w-44 rounded-full border-[24px] border-white/5" />
           <div className="relative flex items-start justify-between gap-3">
             <div>
@@ -92,7 +92,7 @@ export default function Apps() {
           </div>
         </section>
 
-        {canUsePos && <Link to="/pos" className="group mb-6 flex min-h-[94px] items-center justify-between gap-4 rounded-[22px] border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white p-4 shadow-[0_6px_20px_rgba(16,185,129,0.07)] transition hover:border-emerald-300 sm:p-5">
+        {canUsePos && <Link to="/pos" className="lineage-app-launcher-featured group mb-6 flex min-h-[94px] items-center justify-between gap-4 rounded-[22px] border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white p-4 shadow-[0_6px_20px_rgba(16,185,129,0.07)] transition hover:border-emerald-300 sm:p-5">
           <div className="flex min-w-0 items-center gap-3.5">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><ShoppingBag className="h-7 w-7" /></span>
             <span className="min-w-0"><span className="block text-base font-black text-slate-900">بدء عملية بيع</span><span className="mt-1 block text-xs text-slate-500">انتقل مباشرة إلى شاشة الكاشير</span></span>
@@ -107,14 +107,14 @@ export default function Apps() {
             <p className="mt-1 text-xs text-slate-500">جرّب كلمة بحث أخرى</p>
           </div>
         ) : visibleGroups.map((group, groupIndex) => (
-          <section key={group.title} className="mb-6">
+          <section key={group.title} className="lineage-app-launcher-group mb-6">
             <div className="mb-3 flex items-end justify-between gap-3">
               <div><h2 className="text-sm font-black text-slate-900 sm:text-base">{group.title}</h2><p className="mt-1 text-[11px] text-slate-500">{group.description}</p></div>
               <span className="rounded-lg bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">{group.items.length} تطبيق</span>
             </div>
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="lineage-app-launcher-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
               {group.items.map((item, index) => (
-                <Link key={item.to} to={item.to} className="group flex min-h-[112px] min-w-0 flex-col justify-between rounded-[18px] border border-slate-200/90 bg-white p-3.5 shadow-[0_2px_8px_rgba(15,23,42,0.025)] transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md active:scale-[0.99] sm:min-h-[126px] sm:p-4">
+                <Link key={item.to} to={item.to} className="lineage-app-launcher-tile group flex min-h-[112px] min-w-0 flex-col justify-between rounded-[18px] border border-slate-200/90 bg-white p-3.5 shadow-[0_2px_8px_rgba(15,23,42,0.025)] transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md active:scale-[0.99] sm:min-h-[126px] sm:p-4">
                   <span className="flex items-start justify-between gap-2">
                     <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${['bg-indigo-50 text-indigo-700','bg-emerald-50 text-emerald-700','bg-amber-50 text-amber-700','bg-sky-50 text-sky-700'][((groupIndex * 3) + index) % 4]}`}><item.icon className="h-5 w-5" /></span>
                     <ArrowLeft className="mt-1 h-4 w-4 text-slate-300 transition group-hover:-translate-x-0.5 group-hover:text-indigo-500" />
