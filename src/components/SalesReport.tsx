@@ -38,7 +38,7 @@ const SalesReport: React.FC = () => {
   if (loading) return <div className="p-4 text-sm text-slate-500">جاري تحميل تقرير المبيعات...</div>;
 
   return (
-    <div className="p-4 bg-white rounded-2xl border border-slate-200" dir="rtl">
+    <div className="lineage-sales-report p-4 bg-white rounded-2xl border border-slate-200" dir="rtl">
       <h2 className="text-lg font-bold text-slate-900 mb-4">ملخص المبيعات اليومية (صافي بدون ضريبة)</h2>
       <ResponsiveContainer width="100%" height={360}>
         <BarChart data={reportData}>
