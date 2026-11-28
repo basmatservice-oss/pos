@@ -333,3 +333,185 @@ body.barcode-scanner-active .barcode-scanner-modal {
   height: 100% !important;
   object-fit: contain;
 }
+
+
+/* LineageOS 24-inspired Material 3 Expressive theme.
+   The original theme classes and their existing visual rules remain available. */
+.theme-lineageos24 {
+  --md-primary: #6750a4;
+  --md-on-primary: #fff;
+  --md-secondary: #625b71;
+  --md-tertiary: #7d5260;
+  --md-surface: #f7f2fa;
+  --md-surface-container: #f0ecf4;
+  --md-surface-container-high: #eae6ee;
+  --md-on-surface: #1d1b20;
+  --md-on-surface-variant: #49454f;
+  --md-outline: #79747e;
+  --md-outline-variant: #cac4d0;
+  --md-error: #b3261e;
+  --md-success: #386a20;
+  --border-radius: 1.25rem !important;
+  --card-border: 1px solid var(--md-outline-variant);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.12), 0 1px 2px rgb(0 0 0 / 0.08);
+  --transition-speed: 180ms;
+  --transition-timing: cubic-bezier(.2, 0, 0, 1);
+  --button-hover-transform: none;
+  --page-animation: fadeIn 180ms ease-out;
+  color: var(--md-on-surface);
+  background: var(--md-surface);
+}
+.theme-lineageos24 .bg-white,
+.theme-lineageos24 .bg-white\/90,
+.theme-lineageos24 .bg-white\/95 {
+  background-color: var(--md-surface-container) !important;
+  color: var(--md-on-surface) !important;
+}
+.theme-lineageos24 .bg-gray-50,
+.theme-lineageos24 .bg-slate-50 {
+  background-color: var(--md-surface-container-high) !important;
+}
+.theme-lineageos24 .bg-gray-100,
+.theme-lineageos24 .bg-slate-100 {
+  background-color: color-mix(in srgb, var(--md-surface-container-high) 78%, var(--md-primary)) !important;
+}
+.theme-lineageos24 .text-gray-900,
+.theme-lineageos24 .text-gray-800,
+.theme-lineageos24 .text-slate-900,
+.theme-lineageos24 .text-slate-800 {
+  color: var(--md-on-surface) !important;
+}
+.theme-lineageos24 .text-gray-700,
+.theme-lineageos24 .text-gray-600,
+.theme-lineageos24 .text-gray-500,
+.theme-lineageos24 .text-slate-600,
+.theme-lineageos24 .text-slate-500 {
+  color: var(--md-on-surface-variant) !important;
+}
+.theme-lineageos24 .border-gray-100,
+.theme-lineageos24 .border-gray-200,
+.theme-lineageos24 .border-slate-100,
+.theme-lineageos24 .border-slate-200 {
+  border-color: var(--md-outline-variant) !important;
+}
+.theme-lineageos24 .rounded-xl,
+.theme-lineageos24 .rounded-2xl,
+.theme-lineageos24 .rounded-3xl {
+  border-radius: 1.25rem !important;
+}
+.theme-lineageos24 button,
+.theme-lineageos24 [role="button"] {
+  border-radius: 999px;
+}
+.theme-lineageos24 input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+.theme-lineageos24 select,
+.theme-lineageos24 textarea {
+  border-radius: 1rem !important;
+  border-color: var(--md-outline) !important;
+  background-color: var(--md-surface-container) !important;
+  color: var(--md-on-surface) !important;
+}
+.theme-lineageos24 .bg-indigo-600,
+.theme-lineageos24 .bg-primary,
+.theme-lineageos24 .bg-blue-600 {
+  background-color: var(--md-primary) !important;
+  color: var(--md-on-primary) !important;
+}
+.theme-lineageos24 .text-indigo-600,
+.theme-lineageos24 .text-primary {
+  color: var(--md-primary) !important;
+}
+.theme-lineageos24 .border-indigo-600,
+.theme-lineageos24 .border-primary {
+  border-color: var(--md-primary) !important;
+}
+.theme-lineageos24 .bg-indigo-50,
+.theme-lineageos24 .bg-indigo-100 {
+  background-color: color-mix(in srgb, var(--md-primary) 12%, var(--md-surface)) !important;
+}
+.theme-lineageos24 .shadow-sm,
+.theme-lineageos24 .shadow-md,
+.theme-lineageos24 .shadow-lg {
+  box-shadow: var(--shadow-sm) !important;
+}
+.theme-lineageos24 .bg-sidebar {
+  background-color: var(--sidebar-bg) !important;
+}
+.theme-lineageos24 .bg-header {
+  background-color: var(--header-bg) !important;
+}
+.theme-lineageos24 .theme-card {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+.theme-lineageos24 button:focus-visible,
+.theme-lineageos24 a:focus-visible,
+.theme-lineageos24 input:focus-visible,
+.theme-lineageos24 select:focus-visible,
+.theme-lineageos24 textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--md-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* Dark palette is opt-in or follows the operating system when appearanceMode=system. */
+html[data-app-theme="lineageos24"][data-color-mode="dark"] .theme-lineageos24,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 {
+  --md-primary: #d0bcff;
+  --md-on-primary: #381e72;
+  --md-secondary: #ccc2dc;
+  --md-tertiary: #efb8c8;
+  --md-surface: #141218;
+  --md-surface-container: #211f26;
+  --md-surface-container-high: #2b2930;
+  --md-on-surface: #e6e0e9;
+  --md-on-surface-variant: #cac4d0;
+  --md-outline: #938f99;
+  --md-outline-variant: #49454f;
+  --md-error: #f2b8b5;
+  --md-success: #a8d5a2;
+  --sidebar-bg: #211f26;
+  --header-bg: #211f26;
+  --app-bg: #141218;
+  --text-main: #e6e0e9;
+  background-color: var(--md-surface) !important;
+  color: var(--md-on-surface) !important;
+}
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .bg-white,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .bg-white\/90,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .bg-white\/95 {
+  background-color: var(--md-surface-container) !important;
+  color: var(--md-on-surface) !important;
+}
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-900,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-800,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-700,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-600,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos24 .text-gray-500 {
+  color: var(--md-on-surface-variant) !important;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 {
+    --md-primary: #d0bcff;
+    --md-on-primary: #381e72;
+    --md-secondary: #ccc2dc;
+    --md-tertiary: #efb8c8;
+    --md-surface: #141218;
+    --md-surface-container: #211f26;
+    --md-surface-container-high: #2b2930;
+    --md-on-surface: #e6e0e9;
+    --md-on-surface-variant: #cac4d0;
+    --md-outline: #938f99;
+    --md-outline-variant: #49454f;
+    --sidebar-bg: #211f26;
+    --header-bg: #211f26;
+    --app-bg: #141218;
+    --text-main: #e6e0e9;
+    background-color: var(--md-surface) !important;
+    color: var(--md-on-surface) !important;
+  }
+  html[data-app-theme="lineageos24"][data-color-mode="system"] body.theme-lineageos24 .bg-white {
+    background-color: var(--md-surface-container) !important;
+    color: var(--md-on-surface) !important;
+  }
+}
