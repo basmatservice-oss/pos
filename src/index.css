@@ -2134,3 +2134,26 @@ body.theme-lineageos24 .lineage-dialog-panel .text-gray-400 {
     justify-self: center;
   }
 }
+
+
+/* Sales and purchasing dialogs use slate utility classes; map them to Material surfaces. */
+body.theme-lineageos24 .lineage-dialog-panel .border-slate-100,
+body.theme-lineageos24 .lineage-dialog-panel .border-slate-200,
+body.theme-lineageos24 .lineage-dialog-panel .border-slate-300 {
+  border-color: var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-dialog-panel .bg-slate-50,
+body.theme-lineageos24 .lineage-dialog-panel .bg-slate-100,
+body.theme-lineageos24 .lineage-dialog-panel .bg-white {
+  background-color: var(--md-surface-container-low);
+}
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-900,
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-800,
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-700 {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-600,
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-500,
+body.theme-lineageos24 .lineage-dialog-panel .text-slate-400 {
+  color: var(--md-on-surface-variant);
+}
