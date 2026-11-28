@@ -124,7 +124,7 @@ export default function Login() {
   const clearPin = () => setPinCode('');
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4" dir="rtl">
+    <div className="lineage-login min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4" dir="rtl">
       <div className="bg-white theme-card p-8 w-full max-w-md border border-slate-200 rounded-2xl shadow-sm">
         <div className="text-center mb-8">
           <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
