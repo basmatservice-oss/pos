@@ -348,6 +348,15 @@ const Settings: React.FC = () => {
       bg: '#fdf2f8',
       text: '#831843',
       themeName: 'playful'
+    },
+    {
+      name: 'LineageOS 24',
+      primary: '#6750A4',
+      secondary: '#625B71',
+      sidebar: '#F0ECF4',
+      bg: '#F7F2FA',
+      text: '#1D1B20',
+      themeName: 'lineageos24'
     }
   ];
 
@@ -1263,30 +1272,36 @@ const Settings: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                      {/* Color Pickers */}
-                      {[
-                        { label: 'اللون الأساسي', key: 'primaryColor' },
-                        { label: 'اللون الثانوي', key: 'secondaryColor' },
-                        { label: 'القائمة الجانبية', key: 'sidebarColor' },
-                        { label: 'الشريط العلوي', key: 'headerColor' },
-                        { label: 'خلفية التطبيق', key: 'backgroundColor' },
-                        { label: 'لون النصوص', key: 'textColor' },
-                      ].map((item) => (
-                        <div key={item.key} className="space-y-3">
-                          <label className="text-sm font-bold text-gray-700">{item.label}</label>
-                          <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-2xl border border-gray-100 hover:border-indigo-200 transition-colors">
-                            <input 
-                              type="color" 
-                              value={settings[item.key]}
-                              onChange={(e) => setSettings({ ...settings, [item.key]: e.target.value })}
-                              className="w-12 h-12 rounded-xl cursor-pointer border-none bg-transparent"
-                            />
-                            <span className="text-xs font-mono text-gray-500 uppercase">{settings[item.key]}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    {settings.themeName === 'lineageos24' ? (
+                      <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 text-sm leading-6 text-purple-950">
+                        ألوان هذا الثيم تتبع لوحة Material 3 Expressive المتناسقة. استخدم اختيار الوضع الفاتح أو الداكن لتغيير لوحة الألوان. إعدادات الألوان المخصصة للثيمات القديمة محفوظة وستعود عند اختيار أحدها.
+                      </div>
+                    ) : (
+                                          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                            {/* Color Pickers */}
+                                            {[
+                                              { label: 'اللون الأساسي', key: 'primaryColor' },
+                                              { label: 'اللون الثانوي', key: 'secondaryColor' },
+                                              { label: 'القائمة الجانبية', key: 'sidebarColor' },
+                                              { label: 'الشريط العلوي', key: 'headerColor' },
+                                              { label: 'خلفية التطبيق', key: 'backgroundColor' },
+                                              { label: 'لون النصوص', key: 'textColor' },
+                                            ].map((item) => (
+                                              <div key={item.key} className="space-y-3">
+                                                <label className="text-sm font-bold text-gray-700">{item.label}</label>
+                                                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-2xl border border-gray-100 hover:border-indigo-200 transition-colors">
+                                                  <input 
+                                                    type="color" 
+                                                    value={settings[item.key]}
+                                                    onChange={(e) => setSettings({ ...settings, [item.key]: e.target.value })}
+                                                    className="w-12 h-12 rounded-xl cursor-pointer border-none bg-transparent"
+                                                  />
+                                                  <span className="text-xs font-mono text-gray-500 uppercase">{settings[item.key]}</span>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-4">
                       <div className="space-y-3">
