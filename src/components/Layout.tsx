@@ -436,6 +436,18 @@ export default function Layout() {
             ))}
           </nav>
         )}
+        {!isStandaloneAndroid && (
+          <nav className="lineage-responsive-bottom-nav grid shrink-0 grid-cols-5 border-t px-1 pt-2" aria-label="التنقل الرئيسي">
+            {bottomNavItems.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) =>
+                `flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-bold transition-colors ${isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500'}`
+              }>
+                <item.icon className="h-5 w-5" />
+                <span className="max-w-full truncate">{item.to === '/settings' ? 'إعدادات' : item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        )}
       </main>
 
       {user?.mustChangePassword && (

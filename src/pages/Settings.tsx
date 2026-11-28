@@ -1382,7 +1382,7 @@ const Settings: React.FC = () => {
 
                     {/* Preview Section */}
                     {settings.themeName === 'lineageos24' ? (
-                      <div className={`lineage-theme-preview mt-8 rounded-[2rem] p-5 sm:p-7 space-y-5 ${settings.appearanceMode === 'dark' ? 'is-dark' : ''}`} dir="rtl">
+                      <div className={`lineage-theme-preview mt-8 rounded-[2rem] p-5 sm:p-7 space-y-5 ${settings.appearanceMode === 'dark' ? 'is-dark' : settings.appearanceMode === 'system' ? 'is-system' : ''}`} dir="rtl">
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold opacity-70">معاينة مباشرة</p>
