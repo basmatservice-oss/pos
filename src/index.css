@@ -2431,3 +2431,25 @@ body.theme-lineageos24 .lineage-mobile-nav button[data-active="true"] {
     gap: .75rem;
   }
 }
+
+
+/* Sales chart legibility in the optional LineageOS palette, including dark mode. */
+body.theme-lineageos24 .lineage-sales-report .recharts-cartesian-axis-tick-value,
+body.theme-lineageos24 .lineage-sales-report .recharts-legend-item-text {
+  fill: var(--md-on-surface-variant) !important;
+  color: var(--md-on-surface-variant) !important;
+}
+body.theme-lineageos24 .lineage-sales-report .recharts-cartesian-grid line {
+  stroke: var(--md-outline-variant) !important;
+  opacity: .72;
+}
+body.theme-lineageos24 .lineage-sales-report .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--md-surface-container-high) !important;
+  border: 1px solid var(--md-outline-variant) !important;
+  border-radius: .85rem !important;
+  color: var(--md-on-surface) !important;
+}
+body.theme-lineageos24 .lineage-sales-report .recharts-tooltip-item,
+body.theme-lineageos24 .lineage-sales-report .recharts-tooltip-label {
+  color: var(--md-on-surface) !important;
+}
