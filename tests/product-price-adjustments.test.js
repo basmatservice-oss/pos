@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { calculateAdjustedSellingPrice, buildManualSellingPriceUpdate } from '../src/utils/productPriceAdjustments.js';
 
 test('calculates percentage and fixed selling-price changes with two-decimal rounding', () => {
@@ -28,4 +29,38 @@ test('manual price override unlinks FX anchor without mutating historical produc
   assert.equal(updated.costInUSD, 1.4);
   assert.equal(updated.unitsJson, original.unitsJson);
   assert.equal(original.sellingPrice, 100);
+});
+
+const readSource = (path) => readFile(new URL(path, import.meta.url), 'utf8');
+
+test('bulk price maintenance is submitted as one operation and does not write a second client audit log', async () => {
+  const component = await readSource('../src/components/ProductPriceManager.tsx');
+  assert.match(component, /records,\s*\}, branchId\)/);
+  assert.match(component, /previousSellingPrice:/);
+  assert.doesNotMatch(component, /logAction/);
+  assert.doesNotMatch(component, /for \(const row of preview\)/);
+});
+
+test('server bulk price operation prevalidates all products and applies them in one transaction', async () => {
+  const source = await readSource('../server/operations.ts');
+  assert.match(source, /Array\.isArray\(payload\?\.records\)/);
+  assert.match(source, /Bulk product price update must contain between 1 and 500 products/);
+  assert.match(source, /const preparedRecords = payload\.records\.map/);
+  assert.match(source, /All products are prevalidated before the first write/);
+  assert.match(source, /preparedRecords\.map\(\(record: any\) =>/);
+  assert.match(source, /previousSellingPrice: _previousSellingPrice/);
+});
+
+test('local bulk price operation commits all product rows and standalone audit rows in one repository transaction', async () => {
+  const source = await readSource('../src/services/operationService.ts');
+  const start = source.indexOf("if (tableName === 'products' && Array.isArray(payload?.records))");
+  const end = source.indexOf('if (!payload?.record) return;', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /for \(const requested of records\)/);
+  assert.match(handler, /currentDeviceRole === 'standalone'/);
+  assert.match(handler, /entity: 'auditLogs'/);
+  assert.match(handler, /nativePosRepository\.applyChanges\(changes\)/);
+  assert.match(handler, /db\.transaction\('rw', \[db\.products, db\.auditLogs\]/);
+  assert.match(handler, /db\.products\.bulkPut/);
 });
