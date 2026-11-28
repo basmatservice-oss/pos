@@ -119,7 +119,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
+      <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
         <div className="overflow-x-auto flex-1 custom-scrollbar">
           <table className="w-full text-right">
             <thead className="bg-slate-50 text-slate-500 text-xs font-bold border-b border-slate-200 sticky top-0 z-10">
@@ -194,8 +194,8 @@ export default function Expenses() {
 
       {/* Add Expense Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b border-slate-200 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-900">إضافة مصروف جديد</h3>
               <button
