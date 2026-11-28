@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { dispatchOperation } from '../services/operationService';
-import { logAction } from '../services/auditService';
 import { calculateAdjustedSellingPrice, buildManualSellingPriceUpdate } from '../utils/productPriceAdjustments.js';
 
 type Props = {
@@ -55,37 +54,21 @@ export default function ProductPriceManager({ products, branchId, actorName, cur
     if (!confirmed) return;
     setBusy(true);
     setResult('');
-    let saved = 0;
-    const failures: string[] = [];
     try {
-      for (const row of preview) {
-        try {
-          const record = buildManualSellingPriceUpdate(row.product, row.nextPrice);
-          record.updatedBy = actorName || 'System';
-          await dispatchOperation('entity_upsert', {
-            table: 'products',
-            allowProductPriceUpdate: true,
-            record,
-          }, branchId);
-          await logAction(
-            actorName || 'System',
-            'تحديث سعر بيع يدوي',
-            'price_change',
-            `تغيير سعر ${row.product.name} من ${Number(row.product.sellingPrice || 0)} إلى ${row.nextPrice} وفصل السعر عن سعر الصرف`,
-            1,
-            row.nextPrice,
-            row.product.name,
-            branchId
-          );
-          saved += 1;
-        } catch (error) {
-          failures.push(`${row.product.name}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      setResult(failures.length
-        ? `تم تحديث ${saved} صنف، وتعذر تحديث ${failures.length} صنف: ${failures.join(' | ')}`
-        : `تم تحديث أسعار ${saved} صنف بنجاح.`);
-      if (saved > 0 && failures.length === 0) setSelectedIds([]);
+      const records = preview.map(({ product, nextPrice }) => ({
+        ...buildManualSellingPriceUpdate(product, nextPrice),
+        updatedBy: actorName || 'System',
+        previousSellingPrice: Number(product.sellingPrice || 0),
+      }));
+      await dispatchOperation('entity_upsert', {
+        table: 'products',
+        allowProductPriceUpdate: true,
+        records,
+      }, branchId);
+      setResult(`تم اعتماد تحديث أسعار ${records.length} صنف كعملية واحدة دون تحديث جزئي.`);
+      setSelectedIds([]);
+    } catch (error) {
+      setResult(`لم يعتمد التحديث الجماعي ولم يُسجل كتحديث ناجح: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy(false);
     }
@@ -154,7 +137,7 @@ export default function ProductPriceManager({ products, branchId, actorName, cur
         </div>
         {result && <div className="mx-4 mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-6 text-slate-700">{result}</div>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-4">
-          <span className="text-xs text-slate-500">يُحفظ كل صنف كعملية مستقلة؛ عند انقطاع الاتصال ستظهر الأصناف التي نجح تحديثها وتلك التي تعذر تحديثها.</span>
+          <span className="text-xs text-slate-500">تُرسل جميع الأصناف في عملية واحدة؛ إما أن تُحفظ كلها معًا أو تُرفض العملية كاملة.</span>
           <button type="button" onClick={apply} disabled={busy || selectedProducts.length === 0 || invalidPreview}
             className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {busy ? 'جارٍ التحديث...' : 'اعتماد تحديث الأسعار'}
