@@ -1882,3 +1882,61 @@ body.theme-lineageos24 .lineage-page-header__actions > label {
     text-align: center;
   }
 }
+
+
+/* LineageOS 24 POS workspace composition */
+body.theme-lineageos24 .lineage-pos-toolbar {
+  border-color: var(--lineage-outline, #d7dbe4);
+  border-radius: 1.35rem;
+  background: var(--lineage-surface-container, #f1f2f8);
+  box-shadow: 0 1px 2px rgb(20 24 35 / 5%);
+}
+body.theme-lineageos24 .lineage-pos-eyebrow {
+  color: var(--lineage-on-surface-variant, #5c6070);
+  letter-spacing: .08em;
+}
+body.theme-lineageos24 .lineage-pos-toolbar h1 {
+  color: var(--lineage-on-surface, #191b22);
+  letter-spacing: -.025em;
+}
+body.theme-lineageos24 .lineage-pos-shift-state {
+  border-radius: 999px;
+  min-height: 2.5rem;
+}
+body.theme-lineageos24 .lineage-pos-product-card {
+  border-color: var(--lineage-outline-variant, #dfe2eb);
+  border-radius: 1.35rem;
+  background: var(--lineage-surface-container-low, #f7f7fc);
+  box-shadow: 0 1px 2px rgb(20 24 35 / 4%);
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+body.theme-lineageos24 .lineage-pos-product-card:hover {
+  border-color: var(--lineage-primary, #52618f);
+  background: var(--lineage-surface-container-high, #e9eaf2);
+  box-shadow: 0 4px 14px rgb(20 24 35 / 8%);
+}
+body.theme-lineageos24 .lineage-pos-cart-panel {
+  border-color: var(--lineage-outline-variant, #dfe2eb);
+  background: var(--lineage-surface-container-low, #f7f7fc);
+}
+body.theme-lineageos24 .lineage-pos-cart-item {
+  border-color: var(--lineage-outline-variant, #dfe2eb);
+  border-radius: 1.1rem;
+  background: var(--lineage-surface, #fff);
+}
+@media (max-width: 639px) {
+  body.theme-lineageos24 .lineage-pos-toolbar {
+    align-items: flex-start;
+    padding: .85rem 1rem;
+    border-radius: 1.15rem;
+  }
+  body.theme-lineageos24 .lineage-pos-shift-state {
+    padding: .55rem .7rem;
+    font-size: .68rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.theme-lineageos24 .lineage-pos-product-card {
+    transition: none;
+  }
+}
