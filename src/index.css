@@ -1886,17 +1886,17 @@ body.theme-lineageos24 .lineage-page-header__actions > label {
 
 /* LineageOS 24 POS workspace composition */
 body.theme-lineageos24 .lineage-pos-toolbar {
-  border-color: var(--lineage-outline, #d7dbe4);
+  border-color: var(--md-outline, #d7dbe4);
   border-radius: 1.35rem;
-  background: var(--lineage-surface-container, #f1f2f8);
+  background: var(--md-surface-container, #f1f2f8);
   box-shadow: 0 1px 2px rgb(20 24 35 / 5%);
 }
 body.theme-lineageos24 .lineage-pos-eyebrow {
-  color: var(--lineage-on-surface-variant, #5c6070);
+  color: var(--md-on-surface-variant, #5c6070);
   letter-spacing: .08em;
 }
 body.theme-lineageos24 .lineage-pos-toolbar h1 {
-  color: var(--lineage-on-surface, #191b22);
+  color: var(--md-on-surface, #191b22);
   letter-spacing: -.025em;
 }
 body.theme-lineageos24 .lineage-pos-shift-state {
@@ -1904,25 +1904,25 @@ body.theme-lineageos24 .lineage-pos-shift-state {
   min-height: 2.5rem;
 }
 body.theme-lineageos24 .lineage-pos-product-card {
-  border-color: var(--lineage-outline-variant, #dfe2eb);
+  border-color: var(--md-outline-variant, #dfe2eb);
   border-radius: 1.35rem;
-  background: var(--lineage-surface-container-low, #f7f7fc);
+  background: var(--md-surface, #f7f7fc);
   box-shadow: 0 1px 2px rgb(20 24 35 / 4%);
   transition: border-color .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 body.theme-lineageos24 .lineage-pos-product-card:hover {
-  border-color: var(--lineage-primary, #52618f);
-  background: var(--lineage-surface-container-high, #e9eaf2);
+  border-color: var(--md-primary, #52618f);
+  background: var(--md-surface-container-high, #e9eaf2);
   box-shadow: 0 4px 14px rgb(20 24 35 / 8%);
 }
 body.theme-lineageos24 .lineage-pos-cart-panel {
-  border-color: var(--lineage-outline-variant, #dfe2eb);
-  background: var(--lineage-surface-container-low, #f7f7fc);
+  border-color: var(--md-outline-variant, #dfe2eb);
+  background: var(--md-surface, #f7f7fc);
 }
 body.theme-lineageos24 .lineage-pos-cart-item {
-  border-color: var(--lineage-outline-variant, #dfe2eb);
+  border-color: var(--md-outline-variant, #dfe2eb);
   border-radius: 1.1rem;
-  background: var(--lineage-surface, #fff);
+  background: var(--md-surface, #fff);
 }
 @media (max-width: 639px) {
   body.theme-lineageos24 .lineage-pos-toolbar {
@@ -1944,25 +1944,25 @@ body.theme-lineageos24 .lineage-pos-cart-item {
 
 /* LineageOS 24 dedicated phone sales shell */
 body.theme-lineageos24 .lineage-mobile-shell {
-  background: var(--lineage-background, #f6f6fb);
+  background: var(--md-surface, #f6f6fb);
 }
 body.theme-lineageos24 .lineage-mobile-app {
-  background: var(--lineage-surface, #fff);
-  border-color: var(--lineage-outline-variant, #dfe2eb);
+  background: var(--md-surface, #fff);
+  border-color: var(--md-outline-variant, #dfe2eb);
   box-shadow: 0 8px 32px rgb(25 27 34 / 7%);
 }
 body.theme-lineageos24 .lineage-mobile-header {
-  background: var(--lineage-surface-container, #f1f2f8);
-  border-color: var(--lineage-outline-variant, #dfe2eb);
+  background: var(--md-surface-container, #f1f2f8);
+  border-color: var(--md-outline-variant, #dfe2eb);
 }
 body.theme-lineageos24 .lineage-mobile-header > div:first-child > div:first-child {
   border-radius: 1rem;
-  background: var(--lineage-primary, #52618f);
+  background: var(--md-primary, #52618f);
 }
 body.theme-lineageos24 .lineage-mobile-nav {
   padding-bottom: max(.75rem, env(safe-area-inset-bottom));
-  background: var(--lineage-surface-container, #f1f2f8);
-  border-color: var(--lineage-outline-variant, #dfe2eb);
+  background: var(--md-surface-container, #f1f2f8);
+  border-color: var(--md-outline-variant, #dfe2eb);
 }
 body.theme-lineageos24 .lineage-mobile-nav button {
   border-radius: 1rem;
