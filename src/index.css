@@ -1803,3 +1803,82 @@ body.theme-lineageos24 .lineage-apps-page button {
   body.theme-lineageos24 .lineage-stocktaking-page table,
   body.theme-lineageos24 .lineage-payroll-page table { min-width: 40rem; }
 }
+
+
+/* Reusable semantic page header used by LineageOS-native workspace screens. */
+body.theme-lineageos24 .lineage-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 5.25rem;
+  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 1.65rem;
+  background: var(--md-surface-container);
+}
+body.theme-lineageos24 .lineage-page-header__identity {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  min-width: 0;
+}
+body.theme-lineageos24 .lineage-page-header__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.85rem;
+  height: 2.85rem;
+  border-radius: 1.05rem;
+  background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface-container-high));
+  color: var(--md-primary);
+}
+body.theme-lineageos24 .lineage-page-header__identity h1 {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+  line-height: 1.35;
+  font-weight: 800;
+}
+body.theme-lineageos24 .lineage-page-header__identity p {
+  margin: .25rem 0 0;
+  color: var(--md-on-surface-variant);
+  font-size: .82rem;
+  line-height: 1.7;
+}
+body.theme-lineageos24 .lineage-page-header__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+}
+body.theme-lineageos24 .lineage-page-header__actions > button,
+body.theme-lineageos24 .lineage-page-header__actions > label {
+  min-height: 2.7rem;
+  border-radius: 1.1rem !important;
+  box-shadow: none !important;
+}
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: .8rem;
+    padding: .9rem;
+    border-radius: 1.3rem;
+  }
+  body.theme-lineageos24 .lineage-page-header__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  body.theme-lineageos24 .lineage-page-header__actions > button,
+  body.theme-lineageos24 .lineage-page-header__actions > label {
+    justify-content: center;
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+}
