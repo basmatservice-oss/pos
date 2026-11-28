@@ -806,10 +806,10 @@ const MobileSales: React.FC = () => {
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col items-center overflow-hidden bg-slate-50" dir={lang === 'en' ? 'ltr' : 'rtl'}>
-      <div className="flex flex-col h-full w-full max-w-md bg-white relative overflow-hidden border-x border-slate-200">
+    <div className="lineage-mobile-shell flex h-[100dvh] flex-col items-center overflow-hidden bg-slate-50" dir={lang === 'en' ? 'ltr' : 'rtl'}>
+      <div className="lineage-mobile-app flex flex-col h-full w-full max-w-md bg-white relative overflow-hidden border-x border-slate-200">
         {/* Top Header */}
-        <header className="bg-white px-4 py-3.5 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <header className="lineage-mobile-header bg-white px-4 py-3.5 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white overflow-hidden">
               {storeSettings.businessLogo ? (
@@ -920,7 +920,7 @@ const MobileSales: React.FC = () => {
         </main>
 
         {/* Bottom Navigation */}
-        <nav className="bg-white border-t border-slate-200 px-6 py-3 flex items-center justify-between shrink-0 pb-6">
+        <nav className="lineage-mobile-nav bg-white border-t border-slate-200 px-6 py-3 flex items-center justify-between shrink-0 pb-6">
           <button
             onClick={() => setActiveTab('inventory')}
             className={`flex flex-col items-center gap-1 ${activeTab === 'inventory' ? 'text-indigo-600' : 'text-slate-400'}`}
