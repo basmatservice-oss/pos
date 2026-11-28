@@ -130,8 +130,8 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className={`${isAndroidStandalone ? "px-4 pb-6 pt-4 sm:px-6" : "p-6"} h-full overflow-y-auto bg-[#f4f6fb] custom-scrollbar`} dir="rtl">
-      <div className="mb-5 flex items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_3px_14px_rgba(15,23,42,0.035)] sm:mb-6 sm:px-6">
+    <div className={`lineage-page lineage-dashboard-page ${isAndroidStandalone ? "px-4 pb-6 pt-4 sm:px-6" : "p-6"} h-full overflow-y-auto bg-[#f4f6fb] custom-scrollbar`} dir="rtl">
+      <div className="lineage-page-heading mb-5 flex items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_3px_14px_rgba(15,23,42,0.035)] sm:mb-6 sm:px-6">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
             <LayoutDashboard className="w-6 h-6 text-indigo-600" />
@@ -166,7 +166,7 @@ export default function Dashboard() {
       {/* Main Stats Grid */}
       <div className={`mb-5 grid ${isAndroidStandalone ? "grid-cols-2 gap-3" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"} sm:mb-6`}>
         {quickStats.map((stat, idx) => (
-          <div key={idx} className={`flex min-w-0 items-center rounded-[18px] border ${isAndroidStandalone && idx === 0 ? "col-span-2 border-indigo-700 bg-gradient-to-l from-[#243b70] to-[#4267b2] p-4 text-white shadow-[0_10px_24px_rgba(37,69,135,0.18)]" : `border-slate-200/90 bg-white ${isAndroidStandalone ? "gap-2.5 p-3.5" : "gap-4 p-5"} shadow-[0_2px_10px_rgba(15,23,42,0.025)]`}`}>
+          <div key={idx} className={`lineage-metric-card flex min-w-0 items-center rounded-[18px] border ${isAndroidStandalone && idx === 0 ? "col-span-2 border-indigo-700 bg-gradient-to-l from-[#243b70] to-[#4267b2] p-4 text-white shadow-[0_10px_24px_rgba(37,69,135,0.18)]" : `border-slate-200/90 bg-white ${isAndroidStandalone ? "gap-2.5 p-3.5" : "gap-4 p-5"} shadow-[0_2px_10px_rgba(15,23,42,0.025)]`}`}>
             <div className={`${isAndroidStandalone ? "rounded-xl p-2.5" : "rounded-xl p-3"} shrink-0 ${isAndroidStandalone && idx === 0 ? "border border-white/15 bg-white/10 text-white" : `border ${stat.bg} ${stat.color}`}`}>
               <stat.icon className="w-5 h-5" />
             </div>
@@ -184,7 +184,7 @@ export default function Dashboard() {
 
       <div className="mb-5 grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5 sm:mb-6">
         {/* Sales by Payment Method */}
-        <div className="min-w-0 rounded-[20px] border border-slate-200/90 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.025)] sm:p-6 lg:col-span-2">
+        <div className="lineage-surface min-w-0 rounded-[20px] border border-slate-200/90 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.025)] sm:p-6 lg:col-span-2">
           <h3 className="text-base font-bold text-slate-900 mb-5 flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-indigo-600" />
             <span>توزيع تحصيلات اليوم (شامل الضريبة)</span>
@@ -214,7 +214,7 @@ export default function Dashboard() {
 
         {/* Alerts & Summary */}
         <div className="space-y-4">
-          <div className="bg-white p-5 rounded-2xl border border-slate-200">
+          <div className="lineage-surface bg-white p-5 rounded-2xl border border-slate-200">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500" />
