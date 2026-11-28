@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import type { Employee, Attendance } from '../db/db';
@@ -85,15 +86,7 @@ export default function AttendancePage() {
 
   return (
     <div className="lineage-page lineage-attendance-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
-      <div className="mb-5 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-8 sm:flex-row sm:items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <UserCheck className="w-6 h-6 text-indigo-600" />
-            الحضور والانصراف
-          </h2>
-          <p className="text-gray-500 text-sm mt-1">تسجيل حضور وانصراف الموظفين ومتابعة ساعات العمل</p>
-        </div>
-      </div>
+      <LineagePageHeader title="الحضور والانصراف" description="تسجيل حضور وانصراف الموظفين ومتابعة ساعات العمل" icon={<UserCheck className="w-5 h-5" />} />
 
       <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
         {/* Check-in Section */}
