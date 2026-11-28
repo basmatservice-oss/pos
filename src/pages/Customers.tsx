@@ -624,8 +624,8 @@ export default function Customers() {
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 {editingCustomer ? 'تعديل بيانات العميل' : 'إضافة عميل جديد'}
@@ -700,8 +700,8 @@ export default function Customers() {
 
       {/* Payment Modal */}
       {selectedCustomerForPayment && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 تحصيل دفعات العميل: {selectedCustomerForPayment.name}
@@ -849,8 +849,8 @@ export default function Customers() {
 
       {/* Detailed Customer Account Statement Modal */}
       {statementCustomer && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex flex-wrap justify-between items-center p-4 border-b border-slate-200 bg-slate-50 gap-2">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
@@ -956,8 +956,8 @@ export default function Customers() {
 
       {/* Invoice Preview Modal */}
       {selectedInvoiceForPreview && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">معاينة الفاتورة</h3>
               <button
