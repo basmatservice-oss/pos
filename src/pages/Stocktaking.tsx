@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { getPosRecord, getPosRecordsWhereEquals, getFirstPosRecordWhereEquals } from '../services/posDataAccess';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
@@ -576,13 +577,7 @@ export default function Stocktaking() {
 
   return (
     <div className="lineage-page lineage-stocktaking-page mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
-      <div className="mb-5 sm:mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <RefreshCw className="w-8 h-8 text-indigo-600" />
-          الجرد المخزني
-        </h1>
-        <p className="text-gray-500 mt-1">إدارة ومراجعة عمليات جرد المخزون</p>
-      </div>
+      <LineagePageHeader title="الجرد المخزني" description="إدارة ومراجعة عمليات جرد المخزون" icon={<RefreshCw className="w-5 h-5" />} />
 
       {view === 'sessions' && renderSessionsList()}
       {view === 'details' && renderSessionDetails()}
