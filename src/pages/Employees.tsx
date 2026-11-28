@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import LineagePageHeader from '../components/LineagePageHeader';
-import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
   Search,
