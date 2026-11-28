@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
@@ -203,29 +204,17 @@ const Payroll: React.FC = () => {
 
   return (
     <div className="lineage-page lineage-payroll-page min-h-full min-w-0 space-y-4 overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:space-y-6 sm:p-6" dir="rtl">
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">إدارة الرواتب</h1>
-          <p className="text-slate-500 text-sm mt-1">
-            حساب وصرف الرواتب الشهرية وبالساعة مع الحوافز والخصومات
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none"
-          />
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors whitespace-nowrap"
-          >
-            <Download className="w-4 h-4" />
-            تصدير CSV
-          </button>
-        </div>
-      </div>
+      <LineagePageHeader
+        title="إدارة الرواتب"
+        description="حساب وصرف الرواتب الشهرية وبالساعة مع الحوافز والخصومات"
+        icon={<DollarSign className="w-5 h-5" />}
+        actions={
+          <>
+            <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm tabular-nums focus:ring-2 focus:ring-indigo-500 outline-none" />
+            <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors whitespace-nowrap"><Download className="w-4 h-4" /> تصدير CSV</button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center gap-4">
