@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosRecordsWhereEquals } from '../hooks/usePosRecordsWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
@@ -289,12 +290,7 @@ export default function Shifts() {
 
   return (
     <div className="lineage-page lineage-shifts-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
-      <div className="mb-6 shrink-0">
-        <h2 className="text-2xl font-bold text-slate-900">إدارة الورديات وحركة الصندوق</h2>
-        <p className="text-slate-500 text-sm mt-1">
-          فتح وإغلاق الورديات ومتابعة الإيداعات والسحوبات والمطابقة النقدية
-        </p>
-      </div>
+      <LineagePageHeader title="إدارة الورديات وحركة الصندوق" description="فتح وإغلاق الورديات ومتابعة الإيداعات والسحوبات والمطابقة النقدية" icon={<Clock className="w-5 h-5" />} />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:gap-6 lg:mb-8 lg:grid-cols-3">
         {/* Current Shift Status */}
