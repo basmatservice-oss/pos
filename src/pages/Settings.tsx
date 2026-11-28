@@ -57,6 +57,7 @@ import { formatNumber } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import toast from 'react-hot-toast';
 import { repriceLinkedProduct, getFxLinkedProductCount } from '../utils/exchangePricing';
+import { applyAppTheme } from '../utils/themeManager';
 
 const DEVICE_LOCAL_SETTING_KEYS = new Set(['deviceRole', 'serverUrl', 'serverIp']);
 
@@ -101,6 +102,8 @@ const Settings: React.FC = () => {
     fontFamily: 'Cairo',
     fontSize: '14px',
     shadowIntensity: 'medium',
+    themeName: 'modern',
+    appearanceMode: 'system',
     currency: 'ج.س',
     baseCurrency: 'ج.س',
     currencyDecimals: 2,
@@ -286,8 +289,7 @@ const Settings: React.FC = () => {
     };
     root.style.setProperty('--shadow-sm', shadowMap[theme.shadowIntensity] || shadowMap.medium);
 
-    const currentThemeName = theme.themeName || 'modern';
-    document.body.className = `theme-${currentThemeName}`;
+    applyAppTheme(theme);
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1298,6 +1300,19 @@ const Settings: React.FC = () => {
                           <option value="brutalist">حازم (Brutalist)</option>
                           <option value="glassmorphism">زجاجي (Glassmorphism)</option>
                           <option value="playful">مرح (Playful)</option>
+                          <option value="lineageos24">LineageOS 24 (Material 3 Expressive)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-sm font-bold text-gray-700">نمط الألوان</label>
+                        <select
+                          value={settings.appearanceMode || 'system'}
+                          onChange={(e) => setSettings({ ...settings, appearanceMode: e.target.value })}
+                          className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        >
+                          <option value="system">تلقائي حسب الجهاز</option>
+                          <option value="light">فاتح</option>
+                          <option value="dark">داكن</option>
                         </select>
                       </div>
                       <div className="space-y-3">
@@ -1356,6 +1371,13 @@ const Settings: React.FC = () => {
                         ))}
                       </div>
                     </div>
+
+                    {settings.themeName === 'lineageos24' && (
+                      <div className="p-5 rounded-3xl border border-purple-200 bg-purple-50 text-purple-950 space-y-2">
+                        <div className="flex items-center gap-2 font-bold"><Sparkles className="w-5 h-5" /> ثيم LineageOS 24</div>
+                        <p className="text-sm leading-6">يستخدم لوحة ألوان Material 3 Expressive، وبطاقات مستديرة، وأسطح متدرجة، وأزرارًا وأيقونات متناسقة. اختر الوضع الفاتح أو الداكن أو التلقائي، ثم احفظ التغييرات لتثبيت اختيارك على هذا الجهاز.</p>
+                      </div>
+                    )}
 
                     {/* Preview Section */}
                     <div className="mt-8 p-8 bg-gray-900 rounded-[40px] text-white overflow-hidden relative shadow-2xl">
