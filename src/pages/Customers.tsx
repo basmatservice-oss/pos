@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import {
@@ -486,35 +487,26 @@ export default function Customers() {
 
   return (
     <div className="lineage-page lineage-customers-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
-      <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3 sm:mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">العملاء والديون</h2>
-          <p className="text-slate-500 text-sm mt-1">
-            إدارة بيانات العملاء وحسابات البيع الآجل وكشوف الحساب
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2.5">
-          <label className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap">
-            <Upload className="w-4 h-4" />
-            استيراد CSV
-            <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
-          </label>
-          <button
-            onClick={handleExportCSV}
-            className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
-          >
-            <Download className="w-4 h-4" />
-            تصدير CSV
-          </button>
-          <button
-            onClick={() => openModal()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            إضافة عميل
-          </button>
-        </div>
-      </div>
+      <LineagePageHeader
+        title="العملاء والديون"
+        description="إدارة بيانات العملاء وحسابات البيع الآجل وكشوف الحساب"
+        icon={<Users className="w-5 h-5" />}
+        actions={
+          <>
+            <label className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap">
+              <Upload className="w-4 h-4" />
+              استيراد CSV
+              <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+            </label>
+            <button onClick={handleExportCSV} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap">
+              <Download className="w-4 h-4" /> تصدير CSV
+            </button>
+            <button onClick={() => openModal()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap">
+              <Plus className="w-4 h-4" /> إضافة عميل
+            </button>
+          </>
+        }
+      />
 
       <div className="bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
         {/* Toolbar */}
