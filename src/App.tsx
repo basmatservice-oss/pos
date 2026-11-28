@@ -35,7 +35,7 @@ import { useInventoryStore } from './store/useInventoryStore';
 import { getFirstPosRecordWhereEquals, putPosSetting } from './services/posDataAccess';
 import { usePosEntityRecords } from './hooks/usePosEntityRecords';
 import { normalizeNumericInput } from './utils/normalizeNumericInput';
-import { applyAppTheme } from './utils/themeManager';
+import { applyAppTheme, watchSystemAppearance } from './utils/themeManager';
 
 async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
   return (await getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
@@ -132,6 +132,8 @@ function AppContent() {
       document.removeEventListener('input', onInput, true);
     };
   }, []);
+
+  useEffect(() => watchSystemAppearance(settings as any), [settings.themeName, settings.appearanceMode]);
 
   useEffect(() => {
     if (settings) {
