@@ -322,7 +322,7 @@ export function executeBusinessOperation(
           // All products are prevalidated before the first write. The enclosing
           // executeBusinessOperation transaction commits every price and audit row together.
           result = preparedRecords.map((record: any) =>
-            handleEntityUpsert(tx, { ...payload, record }, now)
+            handleEntityUpsert(tx, { ...payload, record, preserveExistingProductId: true }, now)
           );
         } else {
           result = handleEntityUpsert(tx, payload, now);
@@ -2768,7 +2768,7 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
   }
 
   let prevProduct: any = null;
-  if (tableName === 'products' && normalizedClean.id && Number(normalizedClean.id) < 1000000) {
+  if (tableName === 'products' && normalizedClean.id) {
     prevProduct = tx.select().from(products).where(eq(products.id, Number(normalizedClean.id))).get();
     if (prevProduct) {
       // Generic entity synchronization may edit product metadata only. Stock and
@@ -2804,7 +2804,7 @@ function handleEntityUpsert(tx: any, payload: any, now: string) {
     normalizedClean.balance = existing ? existing.balance : 0;
   }
 
-  if (autoIncTables.has(tableName) && normalizedClean.id && Number(normalizedClean.id) >= 1000000) {
+  if (autoIncTables.has(tableName) && normalizedClean.id && Number(normalizedClean.id) >= 1000000 && !prevProduct && payload.preserveExistingProductId !== true) {
     const { id: _tmp, ...insertValues } = normalizedClean;
     savedRecord = tx
       .insert(table)
