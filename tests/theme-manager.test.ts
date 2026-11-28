@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLineagePalette } from '../src/utils/themeManager';
+import { getLineagePalette, resolveAppearanceMode } from '../src/utils/themeManager';
 
 test('LineageOS 24 theme exposes a complete light Material palette', () => {
   const palette = getLineagePalette('light');
@@ -16,4 +16,14 @@ test('LineageOS 24 theme exposes a readable dark Material palette', () => {
   assert.equal(palette.surface, '#141218');
   assert.equal(palette.onSurface, '#E6E0E9');
   assert.ok(palette.outlineVariant);
+});
+
+test('system appearance follows the operating system preference', () => {
+  assert.equal(resolveAppearanceMode('system', true), 'dark');
+  assert.equal(resolveAppearanceMode('system', false), 'light');
+});
+
+test('explicit appearance choice overrides the operating system preference', () => {
+  assert.equal(resolveAppearanceMode('light', true), 'light');
+  assert.equal(resolveAppearanceMode('dark', false), 'dark');
 });
