@@ -1533,3 +1533,110 @@ body.theme-lineageos24 .lineage-settings-page > div:nth-child(2) > div:last-chil
   body.theme-lineageos24 .lineage-settings-page > div:nth-child(2) > div:first-child > div { padding: .5rem; }
   body.theme-lineageos24 .lineage-settings-page > div:nth-child(2) > div:first-child button { min-height: 2.75rem; }
 }
+
+
+/* Purchasing and reports: preserve dense business information in readable data workspaces. */
+body.theme-lineageos24 .lineage-purchases-page,
+body.theme-lineageos24 .lineage-purchase-editor-page,
+body.theme-lineageos24 .lineage-reports-page {
+  background: var(--md-surface) !important;
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-purchases-page { padding: clamp(.85rem, 2vw, 1.6rem); }
+body.theme-lineageos24 .lineage-purchases-page > div:first-child {
+  min-height: 5rem; padding: 1rem 1.25rem; margin-bottom: 1rem;
+  border: 1px solid var(--md-outline-variant); border-radius: 1.6rem;
+  background: var(--md-surface-container);
+}
+body.theme-lineageos24 .lineage-purchases-page > div:first-child h2,
+body.theme-lineageos24 .lineage-reports-page h2,
+body.theme-lineageos24 .lineage-operational-report h3 {
+  color: var(--md-on-surface) !important;
+}
+body.theme-lineageos24 .lineage-purchases-page > div:first-child p,
+body.theme-lineageos24 .lineage-reports-page p,
+body.theme-lineageos24 .lineage-operational-report p {
+  color: var(--md-on-surface-variant) !important;
+}
+body.theme-lineageos24 .lineage-purchases-page > div:nth-child(2),
+body.theme-lineageos24 .lineage-operational-report,
+body.theme-lineageos24 .lineage-financial-report {
+  border: 1px solid var(--md-outline-variant) !important;
+  border-radius: 1.6rem !important;
+  background: var(--md-surface-container) !important;
+  box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-purchases-page > div:nth-child(2) > div:first-child,
+body.theme-lineageos24 .lineage-financial-report > div:first-child {
+  background: var(--md-surface-container-high) !important;
+  border-color: var(--md-outline-variant) !important;
+}
+body.theme-lineageos24 .lineage-purchases-page table,
+body.theme-lineageos24 .lineage-reports-page table,
+body.theme-lineageos24 .lineage-operational-report table,
+body.theme-lineageos24 .lineage-financial-report table {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-purchases-page thead,
+body.theme-lineageos24 .lineage-reports-page thead,
+body.theme-lineageos24 .lineage-operational-report thead,
+body.theme-lineageos24 .lineage-financial-report thead {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface-variant) !important;
+}
+body.theme-lineageos24 .lineage-purchases-page tbody,
+body.theme-lineageos24 .lineage-reports-page tbody,
+body.theme-lineageos24 .lineage-operational-report tbody,
+body.theme-lineageos24 .lineage-financial-report tbody {
+  background: var(--md-surface-container) !important;
+}
+body.theme-lineageos24 .lineage-purchases-page tr:hover,
+body.theme-lineageos24 .lineage-reports-page tr:hover,
+body.theme-lineageos24 .lineage-operational-report tr:hover,
+body.theme-lineageos24 .lineage-financial-report tr:hover {
+  background: var(--md-surface-container-high) !important;
+}
+body.theme-lineageos24 .lineage-reports-page > div:first-child {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 1.6rem;
+  background: var(--md-surface-container);
+  padding: 1rem 1.25rem;
+}
+body.theme-lineageos24 .lineage-operational-report > div:nth-child(2),
+body.theme-lineageos24 .lineage-financial-report > div:first-child > div:first-child {
+  border-radius: 1.15rem;
+  background: var(--md-surface-container-high) !important;
+}
+body.theme-lineageos24 .lineage-operational-report input,
+body.theme-lineageos24 .lineage-operational-report select,
+body.theme-lineageos24 .lineage-reports-page input,
+body.theme-lineageos24 .lineage-reports-page select {
+  background: var(--md-surface) !important;
+}
+body.theme-lineageos24 .lineage-purchase-editor-page > div {
+  border-color: var(--md-outline-variant) !important;
+}
+body.theme-lineageos24 .lineage-purchase-editor-page .bg-white,
+body.theme-lineageos24 .lineage-purchase-editor-page .bg-slate-50 {
+  background: var(--md-surface-container) !important;
+}
+body.theme-lineageos24 .lineage-purchase-editor-page .text-slate-900,
+body.theme-lineageos24 .lineage-purchase-editor-page .text-slate-800 {
+  color: var(--md-on-surface) !important;
+}
+body.theme-lineageos24 .lineage-purchase-editor-page .text-slate-500,
+body.theme-lineageos24 .lineage-purchase-editor-page .text-slate-600 {
+  color: var(--md-on-surface-variant) !important;
+}
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-purchases-page,
+  body.theme-lineageos24 .lineage-reports-page { padding: .65rem; }
+  body.theme-lineageos24 .lineage-purchases-page > div:first-child,
+  body.theme-lineageos24 .lineage-reports-page > div:first-child { padding: .85rem; border-radius: 1.25rem; }
+  body.theme-lineageos24 .lineage-purchases-page table,
+  body.theme-lineageos24 .lineage-reports-page table,
+  body.theme-lineageos24 .lineage-operational-report table,
+  body.theme-lineageos24 .lineage-financial-report table { min-width: 42rem; }
+  body.theme-lineageos24 .lineage-operational-report,
+  body.theme-lineageos24 .lineage-financial-report { border-radius: 1.25rem !important; }
+}
