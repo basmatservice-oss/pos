@@ -196,7 +196,7 @@ export default function Returns() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-returns-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
       <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">مرتجعات المبيعات</h1>
