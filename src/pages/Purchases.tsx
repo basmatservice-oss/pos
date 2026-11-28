@@ -31,6 +31,7 @@ import { useInventoryStore } from '../store/useInventoryStore';
 import { formatMoney, formatNumber, formatQty, roundAmount, roundQty } from '../utils/format';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PurchaseReceipt from '../components/PurchaseReceipt';
+import LineagePageHeader from '../components/LineagePageHeader';
 
 interface PurchaseCartRow {
   rowId: string;
@@ -908,17 +909,12 @@ export default function Purchases() {
 
   return (
     <div className="lineage-page lineage-purchases-page p-6 h-full flex flex-col bg-[var(--app-bg)] overflow-y-auto custom-scrollbar" dir="rtl">
-      <div className="flex justify-between items-center mb-6 shrink-0 gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-indigo-600" />
-            المشتريات وتوريد المخزون
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">
-            إدارة فواتير الشراء ودفعات المخزون ومرتجعات الموردين
-          </p>
-        </div>
-        {hasPermission('add_purchase') && (
+      <LineagePageHeader
+        title="المشتريات وتوريد المخزون"
+        description="إدارة فواتير الشراء ودفعات المخزون ومرتجعات الموردين"
+        icon={<ShoppingCart className="w-5 h-5" />}
+        className="mb-6 shrink-0"
+        actions={hasPermission('add_purchase') ? (
           <button
             onClick={() => {
               resetForm();
@@ -929,8 +925,8 @@ export default function Purchases() {
             <Plus className="w-5 h-5" />
             فاتورة مشتريات جديدة
           </button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* Purchases List */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex-1 flex flex-col">
