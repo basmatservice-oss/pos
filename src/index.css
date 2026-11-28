@@ -2157,3 +2157,174 @@ body.theme-lineageos24 .lineage-dialog-panel .text-slate-500,
 body.theme-lineageos24 .lineage-dialog-panel .text-slate-400 {
   color: var(--md-on-surface-variant);
 }
+
+
+/* Final LineageOS 24 workspace pass: consistent hierarchy across every module. */
+body.theme-lineageos24 .lineage-workspace-shell {
+  min-height: 100dvh;
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-app-sidebar {
+  position: relative;
+  isolation: isolate;
+}
+body.theme-lineageos24 .lineage-app-topbar {
+  position: relative;
+  z-index: 5;
+}
+body.theme-lineageos24 .lineage-app-content {
+  scrollbar-gutter: stable;
+  background: var(--md-surface);
+}
+body.theme-lineageos24 .lineage-page {
+  color: var(--md-on-surface);
+  background: var(--md-surface) !important;
+}
+body.theme-lineageos24 .lineage-page-header {
+  box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-page :is(.bg-white, .bg-slate-50, .bg-gray-50) {
+  border-color: var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-page :is(table) {
+  color: var(--md-on-surface);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+body.theme-lineageos24 .lineage-page table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+  font-weight: 800;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-page table tbody tr {
+  background: var(--md-surface-container);
+}
+body.theme-lineageos24 .lineage-page table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--md-surface-container) 72%, var(--md-surface));
+}
+body.theme-lineageos24 .lineage-page table tbody tr:hover {
+  background: color-mix(in srgb, var(--md-primary) 7%, var(--md-surface-container-high));
+}
+body.theme-lineageos24 .lineage-page table :is(th, td) {
+  border-color: var(--md-outline-variant) !important;
+}
+body.theme-lineageos24 .lineage-page :is(.overflow-x-auto, .overflow-auto) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--md-outline) transparent;
+}
+body.theme-lineageos24 .lineage-page :is(input, select, textarea):disabled {
+  opacity: .62;
+  cursor: not-allowed;
+}
+body.theme-lineageos24 .lineage-page button:disabled {
+  opacity: .52;
+  cursor: not-allowed;
+}
+body.theme-lineageos24 .lineage-page :is(button, a):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--md-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+body.theme-lineageos24 .android-bottom-nav {
+  min-height: calc(4.6rem + env(safe-area-inset-bottom));
+  padding-bottom: max(.35rem, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--md-surface-container) 96%, transparent) !important;
+  border-color: var(--md-outline-variant) !important;
+  backdrop-filter: blur(18px);
+}
+body.theme-lineageos24 .android-bottom-nav a {
+  min-height: 3.7rem;
+  color: var(--md-on-surface-variant);
+  border-radius: 1.2rem;
+}
+body.theme-lineageos24 .android-bottom-nav a[aria-current="page"] {
+  background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface));
+  color: var(--md-primary);
+}
+body.theme-lineageos24 .lineage-app-launcher-hero {
+  border: 1px solid color-mix(in srgb, var(--md-primary) 18%, transparent);
+  border-radius: 1.8rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--md-primary) 92%, #242038), color-mix(in srgb, var(--md-secondary) 80%, #252238));
+  box-shadow: none;
+}
+body.theme-lineageos24 .lineage-app-launcher-featured {
+  border-radius: 1.6rem;
+  border-color: color-mix(in srgb, var(--md-success) 28%, var(--md-outline-variant));
+  background: color-mix(in srgb, var(--md-success) 8%, var(--md-surface-container));
+  box-shadow: none;
+}
+body.theme-lineageos24 .lineage-app-launcher-group > div:first-child {
+  padding-inline: .2rem;
+}
+body.theme-lineageos24 .lineage-app-launcher-tile {
+  min-height: 8.2rem;
+  border-radius: 1.55rem !important;
+  border-color: var(--md-outline-variant);
+  background: var(--md-surface-container);
+  box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-app-launcher-tile:hover {
+  border-color: color-mix(in srgb, var(--md-primary) 55%, var(--md-outline-variant));
+  background: var(--md-surface-container-high);
+}
+body.theme-lineageos24 .lineage-app-launcher-tile > span:first-child > span:first-child {
+  width: 2.9rem;
+  height: 2.9rem;
+  border-radius: 1.05rem;
+  background: color-mix(in srgb, var(--md-primary) 13%, var(--md-surface-container-high)) !important;
+  color: var(--md-primary) !important;
+}
+body.theme-lineageos24 .lineage-dashboard-page .recharts-wrapper {
+  direction: ltr;
+}
+body.theme-lineageos24 .lineage-settings-page > div {
+  max-width: 90rem;
+}
+body.theme-lineageos24 .lineage-login-card,
+body.theme-lineageos24 .lineage-onboarding-container {
+  border-color: var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-login-card {
+  border-radius: 2rem !important;
+  background: var(--md-surface-container) !important;
+  box-shadow: 0 12px 36px rgb(0 0 0 / .08) !important;
+}
+body.theme-lineageos24 .lineage-onboarding-step {
+  border-radius: 1.8rem;
+}
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-workspace-shell {
+    height: 100dvh;
+    min-height: 0;
+  }
+  body.theme-lineageos24 .lineage-app-main {
+    min-height: 0;
+  }
+  body.theme-lineageos24 .lineage-app-content {
+    overscroll-behavior-y: contain;
+  }
+  body.theme-lineageos24 .lineage-app-launcher-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .65rem;
+  }
+  body.theme-lineageos24 .lineage-app-launcher-tile {
+    min-height: 7.4rem;
+    padding: .85rem;
+  }
+  body.theme-lineageos24 .lineage-page :is(.overflow-x-auto, .overflow-auto) {
+    max-width: 100%;
+  }
+}
+@media (max-width: 380px) {
+  body.theme-lineageos24 .lineage-app-launcher-grid {
+    gap: .5rem;
+  }
+  body.theme-lineageos24 .lineage-app-launcher-tile {
+    min-height: 7rem;
+    padding: .7rem;
+  }
+}
