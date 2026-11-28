@@ -124,9 +124,9 @@ export default function Login() {
   const clearPin = () => setPinCode('');
 
   return (
-    <div className="lineage-login min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4" dir="rtl">
-      <div className="bg-white theme-card p-8 w-full max-w-md border border-slate-200 rounded-2xl shadow-sm">
-        <div className="text-center mb-8">
+    <div className="lineage-login lineage-login-shell min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4" dir="rtl">
+      <div className="lineage-login-card bg-white theme-card p-8 w-full max-w-md border border-slate-200 rounded-2xl shadow-sm">
+        <div className="lineage-login-heading text-center mb-8">
           <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Lock className="w-7 h-7 text-indigo-600" />
           </div>
@@ -134,7 +134,7 @@ export default function Login() {
           <p className="text-gray-500 text-sm mt-1">يرجى تسجيل الدخول للمتابعة</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="lineage-login-form space-y-6">
           {loginMethod === 'pin' ? (
             <div className="space-y-6">
               <div className="flex justify-center gap-4">
@@ -150,7 +150,7 @@ export default function Login() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="lineage-pin-pad grid grid-cols-3 gap-3">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
                   <button
                     key={num}
@@ -186,7 +186,7 @@ export default function Login() {
             </div>
           ) : (
             <>
-              <div className="space-y-4">
+              <div className="lineage-login-fields space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
                   <div className="relative">
