@@ -668,7 +668,18 @@ export default function POS() {
   return (
     <div className="lineage-page lineage-pos-page flex h-full min-h-0 min-w-0 flex-col bg-[var(--app-bg)] relative lg:flex-row">
       {/* Products Section */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+      <div className="lineage-pos-products flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+        <div className="lineage-pos-toolbar mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:mb-4">
+          <div className="min-w-0">
+            <p className="lineage-pos-eyebrow text-[11px] font-bold tracking-wide text-slate-500">مساحة العمل</p>
+            <h1 className="text-lg font-black text-slate-900 sm:text-xl">نقطة البيع</h1>
+            <p className="hidden text-xs text-slate-500 sm:block">ابحث عن المنتجات أو امسح الباركود لإضافتها إلى الفاتورة</p>
+          </div>
+          <div className={`lineage-pos-shift-state inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold ${currentShift ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+            <span className={`h-2 w-2 rounded-full ${currentShift ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            {currentShift ? 'الوردية مفتوحة' : 'الوردية مغلقة'}
+          </div>
+        </div>
         {/* Search & Top Actions */}
         <div className="mb-3 flex shrink-0 flex-wrap gap-2 sm:mb-4 sm:flex-nowrap">
           <form onSubmit={handleBarcodeSubmit} className="relative min-w-0 flex-1 basis-full sm:basis-auto">
@@ -754,7 +765,7 @@ export default function POS() {
               <button
                 key={product.id}
                 onClick={() => addItem(product, product.unit || 'piece')}
-                className="flex min-h-36 flex-col items-center rounded-2xl border border-slate-200 bg-white p-2.5 text-center transition-colors hover:border-indigo-500 active:scale-98 group sm:p-3.5"
+                className="lineage-pos-product-card flex min-h-36 flex-col items-center rounded-2xl border border-slate-200 bg-white p-2.5 text-center transition-colors hover:border-indigo-500 active:scale-98 group sm:p-3.5"
               >
                 <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center mb-2.5 group-hover:bg-indigo-50 transition-colors relative overflow-hidden">
                   {product.imageUrl ? (
@@ -797,7 +808,7 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="z-10 flex h-[42dvh] max-h-[48dvh] w-full min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white lg:h-auto lg:max-h-none lg:w-[410px] lg:border-r lg:border-t-0">
+      <div className="lineage-pos-cart-panel z-10 flex h-[42dvh] max-h-[48dvh] w-full min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white lg:h-auto lg:max-h-none lg:w-[410px] lg:border-r lg:border-t-0">
         {/* Cart Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50/70 p-3 sm:p-4">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
@@ -879,7 +890,7 @@ export default function POS() {
                 const qtyStep = isFractional ? 0.25 : 1;
 
                 return (
-                  <div key={item.cartItemId} className="flex flex-col p-3 bg-white border border-slate-200 rounded-xl">
+                  <div key={item.cartItemId} className="lineage-pos-cart-item flex flex-col p-3 bg-white border border-slate-200 rounded-xl">
                     <div className="flex justify-between items-start gap-2 mb-2">
                       <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
                       <span className="font-bold text-slate-900 tabular-nums shrink-0">
