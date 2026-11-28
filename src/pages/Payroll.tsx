@@ -388,8 +388,8 @@ const Payroll: React.FC = () => {
 
       {/* Payout Confirmation & Payment Method Modal */}
       {payoutModalData && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 تأكيد صرف راتب: {payoutModalData.employee.name}
