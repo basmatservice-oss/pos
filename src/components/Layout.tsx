@@ -277,6 +277,8 @@ export default function Layout() {
   const isMobileSalesPage = location.pathname === '/mobile-sales';
   const isStandaloneAndroid = isNativeAndroid() && deviceRole !== 'client';
   const bottomNavItems = filteredNavItems.filter((item) => ['/', '/pos', '/apps', '/inventory', '/settings'].includes(item.to));
+  const activeNavItem = filteredNavItems.find((item) => item.to === location.pathname) || filteredNavItems.find((item) => item.to === '/');
+  const isLineageTheme = themeName === 'lineageos24';
 
   if (isMobileSalesPage) {
     return (
@@ -292,26 +294,26 @@ export default function Layout() {
     <div className={isStandaloneAndroid
       ? "android-standalone-shell flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--app-bg)] text-[var(--text-main)] font-sans"
       : "flex h-screen bg-[var(--app-bg)] text-[var(--text-main)] font-sans"} dir="rtl">
-      {!isStandaloneAndroid && <aside className="w-24 bg-sidebar border-l border-gray-200 flex flex-col items-center py-6 shadow-sm z-10 overflow-y-auto hide-scrollbar">
-        <div className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-xl mb-8 shadow-md overflow-hidden">
+      {!isStandaloneAndroid && <aside className={`lineage-app-sidebar ${isLineageTheme ? "lineage-app-sidebar--expanded" : "w-24 items-center py-6"} bg-sidebar border-l border-gray-200 flex flex-col shadow-sm z-10 overflow-y-auto hide-scrollbar`}>
+        <div className={`lineage-brand-mark shrink-0 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-md overflow-hidden ${isLineageTheme ? "mb-4" : "w-12 h-12 mb-8"}`}>
           {logo ? <img src={logo} alt="Logo" className="w-full h-full object-cover" /> : 'POS'}
         </div>
         
-        <nav className="flex-1 w-full flex flex-col gap-2 px-3">
+        <nav className={`lineage-primary-nav flex-1 w-full flex flex-col gap-2 ${isLineageTheme ? "px-3" : "px-3"}`} aria-label="التنقل الرئيسي">
           {filteredNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 ${
+                `lineage-nav-link flex ${isLineageTheme ? "flex-row justify-start gap-3 px-4 py-3 rounded-2xl text-sm font-bold" : "flex-col items-center justify-center p-3 rounded-xl"} transition-all duration-200 ${
                   isActive
                     ? 'bg-indigo-50 text-indigo-600 shadow-sm'
                     : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                 }`
               }
             >
-              <item.icon className="w-6 h-6 mb-1" />
-              <span className="text-[10px] font-medium text-center leading-tight">{item.label}</span>
+              <item.icon className={`w-6 h-6 shrink-0 ${isLineageTheme ? "" : "mb-1"}`} />
+              <span className={`${isLineageTheme ? "text-sm text-right" : "text-[10px] text-center"} font-medium leading-tight`}>{item.label}</span>
             </NavLink>
           ))}
         </nav>
@@ -345,7 +347,7 @@ export default function Layout() {
       </aside>}
 
       {/* Main Content */}
-      <main className={isStandaloneAndroid ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex-1 flex flex-col overflow-hidden"}>
+      <main className={`lineage-app-main ${isStandaloneAndroid ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex-1 flex flex-col overflow-hidden"}`}>
         {/* Top Header */}
         {isStandaloneAndroid ? (
           <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-slate-200 bg-header px-4 shadow-sm">
@@ -369,9 +371,9 @@ export default function Layout() {
             </div>
           </header>
         ) : (
-          <header className="h-16 bg-header border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
+          <header className={`lineage-app-topbar h-16 bg-header border-b border-gray-200 flex items-center justify-between px-6 shrink-0`}>
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-gray-800">نظام الكاشير الذكي</h1>
+            <div className="min-w-0"><p className="text-[10px] font-bold tracking-wide text-gray-500">نظام الكاشير الذكي</p><h1 className="text-xl font-bold text-gray-800">{isLineageTheme ? activeNavItem?.label || "الرئيسية" : "نظام الكاشير الذكي"}</h1></div>
             <div className="h-6 w-px bg-gray-300"></div>
             <div className="flex items-center text-sm text-gray-500">
               <Clock className="w-4 h-4 ml-2" />
@@ -421,7 +423,7 @@ export default function Layout() {
         )}
 
         {/* Page Content */}
-        <div className={isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto relative" : "flex-1 overflow-hidden relative"}>
+        <div className={`lineage-app-content ${isStandaloneAndroid ? "android-standalone-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto relative" : "flex-1 overflow-hidden relative"}`}>
           <Outlet />
         </div>
         {isStandaloneAndroid && (
