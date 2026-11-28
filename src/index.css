@@ -2453,3 +2453,114 @@ body.theme-lineageos24 .lineage-sales-report .recharts-tooltip-item,
 body.theme-lineageos24 .lineage-sales-report .recharts-tooltip-label {
   color: var(--md-on-surface) !important;
 }
+
+
+/* Mobile-only layout corrections from device review.
+   Keep the desktop workspace and the legacy theme unchanged. */
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-inventory-page {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+  body.theme-lineageos24 .lineage-inventory-page > .lineage-page-header {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__identity {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: .55rem;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > button,
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > label {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 3.1rem;
+    padding: .55rem .45rem;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.35;
+    font-size: .78rem;
+    overflow-wrap: anywhere;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > button svg,
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > label svg {
+    flex: 0 0 auto;
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+  body.theme-lineageos24 .lineage-inventory-page > .mb-4.flex {
+    width: 100%;
+    min-width: 0;
+  }
+  body.theme-lineageos24 .lineage-inventory-page > .mb-4.flex > button {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: .65rem;
+  }
+  body.theme-lineageos24 .lineage-inventory-page > :is(div, section),
+  body.theme-lineageos24 .lineage-inventory-page .min-w-0 {
+    max-width: 100%;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > * {
+    min-width: 0;
+  }
+
+  body.theme-lineageos24 .lineage-pos-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    gap: .45rem;
+  }
+  body.theme-lineageos24 .lineage-pos-page > .lineage-pos-products {
+    flex: 1 1 0;
+    min-height: 14rem;
+    min-width: 0;
+    padding: .5rem .6rem .2rem;
+  }
+  body.theme-lineageos24 .lineage-pos-page > .lineage-pos-cart-panel {
+    flex: 0 0 auto;
+    width: 100%;
+    height: 56dvh;
+    min-height: 24rem;
+    max-height: 60dvh;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 1.25rem 1.25rem 0 0;
+  }
+  body.theme-lineageos24 .lineage-pos-cart-panel > :is(div).flex-1 {
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 380px) {
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions {
+    gap: .4rem;
+  }
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > button,
+  body.theme-lineageos24 .lineage-inventory-page .lineage-page-header__actions > label {
+    padding-inline: .3rem;
+    font-size: .72rem;
+  }
+}
