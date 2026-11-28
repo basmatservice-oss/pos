@@ -189,7 +189,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
               <button
                 onClick={() => handleRoleSelection('client')}
-                className={`p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
+                className={`lineage-choice-card p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
                   deviceRole === 'client' 
                     ? 'border-indigo-600 bg-indigo-50 shadow-md transform scale-[1.02]' 
                     : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
@@ -211,7 +211,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               {isMobileApp && (
                 <button
                   onClick={() => handleRoleSelection('standalone')}
-                  className={`p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
+                  className={`lineage-choice-card p-8 rounded-3xl border-2 text-center transition-all duration-200 ${
                     deviceRole === 'standalone'
                       ? 'border-indigo-600 bg-indigo-50 shadow-md transform scale-[1.02]'
                       : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
