@@ -438,7 +438,7 @@ export default function Layout() {
             ))}
           </nav>
         )}
-        {!isStandaloneAndroid && (
+        {(!isStandaloneAndroid || isLineageTheme) && (
           <nav className="lineage-responsive-bottom-nav grid shrink-0 grid-cols-5 border-t px-1 pt-2" aria-label="التنقل الرئيسي">
             {bottomNavItems.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) =>
