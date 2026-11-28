@@ -35,6 +35,7 @@ import { useInventoryStore } from './store/useInventoryStore';
 import { getFirstPosRecordWhereEquals, putPosSetting } from './services/posDataAccess';
 import { usePosEntityRecords } from './hooks/usePosEntityRecords';
 import { normalizeNumericInput } from './utils/normalizeNumericInput';
+import { applyAppTheme } from './utils/themeManager';
 
 async function readAppSetting(key: string): Promise<{ key: string; value: any } | undefined> {
   return (await getFirstPosRecordWhereEquals<{ key: string; value: any }>('settings', 'key', key)) ?? undefined;
@@ -149,6 +150,7 @@ function AppContent() {
       } else {
         root.style.fontFamily = '"Cairo", "Tajawal", sans-serif';
       }
+      applyAppTheme(settings as any);
     }
   }, [
     settings.primaryColor, 
