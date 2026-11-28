@@ -355,7 +355,7 @@ export default function FinancialReport({ onViewReceipt, onViewPurchase }: Finan
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-2xl border border-slate-200 overflow-hidden" dir="rtl">
+    <div className="reports-workspace flex flex-col h-full bg-white rounded-2xl border border-slate-200 overflow-hidden" dir="rtl">
       {/* Header & Tabs */}
       <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
         <div className="flex bg-slate-200/70 p-1 rounded-xl overflow-x-auto w-full lg:w-auto border border-slate-200">
