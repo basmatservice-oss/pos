@@ -2080,3 +2080,60 @@ body.theme-lineageos24 .lineage-dialog-panel button {
     overscroll-behavior: contain;
   }
 }
+
+
+/* LineageOS 24: inventory product/category forms. Scoped to the optional theme. */
+body.theme-lineageos24 .lineage-dialog-panel input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+body.theme-lineageos24 .lineage-dialog-panel select,
+body.theme-lineageos24 .lineage-dialog-panel textarea {
+  min-height: 2.9rem;
+  border-color: var(--md-outline);
+  border-radius: 0.95rem;
+  background-color: var(--md-surface);
+  color: var(--md-on-surface);
+  box-shadow: none;
+}
+body.theme-lineageos24 .lineage-dialog-panel input::placeholder,
+body.theme-lineageos24 .lineage-dialog-panel textarea::placeholder {
+  color: var(--md-on-surface-variant);
+  opacity: .78;
+}
+body.theme-lineageos24 .lineage-dialog-panel input:focus,
+body.theme-lineageos24 .lineage-dialog-panel select:focus,
+body.theme-lineageos24 .lineage-dialog-panel textarea:focus {
+  border-color: var(--md-primary);
+  outline: 2px solid color-mix(in srgb, var(--md-primary) 22%, transparent);
+  outline-offset: 1px;
+}
+body.theme-lineageos24 .lineage-dialog-panel .border-gray-100,
+body.theme-lineageos24 .lineage-dialog-panel .border-gray-200,
+body.theme-lineageos24 .lineage-dialog-panel .border-gray-300 {
+  border-color: var(--md-outline-variant);
+}
+body.theme-lineageos24 .lineage-dialog-panel .bg-gray-50,
+body.theme-lineageos24 .lineage-dialog-panel .bg-gray-50\/50,
+body.theme-lineageos24 .lineage-dialog-panel .bg-white {
+  background-color: var(--md-surface-container-low);
+}
+body.theme-lineageos24 .lineage-dialog-panel .text-gray-900,
+body.theme-lineageos24 .lineage-dialog-panel .text-gray-800,
+body.theme-lineageos24 .lineage-dialog-panel .text-gray-700 {
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-dialog-panel .text-gray-500,
+body.theme-lineageos24 .lineage-dialog-panel .text-gray-400 {
+  color: var(--md-on-surface-variant);
+}
+@media (max-width: 640px) {
+  body.theme-lineageos24 .lineage-dialog-panel .grid.grid-cols-5,
+  body.theme-lineageos24 .lineage-dialog-panel .grid.grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.theme-lineageos24 .lineage-dialog-panel .grid.grid-cols-5 > button:last-child,
+  body.theme-lineageos24 .lineage-dialog-panel .grid.grid-cols-4 > button:last-child {
+    justify-self: center;
+  }
+  body.theme-lineageos24 .lineage-dialog-panel form > .grid.grid-cols-1.md\\:grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
