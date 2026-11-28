@@ -4520,6 +4520,91 @@ async function applyEntityLocally(type: 'entity_upsert' | 'entity_delete', paylo
     await table.delete(payload.id);
     return;
   }
+  if (tableName === 'products' && Array.isArray(payload?.records)) {
+    const records = payload.records as any[];
+    if (records.length < 1 || records.length > 500) throw new Error('يجب أن يتضمن التحديث الجماعي من صنف واحد إلى 500 صنف');
+    const seen = new Set<number>();
+    const now = new Date().toISOString();
+    const prepared: Array<{ previous: any; next: any }> = [];
+    for (const requested of records) {
+      const id = Number(requested?.id);
+      const price = Number(requested?.sellingPrice);
+      if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id) ||
+          !Number.isFinite(price) || price < 0 || Number(requested?.priceInUSD || 0) !== 0) {
+        throw new Error('تحتوي قائمة الأسعار على صنف مكرر أو معرّف/سعر غير صالح');
+      }
+      seen.add(id);
+      const previous = isLocalSqlite()
+        ? await nativePosRepository.get<any>('products', id)
+        : await db.products.get(id);
+      if (!previous) throw new Error('الصنف غير موجود: ' + id);
+      if (!serverResult && requested.previousSellingPrice != null &&
+          Math.abs(Number(previous.sellingPrice || 0) - Number(requested.previousSellingPrice)) > 0.0001) {
+        throw new Error('تغير سعر الصنف منذ عرض المعاينة: ' + String(previous.name || id) + '؛ أعد تحميل القائمة');
+      }
+      prepared.push({
+        previous,
+        next: {
+          ...previous,
+          sellingPrice: Math.round((price + Number.EPSILON) * 100) / 100,
+          priceInUSD: 0,
+          updatedAt: requested.updatedAt || now,
+          updatedBy: requested.updatedBy || payload.createdBy || 'System',
+          syncStatus,
+        },
+      });
+    }
+
+    if (isLocalSqlite()) {
+      const changes: any[] = prepared.map(({ next }) => ({
+        action: 'put', entity: 'products', record: next, syncState: syncStatus,
+      }));
+      if (currentDeviceRole === 'standalone') {
+        for (const { previous, next } of prepared) {
+          changes.push({
+            action: 'put', entity: 'auditLogs', syncState: syncStatus,
+            record: {
+              id: generateUUID(), date: now, userName: next.updatedBy || 'System',
+              type: 'price_change', action: 'تعديل سعر', operationName: 'تحديث تسعيرة صنف',
+              productName: next.name,
+              details: `تحديث سعر بيع ${next.name} من ${Number(previous.sellingPrice || 0)} إلى ${Number(next.sellingPrice || 0)} وفصل السعر عن سعر الصرف`,
+              quantity: 1, value: Number(next.sellingPrice || 0), branchId: next.branchId || null,
+              previousValue: JSON.stringify({ sellingPrice: previous.sellingPrice, priceInUSD: previous.priceInUSD || 0 }),
+              newValue: JSON.stringify({ sellingPrice: next.sellingPrice, priceInUSD: 0 }),
+              entityId: String(next.id), entityName: next.name, syncStatus,
+            },
+          });
+        }
+      }
+      const applied = await nativePosRepository.applyChanges(changes);
+      if (applied !== changes.length) throw new Error('لم تؤكد SQLite حفظ جميع الأسعار وسجلات التدقيق؛ لم يعتمد التحديث الجماعي');
+      return;
+    }
+
+    await db.transaction('rw', [db.products, db.auditLogs], async () => {
+      for (const { previous, next } of prepared) {
+        const latest = await db.products.get(Number(previous.id));
+        if (!latest || (!serverResult && Math.abs(Number(latest.sellingPrice || 0) - Number(previous.sellingPrice || 0)) > 0.0001)) {
+          throw new Error('تغير أحد أسعار الأصناف أثناء التحديث؛ أُلغيت العملية كاملة');
+        }
+      }
+      await db.products.bulkPut(prepared.map(({ next }) => next));
+      if (currentDeviceRole === 'standalone') {
+        await db.auditLogs.bulkAdd(prepared.map(({ previous, next }) => ({
+          id: generateUUID(), date: now, userName: next.updatedBy || 'System',
+          type: 'price_change', action: 'تعديل سعر', operationName: 'تحديث تسعيرة صنف',
+          productName: next.name,
+          details: `تحديث سعر بيع ${next.name} من ${Number(previous.sellingPrice || 0)} إلى ${Number(next.sellingPrice || 0)} وفصل السعر عن سعر الصرف`,
+          quantity: 1, value: Number(next.sellingPrice || 0), branchId: next.branchId || null,
+          previousValue: JSON.stringify({ sellingPrice: previous.sellingPrice, priceInUSD: previous.priceInUSD || 0 }),
+          newValue: JSON.stringify({ sellingPrice: next.sellingPrice, priceInUSD: 0 }),
+          entityId: String(next.id), entityName: next.name, syncStatus,
+        })));
+      }
+    });
+    return;
+  }
+
   if (!payload?.record) return;
   const finalRecord = serverResult && typeof serverResult === 'object' ? { ...payload.record, ...serverResult } : payload.record;
   const previousId = payload.record.id;
