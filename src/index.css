@@ -1236,3 +1236,104 @@ body.theme-lineageos24 .shadow-lg { box-shadow: 0 1px 3px rgb(0 0 0 / .08), 0 8p
     animation-duration: .01ms !important; transition-duration: .01ms !important;
   }
 }
+
+
+/* First-run and sign-in are designed as native-like full-screen flows. */
+body.theme-lineageos24 .lineage-startup-screen {
+  gap: 1.15rem;
+  background:
+    radial-gradient(ellipse at 50% 38%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 48%),
+    var(--md-surface) !important;
+}
+body.theme-lineageos24 .lineage-startup-mark {
+  width: 4.25rem !important; height: 4.25rem !important;
+  border-width: 4px !important; border-color: color-mix(in srgb, var(--md-primary) 18%, transparent) !important;
+  border-top-color: var(--md-primary) !important; border-radius: 1.45rem !important;
+  background: var(--md-surface-container) !important;
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--md-primary) 12%, transparent);
+}
+body.theme-lineageos24 .lineage-startup-copy { margin-top: .25rem !important; }
+body.theme-lineageos24 .lineage-startup-copy h1 { font-size: 1.1rem; letter-spacing: .01em; }
+body.theme-lineageos24 .lineage-onboarding-container { max-width: 68rem; }
+body.theme-lineageos24 .lineage-onboarding-heading { margin-bottom: 2rem; }
+body.theme-lineageos24 .lineage-choice-grid { max-width: 58rem; gap: 1rem; }
+body.theme-lineageos24 .lineage-choice-card {
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--md-outline-variant) !important;
+  border-radius: 1.8rem !important;
+  background: var(--md-surface-container) !important;
+  color: var(--md-on-surface) !important;
+  text-align: center;
+  box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-choice-card:hover {
+  border-color: var(--md-outline) !important;
+  background: var(--md-surface-container-high) !important;
+}
+body.theme-lineageos24 .lineage-choice-card.border-indigo-600 {
+  border: 2px solid var(--md-primary) !important;
+  background: color-mix(in srgb, var(--md-primary) 12%, var(--md-surface-container)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-primary) 16%, transparent) !important;
+}
+body.theme-lineageos24 .lineage-choice-card > div:first-child {
+  border-radius: 1.25rem !important;
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-primary) !important;
+}
+body.theme-lineageos24 .lineage-choice-card.border-indigo-600 > div:first-child {
+  background: var(--md-primary) !important;
+  color: var(--md-on-primary) !important;
+}
+body.theme-lineageos24 .lineage-choice-card h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+body.theme-lineageos24 .lineage-choice-card p {
+  max-width: 34rem;
+  font-size: .83rem;
+  line-height: 1.8;
+}
+body.theme-lineageos24 .lineage-activity-grid { gap: .85rem; }
+body.theme-lineageos24 .lineage-activity-card {
+  min-height: 11rem;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: right;
+}
+body.theme-lineageos24 .lineage-login-card {
+  width: min(100%, 29rem);
+  padding: clamp(1.5rem, 4vw, 2.5rem) !important;
+  border-radius: 2rem !important;
+}
+body.theme-lineageos24 .lineage-login-heading { margin-bottom: 2rem; }
+body.theme-lineageos24 .lineage-login-heading > div:first-child {
+  width: 4rem; height: 4rem; border-radius: 1.35rem !important;
+  background: var(--md-surface-container-high) !important; border-color: var(--md-outline-variant) !important;
+}
+body.theme-lineageos24 .lineage-login-heading > div:first-child svg { color: var(--md-primary) !important; }
+body.theme-lineageos24 .lineage-login-form { gap: 1.75rem; }
+body.theme-lineageos24 .lineage-login-fields { gap: 1.1rem; }
+body.theme-lineageos24 .lineage-pin-pad { gap: .7rem; }
+body.theme-lineageos24 .lineage-pin-pad button {
+  min-height: 3.65rem; border-radius: 1.2rem !important;
+  border-color: var(--md-outline-variant) !important;
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+}
+body.theme-lineageos24 .lineage-pin-pad button[type="submit"] {
+  background: var(--md-primary) !important; color: var(--md-on-primary) !important;
+}
+body.theme-lineageos24 .lineage-login input { min-height: 3.1rem; padding-block: .8rem; }
+@media (max-width: 640px) {
+  body.theme-lineageos24 .lineage-choice-grid { grid-template-columns: 1fr; }
+  body.theme-lineageos24 .lineage-choice-card { min-height: 9.5rem; padding: 1.15rem; }
+  body.theme-lineageos24 .lineage-activity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.theme-lineageos24 .lineage-activity-card { min-height: 10rem; }
+  body.theme-lineageos24 .lineage-login-card { padding: 1.4rem !important; border-radius: 1.6rem !important; }
+}
