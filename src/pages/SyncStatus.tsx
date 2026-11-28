@@ -30,6 +30,7 @@ import { formatNumber, formatQty } from '../utils/format';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import LineagePageHeader from '../components/LineagePageHeader';
 
 interface SyncItem {
   id: string | number;
@@ -402,30 +403,22 @@ export default function SyncStatus() {
 
   return (
     <div className="lineage-page lineage-sync-page min-h-full min-w-0 w-full max-w-7xl mx-auto flex flex-col p-3 sm:p-6" dir="rtl">
-      <div className="flex flex-wrap justify-between items-center gap-4 mb-6 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">حالة المزامنة والشبكة المحلية</h1>
-          <div className="flex items-center gap-2 mt-1 text-sm">
-            {isOnline ? (
-              <span className="inline-flex items-center gap-1.5 text-emerald-600 font-bold">
-                <Server className="w-4 h-4" /> متصل بسيرفر الشبكة المحلية (LAN)
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-rose-600 font-bold">
-                <ServerOff className="w-4 h-4" /> السيرفر غير متصل — العمليات محفوظة محلياً بأمان
-              </span>
-            )}
-          </div>
-        </div>
-        <button
-          onClick={handleSyncNow}
-          disabled={isSyncing}
-          className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-          {isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'}
-        </button>
-      </div>
+      <LineagePageHeader
+        title="حالة المزامنة والشبكة المحلية"
+        description={isOnline ? 'متصل بسيرفر الشبكة المحلية (LAN)' : 'السيرفر غير متصل — العمليات محفوظة محلياً بأمان'}
+        icon={isOnline ? <Server className="w-5 h-5" /> : <ServerOff className="w-5 h-5" />}
+        className="mb-6 shrink-0"
+        actions={
+          <button
+            onClick={handleSyncNow}
+            disabled={isSyncing}
+            className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'}
+          </button>
+        }
+      />
 
       {/* Live Server Health & Connected LAN Terminals */}
       {systemStatus && (
