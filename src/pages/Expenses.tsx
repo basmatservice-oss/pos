@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosFirstRecordWhereEquals } from '../hooks/usePosFirstRecordWhereEquals';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { Plus, Trash2, Wallet, Calendar, Tag, FileText, X } from 'lucide-react';
@@ -101,19 +102,7 @@ export default function Expenses() {
 
   return (
     <div className="lineage-page lineage-expenses-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
-      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center sm:gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">المصروفات</h2>
-          <p className="text-slate-500 text-sm mt-1">إدارة وتسجيل المصروفات التشغيلية</p>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-5 h-5" />
-          إضافة مصروف
-        </button>
-      </div>
+      <LineagePageHeader title="المصروفات" description="إدارة وتسجيل المصروفات التشغيلية" icon={<Wallet className="w-5 h-5" />} actions={<button onClick={() => setIsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"><Plus className="w-5 h-5" /> إضافة مصروف</button>} />
 
       <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-6 lg:grid-cols-3 lg:gap-5">
         <div className="bg-white rounded-2xl p-5 border border-slate-200 flex items-center gap-4">
