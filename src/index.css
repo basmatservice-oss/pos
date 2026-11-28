@@ -2133,7 +2133,4 @@ body.theme-lineageos24 .lineage-dialog-panel .text-gray-400 {
   body.theme-lineageos24 .lineage-dialog-panel .grid.grid-cols-4 > button:last-child {
     justify-self: center;
   }
-  body.theme-lineageos24 .lineage-dialog-panel form > .grid.grid-cols-1.md\\:grid-cols-3 {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
