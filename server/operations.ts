@@ -283,7 +283,49 @@ export function executeBusinessOperation(
         break;
       }
       case 'entity_upsert': {
-        result = handleEntityUpsert(tx, payload, now);
+        if (Array.isArray(payload?.records)) {
+          if (payload.table !== 'products' || payload.allowProductPriceUpdate !== true) {
+            throw new OperationError('Bulk upsert is restricted to approved product price maintenance', 400);
+          }
+          if (payload.records.length < 1 || payload.records.length > 500) {
+            throw new OperationError('Bulk product price update must contain between 1 and 500 products', 400);
+          }
+          const seenIds = new Set<number>();
+          const preparedRecords = payload.records.map((record: any) => {
+            const id = Number(record?.id);
+            const price = Number(record?.sellingPrice);
+            if (!Number.isSafeInteger(id) || id <= 0 || seenIds.has(id) ||
+                !Number.isFinite(price) || price < 0 || Number(record?.priceInUSD || 0) !== 0) {
+              throw new OperationError('Bulk product price update contains an invalid or duplicate product/price', 400);
+            }
+            seenIds.add(id);
+            const existing = tx.select().from(products).where(eq(products.id, id)).get();
+            if (!existing) throw new OperationError(`Product not found: ${id}`, 404);
+            if (record.branchId != null && existing.branchId != null &&
+                Number(record.branchId) !== Number(existing.branchId)) {
+              throw new OperationError('Product branch does not match the requested price update', 403);
+            }
+            if (record.previousSellingPrice != null &&
+                Math.abs(Number(existing.sellingPrice || 0) - Number(record.previousSellingPrice)) > 0.0001) {
+              throw new OperationError(`Product price changed since preview: ${id}`, 409);
+            }
+            return {
+              ...record,
+              stockQuantity: existing.stockQuantity,
+              costPrice: existing.costPrice,
+              costInUSD: existing.costInUSD,
+              unitsJson: existing.unitsJson,
+              priceInUSD: 0,
+            };
+          });
+          // All products are prevalidated before the first write. The enclosing
+          // executeBusinessOperation transaction commits every price and audit row together.
+          result = preparedRecords.map((record: any) =>
+            handleEntityUpsert(tx, { ...payload, record }, now)
+          );
+        } else {
+          result = handleEntityUpsert(tx, payload, now);
+        }
         break;
       }
       case 'entity_delete': {
