@@ -376,7 +376,8 @@ const Settings: React.FC = () => {
       fontFamily: 'Cairo',
       shadowIntensity: 'medium',
       fontSize: '14px',
-      themeName: 'modern'
+      themeName: 'modern',
+      appearanceMode: 'system'
     };
     setSettings({ ...settings, ...defaults });
     toast.success('تمت استعادة الإعدادات الافتراضية');
@@ -1380,49 +1381,56 @@ const Settings: React.FC = () => {
                     )}
 
                     {/* Preview Section */}
-                    <div className="mt-8 p-8 bg-gray-900 rounded-[40px] text-white overflow-hidden relative shadow-2xl">
-                      <div className="absolute top-0 right-0 p-6">
-                        <Sparkles className="w-12 h-12 text-indigo-400 opacity-10 animate-pulse" />
-                      </div>
-                      <div className="relative z-10">
-                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
-                          <Monitor className="w-6 h-6 text-indigo-400" />
-                          معاينة المظهر المتقدم
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-4">
-                            <div 
-                              style={{ backgroundColor: settings.primaryColor, borderRadius: settings.borderRadius }}
-                              className="p-6 flex items-center justify-center text-sm font-bold shadow-lg transform hover:scale-105 transition-transform cursor-pointer"
-                            >
-                              زر أساسي تفاعلي
-                            </div>
-                            <div 
-                              style={{ backgroundColor: settings.secondaryColor, borderRadius: settings.borderRadius }}
-                              className="p-6 flex items-center justify-center text-sm font-bold shadow-lg transform hover:scale-105 transition-transform cursor-pointer"
-                            >
-                              زر ثانوي تفاعلي
-                            </div>
+                    {settings.themeName === 'lineageos24' ? (
+                      <div className={`lineage-theme-preview mt-8 rounded-[2rem] p-5 sm:p-7 space-y-5 ${settings.appearanceMode === 'dark' ? 'is-dark' : ''}`} dir="rtl">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold opacity-70">معاينة مباشرة</p>
+                            <h3 className="text-lg font-black">Material 3 Expressive</h3>
                           </div>
-                          <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20 space-y-4">
+                          <div className="lineage-preview-icon"><Sparkles className="w-6 h-6" /></div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="lineage-preview-card p-4 space-y-3">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                                <Layout className="w-5 h-5 text-indigo-400" />
-                              </div>
-                              <div>
-                                <div className="h-2 w-24 bg-white/20 rounded-full mb-2"></div>
-                                <div className="h-2 w-16 bg-white/10 rounded-full"></div>
-                              </div>
+                              <div className="lineage-preview-icon"><Layout className="w-5 h-5" /></div>
+                              <div><p className="font-bold text-sm">ملخص المبيعات</p><p className="text-xs opacity-70">نظرة تشغيلية سريعة</p></div>
                             </div>
-                            <div className="space-y-2">
-                              <div className="h-2 w-full bg-white/5 rounded-full"></div>
-                              <div className="h-2 w-full bg-white/5 rounded-full"></div>
-                              <div className="h-2 w-2/3 bg-white/5 rounded-full"></div>
+                            <p className="text-2xl font-black" dir="ltr">125,450</p>
+                            <div className="lineage-preview-track"><span /></div>
+                          </div>
+                          <div className="lineage-preview-card p-4 space-y-3">
+                            <p className="text-sm font-bold">حالة المخزون</p>
+                            <div className="flex items-center justify-between"><span className="text-xs opacity-70">الأصناف المتاحة</span><strong>248</strong></div>
+                            <div className="flex items-center justify-between"><span className="text-xs opacity-70">تحتاج إعادة طلب</span><strong className="lineage-preview-warning">12</strong></div>
+                            <button type="button" className="lineage-preview-button">عرض التفاصيل</button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="lineage-preview-chip">الألوان الديناميكية</span>
+                          <span className="lineage-preview-chip">بطاقات تعبيرية</span>
+                          <span className="lineage-preview-chip">أيقونات موحدة</span>
+                        </div>
+                        <p className="text-xs opacity-70">التغيير يُعرض مباشرة على الواجهة، ويُحفظ نهائيًا عند الضغط على «حفظ الإعدادات».</p>
+                      </div>
+                    ) : (
+                      <div className="mt-8 p-8 bg-gray-900 rounded-[40px] text-white overflow-hidden relative shadow-2xl">
+                        <div className="absolute top-0 right-0 p-6"><Sparkles className="w-12 h-12 text-indigo-400 opacity-10 animate-pulse" /></div>
+                        <div className="relative z-10">
+                          <h3 className="text-xl font-bold mb-6 flex items-center gap-3"><Monitor className="w-6 h-6 text-indigo-400" />معاينة المظهر المتقدم</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                              <div style={{ backgroundColor: settings.primaryColor, borderRadius: settings.borderRadius }} className="p-6 flex items-center justify-center text-sm font-bold shadow-lg transform hover:scale-105 transition-transform cursor-pointer">زر أساسي تفاعلي</div>
+                              <div style={{ backgroundColor: settings.secondaryColor, borderRadius: settings.borderRadius }} className="p-6 flex items-center justify-center text-sm font-bold shadow-lg transform hover:scale-105 transition-transform cursor-pointer">زر ثانوي تفاعلي</div>
+                            </div>
+                            <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20 space-y-4">
+                              <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center"><Layout className="w-5 h-5 text-indigo-400" /></div><div><div className="h-2 w-24 bg-white/20 rounded-full mb-2"></div><div className="h-2 w-16 bg-white/10 rounded-full"></div></div></div>
+                              <div className="space-y-2"><div className="h-2 w-full bg-white/5 rounded-full"></div><div className="h-2 w-full bg-white/5 rounded-full"></div><div className="h-2 w-2/3 bg-white/5 rounded-full"></div></div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
 
