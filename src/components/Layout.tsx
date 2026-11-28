@@ -292,8 +292,8 @@ export default function Layout() {
 
   return (
     <div className={isStandaloneAndroid
-      ? "android-standalone-shell flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--app-bg)] text-[var(--text-main)] font-sans"
-      : "flex h-screen bg-[var(--app-bg)] text-[var(--text-main)] font-sans"} dir="rtl">
+      ? "lineage-workspace-shell android-standalone-shell flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--app-bg)] text-[var(--text-main)] font-sans"
+      : "lineage-workspace-shell flex h-screen min-h-0 bg-[var(--app-bg)] text-[var(--text-main)] font-sans"} dir="rtl">
       {!isStandaloneAndroid && <aside className={`lineage-app-sidebar ${isLineageTheme ? "lineage-app-sidebar--expanded" : "w-24 items-center py-6"} bg-sidebar border-l border-gray-200 flex flex-col shadow-sm z-10 overflow-y-auto hide-scrollbar`}>
         <div className={`lineage-brand-mark shrink-0 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-md overflow-hidden ${isLineageTheme ? "mb-4" : "w-12 h-12 mb-8"}`}>
           {logo ? <img src={logo} alt="Logo" className="w-full h-full object-cover" /> : 'POS'}
@@ -350,7 +350,7 @@ export default function Layout() {
       <main className={`lineage-app-main ${isStandaloneAndroid ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex-1 flex flex-col overflow-hidden"}`}>
         {/* Top Header */}
         {isStandaloneAndroid ? (
-          <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-slate-200 bg-header px-4 shadow-sm">
+          <header className="lineage-app-topbar flex h-[4.25rem] shrink-0 items-center justify-between border-b border-slate-200 bg-header px-4 shadow-sm">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-600 text-sm font-black text-white shadow-sm">
                 {logo ? <img src={logo} alt="شعار المنشأة" className="h-full w-full object-cover" /> : 'POS'}
@@ -438,7 +438,7 @@ export default function Layout() {
             ))}
           </nav>
         )}
-        {(!isStandaloneAndroid || isLineageTheme) && (
+        {!isStandaloneAndroid && (
           <nav className="lineage-responsive-bottom-nav grid shrink-0 grid-cols-5 border-t px-1 pt-2" aria-label="التنقل الرئيسي">
             {bottomNavItems.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) =>
@@ -453,8 +453,8 @@ export default function Layout() {
       </main>
 
       {user?.mustChangePassword && (
-        <div className="fixed inset-0 z-[120] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 p-7 space-y-5">
+        <div className="lineage-dialog-backdrop fixed inset-0 z-[120] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="lineage-dialog-panel bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 p-7 space-y-5">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
                 <ShieldAlert className="w-6 h-6" />
