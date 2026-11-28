@@ -1022,3 +1022,110 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos2
     border-radius: 1.5rem !important;
   }
 }
+
+
+/* Consistent report tables: readable hierarchy, stable scanning and phone overflow. */
+.reports-workspace table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.reports-workspace table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.reports-workspace table thead th {
+  padding: .8rem 1rem;
+  background: #f1f5f9;
+  color: #334155;
+  border-bottom: 1px solid #cbd5e1;
+  font-size: .75rem;
+  font-weight: 800;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.reports-workspace table tbody td {
+  padding: .72rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: .8125rem;
+  line-height: 1.65;
+  vertical-align: middle;
+}
+.reports-workspace table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+.reports-workspace table tbody tr:hover td {
+  background: #eef2ff;
+}
+.reports-workspace table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.reports-workspace table tfoot td {
+  padding: .85rem 1rem;
+  background: #e2e8f0;
+  color: #0f172a;
+  border-top: 2px solid #94a3b8;
+  font-weight: 900;
+}
+.reports-workspace table td[dir="ltr"],
+.reports-workspace table td.tabular-nums,
+.reports-workspace table th.tabular-nums {
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+.reports-workspace > section,
+.reports-workspace section {
+  scroll-margin-top: .75rem;
+}
+.reports-workspace .overflow-x-auto {
+  max-width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  overscroll-behavior-inline: contain;
+}
+.theme-lineageos24 .reports-workspace table thead th {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+  border-color: var(--md-outline-variant) !important;
+}
+.theme-lineageos24 .reports-workspace table tbody td {
+  color: var(--md-on-surface) !important;
+  border-color: var(--md-outline-variant) !important;
+}
+.theme-lineageos24 .reports-workspace table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--md-surface-container-high) 58%, var(--md-surface)) !important;
+}
+.theme-lineageos24 .reports-workspace table tbody tr:hover td {
+  background: color-mix(in srgb, var(--md-primary) 10%, var(--md-surface-container)) !important;
+}
+.theme-lineageos24 .reports-workspace table tfoot td {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+  border-color: var(--md-primary) !important;
+}
+.theme-lineageos24 .reports-workspace .overflow-x-auto {
+  border-color: var(--md-outline-variant);
+  border-radius: 1.25rem;
+}
+html[data-app-theme="lineageos24"][data-color-mode="dark"] .reports-workspace table thead th,
+html[data-app-theme="lineageos24"][data-color-mode="dark"] .reports-workspace table tfoot td {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+}
+html[data-app-theme="lineageos24"][data-color-mode="dark"] .reports-workspace table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--md-surface-container-high) 60%, var(--md-surface)) !important;
+}
+@media (max-width: 640px) {
+  .reports-workspace table thead th,
+  .reports-workspace table tbody td {
+    padding: .65rem .75rem;
+    font-size: .75rem;
+  }
+}
+@media print {
+  .reports-workspace table thead { position: static; }
+  .reports-workspace .overflow-x-auto { overflow: visible !important; border: 0; }
+}
