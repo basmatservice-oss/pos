@@ -2348,8 +2348,8 @@ body.theme-lineageos24 .lineage-onboarding-step {
     gap: .35rem;
   }
   body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(1),
-  body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(2),
-  body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:nth-child(4) {
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > div.h-6.w-px,
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:nth-last-child(2) {
     display: none;
   }
   body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:last-child {
