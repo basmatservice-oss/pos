@@ -104,7 +104,7 @@ const Branches: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-branches-page mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">إدارة الفروع</h1>
