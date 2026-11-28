@@ -2328,3 +2328,34 @@ body.theme-lineageos24 .lineage-onboarding-step {
     padding: .7rem;
   }
 }
+
+
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-app-topbar {
+    gap: .5rem;
+    padding-inline: .8rem;
+  }
+  body.theme-lineageos24 .lineage-app-topbar > div:first-child {
+    min-width: 0;
+    gap: .55rem;
+  }
+  body.theme-lineageos24 .lineage-app-topbar > div:first-child > div:nth-child(2),
+  body.theme-lineageos24 .lineage-app-topbar > div:first-child > div:nth-child(3) {
+    display: none;
+  }
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child {
+    min-width: 0;
+    gap: .35rem;
+  }
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(1),
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(2),
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(3),
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:nth-child(4) {
+    display: none;
+  }
+  body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:last-child {
+    width: 2.35rem;
+    height: 2.35rem;
+    flex: 0 0 auto;
+  }
+}
