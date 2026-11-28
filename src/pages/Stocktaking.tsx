@@ -575,7 +575,7 @@ export default function Stocktaking() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-stocktaking-page mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
       <div className="mb-5 sm:mb-8">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <RefreshCw className="w-8 h-8 text-indigo-600" />
