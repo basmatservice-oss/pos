@@ -666,7 +666,7 @@ export default function POS() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--app-bg)] relative lg:flex-row">
+    <div className="lineage-page lineage-pos-page flex h-full min-h-0 min-w-0 flex-col bg-[var(--app-bg)] relative lg:flex-row">
       {/* Products Section */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
         {/* Search & Top Actions */}
