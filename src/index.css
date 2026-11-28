@@ -2349,7 +2349,6 @@ body.theme-lineageos24 .lineage-onboarding-step {
   }
   body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(1),
   body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(2),
-  body.theme-lineageos24 .lineage-app-topbar > div:last-child > :nth-child(3),
   body.theme-lineageos24 .lineage-app-topbar > div:last-child > div:nth-child(4) {
     display: none;
   }
