@@ -1,11 +1,8 @@
 name: Build Smart POS Android and Windows Packages
 
-# Build both deliverables whenever changes are pushed to the packaging branch.
-# Manual dispatch remains available for an on-demand rebuild.
+# Package builds are intentionally manual so routine UI/code changes do not
+# create APK/EXE deliverables unless an explicit build is requested.
 on:
-  push:
-    branches:
-      - packaging/capacitor-electron22-win7-android8
   workflow_dispatch:
 
 permissions:
