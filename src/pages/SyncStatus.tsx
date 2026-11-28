@@ -401,7 +401,7 @@ export default function SyncStatus() {
   };
 
   return (
-    <div className="min-h-full min-w-0 w-full max-w-7xl mx-auto flex flex-col p-3 sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-sync-page min-h-full min-w-0 w-full max-w-7xl mx-auto flex flex-col p-3 sm:p-6" dir="rtl">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">حالة المزامنة والشبكة المحلية</h1>
