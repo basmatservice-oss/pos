@@ -1976,3 +1976,79 @@ body.theme-lineageos24 .lineage-mobile-nav button {
     padding-right: .9rem;
   }
 }
+
+
+/* LineageOS 24 confirmation dialogs: responsive, accessible and touch-first. */
+body.theme-lineageos24 .lineage-dialog-backdrop {
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  background: rgb(18 18 24 / 54%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+body.theme-lineageos24 .lineage-dialog-panel {
+  max-height: min(88dvh, 48rem);
+  overflow-y: auto;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 1.85rem;
+  padding: clamp(1.15rem, 3vw, 1.75rem);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  box-shadow: 0 18px 56px rgb(0 0 0 / 22%);
+  animation: lineage-dialog-enter 180ms cubic-bezier(.2, 0, 0, 1);
+}
+body.theme-lineageos24 .lineage-dialog-panel h3 { color: var(--md-on-surface); }
+body.theme-lineageos24 .lineage-dialog-panel p { color: var(--md-on-surface-variant); }
+body.theme-lineageos24 .lineage-dialog-panel label { color: var(--md-on-surface); }
+body.theme-lineageos24 .lineage-dialog-panel .lineage-dialog-input {
+  min-height: 3.1rem;
+  border-color: var(--md-outline);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-dialog-panel button:focus-visible,
+body.theme-lineageos24 .lineage-dialog-panel input:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--md-primary) 48%, transparent);
+  outline-offset: 2px;
+}
+body.theme-lineageos24 .lineage-dialog-panel button[type="submit"]:not(:disabled) {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+body.theme-lineageos24 .lineage-dialog-panel button[type="button"] {
+  min-height: 3rem;
+}
+@keyframes lineage-dialog-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 640px) {
+  body.theme-lineageos24 .lineage-dialog-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  body.theme-lineageos24 .lineage-dialog-panel {
+    width: 100%;
+    max-width: none;
+    max-height: min(82dvh, 44rem);
+    border-radius: 1.8rem 1.8rem 0 0;
+    padding: 1.35rem 1.1rem max(1.25rem, env(safe-area-inset-bottom));
+    border-bottom: 0;
+    animation-name: lineage-dialog-sheet-enter;
+  }
+  body.theme-lineageos24 .lineage-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .65rem;
+  }
+  body.theme-lineageos24 .lineage-dialog-actions button {
+    width: 100%;
+    white-space: normal;
+  }
+}
+@keyframes lineage-dialog-sheet-enter {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.theme-lineageos24 .lineage-dialog-panel { animation: none; }
+}
