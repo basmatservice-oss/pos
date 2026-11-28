@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { usePosEntityRecords } from '../hooks/usePosEntityRecords';
 import { 
   Tag, 
@@ -151,19 +152,7 @@ const Offers: React.FC = () => {
 
   return (
     <div className="lineage-page lineage-offers-page mx-auto w-full max-w-7xl min-w-0 p-3 sm:p-6" dir="rtl">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">العروض والترقيات</h1>
-          <p className="text-gray-500 mt-1">إدارة العروض الترويجية والخصومات المتقدمة</p>
-        </div>
-        <button 
-          onClick={() => handleOpenModal()}
-          className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-5 h-5" />
-          <span>إضافة عرض جديد</span>
-        </button>
-      </div>
+      <LineagePageHeader title="العروض والترقيات" description="إدارة العروض الترويجية والخصومات المتقدمة" icon={<Tag className="w-5 h-5" />} actions={<button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm whitespace-nowrap shrink-0"><Plus className="w-5 h-5" /> إضافة عرض جديد</button>} />
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-8 lg:grid-cols-4 lg:gap-4">
         <div className="md:col-span-3 relative">
