@@ -1129,3 +1129,110 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] .reports-workspace ta
   .reports-workspace table thead { position: static; }
   .reports-workspace .overflow-x-auto { overflow: visible !important; border: 0; }
 }
+
+
+/* LineageOS 24 application shell — structural layout, not a recolor of the legacy rail. */
+body.theme-lineageos24 {
+  --lineage-motion-standard: cubic-bezier(.2, 0, 0, 1);
+  background: var(--md-surface);
+}
+body.theme-lineageos24 .lineage-app-sidebar {
+  width: 17rem; flex: 0 0 17rem; align-items: stretch; gap: .75rem;
+  padding: 1.25rem .85rem 1rem; background: var(--md-surface-container) !important;
+  border-color: var(--md-outline-variant) !important; box-shadow: none !important; overflow-x: hidden;
+}
+body.theme-lineageos24 .lineage-brand-mark {
+  width: 3rem; height: 3rem; margin-inline: .65rem; border-radius: 1.05rem !important;
+  background: var(--md-primary) !important; color: var(--md-on-primary) !important; box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-primary-nav { gap: .25rem; padding: 0 .15rem; }
+body.theme-lineageos24 .lineage-nav-link {
+  min-height: 2.85rem; border: 1px solid transparent; border-radius: 1.35rem !important;
+  color: var(--md-on-surface-variant) !important; background: transparent; box-shadow: none !important;
+  transform: none !important; transition: background-color 180ms var(--lineage-motion-standard), color 180ms var(--lineage-motion-standard), border-color 180ms var(--lineage-motion-standard);
+}
+body.theme-lineageos24 .lineage-nav-link:hover { background: var(--md-surface-container-high) !important; color: var(--md-on-surface) !important; }
+body.theme-lineageos24 .lineage-nav-link[aria-current="page"] {
+  background: color-mix(in srgb, var(--md-primary) 16%, var(--md-surface)) !important;
+  border-color: color-mix(in srgb, var(--md-primary) 22%, transparent); color: var(--md-primary) !important;
+}
+body.theme-lineageos24 .lineage-app-topbar {
+  min-height: 5rem; height: 5rem; padding-inline: 1.75rem; gap: 1rem;
+  background: var(--md-surface) !important; border-color: var(--md-outline-variant) !important; box-shadow: none;
+}
+body.theme-lineageos24 .lineage-app-topbar h1 { color: var(--md-on-surface) !important; font-size: 1.35rem; font-weight: 800; }
+body.theme-lineageos24 .lineage-app-main { min-width: 0; background: var(--md-surface); }
+body.theme-lineageos24 .lineage-app-content { background: var(--md-surface); overscroll-behavior: contain; }
+body.theme-lineageos24 .lineage-app-content > * { min-width: 0; }
+body.theme-lineageos24 .lineage-app-sidebar button { border-radius: 1.25rem !important; }
+body.theme-lineageos24 .lineage-app-topbar button { border-radius: 50% !important; }
+body.theme-lineageos24 .lineage-app-topbar button:hover,
+body.theme-lineageos24 .lineage-app-sidebar button:hover { transform: none !important; }
+body.theme-lineageos24 .lineage-responsive-bottom-nav { display: none; }
+
+/* Dashboard surface hierarchy. */
+body.theme-lineageos24 .lineage-dashboard-page {
+  padding: clamp(1rem, 2.4vw, 2rem); background: var(--md-surface) !important; color: var(--md-on-surface);
+}
+body.theme-lineageos24 .lineage-page-heading {
+  min-height: 6rem; padding: 1.25rem 1.5rem; border-radius: 1.75rem !important;
+  border-color: var(--md-outline-variant) !important; background: var(--md-surface-container) !important; box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-page-heading h1 { color: var(--md-on-surface) !important; font-size: clamp(1.25rem, 2vw, 1.65rem); }
+body.theme-lineageos24 .lineage-page-heading p { color: var(--md-on-surface-variant) !important; }
+body.theme-lineageos24 .lineage-page-heading a {
+  min-height: 2.75rem; border-radius: 1.35rem !important; border-color: var(--md-outline-variant) !important;
+  background: var(--md-surface-container-high) !important; color: var(--md-on-surface) !important; box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-page-heading a:last-child { background: var(--md-primary) !important; color: var(--md-on-primary) !important; border-color: var(--md-primary) !important; }
+body.theme-lineageos24 .lineage-metric-card,
+body.theme-lineageos24 .lineage-surface {
+  border-radius: 1.65rem !important; border-color: var(--md-outline-variant) !important;
+  background: var(--md-surface-container) !important; box-shadow: none !important;
+}
+body.theme-lineageos24 .lineage-metric-card .text-slate-900,
+body.theme-lineageos24 .lineage-surface h3 { color: var(--md-on-surface) !important; }
+body.theme-lineageos24 .lineage-metric-card .text-slate-500,
+body.theme-lineageos24 .lineage-surface .text-slate-500 { color: var(--md-on-surface-variant) !important; }
+body.theme-lineageos24 .lineage-metric-card > div:first-child { border-radius: 1.15rem !important; }
+
+/* Shared controls and data-entry surfaces across operational modules. */
+body.theme-lineageos24 input:not([type="checkbox"]):not([type="radio"]),
+body.theme-lineageos24 select,
+body.theme-lineageos24 textarea {
+  min-height: 2.8rem; border-radius: 1rem !important; border-color: var(--md-outline) !important;
+  background: var(--md-surface-container) !important; color: var(--md-on-surface) !important; box-shadow: none !important;
+}
+body.theme-lineageos24 input:focus,
+body.theme-lineageos24 select:focus,
+body.theme-lineageos24 textarea:focus { outline: 2px solid color-mix(in srgb, var(--md-primary) 55%, transparent); outline-offset: 1px; }
+body.theme-lineageos24 button { transition: background-color 180ms var(--lineage-motion-standard), color 180ms var(--lineage-motion-standard), border-color 180ms var(--lineage-motion-standard), box-shadow 180ms var(--lineage-motion-standard); }
+body.theme-lineageos24 button:hover:not(:disabled),
+body.theme-lineageos24 a:hover { transform: none !important; }
+body.theme-lineageos24 .shadow-sm,
+body.theme-lineageos24 .shadow-md,
+body.theme-lineageos24 .shadow-lg { box-shadow: 0 1px 3px rgb(0 0 0 / .08), 0 8px 24px rgb(0 0 0 / .04) !important; }
+
+@media (max-width: 767px) {
+  body.theme-lineageos24 .lineage-app-sidebar { display: none !important; }
+  body.theme-lineageos24 .lineage-app-topbar { min-height: 4.25rem; height: 4.25rem; padding-inline: .85rem; }
+  body.theme-lineageos24 .lineage-app-topbar h1 { font-size: 1rem; }
+  body.theme-lineageos24 .lineage-app-content { min-height: 0; overflow-y: auto !important; padding-bottom: .35rem; }
+  body.theme-lineageos24 .lineage-responsive-bottom-nav {
+    display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr));
+    min-height: calc(4.6rem + env(safe-area-inset-bottom)); padding: .4rem .25rem max(.35rem, env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--md-surface-container) 96%, transparent);
+    border-color: var(--md-outline-variant); box-shadow: 0 -4px 18px rgb(0 0 0 / .06); backdrop-filter: blur(18px);
+  }
+  body.theme-lineageos24 .lineage-responsive-bottom-nav a { min-height: 3.7rem; border-radius: 1.2rem !important; color: var(--md-on-surface-variant); }
+  body.theme-lineageos24 .lineage-dashboard-page { padding: .8rem; }
+  body.theme-lineageos24 .lineage-page-heading { align-items: flex-start; flex-direction: column; gap: .9rem; padding: 1rem; }
+  body.theme-lineageos24 .lineage-page-heading > div:last-child { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  body.theme-lineageos24 .lineage-page-heading a { justify-content: center; white-space: normal; text-align: center; }
+  body.theme-lineageos24 .lineage-metric-card { min-height: 5.25rem; padding: .8rem !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.theme-lineageos24 *, body.theme-lineageos24 *::before, body.theme-lineageos24 *::after {
+    animation-duration: .01ms !important; transition-duration: .01ms !important;
+  }
+}
