@@ -519,8 +519,8 @@ export default function Suppliers() {
 
       {/* Payment Modal */}
       {selectedSupplierForPayment && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 سداد مستحقات المورد: {selectedSupplierForPayment.name}
@@ -667,8 +667,8 @@ export default function Suppliers() {
 
       {/* Detailed Supplier Account Statement Modal */}
       {statementSupplier && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex flex-wrap justify-between items-center p-4 border-b border-slate-200 bg-slate-50 gap-2">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
@@ -774,8 +774,8 @@ export default function Suppliers() {
 
       {/* Purchase Preview Modal */}
       {selectedPurchaseForPreview && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">معاينة فاتورة الشراء</h3>
               <button
@@ -801,8 +801,8 @@ export default function Suppliers() {
 
       {/* Add/Edit Supplier Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 {editingSupplier ? 'تعديل بيانات المورد' : 'إضافة مورد جديد'}
