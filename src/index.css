@@ -970,3 +970,55 @@ html[data-app-theme="lineageos24"][data-color-mode="dark"] body.theme-lineageos2
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Sign-in is part of the first-run experience and follows the same expressive theme. */
+.theme-lineageos24 .lineage-login {
+  min-height: 100dvh;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  background: var(--md-surface) !important;
+  color: var(--md-on-surface) !important;
+}
+.theme-lineageos24 .lineage-login > .theme-card {
+  background: var(--md-surface-container) !important;
+  color: var(--md-on-surface) !important;
+  border-color: var(--md-outline-variant) !important;
+  border-radius: 2rem !important;
+  box-shadow: 0 2px 8px rgb(0 0 0 / .10) !important;
+}
+.theme-lineageos24 .lineage-login h2,
+.theme-lineageos24 .lineage-login h3 { color: var(--md-on-surface) !important; }
+.theme-lineageos24 .lineage-login label,
+.theme-lineageos24 .lineage-login .text-gray-500,
+.theme-lineageos24 .lineage-login .text-gray-600,
+.theme-lineageos24 .lineage-login .text-gray-700 { color: var(--md-on-surface-variant) !important; }
+.theme-lineageos24 .lineage-login input {
+  background: var(--md-surface-container-high) !important;
+  color: var(--md-on-surface) !important;
+  border-color: var(--md-outline) !important;
+}
+.theme-lineageos24 .lineage-login button {
+  border-radius: 1.25rem;
+  min-height: 2.75rem;
+}
+.theme-lineageos24 .lineage-login button.bg-indigo-600,
+.theme-lineageos24 .lineage-login button[class*="bg-indigo-600"] {
+  background: var(--md-primary) !important;
+  color: var(--md-on-primary) !important;
+}
+.theme-lineageos24 .lineage-login .bg-gray-50,
+.theme-lineageos24 .lineage-login .bg-gray-100 {
+  background: var(--md-surface-container-high) !important;
+}
+.theme-lineageos24 .lineage-login .text-indigo-600 { color: var(--md-primary) !important; }
+.theme-lineageos24 .lineage-login .bg-indigo-50 { background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)) !important; }
+.theme-lineageos24 .lineage-onboarding button[class*="bg-indigo-50"] {
+  background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)) !important;
+  border-color: var(--md-primary) !important;
+}
+@media (max-width: 480px) {
+  .theme-lineageos24 .lineage-login > .theme-card {
+    padding: 1.5rem !important;
+    border-radius: 1.5rem !important;
+  }
+}
