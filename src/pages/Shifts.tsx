@@ -288,7 +288,7 @@ export default function Shifts() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
+    <div className="lineage-page lineage-shifts-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 custom-scrollbar sm:p-6" dir="rtl">
       <div className="mb-6 shrink-0">
         <h2 className="text-2xl font-bold text-slate-900">إدارة الورديات وحركة الصندوق</h2>
         <p className="text-slate-500 text-sm mt-1">
