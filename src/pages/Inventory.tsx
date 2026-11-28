@@ -1126,8 +1126,8 @@ export default function Inventory() {
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-gray-100 shrink-0">
               <h3 className="text-xl font-bold text-gray-900">
                 {editingProduct ? 'تعديل منتج / خدمة' : 'إضافة منتج / خدمة جديدة'}
@@ -1623,8 +1623,8 @@ export default function Inventory() {
 
       {/* Category Modal */}
       {isCategoryModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-gray-100">
               <h3 className="text-xl font-bold text-gray-900">
                 {editingCategory ? 'تعديل تصنيف' : 'إضافة تصنيف جديد'}
