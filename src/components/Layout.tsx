@@ -11,6 +11,7 @@ import { useInventoryStore } from '../store/useInventoryStore';
 import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 import SyncIndicator from './SyncIndicator';
 import toast from 'react-hot-toast';
+import { applyAppTheme } from '../utils/themeManager';
 
 export default function Layout() {
   const { isOnline, isSyncing } = useSyncStore();
@@ -156,7 +157,7 @@ export default function Layout() {
 
         const currentThemeName = theme.themeName || 'modern';
         setThemeName(currentThemeName);
-        document.body.className = `theme-${currentThemeName}`;
+        applyAppTheme(theme);
       }
     } catch (error) {
       console.error('Error loading settings:', error);
