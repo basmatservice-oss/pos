@@ -20,6 +20,7 @@ import { generateUUID } from '../utils/uuid';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { ItemCardModal } from '../components/ItemCardModal';
 import ProductPriceManager from '../components/ProductPriceManager';
+import LineagePageHeader from '../components/LineagePageHeader';
 import { getBaseUnitDimension } from '../utils/standardUnits.js';
 import { findProductBarcodeMatch } from '../utils/productUnits';
 import { buildProductPricingAnchors, buildProductUnitFxAnchors } from '../utils/exchangePricing';
@@ -799,65 +800,40 @@ export default function Inventory() {
 
   return (
     <div className="lineage-page lineage-inventory-page flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-[var(--app-bg)] p-3 sm:p-6" dir="rtl">
-      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">إدارة المخزون</h2>
-          <p className="text-gray-500 text-sm mt-1">إدارة المنتجات، التصنيفات، والأسعار</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {activeTab === 'products' ? (
-            <>
-              <label className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm cursor-pointer">
-                <Upload className="w-5 h-5" />
-                استيراد CSV
-                <input 
-                  type="file" 
-                  accept=".csv" 
-                  className="hidden" 
-                  onChange={handleImportCSV} 
-                />
-              </label>
-              <button 
-                onClick={handleExportCSV}
-                className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm"
-              >
-                <Download className="w-5 h-5" />
-                تصدير CSV
-              </button>
-              {hasPermission('add_product') && (
-                <>
-                  <button 
-                    onClick={() => setIsScannerModalOpen(true)}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm"
-                  >
-                    <ScanLine className="w-5 h-5" />
-                    إضافة عبر الباركود
-                  </button>
-                  <button 
-                    onClick={() => handleOpenModal()}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm"
-                  >
-                    <Plus className="w-5 h-5" />
-                    إضافة منتج جديد
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              {hasPermission('manage_categories') && (
-                <button 
-                  onClick={() => handleOpenCategoryModal()}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm"
-                >
-                  <Plus className="w-5 h-5" />
-                  إضافة تصنيف جديد
+      <LineagePageHeader
+        title="إدارة المخزون"
+        description="إدارة المنتجات، التصنيفات، والأسعار"
+        icon={<Package className="w-5 h-5" />}
+        actions={
+          <>
+            {activeTab === 'products' ? (
+              <>
+                <label className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm cursor-pointer">
+                  <Upload className="w-5 h-5" /> استيراد CSV
+                  <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+                </label>
+                <button onClick={handleExportCSV} className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm">
+                  <Download className="w-5 h-5" /> تصدير CSV
                 </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+                {hasPermission('add_product') && (
+                  <>
+                    <button onClick={() => setIsScannerModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm">
+                      <ScanLine className="w-5 h-5" /> إضافة عبر الباركود
+                    </button>
+                    <button onClick={() => handleOpenModal()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm">
+                      <Plus className="w-5 h-5" /> إضافة منتج جديد
+                    </button>
+                  </>
+                )}
+              </>
+            ) : hasPermission('manage_categories') ? (
+              <button onClick={() => handleOpenCategoryModal()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm">
+                <Plus className="w-5 h-5" /> إضافة تصنيف جديد
+              </button>
+            ) : null}
+          </>
+        }
+      />
 
       {/* Tabs */}
       <div className="mb-4 flex shrink-0 gap-2 overflow-x-auto border-b border-gray-200 pb-2 sm:mb-6">
