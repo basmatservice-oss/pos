@@ -75,8 +75,8 @@ export default function ProductPriceManager({ products, branchId, actorName, cur
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-3" dir="rtl">
-      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="lineage-dialog-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-3" dir="rtl">
+      <div className="lineage-dialog-panel flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <div>
             <h2 className="text-lg font-black text-slate-900">إدارة أسعار البيع</h2>
