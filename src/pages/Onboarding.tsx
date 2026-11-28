@@ -153,7 +153,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center p-6" dir="rtl">
+    <div className="lineage-onboarding min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center p-6" dir="rtl">
       <div className="max-w-4xl w-full">
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
