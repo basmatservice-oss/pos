@@ -567,7 +567,7 @@ export default function Shifts() {
       </div>
 
       {/* Shift History */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex-1">
+      <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 overflow-hidden flex-1">
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70">
           <h3 className="text-base font-bold text-slate-900">سجل الورديات السابقة</h3>
         </div>
@@ -630,8 +630,8 @@ export default function Shifts() {
 
       {/* Shift Movement Modal */}
       {movementModalType && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="lineage-dialog-backdrop fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="lineage-dialog-panel bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-base font-bold text-slate-900">
                 {movementModalType === 'deposit'
