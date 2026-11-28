@@ -167,9 +167,12 @@ export const ItemCardModal: React.FC<ItemCardModalProps> = ({ product, onClose }
     totalRemainingBatchQty > 0 ? totalBatchValue / totalRemainingBatchQty : Number(product.costPrice || 0);
 
   return (
-    <div className="fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="lineage-dialog-backdrop fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
       <div
-        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="item-card-modal-title"
+        className="lineage-dialog-panel bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/70">
@@ -178,7 +181,7 @@ export const ItemCardModal: React.FC<ItemCardModalProps> = ({ product, onClose }
               <Package className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-gray-900">بطاقة الصنف: {product.name}</h3>
+              <h3 id="item-card-modal-title" className="text-lg font-black text-gray-900">بطاقة الصنف: {product.name}</h3>
               <p className="text-xs text-gray-500 font-mono">الباركود: {product.barcode || '-'}</p>
             </div>
           </div>
